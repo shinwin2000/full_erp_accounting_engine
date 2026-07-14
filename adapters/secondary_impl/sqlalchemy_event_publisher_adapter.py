@@ -31,7 +31,8 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import Enum as SAEnum

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Module: sqlalchemy_unit_of_work_impl.py
 Layer: Adapters (Secondary Implementation)
@@ -8,6 +8,11 @@ Responsibility:
     Semua import dilakukan secara lazy untuk menghindari kegagalan startup.
     Menggunakan session.begin() langsung (tanpa TransactionManager eksternal).
     Penanganan error pada close session dan commit/rollback.
+
+    Perbaikan (v2):
+    - __aexit__: commit otomatis jika tidak ada exception
+    - commit() dan rollback() menggunakan _transaction object dengan benar
+    - Menambahkan properti session yang mengembalikan session aktif
 """
 
 from __future__ import annotations
@@ -61,8 +66,8 @@ class SQLAlchemyUnitOfWork:
         "_savepoint_depth",
         "_session",
         "_session_factory",
+        "_transaction",
         "_transaction_id",
-        "_transaction",          # <-- objek transaksi
     )
 
     def __init__(
@@ -208,6 +213,38 @@ class SQLAlchemyUnitOfWork:
             if exc_type is not None and self._transaction is not None:
                 await self._transaction.rollback()
                 self._transaction = None
+                # Jalankan after_rollback hooks
+                for hook in self._after_rollback_hooks:
+                    if callable(hook):
+                        if hasattr(hook, "__await__"):
+                            await hook()
+                        else:
+                            hook()
+                self._is_active = False
+            elif exc_type is None and self._transaction is not None:
+                # Tidak ada exception, commit transaksi
+                await self._transaction.commit()
+                self._transaction = None
+                # Publish events
+                await self._publish_events()
+                # Jalankan after_commit hooks
+                for hook in self._after_commit_hooks:
+                    if callable(hook):
+                        if hasattr(hook, "__await__"):
+                            await hook()
+                        else:
+                            hook()
+                self._is_active = False
+        except Exception as e:
+            logger.error(f"Error during transaction completion: {e}")
+            # Coba rollback jika masih ada transaksi
+            if self._transaction is not None:
+                try:
+                    await self._transaction.rollback()
+                except Exception as rollback_e:
+                    logger.debug(f"Rollback error during cleanup: {rollback_e}")
+                self._transaction = None
+            raise UnitOfWorkCommitError(f"Transaction commit/rollback failed: {e}") from e
         finally:
             if self._session:
                 try:
@@ -257,7 +294,8 @@ class SQLAlchemyUnitOfWork:
                         hook()
 
             await self._session.flush()
-            await self._transaction.commit()          # commit via transaction object
+            await self._transaction.commit()
+            self._transaction = None
             await self._publish_events()
 
             # After hooks
@@ -269,7 +307,6 @@ class SQLAlchemyUnitOfWork:
                         hook()
 
             self._is_active = False
-            self._transaction = None                 # tandai selesai
         except Exception as e:
             await self.rollback()
             raise UnitOfWorkCommitError(f"Commit failed: {e}") from e
@@ -278,7 +315,8 @@ class SQLAlchemyUnitOfWork:
         if not self._transaction:
             return
         try:
-            await self._transaction.rollback()       # rollback via transaction object
+            await self._transaction.rollback()
+            self._transaction = None
             for hook in self._after_rollback_hooks:
                 if callable(hook):
                     if hasattr(hook, "__await__"):
@@ -286,7 +324,6 @@ class SQLAlchemyUnitOfWork:
                     else:
                         hook()
             self._is_active = False
-            self._transaction = None
         except Exception as e:
             raise UnitOfWorkRollbackError(f"Rollback failed: {e}") from e
         finally:
@@ -443,10 +480,9 @@ class SQLAlchemyUnitOfWork:
     def system_settings(self): return self.get_repository("system_setting")
 
     @property
-   
-    async def session(self):
+    def session(self):
         """Mengembalikan session async yang aktif."""
-        if not self._session:
+        if self._session is None:
             raise UnitOfWorkError("UoW not started")
         return self._session
 
@@ -470,7 +506,6 @@ class SQLAlchemyUnitOfWorkFactory:
         uow = self.create(is_period_closing)
         async with uow:
             yield uow
-            await uow.commit()
 
 
 # ============================================================================

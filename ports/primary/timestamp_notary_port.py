@@ -2,11 +2,9 @@
 """
 Module: timestamp_notary_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory timestamp notary service (RFC 3161 compliant simulation).
-               Mendukung timestamp generation, verification, audit trail,
-               integration with hash chain, certificate management (simulated),
-               batch timestamping, TSA (Time Stamping Authority) simulation.
-Audit: Setiap permintaan timestamp dicatat.
+Responsibility:
+    - Mendefinisikan antarmuka (port) untuk timestamp notary service (RFC 3161 compliant).
+    - Menyediakan implementasi in-memory untuk testing/fallback.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ import hashlib
 import json
 import logging
 import secrets
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -26,9 +25,9 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 
-class TimestampStatus(Enum):
-    """Status timestamp token."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class TimestampStatus(Enum):
     VALID = "valid"
     INVALID = "invalid"
     EXPIRED = "expired"
@@ -37,8 +36,6 @@ class TimestampStatus(Enum):
 
 
 class TimestampAlgorithm(Enum):
-    """Algoritma hash untuk timestamp."""
-
     SHA256 = "sha256"
     SHA384 = "sha384"
     SHA512 = "sha512"
@@ -47,8 +44,6 @@ class TimestampAlgorithm(Enum):
 
 @dataclass
 class TimestampRequest:
-    """Permintaan timestamp."""
-
     id: UUID
     data_hash: str
     algorithm: TimestampAlgorithm
@@ -71,16 +66,14 @@ class TimestampRequest:
 
 @dataclass
 class TimestampToken:
-    """Token timestamp yang dihasilkan."""
-
     id: UUID
     request_id: UUID
     serial_number: str
     timestamp: datetime
     hash_algorithm: TimestampAlgorithm
     data_hash: str
-    time_hash: str  # hash dari timestamp + data_hash + serial
-    token: str  # encoded token (base64)
+    time_hash: str
+    token: str
     status: TimestampStatus
     tsa_name: str
     tsa_cert_serial: str | None
@@ -115,8 +108,6 @@ class TimestampToken:
 
 @dataclass
 class TimestampCertificate:
-    """Sertifikat digital untuk TSA (simulasi)."""
-
     id: UUID
     serial_number: str
     common_name: str
@@ -126,7 +117,7 @@ class TimestampCertificate:
     valid_to: datetime
     is_ca: bool
     public_key_pem: str
-    private_key_pem: str  # simulate, in real system store in HSM
+    private_key_pem: str
     is_active: bool
     revoked_at: datetime | None
     revocation_reason: str | None
@@ -152,30 +143,158 @@ class TimestampCertificate:
         return result
 
 
-class TimestampNotaryPort:
+# ==================== PORT (INTERFACE) ====================
+
+class TimestampNotaryPort(ABC):
     """
-    In-memory timestamp notary service (RFC 3161 simulation).
+    Port untuk timestamp notary service.
+    Semua metode wajib diimplementasikan oleh adapter konkret.
+    """
+
+    @abstractmethod
+    async def timestamp(
+        self,
+        data_hash: str,
+        cert_id: str | None = None,
+        algorithm: TimestampAlgorithm = TimestampAlgorithm.SHA256,
+        requester_info: str | None = None,
+        requested_by: UUID | None = None,
+    ) -> TimestampToken:
+        """Bubuhkan timestamp pada hash data, kembalikan token."""
+        ...
+
+    @abstractmethod
+    async def timestamp_batch(
+        self,
+        data_hashes: list[str],
+        cert_id: str | None = None,
+        algorithm: TimestampAlgorithm = TimestampAlgorithm.SHA256,
+        requested_by: UUID | None = None,
+    ) -> list[TimestampToken]:
+        """Batch timestamp untuk beberapa hash."""
+        ...
+
+    @abstractmethod
+    async def verify_timestamp(
+        self, timestamp_token: str, data_hash: str
+    ) -> tuple[bool, TimestampStatus, TimestampToken | None]:
+        """Verifikasi token timestamp. Return (is_valid, status, token_info)."""
+        ...
+
+    @abstractmethod
+    async def get_timestamp_info(self, timestamp_token: str) -> dict[str, Any]:
+        """Dapatkan informasi detail dari token timestamp."""
+        ...
+
+    @abstractmethod
+    async def revoke_timestamp(self, token_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Revoke timestamp token."""
+        ...
+
+    @abstractmethod
+    async def revoke_by_hash(self, data_hash: str, reason: str, user_id: UUID) -> int:
+        """Revoke semua timestamp untuk data_hash tertentu. Return jumlah yang di-revoke."""
+        ...
+
+    @abstractmethod
+    async def create_certificate(
+        self,
+        common_name: str,
+        organization: str,
+        country: str,
+        validity_years: int = 3,
+        is_ca: bool = False,
+    ) -> UUID:
+        """Buat sertifikat TSA baru, return cert ID."""
+        ...
+
+    @abstractmethod
+    async def set_active_certificate(self, cert_id: UUID) -> bool:
+        """Set certificate aktif untuk signing timestamp."""
+        ...
+
+    @abstractmethod
+    async def revoke_certificate(self, cert_id: UUID, reason: str) -> bool:
+        """Revoke TSA certificate."""
+        ...
+
+    @abstractmethod
+    async def get_active_certificate(self) -> TimestampCertificate | None:
+        """Dapatkan certificate yang aktif."""
+        ...
+
+    @abstractmethod
+    async def get_token_by_hash(self, data_hash: str) -> list[dict[str, Any]]:
+        """Cari semua timestamp token untuk data_hash tertentu."""
+        ...
+
+    @abstractmethod
+    async def get_token_by_serial(self, serial_number: str) -> TimestampToken | None:
+        """Cari token berdasarkan serial number."""
+        ...
+
+    @abstractmethod
+    async def get_request_by_id(self, request_id: UUID) -> TimestampRequest | None:
+        """Dapatkan request berdasarkan ID."""
+        ...
+
+    @abstractmethod
+    async def get_token_by_id(self, token_id: UUID) -> TimestampToken | None:
+        """Dapatkan token berdasarkan ID."""
+        ...
+
+    @abstractmethod
+    async def attach_timestamp_to_audit(
+        self, audit_id: UUID, data_hash: str, requested_by: UUID | None = None
+    ) -> str | None:
+        """Buat timestamp untuk data_hash (audit event) dan kembalikan token string."""
+        ...
+
+    @abstractmethod
+    async def generate_hash_for_audit(self, audit_data: dict[str, Any]) -> str:
+        """Generate SHA256 hash dari audit data."""
+        ...
+
+    @abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Dapatkan statistik timestamp service."""
+        ...
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Cek kesehatan service."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemoryTimestampNotary(TimestampNotaryPort):
+    """
+    Implementasi in-memory timestamp notary service (RFC 3161 simulation).
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self):
         self._requests: dict[UUID, TimestampRequest] = {}
         self._tokens: dict[UUID, TimestampToken] = {}
-        self._hash_index: dict[
-            str, list[tuple[TimestampToken, TimestampRequest]]
-        ] = {}  # data_hash -> list of (token, request)
+        self._hash_index: dict[str, list[tuple[TimestampToken, TimestampRequest]]] = {}
         self._certificates: dict[UUID, TimestampCertificate] = {}
         self._active_cert_id: UUID | None = None
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._tsa_name = "ERP In-Memory TSA v1.0"
 
-        # Inisialisasi default certificate
+        # Inisialisasi default certificate (background)
         asyncio.create_task(self._init_default_certificate())
 
-    # ==================== INITIALIZATION ====================
+    # ------------------- Initialization -------------------
 
     async def _init_default_certificate(self):
-        """Buat default TSA certificate untuk development."""
         if self._certificates:
             return
         now = datetime.now(UTC)
@@ -200,7 +319,7 @@ class TimestampNotaryPort:
         self._active_cert_id = cert_id
         logger.info("Default timestamp certificate initialized")
 
-    # ==================== HELPERS ====================
+    # ------------------- Helpers -------------------
 
     async def _log_audit(
         self, action: str, request_id: UUID, user_id: UUID, details: dict[str, Any]
@@ -216,25 +335,20 @@ class TimestampNotaryPort:
         logger.info(f"TIMESTAMP AUDIT: {action} on {request_id}")
 
     async def _compute_time_hash(self, data_hash: str, timestamp: datetime, serial: str) -> str:
-        """Menghitung time hash: SHA256(data_hash + timestamp_iso + serial)."""
         combined = f"{data_hash}|{timestamp.isoformat()}|{serial}"
         return hashlib.sha256(combined.encode()).hexdigest()
 
     async def _generate_token(self, request: TimestampRequest) -> TimestampToken:
-        """Generate timestamp token berdasarkan request."""
         now = datetime.now(UTC)
         serial = f"TS-{now.strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(6).upper()}"
         time_hash = await self._compute_time_hash(request.data_hash, now, serial)
 
-        # Ambil certificate aktif
         active_cert = None
         if self._active_cert_id:
             active_cert = self._certificates.get(self._active_cert_id)
 
-        # Signature simulation (RSA PSS)
         signature = f"sig:{time_hash[:16]}:{secrets.token_hex(32)}"
 
-        # Token format: base64(serial|timestamp|time_hash|signature)
         token_data = f"{serial}|{now.isoformat()}|{time_hash}|{signature}"
         token = base64.b64encode(token_data.encode()).decode()
 
@@ -251,13 +365,13 @@ class TimestampNotaryPort:
             tsa_name=self._tsa_name,
             tsa_cert_serial=active_cert.serial_number if active_cert else None,
             signature=signature,
-            expires_at=now + timedelta(days=365 * 10),  # 10 years validity
+            expires_at=now + timedelta(days=365 * 10),
             revoked_at=None,
             revocation_reason=None,
             created_at=now,
         )
 
-    # ==================== TIMESTAMP API ====================
+    # ------------------- Timestamp API -------------------
 
     async def timestamp(
         self,
@@ -267,14 +381,9 @@ class TimestampNotaryPort:
         requester_info: str | None = None,
         requested_by: UUID | None = None,
     ) -> TimestampToken:
-        """
-        Membubuhkan timestamp pada hash data.
-        Mengembalikan token timestamp.
-        """
-        # Validasi hash length
         if len(data_hash) not in (64, 96, 128):
-            if len(data_hash) != 64:  # SHA256 is 64 hex chars
-                logger.warning(f"Unusual hash length: {len(data_hash)}")
+            logger.warning(f"Unusual hash length: {len(data_hash)}")
+
         request_id = uuid4()
         now = datetime.now(UTC)
         request = TimestampRequest(
@@ -315,7 +424,6 @@ class TimestampNotaryPort:
         algorithm: TimestampAlgorithm = TimestampAlgorithm.SHA256,
         requested_by: UUID | None = None,
     ) -> list[TimestampToken]:
-        """Batch timestamp untuk beberapa hash."""
         tokens = []
         for h in data_hashes:
             token = await self.timestamp(h, cert_id, algorithm, requested_by=requested_by)
@@ -325,16 +433,11 @@ class TimestampNotaryPort:
         )
         return tokens
 
-    # ==================== VERIFICATION ====================
+    # ------------------- Verification -------------------
 
     async def verify_timestamp(
         self, timestamp_token: str, data_hash: str
     ) -> tuple[bool, TimestampStatus, TimestampToken | None]:
-        """
-        Verifikasi token timestamp.
-        Mengembalikan (is_valid, status, token_info).
-        """
-        # Decode token
         try:
             decoded = base64.b64decode(timestamp_token).decode()
             parts = decoded.split("|")
@@ -342,11 +445,9 @@ class TimestampNotaryPort:
                 return False, TimestampStatus.INVALID, None
             serial, ts_iso, time_hash, signature = parts[0], parts[1], parts[2], parts[3]
         except Exception as e:
-            # FIX: Hindari kata "token" di log
             logger.warning(f"Timestamp decode failed: {e}")
             return False, TimestampStatus.INVALID, None
 
-        # Cari token berdasarkan serial number
         found_token = None
         for token in self._tokens.values():
             if token.serial_number == serial:
@@ -354,7 +455,6 @@ class TimestampNotaryPort:
                 break
 
         if not found_token:
-            # Coba cari di hash_index
             hashed_tokens = self._hash_index.get(data_hash, [])
             for tok, req in hashed_tokens:
                 if tok.token == timestamp_token or tok.serial_number == serial:
@@ -364,7 +464,6 @@ class TimestampNotaryPort:
         if not found_token:
             return False, TimestampStatus.NOT_FOUND, None
 
-        # Cek status
         if found_token.status == TimestampStatus.REVOKED:
             return False, TimestampStatus.REVOKED, found_token
         if found_token.expires_at and found_token.expires_at < datetime.now(UTC):
@@ -372,18 +471,15 @@ class TimestampNotaryPort:
         if found_token.status != TimestampStatus.VALID:
             return False, found_token.status, found_token
 
-        # Verifikasi data_hash match
         if found_token.data_hash != data_hash:
             return False, TimestampStatus.INVALID, found_token
 
-        # Recompute time hash
         expected_time_hash = await self._compute_time_hash(
             data_hash, found_token.timestamp, found_token.serial_number
         )
         if expected_time_hash != found_token.time_hash:
             return False, TimestampStatus.INVALID, found_token
 
-        # Verify signature (simulasi)
         if found_token.signature:
             sig_parts = found_token.signature.split(":")
             if len(sig_parts) >= 2:
@@ -394,7 +490,6 @@ class TimestampNotaryPort:
         return True, TimestampStatus.VALID, found_token
 
     async def get_timestamp_info(self, timestamp_token: str) -> dict[str, Any]:
-        """Dapatkan informasi detail dari token timestamp."""
         valid, status, token = await self.verify_timestamp(timestamp_token, "")
         if not token:
             return {"status": status.value, "found": False}
@@ -402,10 +497,9 @@ class TimestampNotaryPort:
         result["verified"] = valid
         return result
 
-    # ==================== REVOCATION ====================
+    # ------------------- Revocation -------------------
 
     async def revoke_timestamp(self, token_id: UUID, reason: str, user_id: UUID) -> bool:
-        """Revoke timestamp token (misal jika ada kesalahan)."""
         token = self._tokens.get(token_id)
         if not token:
             return False
@@ -418,7 +512,6 @@ class TimestampNotaryPort:
         return True
 
     async def revoke_by_hash(self, data_hash: str, reason: str, user_id: UUID) -> int:
-        """Revoke semua timestamp untuk data_hash tertentu."""
         entries = self._hash_index.get(data_hash, [])
         count = 0
         for token, _ in entries:
@@ -432,7 +525,7 @@ class TimestampNotaryPort:
         )
         return count
 
-    # ==================== CERTIFICATE MANAGEMENT ====================
+    # ------------------- Certificate Management -------------------
 
     async def create_certificate(
         self,
@@ -442,7 +535,6 @@ class TimestampNotaryPort:
         validity_years: int = 3,
         is_ca: bool = False,
     ) -> UUID:
-        """Buat sertifikat TSA baru."""
         cert_id = uuid4()
         now = datetime.now(UTC)
         cert = TimestampCertificate(
@@ -469,7 +561,6 @@ class TimestampNotaryPort:
         return cert_id
 
     async def set_active_certificate(self, cert_id: UUID) -> bool:
-        """Set certificate aktif untuk signing timestamp."""
         cert = self._certificates.get(cert_id)
         if not cert or not cert.is_active:
             return False
@@ -478,7 +569,6 @@ class TimestampNotaryPort:
         return True
 
     async def revoke_certificate(self, cert_id: UUID, reason: str) -> bool:
-        """Revoke TSA certificate."""
         cert = self._certificates.get(cert_id)
         if not cert:
             return False
@@ -497,10 +587,9 @@ class TimestampNotaryPort:
             return self._certificates.get(self._active_cert_id)
         return None
 
-    # ==================== QUERY ====================
+    # ------------------- Query -------------------
 
     async def get_token_by_hash(self, data_hash: str) -> list[dict[str, Any]]:
-        """Cari semua timestamp token untuk data_hash tertentu."""
         entries = self._hash_index.get(data_hash, [])
         result = []
         for token, request in entries:
@@ -527,17 +616,12 @@ class TimestampNotaryPort:
     async def get_token_by_id(self, token_id: UUID) -> TimestampToken | None:
         return self._tokens.get(token_id)
 
-    # ==================== AUDIT TRAIL ATTACHMENT ====================
+    # ------------------- Audit Trail Attachment -------------------
 
     async def attach_timestamp_to_audit(
         self, audit_id: UUID, data_hash: str, requested_by: UUID | None = None
     ) -> str | None:
-        """
-        Membuat timestamp untuk data_hash (biasanya audit event) dan menyimpannya.
-        Mengembalikan token string.
-        """
         token = await self.timestamp(data_hash, requested_by=requested_by)
-        # Dalam implementasi nyata, token bisa disimpan ke field audit_event.timestamp_token
         await self._log_audit(
             "ATTACH_TO_AUDIT",
             token.request_id,
@@ -549,20 +633,19 @@ class TimestampNotaryPort:
         )
         return token.token
 
-    # ==================== UTILITIES ====================
+    # ------------------- Utilities -------------------
 
     async def generate_hash_for_audit(self, audit_data: dict[str, Any]) -> str:
-        """Generate SHA256 hash dari audit data (untuk timestamp)."""
         json_str = json.dumps(audit_data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(json_str.encode()).hexdigest()
+
+    # ------------------- Statistics & Audit -------------------
 
     async def get_statistics(self) -> dict[str, Any]:
         total_requests = len(self._requests)
         total_tokens = len(self._tokens)
         valid_tokens = sum(1 for t in self._tokens.values() if t.status == TimestampStatus.VALID)
-        revoked_tokens = sum(
-            1 for t in self._tokens.values() if t.status == TimestampStatus.REVOKED
-        )
+        revoked_tokens = sum(1 for t in self._tokens.values() if t.status == TimestampStatus.REVOKED)
         expired_tokens = sum(
             1 for t in self._tokens.values() if t.expires_at and t.expires_at < datetime.now(UTC)
         )
@@ -590,3 +673,16 @@ class TimestampNotaryPort:
             "certificates_count": len(self._certificates),
             "audit_log_size": len(self._audit_log),
         }
+
+
+# ==================== EXPORTS ====================
+
+__all__ = [
+    "InMemoryTimestampNotary",
+    "TimestampAlgorithm",
+    "TimestampCertificate",
+    "TimestampNotaryPort",
+    "TimestampRequest",
+    "TimestampStatus",
+    "TimestampToken",
+]

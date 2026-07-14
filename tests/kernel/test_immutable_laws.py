@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 
 """
 Module: test_immutable_laws.py
@@ -24,29 +24,21 @@ from kernel.immutable_laws import (
     AssetExistenceViolation,
     AuditTrailCompletenessEnforcer,
     AuditTrailCompletenessViolation,
-    DualApprovalEnforcer,
     DualApprovalViolation,
-    EvidenceMandateEnforcer,
     EvidenceMandateViolation,
     FairValueMeasurementEnforcer,
     FairValueMeasurementViolation,
-    get_gl_supremacy_enforcer,
     GLSupremacyViolation,
-    get_immutability_enforcer,
     ImmutabilityLawViolation,
     ImmutableLawViolationError,
-    NoRetroactivePolicyEnforcer,
     NoRetroactivePolicyViolation,
-    PeriodClosureEnforcer,
     PeriodClosureViolation,
-    ReversalConstraintEnforcer,
     ReversalConstraintViolation,
-    SegregationOfDutiesEnforcer,
     SegregationOfDutiesViolation,
-    TraceabilityEnforcer,
     TraceabilityViolation,
+    get_gl_supremacy_enforcer,
+    get_immutability_enforcer,
 )
-
 
 # ============================================================================
 # TestImmutabilityEnforcer

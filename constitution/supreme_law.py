@@ -322,7 +322,8 @@ class ConstitutionalRule:
             return False
         if check < self.effective_from:
             return False
-        if self.effective_until and check > self.effective_until:
+        # FIXED: inactive if check >= effective_until (bukan >)
+        if self.effective_until and check >= self.effective_until:
             return False
         return True
 
@@ -1136,7 +1137,7 @@ class Constitution:
     overrides: list[EmergencyOverride] = field(default_factory=list)
     violations: list[ViolationRecord] = field(default_factory=list)
     snapshots: list[ConstitutionalSnapshot] = field(default_factory=list)
-    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)  # FIXED: RLock
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.rules:
@@ -1292,8 +1293,10 @@ class Constitution:
             if rule_id not in self.rules:
                 raise ConstitutionAmendmentError(f"Rule {rule_id} not found")
             old_rule = self.rules[rule_id]
+            # Mark old rule as inactive
             inactive_rule = old_rule.update(modified_by, effective_until=datetime.now(UTC))
             self.rules[rule_id] = inactive_rule
+            # Add new rule (will check active principle)
             self.add_rule(new_rule, modified_by)
 
     def get_active_rules(self, at_date: datetime | None = None) -> list[ConstitutionalRule]:

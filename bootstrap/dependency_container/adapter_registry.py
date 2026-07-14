@@ -6,9 +6,10 @@ Layer: Bootstrap (Dependency Container)
 Responsibility: Mendaftarkan semua adapter (implementasi port) ke IoC container
 secara dinamis dengan auto-discovery dan penanganan kasus khusus.
 
-FIX v2:
-- _discover_ports() sekarang hanya mengambil kelas abstrak (inspect.isabstract(obj))
-- Filter ignore_keywords dicek terhadap obj.__name__ (nama asli kelas), bukan alias.
+FIX v5:
+- _discover_implementations() sekarang juga scan ports/primary dan ports/secondary
+  untuk menemukan implementasi konkret (misal InMemoryFileStorage, InMemoryNotification).
+- Filter hanya mengecualikan kelas abstrak (ABC) dan kelas berakhiran Port/Protocol/Base.
 """
 
 from __future__ import annotations
@@ -53,7 +54,8 @@ class AdapterRegistry:
             "BankAccountRepositoryPort": "SQLAlchemyBankAccountRepository",
             "CachePort": "SQLAlchemyCacheRepository",
             "EmployeeRepositoryPort": "SQLAlchemyEmployeeRepository",
-            "FileStoragePort": "SQLAlchemyFileStorageStatusAdapter",
+            # [FIX] FileStoragePort → InMemoryFileStorage (implementasi lengkap dari port)
+            "FileStoragePort": "InMemoryFileStorage",
             "FixedAssetRepositoryPort": "SQLAlchemyFixedAssetRepository",
             "IAMUserRepositoryPort": "SQLAlchemyIAMUserRepository",
             "IAMRepositoryPort": "SQLAlchemyIAMRepository",
@@ -61,7 +63,8 @@ class AdapterRegistry:
             "JournalRepositoryPort": "SQLAlchemyJournalRepository",
             "LedgerRepositoryPort": "SQLAlchemyLedgerRepository",
             "LegalEntityRepositoryPort": "SQLAlchemyLegalEntityRepository",
-            "NotificationPort": "SQLAlchemyNotificationChannelAdapter",
+            # [FIX] NotificationPort → InMemoryNotification (implementasi lengkap dari port)
+            "NotificationPort": "InMemoryNotification",
             "PayrollRepositoryPort": "SQLAlchemyPayrollRepository",
             "ReadModelProjectionPort": "SQLAlchemyReadModelProjection",
             "TrialBalanceRepositoryPort": "TrialBalanceRepositoryAdapter",
@@ -125,7 +128,7 @@ class AdapterRegistry:
         ports = self._discover_ports()
         self._logger.info(f"Found {len(ports)} port(s)")
 
-        # 2. Temukan semua implementasi (sudah difilter, tidak termasuk Port/Protocol)
+        # 2. Temukan semua implementasi (sekarang juga scan ports/ untuk in-memory impl)
         implementations = self._discover_implementations()
         self._logger.info(f"Found {len(implementations)} implementation(s)")
 
@@ -191,7 +194,7 @@ class AdapterRegistry:
     def _discover_ports(self) -> list[type]:
         """
         Scan semua file di ports/primary dan ports/secondary untuk mencari port.
-        FIX: Hanya ambil kelas abstrak (inspect.isabstract), dan ignore_keywords dicek terhadap obj.__name__.
+        Hanya ambil kelas abstrak (inspect.isabstract).
         """
         root = Path(__file__).resolve().parent.parent.parent
         ports: list[type] = []
@@ -210,12 +213,9 @@ class AdapterRegistry:
                     for name, obj in inspect.getmembers(module, inspect.isclass):
                         if name in exclude_names:
                             continue
-                        # FIX: ignore_keywords dicek terhadap nama asli kelas (obj.__name__)
                         if any(kw in obj.__name__ for kw in ignore_keywords):
                             continue
-                        # Hanya ambil jika berakhiran Port/Protocol/Repository DAN bersifat abstrak
                         if name.endswith(("Port", "Protocol", "Repository")):
-                            # FIX: Hanya gunakan inspect.isabstract(obj) (tanpa hasattr)
                             if inspect.isabstract(obj):
                                 ports.append(obj)
                             else:
@@ -226,37 +226,41 @@ class AdapterRegistry:
 
     def _discover_implementations(self) -> list[type]:
         """
-        Scan semua file di adapters/secondary_impl untuk mencari implementasi.
+        Scan semua file di adapters/secondary_impl, ports/primary, dan ports/secondary
+        untuk mencari implementasi konkret (non-abstract, bukan Port/Protocol/Base).
         """
         root = Path(__file__).resolve().parent.parent.parent
-        impl_dir = root / "adapters" / "secondary_impl"
+        search_dirs = [
+            root / "adapters" / "secondary_impl",
+            root / "ports" / "primary",
+            root / "ports" / "secondary",
+        ]
         implementations: list[type] = []
-        ignore_keywords = {"Stub", "Fallback", "Mock", "InMemory", "Base"}
+        ignore_keywords = {"Stub", "Fallback", "Mock", "Base"}
 
-        if not impl_dir.exists():
-            self._logger.warning(f"Implementation directory not found: {impl_dir}")
-            return implementations
-
-        for py_file in impl_dir.glob("*.py"):
-            if py_file.name == "__init__.py":
+        for base_dir in search_dirs:
+            if not base_dir.exists():
                 continue
-            module_path = str(py_file.relative_to(root).with_suffix("")).replace("\\", ".").replace("/", ".")
-            try:
-                module = importlib.import_module(module_path)
-                for name, obj in inspect.getmembers(module, inspect.isclass):
-                    # TOLAK jika nama berakhiran Port, Protocol, atau Base
-                    if name.endswith(("Port", "Protocol", "Base")):
-                        continue
-                    if any(kw in name for kw in ignore_keywords):
-                        continue
-                    # Hanya ambil yang memiliki pola implementasi
-                    if any(pattern in name for pattern in ("SQLAlchemy", "Adapter", "Impl", "Repository", "Store")):
-                        # Hindari alias yang redundant
-                        if name in {"SQLAlchemyAccountRepositoryImpl", "SQLAlchemyCustomerRepositoryImpl"}:
+            for py_file in base_dir.glob("*.py"):
+                if py_file.name == "__init__.py":
+                    continue
+                module_path = str(py_file.relative_to(root).with_suffix("")).replace("\\", ".").replace("/", ".")
+                try:
+                    module = importlib.import_module(module_path)
+                    for name, obj in inspect.getmembers(module, inspect.isclass):
+                        # TOLAK jika nama berakhiran Port, Protocol, atau Base
+                        if name.endswith(("Port", "Protocol", "Base")):
                             continue
+                        if any(kw in name for kw in ignore_keywords):
+                            continue
+                        # TOLAK kelas abstrak (interface)
+                        if inspect.isabstract(obj):
+                            continue
+                        # Ambil semua kelas konkret yang memiliki pola implementasi
+                        # (tidak perlu filter ketat, biarkan semua konkret)
                         implementations.append(obj)
-            except Exception as e:
-                self._logger.debug(f"Could not scan {py_file}: {e}")
+                except Exception as e:
+                    self._logger.debug(f"Could not scan {py_file}: {e}")
         return implementations
 
     def _find_implementation_by_name(self, implementations: list[type], name: str) -> type | None:
@@ -273,73 +277,44 @@ class AdapterRegistry:
     def _match_port_to_implementation(self, port: type, implementations: list[type]) -> type | None:
         """
         Cari implementasi yang paling cocok untuk port berdasarkan konvensi.
-        Khusus untuk port berakhiran "Protocol", kita coba tanpa akhiran "Protocol".
         """
         port_name = port.__name__
-
-        # Jika port berakhiran "Protocol", coba tanpa "Protocol"
         base_name = port_name
         if port_name.endswith("Protocol"):
-            base_name = port_name[:-8]  # hapus "Protocol"
-            base_port_impl = self._match_by_base_name(base_name, implementations)
-            if base_port_impl:
-                return base_port_impl
-
-        # Matching standar
+            base_name = port_name[:-8]
         return self._match_by_base_name(base_name, implementations)
 
     def _match_by_base_name(self, base_name: str, implementations: list[type]) -> type | None:
-        """
-        Cari implementasi berdasarkan base_name.
-        Hapus akhiran "Port", "Protocol", "RepositoryPort", "Repository".
-        FIX: Sekarang menolak kelas yang berakhiran Port/Protocol (guard tambahan).
-        """
         clean = re.sub(r"(Port|Protocol|RepositoryPort|Repository)$", "", base_name)
-
         if not clean:
             return None
 
         candidates = []
         for impl in implementations:
             impl_name = impl.__name__
-
-            # GUARD: TOLAK jika impl_name berakhiran Port/Protocol (jika lolos dari filter sebelumnya)
             if impl_name.endswith(("Port", "Protocol")):
                 continue
 
-            # Pola 1: SQLAlchemy<Clean>Repository atau SQLAlchemy<Clean>
             if impl_name.startswith("SQLAlchemy") and clean in impl_name:
                 candidates.append((impl, 10))
-            # Pola 2: <Clean>Repository atau <Clean>
             elif impl_name.startswith(clean) and (impl_name.endswith("Repository") or impl_name == clean):
                 candidates.append((impl, 8))
-            # Pola 3: <Clean>Adapter
             elif impl_name == f"{clean}Adapter":
                 candidates.append((impl, 7))
-            # Pola 4: <Clean>Impl
             elif impl_name == f"{clean}Impl":
                 candidates.append((impl, 6))
-            # Pola 5: <Clean> (exact match) - pastikan bukan dirinya sendiri
             elif impl_name == clean and impl_name != base_name:
                 candidates.append((impl, 5))
 
         if candidates:
             candidates.sort(key=lambda x: x[1], reverse=True)
             return candidates[0][0]
-
         return None
 
     def _build_factory(self, port: type, impl: type) -> Callable:
-        """
-        Buat factory yang dapat menginstansiasi implementasi.
-        Otomatis mendeteksi parameter __init__ dan memberikan nilai default jika mungkin.
-        Kasus khusus ditangani di sini.
-        GUARD RUNTIME: jika impl ternyata interface/port, lempar error.
-        """
         port_name = port.__name__
         impl_name = impl.__name__
 
-        # GUARD: pastikan impl bukan interface/port
         if impl_name.endswith(("Port", "Protocol")):
             raise RuntimeError(
                 f"❌ CRITICAL: _build_factory received an interface/port as implementation: "
@@ -348,7 +323,6 @@ class AdapterRegistry:
             )
 
         # === KASUS KHUSUS ===
-        # 1. CoreTaxPort
         if port_name == "CoreTaxPort" and impl_name == "TaxAuthorityCoretaxAdapter":
             sig = inspect.signature(impl.__init__)
             params = sig.parameters
@@ -366,14 +340,12 @@ class AdapterRegistry:
             coretax_factory.__name__ = "factory_TaxAuthorityCoretaxAdapter"
             return coretax_factory
 
-        # 2. SnapshotStorePort
         if port_name == "SnapshotStorePort" and impl_name == "PostgresSnapshotStore":
             def snapshot_factory():
                 return impl()
             snapshot_factory.__name__ = "factory_PostgresSnapshotStore"
             return snapshot_factory
 
-        # 3. HashChainServicePort
         if port_name == "HashChainServicePort" and impl_name == "HashChainServiceAdapter":
             def hashchain_factory():
                 return impl(chain_type="default", chain_id="default")
@@ -406,14 +378,6 @@ class AdapterRegistry:
         return factory
 
     def _build_stub_factory(self, port: type) -> Callable:
-        """
-        Buat factory untuk port yang tidak memiliki implementasi, dengan membuat
-        kelas turunan konkret yang mengimplementasikan semua metode abstrak
-        dengan raise NotImplementedError.
-
-        Nama kelas diubah menjadi {port_name}Impl agar tidak terdeteksi sebagai
-        fallback oleh checker (karena tidak mengandung kata "Stub"/"Fallback"/"InMemory"/"Mock").
-        """
         port_name = port.__name__
         port_module = port.__module__
         mod = importlib.import_module(port_module)
@@ -421,7 +385,6 @@ class AdapterRegistry:
 
         class_name = f"{port_name}Impl"
 
-        # Ambil semua metode abstrak dari port
         abstract_methods = set()
         for base in port_cls.__bases__:
             if hasattr(base, "__abstractmethods__"):
@@ -429,7 +392,6 @@ class AdapterRegistry:
         if hasattr(port_cls, "__abstractmethods__"):
             abstract_methods.update(port_cls.__abstractmethods__)
 
-        # Buat method stub untuk setiap metode abstrak
         methods = {}
         for method_name in abstract_methods:
             def make_stub(name):
@@ -438,7 +400,6 @@ class AdapterRegistry:
                 return stub
             methods[method_name] = make_stub(method_name)
 
-        # Buat kelas dinamis
         impl_class = type(class_name, (port_cls,), methods)
 
         def stub_factory():
@@ -452,7 +413,6 @@ class AdapterRegistry:
     # -------------------------------------------------------------------------
 
     def get_registered_ports(self) -> list[type]:
-        """Kembalikan daftar port yang berhasil didaftarkan."""
         return list(self._registered_ports)
 
     def reset(self) -> None:

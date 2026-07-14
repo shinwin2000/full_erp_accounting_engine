@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
-from ports.secondary.read_model_projection_port import ReadModelProjectionPort
+from ports.primary.read_model_projection_port import ReadModelProjectionPort
 
 logger = logging.getLogger(__name__)
 

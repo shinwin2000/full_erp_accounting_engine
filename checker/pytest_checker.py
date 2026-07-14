@@ -652,12 +652,7 @@ class TestFeatureVisitor(ast.NodeVisitor):
         for item in node.items:
             if isinstance(item.context_expr, ast.Call) and item.optional_vars is not None:
                 fn = item.context_expr.func
-                if isinstance(fn, ast.Attribute) and fn.attr == "raises":
-                    self.has_raises = True
-                    args = item.context_expr.args
-                    if args and isinstance(args[0], ast.Name):
-                        self.raises_targets.append(args[0].id)
-                elif isinstance(fn, ast.Name) and fn.id == "raises":
+                if (isinstance(fn, ast.Attribute) and fn.attr == "raises") or (isinstance(fn, ast.Name) and fn.id == "raises"):
                     self.has_raises = True
                     args = item.context_expr.args
                     if args and isinstance(args[0], ast.Name):
@@ -1012,7 +1007,7 @@ def _resolve_calls(
     raw_calls: list[tuple[ast.expr | None, str, int]],
     var_types: dict[str, str],
     imported_symbols: dict[str, tuple[str, str]],
-    index: "ProjectIndex",
+    index: ProjectIndex,
 ) -> list[tuple[str, MatchConfidence, list[str]]]:
     resolved: list[tuple[str, MatchConfidence, list[str]]] = []
     # Names that are too generic / framework-noise to ever count as coverage signal.
@@ -1049,7 +1044,7 @@ def _resolve_calls(
     return resolved
 
 
-def _build_test_functions(index: "ProjectIndex", progress_callback=None) -> tuple[dict[str, TestFunction], list[dict]]:
+def _build_test_functions(index: ProjectIndex, progress_callback=None) -> tuple[dict[str, TestFunction], list[dict]]:
     test_functions: dict[str, TestFunction] = {}
     parse_errors: list[dict] = []
     total = len(index.test_files)
@@ -1111,7 +1106,7 @@ def _build_test_functions(index: "ProjectIndex", progress_callback=None) -> tupl
     return test_functions, parse_errors
 
 
-def _link_tests_to_sources(index: "ProjectIndex", test_functions: dict[str, TestFunction]) -> None:
+def _link_tests_to_sources(index: ProjectIndex, test_functions: dict[str, TestFunction]) -> None:
     for t in test_functions.values():
         for bare_name, confidence, candidates in t.resolved_calls:
             for key in candidates:
@@ -1127,7 +1122,7 @@ def _link_tests_to_sources(index: "ProjectIndex", test_functions: dict[str, Test
 
 
 # ─── BUSINESS FLOW DISCOVERY (grounded in real code, not a fixed wishlist) ───
-def _discover_business_flows(index: "ProjectIndex") -> dict[str, list[SourceFunction]]:
+def _discover_business_flows(index: ProjectIndex) -> dict[str, list[SourceFunction]]:
     """Group real, discovered source functions into domain buckets using the
     actual folder layout of this repository. No fictional step names."""
     buckets: dict[str, list[SourceFunction]] = defaultdict(list)
@@ -1149,7 +1144,7 @@ def _discover_business_flows(index: "ProjectIndex") -> dict[str, list[SourceFunc
 
 # ─── QUALITY ANALYZER ─────────────────────────────────────────────────────────
 class QualityAnalyzer:
-    def __init__(self, index: "ProjectIndex", test_funcs: dict[str, TestFunction]):
+    def __init__(self, index: ProjectIndex, test_funcs: dict[str, TestFunction]):
         self.index = index
         self.test_funcs = test_funcs
         self.source_funcs = index.source_functions
@@ -1513,14 +1508,12 @@ class QualityAnalyzer:
         dead = []
         for k, t in self.test_funcs.items():
             body = t.source.strip()
-            if body.endswith("pass") and not t.assertions:
-                dead.append(f"{t.file}:{t.lineno} {t.name}")
-            elif len(t.assertions) == 0 and not t.calls:
+            if (body.endswith("pass") and not t.assertions) or (len(t.assertions) == 0 and not t.calls):
                 dead.append(f"{t.file}:{t.lineno} {t.name}")
         for d in dead[:20]:
             file, rest = d.split(":", 1)
             line = rest.split(" ", 1)[0]
-            self._add_finding("DEAD-TEST", "error", f"Test tidak melakukan apa-apa (tidak ada call maupun assertion nyata)", file, int(line), "confirmed")
+            self._add_finding("DEAD-TEST", "error", "Test tidak melakukan apa-apa (tidak ada call maupun assertion nyata)", file, int(line), "confirmed")
         return {"count": len(dead), "details": dead[:20]}
 
     def orphan_test_checker(self) -> dict:

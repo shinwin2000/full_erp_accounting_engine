@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for kernel.error_analysis module.
 Comprehensive unit tests for Root Cause Analysis (RCA) functionality.
 """

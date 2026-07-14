@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-
 from ports.secondary.read_model_projection_port import (
     BaseProjector,
     Checkpoint,

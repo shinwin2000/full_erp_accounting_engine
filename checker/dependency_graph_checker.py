@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 dependency_graph_checker.py – Dependency Graph Checker for ERP Accounting System
 ===================================================================================
@@ -22,11 +21,10 @@ import logging
 import sys
 import threading
 import time
-from collections import defaultdict, Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Optional, Iterator, Any
 
 # =============================================================================
 # PASTIKAN ROOT PROJECT ADA DI sys.path
@@ -47,14 +45,14 @@ _RCA_AVAILABLE = False
 _rca_engine = None
 
 try:
-    from rca import get_engine, analyze_exception
+    from rca import analyze_exception, get_engine
     _rca_engine = get_engine()
     _RCA_AVAILABLE = True
     logger = logging.getLogger("dep_graph")
     logger.info("RCA engine loaded from root rca.py")
 except ImportError:
     try:
-        from checker.core.rca import get_engine, analyze_exception
+        from checker.core.rca import analyze_exception, get_engine
         _rca_engine = get_engine()
         _RCA_AVAILABLE = True
         logger = logging.getLogger("dep_graph")
@@ -139,16 +137,16 @@ class DependencyNode:
     module: str
     file: str
     layer: str
-    imports: Set[str] = field(default_factory=set)
-    imported_by: Set[str] = field(default_factory=set)
+    imports: set[str] = field(default_factory=set)
+    imported_by: set[str] = field(default_factory=set)
 
 @dataclass
 class Report:
-    nodes: List[DependencyNode]
+    nodes: list[DependencyNode]
     edges: int
-    layer_violations: List[Tuple[str, str, str]]  # from_module, to_module, rule
-    orphans: List[str]
-    hubs: List[Tuple[str, int]]  # module, outgoing_count
+    layer_violations: list[tuple[str, str, str]]  # from_module, to_module, rule
+    orphans: list[str]
+    hubs: list[tuple[str, int]]  # module, outgoing_count
     score: float
     files_scanned: int
     scan_time: float
@@ -158,17 +156,17 @@ class Report:
 # CHECKER
 # =============================================================================
 class DependencyGraphChecker:
-    def __init__(self, root: Path, exclude: List[str] = None, max_workers: int = 4, hub_threshold: int = 20):
+    def __init__(self, root: Path, exclude: list[str] = None, max_workers: int = 4, hub_threshold: int = 20):
         self.root = root
         self.exclude = set(exclude or [])
         self.max_workers = max_workers
         self.hub_threshold = hub_threshold
         self._lock = threading.Lock()
-        self._nodes: Dict[str, DependencyNode] = {}
-        self._layer_cache: Dict[str, str] = {}
+        self._nodes: dict[str, DependencyNode] = {}
+        self._layer_cache: dict[str, str] = {}
         self._files_scanned = 0
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         start = time.perf_counter()
         py_files = list(self._walk())
         self._files_scanned = len(py_files)
@@ -333,7 +331,7 @@ def print_report(r: Report, verbose: bool = False) -> None:
     print(f"  {score_color}{r.score}/100{c('RESET')}")
 
     if r.layer_violations or r.orphans or r.hubs:
-        print(f"\n  Penalty Breakdown:")
+        print("\n  Penalty Breakdown:")
         print(f"    • Layer violations: {len(r.layer_violations)} × 5 = {len(r.layer_violations)*5}")
         print(f"    • Orphans         : {len(r.orphans)} × 2 = {len(r.orphans)*2}")
         print(f"    • Hubs            : {len(r.hubs)} × 0.5 = {len(r.hubs)*0.5}")

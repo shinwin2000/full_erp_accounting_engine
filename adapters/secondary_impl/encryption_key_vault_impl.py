@@ -10,7 +10,6 @@ Mengimplementasikan semua method dari port EncryptionKeyVaultPort.
 from __future__ import annotations
 
 import base64
-import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID

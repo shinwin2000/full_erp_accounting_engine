@@ -2,10 +2,11 @@
 """
 Module: file_storage_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory file storage port dengan simulasi S3-like.
-               Mendukung upload, download, delete, metadata, presigned URL,
-               chunking, versioning, dan audit trail.
-Audit: Setiap operasi file dicatat dengan hash konten, user, timestamp.
+Responsibility:
+    - Mendefinisikan antarmuka (port) untuk file storage dengan simulasi S3-like.
+    - Menyediakan implementasi in-memory untuk testing/fallback.
+
+Features: upload, download, delete, metadata, presigned URL, chunking, versioning, audit.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import logging
 import mimetypes
 import time
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -25,9 +27,9 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 
-class FileStorageStatus(Enum):
-    """Status file dalam storage."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class FileStorageStatus(Enum):
     ACTIVE = "active"
     ARCHIVED = "archived"
     DELETED = "deleted"
@@ -36,8 +38,6 @@ class FileStorageStatus(Enum):
 
 @dataclass
 class StoredFile:
-    """Representasi file yang disimpan."""
-
     id: UUID
     filename: str
     content: bytes
@@ -70,9 +70,7 @@ class StoredFile:
             "metadata": self.metadata,
             "uploaded_by": str(self.uploaded_by),
             "uploaded_at": self.uploaded_at.isoformat(),
-            "last_accessed_at": self.last_accessed_at.isoformat()
-            if self.last_accessed_at
-            else None,
+            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
             "access_count": self.access_count,
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "storage_class": self.storage_class,
@@ -81,8 +79,6 @@ class StoredFile:
 
 @dataclass
 class UploadSession:
-    """Sesi upload untuk multi-part upload."""
-
     id: UUID
     file_id: UUID
     total_chunks: int
@@ -92,36 +88,177 @@ class UploadSession:
     expires_at: datetime
 
 
-class FileStoragePort:
+# ==================== PORT (INTERFACE) ====================
+
+class FileStoragePort(ABC):
     """
-    Implementasi in-memory file storage dengan simulasi fitur S3:
-    - Upload file (single atau chunked)
-    - Download file (partial byte range)
-    - Generate presigned URL
-    - Versioning
-    - Metadata management
-    - Expiry policy
-    - Audit trail
-    - Deduplication via hash
+    Port interface untuk file storage.
+    Semua metode wajib diimplementasikan oleh adapter konkret.
+    """
+
+    @abstractmethod
+    async def upload(
+        self,
+        file_content: BinaryIO,
+        file_name: str,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        uploaded_by: UUID | None = None,
+        deduplicate: bool = True,
+        expiry_days: int | None = None,
+    ) -> str:
+        """
+        Mengunggah file dan mengembalikan URI unik (format: file://{file_id}).
+        Support deduplication, metadata, expiry.
+        """
+        ...
+
+    @abstractmethod
+    async def upload_chunked_start(
+        self,
+        file_name: str,
+        total_size: int,
+        total_chunks: int,
+        chunk_size: int,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        uploaded_by: UUID | None = None,
+    ) -> UUID:
+        """Memulai upload multi-part. Mengembalikan session_id."""
+        ...
+
+    @abstractmethod
+    async def upload_chunked_part(
+        self, session_id: UUID, chunk_index: int, chunk_data: bytes
+    ) -> int:
+        """Mengunggah satu chunk. Mengembalikan jumlah chunk yang sudah diterima."""
+        ...
+
+    @abstractmethod
+    async def upload_chunked_complete(self, session_id: UUID) -> str:
+        """Menyelesaikan upload multi-part. Mengembalikan URI file."""
+        ...
+
+    @abstractmethod
+    async def download(self, file_uri: str) -> BinaryIO:
+        """Mengunduh file berdasarkan URI. Mengembalikan BytesIO object."""
+        ...
+
+    @abstractmethod
+    async def download_range(self, file_uri: str, start: int, end: int) -> bytes:
+        """Mengunduh byte range tertentu."""
+        ...
+
+    @abstractmethod
+    async def delete(self, file_uri: str, soft_delete: bool = True) -> bool:
+        """Menghapus file (soft delete atau hard delete). Mengembalikan True jika berhasil."""
+        ...
+
+    @abstractmethod
+    async def get_metadata(self, file_uri: str) -> dict[str, Any]:
+        """Mendapatkan metadata file tanpa konten."""
+        ...
+
+    @abstractmethod
+    async def update_metadata(
+        self, file_uri: str, metadata: dict[str, Any], updated_by: UUID
+    ) -> bool:
+        """Memperbarui metadata file. Mengembalikan True jika berhasil."""
+        ...
+
+    @abstractmethod
+    async def generate_presigned_url(
+        self, file_uri: str, expiration_seconds: int = 3600, operation: str = "GET"
+    ) -> str:
+        """Generate URL sementara untuk akses aman (simulasi dengan token)."""
+        ...
+
+    @abstractmethod
+    async def verify_presigned_url(
+        self, token: str, file_id: UUID, operation: str, expires_timestamp: int
+    ) -> bool:
+        """Verifikasi token presigned URL."""
+        ...
+
+    @abstractmethod
+    async def create_version(self, file_uri: str, new_content: BinaryIO, uploaded_by: UUID) -> str:
+        """Membuat versi baru dari file yang ada. Mengembalikan URI versi baru."""
+        ...
+
+    @abstractmethod
+    async def get_versions(self, file_uri: str) -> list[dict[str, Any]]:
+        """Mendapatkan semua versi dari sebuah file (berdasarkan original_filename)."""
+        ...
+
+    @abstractmethod
+    async def start_cleanup_task(self, interval_hours: int = 24):
+        """Memulai background task untuk menghapus file expired."""
+        ...
+
+    @abstractmethod
+    async def stop_cleanup(self):
+        """Menghentikan background cleanup task."""
+        ...
+
+    @abstractmethod
+    async def list_files(
+        self,
+        uploaded_by: UUID | None = None,
+        status: FileStorageStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Mendaftar file dengan filter."""
+        ...
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Statistik storage."""
+        ...
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check storage."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemoryFileStorage(FileStoragePort):
+    """
+    Implementasi in-memory file storage dengan simulasi fitur S3.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self, max_file_size_mb: int = 100, default_expiry_days: int = 365):
-        self._storage: dict[UUID, StoredFile] = {}  # file_id -> StoredFile
-        self._file_id_by_hash: dict[str, UUID] = {}  # sha256 -> file_id (dedup)
+        self._storage: dict[UUID, StoredFile] = {}
+        self._file_id_by_hash: dict[str, UUID] = {}
         self._upload_sessions: dict[UUID, UploadSession] = {}
+        self._chunk_storage: dict[tuple[UUID, int], bytes] = {}
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._max_file_size_bytes = max_file_size_mb * 1024 * 1024
         self._default_expiry_days = default_expiry_days
         self._cleanup_task: asyncio.Task | None = None
         self._running = False
+        self._background_tasks: list[asyncio.Task] = []
+
+    def _add_background_task(self, task: asyncio.Task) -> None:
+        self._background_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._background_tasks.remove(t) if t in self._background_tasks else None
+        )
 
     # ===================== AUDIT =====================
 
     async def _log_audit(
         self, action: str, file_id: UUID | None, user_id: UUID, details: dict[str, Any]
     ):
-        """Mencatat aksi ke audit log."""
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
@@ -135,13 +272,11 @@ class FileStoragePort:
     # ===================== HASHING & DEDUP =====================
 
     async def _compute_hashes(self, content: bytes) -> tuple[str, str]:
-        """Menghitung SHA256 dan MD5 dari konten."""
         sha256 = hashlib.sha256(content).hexdigest()
         md5 = hashlib.md5(content).hexdigest()
         return sha256, md5
 
     async def _check_duplicate(self, sha256: str) -> StoredFile | None:
-        """Cek apakah file dengan hash yang sama sudah ada (deduplication)."""
         existing_id = self._file_id_by_hash.get(sha256)
         if existing_id:
             return self._storage.get(existing_id)
@@ -159,14 +294,9 @@ class FileStoragePort:
         deduplicate: bool = True,
         expiry_days: int | None = None,
     ) -> str:
-        """
-        Mengunggah file dan mengembalikan URI unik (format: file://{file_id}).
-        Support deduplication, metadata, expiry.
-        """
         if uploaded_by is None:
             uploaded_by = UUID(int=0)
 
-        # Baca seluruh konten (untuk in-memory; untuk production bisa streaming)
         content = file_content.read()
         if len(content) > self._max_file_size_bytes:
             raise ValueError(
@@ -175,7 +305,6 @@ class FileStoragePort:
 
         sha256, md5 = await self._compute_hashes(content)
 
-        # Deduplication
         if deduplicate:
             existing = await self._check_duplicate(sha256)
             if existing:
@@ -187,7 +316,6 @@ class FileStoragePort:
                 )
                 return f"file://{existing.id}"
 
-        # Generate unique ID dan filename
         file_id = uuid.uuid4()
         if content_type is None:
             content_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
@@ -200,7 +328,7 @@ class FileStoragePort:
 
         stored = StoredFile(
             id=file_id,
-            filename=str(file_id),  # internal name
+            filename=str(file_id),
             content=content,
             content_type=content_type,
             size=len(content),
@@ -240,9 +368,6 @@ class FileStoragePort:
         metadata: dict[str, Any] | None = None,
         uploaded_by: UUID | None = None,
     ) -> UUID:
-        """
-        Memulai upload multi-part. Mengembalikan session_id.
-        """
         if uploaded_by is None:
             uploaded_by = UUID(int=0)
 
@@ -262,19 +387,15 @@ class FileStoragePort:
             expires_at=datetime.now(UTC) + timedelta(hours=24),
         )
 
-        # Simpan metadata sementara di file storage tapi status belum active
-        # Kita simpan dulu sebagai placeholder
         temp_file = StoredFile(
             id=file_id,
             filename=str(file_id),
-            content=b"",  # empty, akan diisi saat commit
-            content_type=content_type
-            or mimetypes.guess_type(file_name)[0]
-            or "application/octet-stream",
+            content=b"",
+            content_type=content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream",
             size=total_size,
             hash_sha256="",
             hash_md5="",
-            status=FileStorageStatus.ACTIVE,  # sementara, akan diupdate
+            status=FileStorageStatus.ACTIVE,
             version=1,
             original_filename=file_name,
             metadata=metadata or {},
@@ -301,9 +422,6 @@ class FileStoragePort:
     async def upload_chunked_part(
         self, session_id: UUID, chunk_index: int, chunk_data: bytes
     ) -> int:
-        """
-        Mengunggah satu chunk. Mengembalikan jumlah chunk yang sudah diterima.
-        """
         session = self._upload_sessions.get(session_id)
         if not session:
             raise ValueError(f"Upload session {session_id} not found or expired")
@@ -311,13 +429,8 @@ class FileStoragePort:
             raise ValueError(f"Upload session {session_id} expired")
 
         if chunk_index in session.received_chunks:
-            # Duplicate chunk, ignore
             return len(session.received_chunks)
 
-        # Simpan chunk ke temporary storage (dalam implementasi nyata ke disk)
-        # Di sini kita simpan ke dictionary terpisah
-        if not hasattr(self, "_chunk_storage"):
-            self._chunk_storage: dict[tuple[UUID, int], bytes] = {}
         self._chunk_storage[(session_id, chunk_index)] = chunk_data
         session.received_chunks.add(chunk_index)
 
@@ -334,10 +447,6 @@ class FileStoragePort:
         return len(session.received_chunks)
 
     async def upload_chunked_complete(self, session_id: UUID) -> str:
-        """
-        Menyelesaikan upload multi-part, menggabungkan semua chunk.
-        Mengembalikan URI file.
-        """
         session = self._upload_sessions.get(session_id)
         if not session:
             raise ValueError(f"Upload session {session_id} not found")
@@ -347,16 +456,14 @@ class FileStoragePort:
                 f"Missing chunks: expected {session.total_chunks}, got {len(session.received_chunks)}"
             )
 
-        # Gabungkan semua chunk sesuai urutan
         all_chunks = []
         for i in range(session.total_chunks):
-            chunk = getattr(self, "_chunk_storage", {}).get((session_id, i))
+            chunk = self._chunk_storage.get((session_id, i))
             if chunk is None:
                 raise ValueError(f"Chunk {i} missing")
             all_chunks.append(chunk)
         full_content = b"".join(all_chunks)
 
-        # Update file dengan konten lengkap
         file_id = session.file_id
         stored = self._storage.get(file_id)
         if not stored:
@@ -364,10 +471,8 @@ class FileStoragePort:
 
         sha256, md5 = await self._compute_hashes(full_content)
 
-        # Deduplication check
         existing = await self._check_duplicate(sha256)
         if existing:
-            # Hapus file sementara dan gunakan yang existing
             async with self._lock:
                 del self._storage[file_id]
             await self._log_audit(
@@ -388,11 +493,9 @@ class FileStoragePort:
         async with self._lock:
             self._file_id_by_hash[sha256] = file_id
             del self._upload_sessions[session_id]
-            if hasattr(self, "_chunk_storage"):
-                # Hapus chunk temporary
-                keys_to_del = [k for k in self._chunk_storage if k[0] == session_id]
-                for k in keys_to_del:
-                    del self._chunk_storage[k]
+            keys_to_del = [k for k in self._chunk_storage if k[0] == session_id]
+            for k in keys_to_del:
+                del self._chunk_storage[k]
 
         await self._log_audit(
             "UPLOAD_CHUNKED_COMPLETE",
@@ -405,10 +508,6 @@ class FileStoragePort:
     # ===================== DOWNLOAD =====================
 
     async def download(self, file_uri: str) -> BinaryIO:
-        """
-        Mengunduh file berdasarkan URI (format file://<uuid>).
-        Mengembalikan BytesIO object.
-        """
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format, expected file://<uuid>")
         file_id_str = file_uri[7:]
@@ -423,19 +522,14 @@ class FileStoragePort:
         if stored.status != FileStorageStatus.ACTIVE:
             raise ValueError(f"File {file_id} is {stored.status.value}")
 
-        # Update access info
         stored.last_accessed_at = datetime.now(UTC)
         stored.access_count += 1
 
         await self._log_audit("DOWNLOAD", file_id, UUID(int=0), {"size": stored.size})
         from io import BytesIO
-
         return BytesIO(stored.content)
 
     async def download_range(self, file_uri: str, start: int, end: int) -> bytes:
-        """
-        Mengunduh byte range tertentu.
-        """
         stream = await self.download(file_uri)
         stream.seek(start)
         length = end - start + 1
@@ -444,10 +538,6 @@ class FileStoragePort:
     # ===================== DELETE =====================
 
     async def delete(self, file_uri: str, soft_delete: bool = True) -> bool:
-        """
-        Menghapus file (soft delete atau hard delete).
-        Mengembalikan True jika berhasil.
-        """
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format")
         file_id_str = file_uri[7:]
@@ -466,7 +556,6 @@ class FileStoragePort:
         else:
             async with self._lock:
                 del self._storage[file_id]
-                # Hapus dari hash index
                 if stored.hash_sha256 in self._file_id_by_hash:
                     del self._file_id_by_hash[stored.hash_sha256]
             await self._log_audit("HARD_DELETE", file_id, UUID(int=0), {})
@@ -475,7 +564,6 @@ class FileStoragePort:
     # ===================== METADATA =====================
 
     async def get_metadata(self, file_uri: str) -> dict[str, Any]:
-        """Mendapatkan metadata file tanpa konten."""
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format")
         file_id_str = file_uri[7:]
@@ -492,7 +580,6 @@ class FileStoragePort:
     async def update_metadata(
         self, file_uri: str, metadata: dict[str, Any], updated_by: UUID
     ) -> bool:
-        """Memperbarui metadata file."""
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format")
         file_id_str = file_uri[7:]
@@ -512,9 +599,6 @@ class FileStoragePort:
     async def generate_presigned_url(
         self, file_uri: str, expiration_seconds: int = 3600, operation: str = "GET"
     ) -> str:
-        """
-        Generate URL sementara untuk akses aman (simulasi dengan token).
-        """
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format")
         file_id_str = file_uri[7:]
@@ -524,7 +608,6 @@ class FileStoragePort:
         if not stored:
             raise FileNotFoundError(f"File {file_id} not found")
 
-        # Generate token berdasarkan file_id + expiration
         token_seed = f"{file_id}_{expiration_seconds}_{int(time.time())}_{operation}"
         token = hashlib.sha256(token_seed.encode()).hexdigest()[:32]
         expires_at = datetime.now(UTC) + timedelta(seconds=expiration_seconds)
@@ -541,7 +624,6 @@ class FileStoragePort:
     async def verify_presigned_url(
         self, token: str, file_id: UUID, operation: str, expires_timestamp: int
     ) -> bool:
-        """Verifikasi token presigned URL."""
         if expires_timestamp < int(time.time()):
             return False
         expected = hashlib.sha256(
@@ -552,10 +634,6 @@ class FileStoragePort:
     # ===================== VERSIONING =====================
 
     async def create_version(self, file_uri: str, new_content: BinaryIO, uploaded_by: UUID) -> str:
-        """
-        Membuat versi baru dari file yang ada (versioning).
-        Mengembalikan URI versi baru.
-        """
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format")
         old_file_id = UUID(file_uri[7:])
@@ -600,7 +678,6 @@ class FileStoragePort:
         return f"file://{new_file_id}"
 
     async def get_versions(self, file_uri: str) -> list[dict[str, Any]]:
-        """Mendapatkan semua versi dari sebuah file (berdasarkan original_filename)."""
         if not file_uri.startswith("file://"):
             raise ValueError("Invalid file URI format")
         file_id = UUID(file_uri[7:])
@@ -617,11 +694,11 @@ class FileStoragePort:
     # ===================== EXPIRY & CLEANUP =====================
 
     async def start_cleanup_task(self, interval_hours: int = 24):
-        """Memulai background task untuk menghapus file expired."""
         if self._running:
             return
         self._running = True
         self._cleanup_task = asyncio.create_task(self._cleanup_loop(interval_hours))
+        self._add_background_task(self._cleanup_task)
 
     async def _cleanup_loop(self, interval_hours: int):
         while self._running:
@@ -629,7 +706,6 @@ class FileStoragePort:
             await self._cleanup_expired()
 
     async def _cleanup_expired(self):
-        """Menghapus file yang sudah expired (soft delete)."""
         now = datetime.now(UTC)
         to_delete = []
         async with self._lock:
@@ -649,6 +725,17 @@ class FileStoragePort:
         self._running = False
         if self._cleanup_task:
             self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            self._cleanup_task = None
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
 
     # ===================== QUERY & ADMIN =====================
 
@@ -659,7 +746,6 @@ class FileStoragePort:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Mendaftar file dengan filter."""
         result = []
         for stored in self._storage.values():
             if uploaded_by and stored.uploaded_by != uploaded_by:
@@ -673,21 +759,16 @@ class FileStoragePort:
         return self._audit_log[offset : offset + limit]
 
     async def get_statistics(self) -> dict[str, Any]:
-        """Statistik storage."""
         total_files = len(self._storage)
         total_size = sum(f.size for f in self._storage.values())
-        active_files = sum(
-            1 for f in self._storage.values() if f.status == FileStorageStatus.ACTIVE
-        )
-        deleted_files = sum(
-            1 for f in self._storage.values() if f.status == FileStorageStatus.DELETED
-        )
+        active_files = sum(1 for f in self._storage.values() if f.status == FileStorageStatus.ACTIVE)
+        deleted_files = sum(1 for f in self._storage.values() if f.status == FileStorageStatus.DELETED)
         return {
             "total_files": total_files,
             "total_size_bytes": total_size,
             "active_files": active_files,
             "deleted_files": deleted_files,
-            "dedup_saved_bytes": 0,  # bisa dihitung dari collision
+            "dedup_saved_bytes": 0,
             "upload_sessions_active": len(self._upload_sessions),
             "audit_log_size": len(self._audit_log),
         }
@@ -699,3 +780,14 @@ class FileStoragePort:
             "cleanup_running": self._running,
             "max_file_size_mb": self._max_file_size_bytes // (1024 * 1024),
         }
+
+
+# ==================== EXPORTS ====================
+
+__all__ = [
+    "FileStoragePort",
+    "FileStorageStatus",
+    "InMemoryFileStorage",
+    "StoredFile",
+    "UploadSession",
+]

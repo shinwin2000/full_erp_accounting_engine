@@ -8,6 +8,11 @@ Responsibility: Mentransformasi event dari sistem penjualan (Sales Order, Sales 
 Metode yang ditambahkan:
 - BaseTransformer dengan entity dasar: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 - Untuk SalesToARTransformer.
+
+Perbaikan:
+- BaseTransformer.from_dict: memberi default name="default" jika tidak ada.
+- get_sales_to_ar_transformer: menggunakan resolve_async untuk command_bus, ar_service, customer_repo.
+- Penanganan jika container tidak memiliki resolve_async (fallback ke resolve jika belum async).
 """
 
 from __future__ import annotations
@@ -47,7 +52,7 @@ HANDLED_EVENT_TYPES = [
 # BaseTransformer (didefinisikan ulang untuk kemandirian file)
 # ============================================================================
 class BaseTransformer:
-    def __init__(self, name: str):
+    def __init__(self, name: str = "default"):
         self.name = name
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
@@ -88,7 +93,9 @@ class BaseTransformer:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BaseTransformer:
-        instance = cls(data["name"])
+        # Jika tidak ada 'name', gunakan default
+        name = data.get("name", "default")
+        instance = cls(name)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
         return instance
@@ -412,13 +419,21 @@ _sales_to_ar_transformer: SalesToARTransformer | None = None
 async def get_sales_to_ar_transformer() -> SalesToARTransformer:
     global _sales_to_ar_transformer
     if _sales_to_ar_transformer is None:
-        # Composition Root: use container to resolve dependencies
+        # Composition Root: use container to resolve dependencies asynchronously
         from bootstrap.dependency_container.ioc_container import get_container
 
         container = get_container()
-        command_bus = container.resolve(UnifiedCommandBus)
-        ar_service = container.resolve(ARService)
-        customer_repo = container.resolve(CustomerRepositoryPort)
+        # Use resolve_async if available, otherwise fallback to resolve
+        if hasattr(container, "resolve_async"):
+            command_bus = await container.resolve_async(UnifiedCommandBus)
+            ar_service = await container.resolve_async(ARService)
+            customer_repo = await container.resolve_async(CustomerRepositoryPort)
+        else:
+            # Fallback untuk kompatibilitas
+            command_bus = container.resolve(UnifiedCommandBus)
+            ar_service = container.resolve(ARService)
+            customer_repo = container.resolve(CustomerRepositoryPort)
+
         _sales_to_ar_transformer = SalesToARTransformer(
             command_bus=command_bus,
             ar_service=ar_service,

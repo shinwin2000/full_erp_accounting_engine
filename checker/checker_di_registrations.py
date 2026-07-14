@@ -7,7 +7,7 @@ terdaftar di IoC container dan bisa di-resolve menjadi implementasi.
 
 Fitur:
 - Scan semua port dari filesystem (AST parsing)
-- Filter port yang tidak perlu didaftarkan (InMemory, Fallback, Stub)
+- Filter port yang tidak perlu didaftarkan (InMemory, Fallback, Stub, Protocol)
 - Cek registrasi di container
 - Resolve menggunakan async/await dengan benar
 - Deteksi implementasi real vs fallback/in-memory
@@ -37,9 +37,6 @@ from typing import Any
 
 # =============================================================================
 # [RCA] Load RCA Engine dari checker/core/rca.py menggunakan importlib.util
-# =============================================================================
-# =============================================================================
-# [RCA] Load RCA Engine dari checker/core/rca.py
 # =============================================================================
 _RCA_AVAILABLE = False
 _analyze_exception = None
@@ -179,9 +176,15 @@ class PortScanner:
                     for node in ast.walk(tree):
                         if isinstance(node, ast.ClassDef):
                             name = node.name
+                            # Abaikan kelas internal / base
                             if name in self.exclude_names:
                                 continue
-                            if name.endswith(("Port", "Protocol", "Repository")):
+                            # [FIX] Abaikan Protocol (structural typing, bukan port)
+                            if name.endswith("Protocol"):
+                                continue
+                            # Hanya ambil yang berakhiran Port atau Repository
+                            if name.endswith(("Port", "Repository")):
+                                # Abaikan yang mengandung kata ignore_keywords
                                 if any(kw in name for kw in self.ignore_keywords):
                                     continue
                                 module = str(file_path.relative_to(self.root).with_suffix("")).replace("\\", ".").replace("/", ".")
@@ -457,9 +460,7 @@ def print_report(result: CheckResult, verbose: bool = False):
                     if fix:
                         print(f"      {c['YELLOW']}Fix:{c['RESET']} {fix[:200]}")
                     if conf:
-                        # Gunakan .get() untuk menghindari KeyError
-                        dim_color = c.get('DIM', '')
-                        print(f"      {dim_color}Confidence: {conf:.0%}{c['RESET']}")
+                        print(f"      {c['DIM']}Confidence: {conf:.0%}{c['RESET']}")
             else:
                 print(f"  {c['RED']}❌{c['RESET']} {status.port.name} ({status.port.file_path}) -> TIDAK TERDAFTAR")
                 if status.error:
@@ -473,8 +474,7 @@ def print_report(result: CheckResult, verbose: bool = False):
                     if fix:
                         print(f"      {c['YELLOW']}Fix:{c['RESET']} {fix[:200]}")
                     if conf:
-                        dim_color = c.get('DIM', '')
-                        print(f"      {dim_color}Confidence: {conf:.0%}{c['RESET']}")
+                        print(f"      {c['DIM']}Confidence: {conf:.0%}{c['RESET']}")
 
     # Deteksi duplikasi port
     port_names = {}
@@ -544,6 +544,7 @@ async def async_main(args):
     print_report(result, verbose=args.verbose)
     if args.json:
         save_json(result, args.json)
+    # Return code success jika tidak ada port tidak terdaftar dan tidak ada fallback
     sys.exit(0 if result.unregistered_count == 0 and result.fallback_count == 0 and result.resolvable_count == (result.total_ports - result.ignored_count) else 1)
 
 def main():
@@ -556,7 +557,7 @@ def main():
     start_time = time.monotonic()
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
-    print("║      SOVEREIGN PORT REGISTRATION CHECKER with RCA              ║")
+    print("║      SOVEREIGN PORT REGISTRATION CHECKER with RCA                 ║")
     print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
 
     try:

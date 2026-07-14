@@ -88,7 +88,10 @@ mkdocstrings[python]==0.27.0
 # tests/performance/
 locust==2.32.4
 pytest-benchmark==5.1.0
-memray==1.6.0
+# memray==1.6.0  # Dinonaktifkan: memray tidak mendukung Windows (win32) sama sekali,
+                  # library ini sendiri melempar RuntimeError saat build wheel di Windows.
+                  # Kalau butuh profiling memori di Windows, pakai tracemalloc (built-in)
+                  # atau py-spy sebagai gantinya.
 pyinstrument==5.0.0
 
 # ── Debug & Dev Tools ────────────────────────────────────────

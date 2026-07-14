@@ -854,7 +854,7 @@ ApRepositoryPort = APRepositoryPort
 __all__ = [
     "APInvoice",
     "APInvoiceStatus",
-    "APRepository",        
+    "APRepository",
     "APRepositoryPort",
     "ApRepositoryPort",
     "CreditNoteAP",

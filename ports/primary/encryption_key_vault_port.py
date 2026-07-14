@@ -2,10 +2,9 @@
 """
 Module: encryption_key_vault_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory yang sangat lengkap untuk key vault (HSM/Vault).
-               Menyediakan manajemen kunci enkripsi, rotasi, enkripsi/dekripsi,
-               audit trail, dan simulasi keamanan bank-grade.
-Audit: Semua operasi kunci dicatat dengan timestamp, user, dan action.
+Responsibility:
+    - Mendefinisikan antarmuka (port) untuk key vault (HSM/Vault).
+    - Menyediakan implementasi in-memory untuk testing/fallback.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ import json
 import logging
 import os
 import time
+from abc import ABC, abstractmethod
 from base64 import b64decode, b64encode
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -30,9 +30,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 logger = logging.getLogger(__name__)
 
 
-class KeyStatus(Enum):
-    """Status kunci enkripsi."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class KeyStatus(Enum):
     ACTIVE = "active"
     DEPRECATED = "deprecated"
     DESTROYED = "destroyed"
@@ -40,8 +40,6 @@ class KeyStatus(Enum):
 
 
 class KeyAlgorithm(Enum):
-    """Algoritma kunci yang didukung."""
-
     AES_128_GCM = "AES-128-GCM"
     AES_256_GCM = "AES-256-GCM"
     RSA_2048 = "RSA-2048"
@@ -50,8 +48,6 @@ class KeyAlgorithm(Enum):
 
 @dataclass
 class KeyMetadata:
-    """Metadata untuk sebuah kunci enkripsi."""
-
     key_id: str
     version: str
     algorithm: KeyAlgorithm
@@ -80,36 +76,150 @@ class KeyMetadata:
         }
 
 
-class EncryptionKeyVaultPort:
+# ==================== PORT (INTERFACE) ====================
+
+class EncryptionKeyVaultPort(ABC):
+    """
+    Port untuk key vault. Semua metode wajib diimplementasikan oleh adapter konkret.
+    """
+
+    @abstractmethod
+    async def create_key(
+        self,
+        key_id: str,
+        algorithm: KeyAlgorithm = KeyAlgorithm.AES_256_GCM,
+        key_size: int = 256,
+        created_by: UUID | None = None,
+        rotation_days: int | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> str:
+        """Buat kunci baru, kembalikan version string."""
+        ...
+
+    @abstractmethod
+    async def get_key(self, key_id: str, version: str | None = None) -> bytes:
+        """Ambil material kunci (bytes)."""
+        ...
+
+    @abstractmethod
+    async def rotate_key(
+        self, key_id: str, created_by: UUID | None = None, new_algorithm: KeyAlgorithm | None = None
+    ) -> str:
+        """Rotasi kunci, kembalikan version baru."""
+        ...
+
+    @abstractmethod
+    async def delete_key(self, key_id: str, version: str | None = None) -> bool:
+        """Hapus kunci (soft delete jika version None = seluruh versi)."""
+        ...
+
+    @abstractmethod
+    async def key_exists(self, key_id: str) -> bool:
+        """Cek apakah key_id ada."""
+        ...
+
+    @abstractmethod
+    async def get_current_key_version(self, key_id: str) -> str:
+        """Dapatkan versi terbaru."""
+        ...
+
+    @abstractmethod
+    async def get_key_metadata(self, key_id: str, version: str | None = None) -> KeyMetadata:
+        """Dapatkan metadata kunci."""
+        ...
+
+    @abstractmethod
+    async def list_keys(self, status_filter: KeyStatus | None = None) -> list[dict[str, Any]]:
+        """Daftar semua key dengan metadata."""
+        ...
+
+    @abstractmethod
+    async def encrypt_with_vault(
+        self,
+        key_id: str,
+        plaintext: bytes,
+        context: dict[str, Any] | None = None,
+        version: str | None = None,
+    ) -> bytes:
+        """Enkripsi menggunakan AES-256-GCM."""
+        ...
+
+    @abstractmethod
+    async def decrypt_with_vault(
+        self,
+        key_id: str,
+        ciphertext: bytes,
+        context: dict[str, Any] | None = None,
+        version: str | None = None,
+    ) -> bytes:
+        """Dekripsi menggunakan AES-256-GCM."""
+        ...
+
+    @abstractmethod
+    async def rewrap_key(self, key_id: str, old_version: str, new_version: str) -> bytes:
+        """Rewrap kunci (dekripsi dengan old, enkripsi dengan new)."""
+        ...
+
+    @abstractmethod
+    async def start_auto_rotation(
+        self, key_id: str, rotation_days: int = 90, check_interval_hours: int = 24
+    ):
+        """Mulai background rotasi otomatis."""
+        ...
+
+    @abstractmethod
+    async def stop_auto_rotation(self):
+        """Hentikan background rotasi."""
+        ...
+
+    @abstractmethod
+    async def export_key(self, key_id: str, version: str, passphrase: str) -> str:
+        """Ekspor kunci (base64, dienkripsi dengan passphrase)."""
+        ...
+
+    @abstractmethod
+    async def import_key(
+        self, key_id: str, version: str, encrypted_key_b64: str, passphrase: str
+    ) -> None:
+        """Impor kunci dari format ekspor."""
+        ...
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Cek kesehatan vault."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemoryEncryptionKeyVault(EncryptionKeyVaultPort):
     """
     Implementasi in-memory key vault dengan AES-256-GCM.
-    Mendukung rotasi kunci, audit log, dan keamanan tingkat bank.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self, master_key_salt: bytes | None = None):
-        self._keys: dict[str, bytes] = {}  # key_id_version -> material
-        self._metadata: dict[str, KeyMetadata] = {}  # key_id_version -> metadata
-        self._key_aliases: dict[str, str] = {}  # alias -> latest key_id_version
+        self._keys: dict[str, bytes] = {}
+        self._metadata: dict[str, KeyMetadata] = {}
+        self._key_aliases: dict[str, str] = {}
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._master_salt = master_key_salt or os.urandom(32)
         self._rotation_job_active = False
-        # ===== PERBAIKAN: Simpan referensi task background =====
         self._background_tasks: list[asyncio.Task] = []
 
     def _add_background_task(self, task: asyncio.Task) -> None:
-        """Tambahkan task ke daftar background dan daftarkan callback untuk menghapusnya."""
         self._background_tasks.append(task)
         task.add_done_callback(
             lambda t: self._background_tasks.remove(t) if t in self._background_tasks else None
         )
 
-    # ========================================================================
-    # Inisialisasi default keys (dengan task management)
-    # ========================================================================
-
     def _init_default_keys(self):
-        """Membuat key default untuk development."""
         try:
             loop = asyncio.get_running_loop()
             task = loop.create_task(self._create_default_keys())
@@ -122,7 +232,6 @@ class EncryptionKeyVaultPort:
             logger.warning(f"Could not create default keys: {e}")
 
     async def _create_default_keys(self):
-        """Create default keys asynchronously."""
         try:
             await self.create_key(
                 "master",
@@ -146,12 +255,7 @@ class EncryptionKeyVaultPort:
         except Exception as e:
             logger.warning(f"Could not create default keys: {e}")
 
-    # ========================================================================
-    # Audit logging
-    # ========================================================================
-
     async def _log_audit(self, action: str, key_id: str, user_id: UUID, details: dict[str, Any]):
-        """Mencatat aksi ke audit log."""
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
@@ -162,9 +266,7 @@ class EncryptionKeyVaultPort:
         self._audit_log.append(entry)
         logger.info(f"VAULT AUDIT: {action} on {key_id} by {user_id}")
 
-    # ========================================================================
-    # Key management
-    # ========================================================================
+    # ------------------- Key Management -------------------
 
     async def create_key(
         self,
@@ -175,25 +277,19 @@ class EncryptionKeyVaultPort:
         rotation_days: int | None = None,
         tags: dict[str, str] | None = None,
     ) -> str:
-        """
-        Membuat kunci baru dengan algoritma tertentu.
-        Returns version string.
-        """
         if created_by is None:
             created_by = UUID(int=0)
 
         async with self._lock:
-            # Generate key material
             if algorithm in (KeyAlgorithm.AES_128_GCM, KeyAlgorithm.AES_256_GCM):
                 key_bytes = os.urandom(key_size // 8)
             else:
                 raise ValueError(f"Algorithm {algorithm} not supported in this implementation")
 
             version = f"v{int(time.time())}"
-            key_full_id = f"{key_id}:{version}"
-            self._keys[key_full_id] = key_bytes
+            full_id = f"{key_id}:{version}"
+            self._keys[full_id] = key_bytes
 
-            # Tentukan expiry (default 1 tahun)
             expires_at = None
             if rotation_days:
                 expires_at = datetime.now(UTC) + timedelta(days=rotation_days)
@@ -209,22 +305,15 @@ class EncryptionKeyVaultPort:
                 expires_at=expires_at,
                 tags=tags or {},
             )
-            self._metadata[key_full_id] = metadata
-
-            # Update alias ke versi terbaru
-            self._key_aliases[key_id] = key_full_id
+            self._metadata[full_id] = metadata
+            self._key_aliases[key_id] = full_id
 
             await self._log_audit(
                 "CREATE_KEY", key_id, created_by, {"version": version, "algorithm": algorithm.value}
             )
-
             return version
 
     async def get_key(self, key_id: str, version: str | None = None) -> bytes:
-        """
-        Mendapatkan material kunci (bytes) berdasarkan ID dan versi.
-        Jika version None, ambil versi aktif terbaru.
-        """
         async with self._lock:
             if version is None:
                 full_id = self._key_aliases.get(key_id)
@@ -237,7 +326,6 @@ class EncryptionKeyVaultPort:
             if not key_material:
                 raise ValueError(f"Key material for {full_id} not found")
 
-            # Update metadata usage
             metadata = self._metadata.get(full_id)
             if metadata:
                 metadata.used_count += 1
@@ -249,10 +337,6 @@ class EncryptionKeyVaultPort:
     async def rotate_key(
         self, key_id: str, created_by: UUID | None = None, new_algorithm: KeyAlgorithm | None = None
     ) -> str:
-        """
-        Rotasi kunci: menonaktifkan versi lama, membuat versi baru.
-        Mengembalikan versi baru.
-        """
         if created_by is None:
             created_by = UUID(int=0)
 
@@ -266,7 +350,6 @@ class EncryptionKeyVaultPort:
                 old_meta.status = KeyStatus.DEPRECATED
                 old_meta.last_rotated_at = datetime.now(UTC)
 
-            # Buat versi baru
             algorithm = new_algorithm or (
                 old_meta.algorithm if old_meta else KeyAlgorithm.AES_256_GCM
             )
@@ -282,10 +365,8 @@ class EncryptionKeyVaultPort:
             return version
 
     async def delete_key(self, key_id: str, version: str | None = None) -> bool:
-        """Soft delete atau destroy key (jika version None, destroy seluruh versi)."""
         async with self._lock:
             if version is None:
-                # Hapus semua versi dari key_id
                 to_delete = [k for k in self._keys.keys() if k.startswith(f"{key_id}:")]
                 for full in to_delete:
                     del self._keys[full]
@@ -305,7 +386,6 @@ class EncryptionKeyVaultPort:
                 if full in self._metadata:
                     self._metadata[full].status = KeyStatus.DESTROYED
                 if self._key_aliases.get(key_id) == full:
-                    # Jika menghapus versi aktif, pilih versi lain sebagai aktif
                     remaining = [k for k in self._keys.keys() if k.startswith(f"{key_id}:")]
                     if remaining:
                         latest = sorted(
@@ -325,18 +405,15 @@ class EncryptionKeyVaultPort:
                 return True
 
     async def key_exists(self, key_id: str) -> bool:
-        """Cek apakah key_id ada (setidaknya satu versi)."""
         return key_id in self._key_aliases
 
     async def get_current_key_version(self, key_id: str) -> str:
-        """Mendapatkan versi terbaru dari key_id."""
         full = self._key_aliases.get(key_id)
         if not full:
             raise ValueError(f"Key {key_id} not found")
         return full.split(":")[-1]
 
     async def get_key_metadata(self, key_id: str, version: str | None = None) -> KeyMetadata:
-        """Mendapatkan metadata kunci."""
         if version is None:
             full = self._key_aliases.get(key_id)
         else:
@@ -346,7 +423,6 @@ class EncryptionKeyVaultPort:
         return self._metadata[full]
 
     async def list_keys(self, status_filter: KeyStatus | None = None) -> list[dict[str, Any]]:
-        """Daftar semua key dengan metadata."""
         result = []
         processed_keys = set()
         for full, meta in self._metadata.items():
@@ -359,9 +435,7 @@ class EncryptionKeyVaultPort:
             result.append(meta.to_dict())
         return result
 
-    # ========================================================================
-    # Enkripsi / Dekripsi
-    # ========================================================================
+    # ------------------- Enkripsi / Dekripsi -------------------
 
     async def encrypt_with_vault(
         self,
@@ -370,11 +444,6 @@ class EncryptionKeyVaultPort:
         context: dict[str, Any] | None = None,
         version: str | None = None,
     ) -> bytes:
-        """
-        Enkripsi menggunakan AES-256-GCM.
-        Menghasilkan ciphertext dengan format: nonce (12 byte) + ciphertext + tag (16 byte).
-        Context digunakan sebagai additional authenticated data (AAD).
-        """
         key_material = await self.get_key(key_id, version)
         if len(key_material) not in (16, 24, 32):
             raise ValueError("Key material length must be 16, 24, or 32 bytes for AES")
@@ -387,7 +456,6 @@ class EncryptionKeyVaultPort:
             aad = json.dumps(context, sort_keys=True).encode("utf-8")
 
         ciphertext = aesgcm.encrypt(nonce, plaintext, aad)
-        # Format: nonce (12) + ciphertext
         result = nonce + ciphertext
         await self._log_audit(
             "ENCRYPT",
@@ -404,10 +472,6 @@ class EncryptionKeyVaultPort:
         context: dict[str, Any] | None = None,
         version: str | None = None,
     ) -> bytes:
-        """
-        Dekripsi menggunakan AES-256-GCM.
-        ciphertext: nonce (12 byte) + ciphertext+tag.
-        """
         if len(ciphertext) < 12:
             raise ValueError("Ciphertext too short")
 
@@ -429,26 +493,18 @@ class EncryptionKeyVaultPort:
             raise ValueError("Decryption failed: integrity check failed")
 
     async def rewrap_key(self, key_id: str, old_version: str, new_version: str) -> bytes:
-        """
-        Rewrap kunci: mendekripsi dengan versi lama, enkripsi dengan versi baru.
-        Digunakan untuk rotasi kunci tanpa mengekspos plaintext.
-        """
         old_key = await self.get_key(key_id, old_version)
         new_key = await self.get_key(key_id, new_version)
-        # Simulasi rewrap: enkripsi old_key dengan new_key
         nonce = os.urandom(12)
         aesgcm = AESGCM(new_key)
         wrapped = aesgcm.encrypt(nonce, old_key, None)
         return nonce + wrapped
 
-    # ========================================================================
-    # Auto-rotation (dengan task management)
-    # ========================================================================
+    # ------------------- Auto-rotation -------------------
 
     async def start_auto_rotation(
         self, key_id: str, rotation_days: int = 90, check_interval_hours: int = 24
     ):
-        """Memulai task background untuk rotasi otomatis."""
         if self._rotation_job_active:
             logger.warning("Auto rotation already running")
             return
@@ -472,14 +528,8 @@ class EncryptionKeyVaultPort:
         self._add_background_task(task)
         logger.info(f"Auto-rotation started for key {key_id}")
 
-    # ========================================================================
-    # PERBAIKAN: stop_auto_rotation (SUDAH ADA, tapi dipastikan lengkap)
-    # ========================================================================
-
     async def stop_auto_rotation(self):
-        """Menghentikan task background rotasi otomatis."""
         self._rotation_job_active = False
-        # Batalkan semua background tasks
         for task in self._background_tasks:
             if not task.done():
                 task.cancel()
@@ -488,17 +538,10 @@ class EncryptionKeyVaultPort:
             self._background_tasks.clear()
         logger.info("Auto-rotation stopped")
 
-    # ========================================================================
-    # Export / Import (dengan AAD context)
-    # ========================================================================
+    # ------------------- Export / Import -------------------
 
     async def export_key(self, key_id: str, version: str, passphrase: str) -> str:
-        """
-        Mengekspor kunci (dienkripsi dengan passphrase) ke format base64.
-        Hanya untuk backup; sangat hati-hati.
-        """
         key_material = await self.get_key(key_id, version)
-        # Derive key dari passphrase using PBKDF2HMAC
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
@@ -515,7 +558,6 @@ class EncryptionKeyVaultPort:
     async def import_key(
         self, key_id: str, version: str, encrypted_key_b64: str, passphrase: str
     ) -> None:
-        """Mengimpor kunci dari format ekspor."""
         encrypted_data = b64decode(encrypted_key_b64)
         if len(encrypted_data) < 12:
             raise ValueError("Invalid encrypted key data")
@@ -549,7 +591,6 @@ class EncryptionKeyVaultPort:
                 expires_at=None,
                 tags={"imported": "true"},
             )
-            # Update alias jika versi lebih baru
             current = self._key_aliases.get(key_id)
             if (
                 not current
@@ -558,16 +599,12 @@ class EncryptionKeyVaultPort:
                 self._key_aliases[key_id] = full_id
         await self._log_audit("IMPORT_KEY", key_id, UUID(int=0), {"version": version})
 
-    # ========================================================================
-    # Audit log & health
-    # ========================================================================
+    # ------------------- Audit & Health -------------------
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        """Mengambil audit log."""
         return self._audit_log[offset : offset + limit]
 
     async def health_check(self) -> dict[str, Any]:
-        """Cek kesehatan vault."""
         total_keys = len(self._keys)
         active_keys = sum(1 for m in self._metadata.values() if m.status == KeyStatus.ACTIVE)
         return {
@@ -577,3 +614,14 @@ class EncryptionKeyVaultPort:
             "audit_log_size": len(self._audit_log),
             "master_salt_length": len(self._master_salt),
         }
+
+
+# ==================== EXPORTS ====================
+
+__all__ = [
+    "EncryptionKeyVaultPort",
+    "InMemoryEncryptionKeyVault",
+    "KeyAlgorithm",
+    "KeyMetadata",
+    "KeyStatus",
+]

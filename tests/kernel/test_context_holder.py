@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Tests for kernel/context_holder.py
 Tests ExecutionContext, ContextSnapshot, ContextHolder, and convenience functions.

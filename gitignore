@@ -134,21 +134,52 @@ temp/
 
 +++ .gitignore (修改后)
 ```gitignore
-# Python compiled files
-*.pyc
+# Python cache files
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Pytest
+.pytest_cache/
+__pycache__/
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# IDEs
+.vscode/
+.idea/
 
 # Logs
 *.log
-logs/
 
-# Environment files
-.env
-.env.local
-*.env.*
-
-# Dependencies (if any virtual env directories are present)
-venv/
-.venv/
-.env/
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 ```

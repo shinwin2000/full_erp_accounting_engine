@@ -40,8 +40,7 @@ from domain.journal.invariants import (
     JournalInvariantsValidator,
 )
 from domain.journal.journal_entity import JournalEntity, JournalStatus, JournalType
-from domain.journal.journal_line_vo import JournalLineVO, JournalSide
-
+from domain.journal.journal_line_vo import JournalLineVO
 
 # ============================================================================
 # InvariantResult

@@ -1020,7 +1020,7 @@ ArRepositoryPort = ARRepositoryPort
 __all__ = [
     "ARInvoice",
     "ARInvoiceStatus",
-    "ARRepository",         
+    "ARRepository",
     "ARRepositoryPort",
     "ArRepositoryPort",
     "CollectionStatus",

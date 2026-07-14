@@ -2,19 +2,12 @@
 """
 Module: system_setting_repository_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory repository untuk system settings (konfigurasi dinamis).
-               Mendukung multi-tenant (global dan per legal entity), berbagai tipe data,
-               validasi, versioning, audit trail, import/export, hot-reload simulation,
-               default values, dan dependency antara settings.
-Audit: Setiap perubahan setting (tambah, ubah, hapus) tercatat, termasuk nilai lama dan baru.
-
-Perbaikan presisi:
-    - Menghapus konversi float() pada nilai moneter (tipe FLOAT) dan mengembalikan Decimal
-      untuk menjaga presisi. (MNY-003)
+Responsibility: Port untuk repository system settings (konfigurasi dinamis).
 """
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import json
 import logging
@@ -27,19 +20,18 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-# Gunakan logging standar (tidak bergantung pada infrastructure)
 logger = logging.getLogger(__name__)
 
 
-class SettingValueType(Enum):
-    """Tipe data nilai setting."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class SettingValueType(Enum):
     STRING = "string"
     INTEGER = "integer"
-    FLOAT = "float"      # Untuk nilai non-moneter (persentase, rasio, dll.)
+    FLOAT = "float"
     BOOLEAN = "boolean"
     JSON = "json"
-    DECIMAL = "decimal"  # Untuk nilai moneter (presisi tinggi)
+    DECIMAL = "decimal"
     DATE = "date"
     DATETIME = "datetime"
     TIME = "time"
@@ -47,15 +39,11 @@ class SettingValueType(Enum):
 
 
 class SettingScope(Enum):
-    """Cakupan setting."""
-
-    GLOBAL = "global"  # Berlaku untuk semua legal entity
-    LEGAL_ENTITY = "legal_entity"  # Per legal entity
+    GLOBAL = "global"
+    LEGAL_ENTITY = "legal_entity"
 
 
 class SettingCategory(Enum):
-    """Kategori setting untuk organisasi."""
-
     GENERAL = "general"
     ACCOUNTING = "accounting"
     TAX = "tax"
@@ -69,26 +57,20 @@ class SettingCategory(Enum):
 
 
 class SettingSensitivity(Enum):
-    """Tingkat sensitivitas setting (untuk audit dan enkripsi)."""
-
-    PUBLIC = "public"  # Boleh dibaca semua user
-    INTERNAL = "internal"  # Hanya role tertentu
-    SENSITIVE = "sensitive"  # Perlu logging khusus, mungkin dienkripsi
-    SECRET = "secret"  # Rahasia, tidak boleh diekspor (password, API key)
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    SENSITIVE = "sensitive"
+    SECRET = "secret"
 
 
 @dataclass
 class SystemSetting:
-    """
-    Aggregate Root System Setting.
-    """
-
     id: UUID
     key: str
     value: Any
     value_type: SettingValueType
     scope: SettingScope
-    legal_entity_id: UUID | None  # None jika scope = GLOBAL
+    legal_entity_id: UUID | None
     category: SettingCategory
     description: str | None
     is_editable: bool
@@ -99,7 +81,7 @@ class SystemSetting:
     min_value: int | float | Decimal | None
     max_value: int | float | Decimal | None
     allowed_values: list[Any] | None
-    depends_on: list[str] | None  # Keys dari setting lain yang dibutuhkan
+    depends_on: list[str] | None
     version: int
     created_at: datetime
     created_by: UUID
@@ -146,7 +128,7 @@ class SystemSetting:
         if isinstance(value, UUID):
             return str(value)
         if isinstance(value, Decimal):
-            return str(value)  # Hindari konversi ke float untuk presisi
+            return str(value)
         if isinstance(value, Enum):
             return value.value
         if isinstance(value, list) and all(isinstance(v, Decimal) for v in value):
@@ -154,14 +136,12 @@ class SystemSetting:
         return value
 
     def get_typed_value(self) -> Any:
-        """Mengembalikan nilai dengan tipe data yang benar."""
         if self.value_type == SettingValueType.STRING:
             return str(self.value)
         elif self.value_type == SettingValueType.INTEGER:
             return int(self.value)
         elif self.value_type == SettingValueType.FLOAT:
-            # Gunakan Decimal internal untuk presisi, kembalikan Decimal
-            return self.value  # self.value sudah Decimal
+            return self.value
         elif self.value_type == SettingValueType.BOOLEAN:
             if isinstance(self.value, bool):
                 return self.value
@@ -183,7 +163,6 @@ class SystemSetting:
                 return self.value
             return datetime.fromisoformat(str(self.value))
         elif self.value_type == SettingValueType.TIME:
-            # Time hanya disimpan sebagai string, tidak diolah
             return str(self.value)
         elif self.value_type == SettingValueType.UUID:
             if isinstance(self.value, UUID):
@@ -192,20 +171,125 @@ class SystemSetting:
         return self.value
 
 
-class SystemSettingRepositoryPort:
+# ==================== PORT (INTERFACE) ====================
+
+class SystemSettingRepositoryPort(abc.ABC):
+    """Port untuk system setting repository."""
+
+    @abc.abstractmethod
+    async def add(self, setting: SystemSetting) -> None:
+        """Tambah setting baru."""
+        ...
+
+    @abc.abstractmethod
+    async def get_by_key(
+        self, key: str, legal_entity_id: UUID | None = None
+    ) -> SystemSetting | None:
+        """Ambil setting berdasarkan key (prioritas legal_entity lalu global)."""
+        ...
+
+    @abc.abstractmethod
+    async def get_by_id(self, setting_id: UUID) -> SystemSetting | None:
+        """Ambil setting berdasarkan ID."""
+        ...
+
+    @abc.abstractmethod
+    async def update(self, setting: SystemSetting) -> None:
+        """Update setting."""
+        ...
+
+    @abc.abstractmethod
+    async def delete(self, setting_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """Hapus setting (soft atau hard)."""
+        ...
+
+    @abc.abstractmethod
+    async def get_value(
+        self, key: str, default: Any = None, legal_entity_id: UUID | None = None
+    ) -> Any:
+        """Ambil nilai setting (tanpa metadata)."""
+        ...
+
+    @abc.abstractmethod
+    async def set_value(
+        self, key: str, value: Any, updated_by: UUID, legal_entity_id: UUID | None = None
+    ) -> bool:
+        """Set nilai setting (buat jika belum ada)."""
+        ...
+
+    @abc.abstractmethod
+    async def get_by_category(
+        self, category: SettingCategory, legal_entity_id: UUID | None = None
+    ) -> list[SystemSetting]:
+        """Ambil setting berdasarkan kategori."""
+        ...
+
+    @abc.abstractmethod
+    async def get_all(
+        self, legal_entity_id: UUID | None = None, include_deleted: bool = False
+    ) -> list[SystemSetting]:
+        """Ambil semua setting (filter legal_entity)."""
+        ...
+
+    @abc.abstractmethod
+    async def get_public_settings(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
+        """Ambil setting publik (visible & public sensitivity)."""
+        ...
+
+    @abc.abstractmethod
+    async def get_secrets(self, legal_entity_id: UUID | None = None) -> dict[str, str]:
+        """Ambil setting secret (sensitivity SECRET)."""
+        ...
+
+    @abc.abstractmethod
+    async def check_dependencies(self, key: str, legal_entity_id: UUID | None = None) -> list[str]:
+        """Cek setting lain yang bergantung pada key."""
+        ...
+
+    @abc.abstractmethod
+    async def export_to_json(
+        self, legal_entity_id: UUID | None = None, include_secrets: bool = False
+    ) -> str:
+        """Ekspor setting ke JSON."""
+        ...
+
+    @abc.abstractmethod
+    async def import_from_json(self, json_str: str, user_id: UUID, overwrite: bool = False) -> int:
+        """Impor setting dari JSON."""
+        ...
+
+    @abc.abstractmethod
+    async def hot_reload(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
+        """Simulasi hot reload."""
+        ...
+
+    @abc.abstractmethod
+    async def get_statistics(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
+        """Statistik setting."""
+        ...
+
+    @abc.abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abc.abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check."""
+        ...
+
+    def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:
+        """Daftarkan custom validation hook (implementasi opsional)."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY ====================
+
+class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
     """
     In-memory repository untuk system settings.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
-
-    __slots__ = (
-        "_audit_log",
-        "_category_index",
-        "_default_settings_loaded",
-        "_key_index",
-        "_lock",
-        "_storage",
-        "_validation_hooks",
-    )
 
     def __init__(self) -> None:
         self._storage: dict[UUID, SystemSetting] = {}
@@ -215,417 +299,43 @@ class SystemSettingRepositoryPort:
         self._validation_hooks: dict[str, Callable[[Any], bool]] = {}
         self._lock = asyncio.Lock()
         self._default_settings_loaded = False
-
-        # Inisialisasi default settings
         asyncio.create_task(self._init_default_settings())
 
-    # ==================== INITIALIZATION ====================
-
     async def _init_default_settings(self) -> None:
-        """Load default system settings."""
         if self._default_settings_loaded:
             return
-
         defaults = [
-            # General
-            (
-                "company_name",
-                "ERP Accounting System",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.GENERAL,
-                "Nama perusahaan",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "company_logo_url",
-                "",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.GENERAL,
-                "URL logo perusahaan",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "default_currency",
-                "IDR",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.GENERAL,
-                "Mata uang default",
-                True,
-                SettingSensitivity.PUBLIC,
-                "^[A-Z]{3}$",
-                None,
-                None,
-                None,
-            ),
-            (
-                "fiscal_year_start_month",
-                1,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.ACCOUNTING,
-                "Bulan awal tahun fiskal (1-12)",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                1,
-                12,
-                None,
-            ),
-            # Accounting
-            (
-                "auto_generate_journal_number",
-                True,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.ACCOUNTING,
-                "Generate nomor jurnal otomatis",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "require_approval_before_posting",
-                True,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.ACCOUNTING,
-                "Wajib approval 4 mata sebelum posting",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "period_close_auto_lock",
-                True,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.ACCOUNTING,
-                "Tutup periode otomatis setelah tanggal batas",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "default_depreciation_method",
-                "STRAIGHT_LINE",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.ACCOUNTING,
-                "Metode depresiasi default",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                None,
-                None,
-                ["STRAIGHT_LINE", "DOUBLE_DECLINING", "UNITS_OF_PRODUCTION"],
-            ),
-            # Security
-            (
-                "password_min_length",
-                8,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.SECURITY,
-                "Minimal panjang password",
-                True,
-                SettingSensitivity.SENSITIVE,
-                None,
-                6,
-                20,
-                None,
-            ),
-            (
-                "session_timeout_minutes",
-                480,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.SECURITY,
-                "Session timeout dalam menit",
-                True,
-                SettingSensitivity.SENSITIVE,
-                None,
-                15,
-                1440,
-                None,
-            ),
-            (
-                "max_login_attempts",
-                5,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.SECURITY,
-                "Maksimal percobaan login sebelum lock",
-                True,
-                SettingSensitivity.SENSITIVE,
-                None,
-                3,
-                10,
-                None,
-            ),
-            (
-                "mfa_required",
-                False,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.SECURITY,
-                "Wajib MFA untuk semua user",
-                True,
-                SettingSensitivity.SENSITIVE,
-                None,
-                None,
-                None,
-                None,
-            ),
-            # Integration
-            (
-                "coretax_api_base_url",
-                "https://api.coretax.djp.go.id/v2",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.INTEGRATION,
-                "Coretax DJP API endpoint",
-                True,
-                SettingSensitivity.SECRET,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "coretax_api_timeout_seconds",
-                30,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.INTEGRATION,
-                "Timeout koneksi Coretax",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                5,
-                120,
-                None,
-            ),
-            (
-                "kafka_bootstrap_servers",
-                "localhost:9092",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.INTEGRATION,
-                "Kafka bootstrap servers",
-                True,
-                SettingSensitivity.SECRET,
-                None,
-                None,
-                None,
-                None,
-            ),
-            # Feature flags
-            (
-                "enable_multi_currency",
-                True,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.FEATURE_FLAG,
-                "Aktifkan multi mata uang",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "enable_inventory_module",
-                True,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.FEATURE_FLAG,
-                "Aktifkan modul inventory",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "enable_fixed_asset_module",
-                True,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.FEATURE_FLAG,
-                "Aktifkan modul aset tetap",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "enable_manufacturing_module",
-                False,
-                SettingValueType.BOOLEAN,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.FEATURE_FLAG,
-                "Aktifkan modul manufaktur",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                None,
-                None,
-                None,
-            ),
-            # Notification
-            (
-                "smtp_host",
-                "",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.NOTIFICATION,
-                "SMTP server host",
-                True,
-                SettingSensitivity.SECRET,
-                None,
-                None,
-                None,
-                None,
-            ),
-            (
-                "smtp_port",
-                587,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.NOTIFICATION,
-                "SMTP port",
-                True,
-                SettingSensitivity.SECRET,
-                None,
-                1,
-                65535,
-                None,
-            ),
-            (
-                "alert_email_recipients",
-                "",
-                SettingValueType.STRING,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.NOTIFICATION,
-                "Email penerima alert (pisahkan koma)",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                None,
-                None,
-                None,
-            ),
-            # Performance
-            (
-                "outbox_poller_interval_seconds",
-                5,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.PERFORMANCE,
-                "Interval polling outbox (detik)",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                1,
-                60,
-                None,
-            ),
-            (
-                "max_retry_outbox",
-                10,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.PERFORMANCE,
-                "Maksimal retry outbox sebelum dead letter",
-                True,
-                SettingSensitivity.INTERNAL,
-                None,
-                1,
-                50,
-                None,
-            ),
-            (
-                "page_size_default",
-                50,
-                SettingValueType.INTEGER,
-                SettingScope.GLOBAL,
-                None,
-                SettingCategory.PERFORMANCE,
-                "Default page size untuk pagination",
-                True,
-                SettingSensitivity.PUBLIC,
-                None,
-                10,
-                500,
-                None,
-            ),
+            ("company_name", "ERP Accounting System", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.GENERAL, "Nama perusahaan", True, SettingSensitivity.PUBLIC, None, None, None, None),
+            ("company_logo_url", "", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.GENERAL, "URL logo perusahaan", True, SettingSensitivity.PUBLIC, None, None, None, None),
+            ("default_currency", "IDR", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.GENERAL, "Mata uang default", True, SettingSensitivity.PUBLIC, "^[A-Z]{3}$", None, None, None),
+            ("fiscal_year_start_month", 1, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.ACCOUNTING, "Bulan awal tahun fiskal (1-12)", True, SettingSensitivity.INTERNAL, None, 1, 12, None),
+            ("auto_generate_journal_number", True, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.ACCOUNTING, "Generate nomor jurnal otomatis", True, SettingSensitivity.INTERNAL, None, None, None, None),
+            ("require_approval_before_posting", True, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.ACCOUNTING, "Wajib approval 4 mata sebelum posting", True, SettingSensitivity.INTERNAL, None, None, None, None),
+            ("period_close_auto_lock", True, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.ACCOUNTING, "Tutup periode otomatis setelah tanggal batas", True, SettingSensitivity.INTERNAL, None, None, None, None),
+            ("default_depreciation_method", "STRAIGHT_LINE", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.ACCOUNTING, "Metode depresiasi default", True, SettingSensitivity.INTERNAL, None, None, None, ["STRAIGHT_LINE", "DOUBLE_DECLINING", "UNITS_OF_PRODUCTION"]),
+            ("password_min_length", 8, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.SECURITY, "Minimal panjang password", True, SettingSensitivity.SENSITIVE, None, 6, 20, None),
+            ("session_timeout_minutes", 480, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.SECURITY, "Session timeout dalam menit", True, SettingSensitivity.SENSITIVE, None, 15, 1440, None),
+            ("max_login_attempts", 5, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.SECURITY, "Maksimal percobaan login sebelum lock", True, SettingSensitivity.SENSITIVE, None, 3, 10, None),
+            ("mfa_required", False, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.SECURITY, "Wajib MFA untuk semua user", True, SettingSensitivity.SENSITIVE, None, None, None, None),
+            ("coretax_api_base_url", "https://api.coretax.djp.go.id/v2", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.INTEGRATION, "Coretax DJP API endpoint", True, SettingSensitivity.SECRET, None, None, None, None),
+            ("coretax_api_timeout_seconds", 30, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.INTEGRATION, "Timeout koneksi Coretax", True, SettingSensitivity.INTERNAL, None, 5, 120, None),
+            ("kafka_bootstrap_servers", "localhost:9092", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.INTEGRATION, "Kafka bootstrap servers", True, SettingSensitivity.SECRET, None, None, None, None),
+            ("enable_multi_currency", True, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.FEATURE_FLAG, "Aktifkan multi mata uang", True, SettingSensitivity.PUBLIC, None, None, None, None),
+            ("enable_inventory_module", True, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.FEATURE_FLAG, "Aktifkan modul inventory", True, SettingSensitivity.PUBLIC, None, None, None, None),
+            ("enable_fixed_asset_module", True, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.FEATURE_FLAG, "Aktifkan modul aset tetap", True, SettingSensitivity.PUBLIC, None, None, None, None),
+            ("enable_manufacturing_module", False, SettingValueType.BOOLEAN, SettingScope.GLOBAL, None, SettingCategory.FEATURE_FLAG, "Aktifkan modul manufaktur", True, SettingSensitivity.PUBLIC, None, None, None, None),
+            ("smtp_host", "", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.NOTIFICATION, "SMTP server host", True, SettingSensitivity.SECRET, None, None, None, None),
+            ("smtp_port", 587, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.NOTIFICATION, "SMTP port", True, SettingSensitivity.SECRET, None, 1, 65535, None),
+            ("alert_email_recipients", "", SettingValueType.STRING, SettingScope.GLOBAL, None, SettingCategory.NOTIFICATION, "Email penerima alert (pisahkan koma)", True, SettingSensitivity.INTERNAL, None, None, None, None),
+            ("outbox_poller_interval_seconds", 5, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.PERFORMANCE, "Interval polling outbox (detik)", True, SettingSensitivity.INTERNAL, None, 1, 60, None),
+            ("max_retry_outbox", 10, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.PERFORMANCE, "Maksimal retry outbox sebelum dead letter", True, SettingSensitivity.INTERNAL, None, 1, 50, None),
+            ("page_size_default", 50, SettingValueType.INTEGER, SettingScope.GLOBAL, None, SettingCategory.PERFORMANCE, "Default page size untuk pagination", True, SettingSensitivity.PUBLIC, None, 10, 500, None),
         ]
-
-        for default in defaults:
+        for d in defaults:
             await self._add_default_setting(
-                key=default[0],
-                value=default[1],
-                value_type=default[2],
-                scope=default[3],
-                legal_entity_id=default[4],
-                category=default[5],
-                description=default[6],
-                is_editable=default[7],
-                sensitivity=default[8],
-                validation_regex=default[9],
-                min_value=default[10],
-                max_value=default[11],
-                allowed_values=default[12],
+                key=d[0], value=d[1], value_type=d[2], scope=d[3], legal_entity_id=d[4],
+                category=d[5], description=d[6], is_editable=d[7], sensitivity=d[8],
+                validation_regex=d[9], min_value=d[10], max_value=d[11], allowed_values=d[12]
             )
         self._default_settings_loaded = True
         logger.info("Default system settings loaded")
@@ -647,7 +357,6 @@ class SystemSettingRepositoryPort:
         allowed_values: list[Any] | None = None,
         depends_on: list[str] | None = None,
     ) -> None:
-        """Helper untuk menambah setting default (jika belum ada)."""
         existing = await self.get_by_key(key, legal_entity_id)
         if existing:
             return
@@ -677,8 +386,6 @@ class SystemSettingRepositoryPort:
         )
         await self.add(setting)
 
-    # ==================== AUDIT LOG ====================
-
     async def _log_audit(
         self, action: str, setting_id: UUID, user_id: UUID, details: dict[str, Any]
     ) -> None:
@@ -692,17 +399,11 @@ class SystemSettingRepositoryPort:
         self._audit_log.append(entry)
         logger.info(f"SETTING AUDIT: {action} on {setting_id} by {user_id}")
 
-    # ==================== VALIDATION ====================
-
     async def _validate_value(self, setting: SystemSetting, new_value: Any) -> bool:
-        """Validasi nilai baru sesuai tipe dan constraint."""
         try:
             if setting.value_type == SettingValueType.INTEGER:
                 new_value = int(new_value)
-            elif setting.value_type == SettingValueType.FLOAT:
-                # Simpan sebagai Decimal untuk presisi dan menghindari float di internal
-                new_value = Decimal(str(new_value))
-            elif setting.value_type == SettingValueType.DECIMAL:
+            elif setting.value_type == SettingValueType.FLOAT or setting.value_type == SettingValueType.DECIMAL:
                 new_value = Decimal(str(new_value))
             elif setting.value_type == SettingValueType.BOOLEAN:
                 if isinstance(new_value, bool):
@@ -725,19 +426,14 @@ class SystemSettingRepositoryPort:
 
         if setting.validation_regex:
             if not re.match(setting.validation_regex, str(new_value)):
-                raise ValueError(
-                    f"Value '{new_value}' does not match regex {setting.validation_regex}"
-                )
+                raise ValueError(f"Value '{new_value}' does not match regex {setting.validation_regex}")
 
-        # Range validation - semua perbandingan menggunakan Decimal untuk presisi
         if setting.min_value is not None or setting.max_value is not None:
-            # Konversi new_value ke Decimal jika belum
             if not isinstance(new_value, (Decimal, int, float)):
                 try:
                     new_value = Decimal(str(new_value))
                 except Exception:
                     raise ValueError(f"Cannot convert '{new_value}' to Decimal for range check")
-
             if setting.min_value is not None:
                 min_val = Decimal(str(setting.min_value))
                 if new_value < min_val:
@@ -749,9 +445,7 @@ class SystemSettingRepositoryPort:
 
         if setting.allowed_values:
             if new_value not in setting.allowed_values:
-                raise ValueError(
-                    f"Value '{new_value}' not in allowed values: {setting.allowed_values}"
-                )
+                raise ValueError(f"Value '{new_value}' not in allowed values: {setting.allowed_values}")
 
         if setting.key in self._validation_hooks:
             if not self._validation_hooks[setting.key](new_value):
@@ -760,20 +454,14 @@ class SystemSettingRepositoryPort:
         return True
 
     def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:
-        """Daftarkan custom validation hook untuk setting tertentu."""
         self._validation_hooks[key] = hook
-
-    # ==================== CRUD ====================
 
     async def add(self, setting: SystemSetting) -> None:
         if setting.id in self._storage:
             raise ValueError(f"Setting {setting.id} already exists")
         key_index = (setting.key, setting.legal_entity_id)
         if key_index in self._key_index:
-            raise ValueError(
-                f"Setting key '{setting.key}' already exists for scope {setting.scope.value}"
-            )
-
+            raise ValueError(f"Setting key '{setting.key}' already exists for scope {setting.scope.value}")
         await self._validate_value(setting, setting.value)
         async with self._lock:
             self._storage[setting.id] = setting
@@ -809,7 +497,6 @@ class SystemSettingRepositoryPort:
             raise ValueError("Cannot update deleted setting")
         if not old.is_editable:
             raise ValueError(f"Setting {old.key} is not editable")
-
         await self._validate_value(old, setting.value)
         old_value = old.get_typed_value()
         new_value = setting.get_typed_value()
@@ -867,8 +554,6 @@ class SystemSettingRepositoryPort:
             setting.version += 1
             await self._log_audit("DELETE_SOFT", setting_id, user_id, {"key": setting.key})
         return True
-
-    # ==================== VALUE GETTER/SETTER ====================
 
     async def get_value(
         self, key: str, default: Any = None, legal_entity_id: UUID | None = None
@@ -941,8 +626,6 @@ class SystemSettingRepositoryPort:
             return SettingValueType.UUID
         return SettingValueType.STRING
 
-    # ==================== QUERY ====================
-
     async def get_by_category(
         self, category: SettingCategory, legal_entity_id: UUID | None = None
     ) -> list[SystemSetting]:
@@ -987,8 +670,6 @@ class SystemSettingRepositoryPort:
                 result[s.key] = str(s.get_typed_value())
         return result
 
-    # ==================== DEPENDENCY CHECK ====================
-
     async def check_dependencies(self, key: str, legal_entity_id: UUID | None = None) -> list[str]:
         dependents = []
         for setting in self._storage.values():
@@ -997,8 +678,6 @@ class SystemSettingRepositoryPort:
             if setting.depends_on and key in setting.depends_on:
                 dependents.append(setting.key)
         return dependents
-
-    # ==================== IMPORT/EXPORT ====================
 
     async def export_to_json(
         self, legal_entity_id: UUID | None = None, include_secrets: bool = False
@@ -1029,15 +708,11 @@ class SystemSettingRepositoryPort:
                 category = SettingCategory(setting_data["category"])
                 sensitivity = SettingSensitivity(setting_data["sensitivity"])
                 value = setting_data["value"]
-                # Konversi nilai berdasarkan tipe
                 if value_type == SettingValueType.BOOLEAN:
                     value = bool(value)
                 elif value_type == SettingValueType.INTEGER:
                     value = int(value)
-                elif value_type == SettingValueType.FLOAT:
-                    # Simpan sebagai Decimal untuk konsistensi internal
-                    value = Decimal(str(value))
-                elif value_type == SettingValueType.DECIMAL:
+                elif value_type == SettingValueType.FLOAT or value_type == SettingValueType.DECIMAL:
                     value = Decimal(str(value))
                 elif value_type == SettingValueType.DATE:
                     value = date.fromisoformat(value)
@@ -1046,7 +721,6 @@ class SystemSettingRepositoryPort:
                 elif value_type == SettingValueType.UUID:
                     value = UUID(value)
 
-                # Proses min_value, max_value, allowed_values sesuai tipe
                 min_val = setting_data.get("min_value")
                 if min_val is not None:
                     min_val = Decimal(str(min_val))
@@ -1094,8 +768,6 @@ class SystemSettingRepositoryPort:
                 logger.warning(f"Import setting {setting_data.get('key')} failed: {e}")
         return count
 
-    # ==================== HOT RELOAD SIMULATION ====================
-
     async def hot_reload(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
         logger.info(f"Hot reload triggered for legal_entity {legal_entity_id}")
         return {
@@ -1104,8 +776,6 @@ class SystemSettingRepositoryPort:
             "timestamp": datetime.now(UTC).isoformat(),
             "settings_count": len(await self.get_all(legal_entity_id)),
         }
-
-    # ==================== STATISTICS & AUDIT ====================
 
     async def get_statistics(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
         settings = await self.get_all(legal_entity_id)
@@ -1120,9 +790,7 @@ class SystemSettingRepositoryPort:
             "editable_settings": editable,
             "non_editable_settings": total - editable,
             "by_category": by_category,
-            "secret_settings": sum(
-                1 for s in settings if s.sensitivity == SettingSensitivity.SECRET
-            ),
+            "secret_settings": sum(1 for s in settings if s.sensitivity == SettingSensitivity.SECRET),
         }
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
@@ -1136,3 +804,14 @@ class SystemSettingRepositoryPort:
             "audit_log_size": len(self._audit_log),
             "default_settings_loaded": self._default_settings_loaded,
         }
+
+
+__all__ = [
+    "InMemorySystemSettingRepository",
+    "SettingCategory",
+    "SettingScope",
+    "SettingSensitivity",
+    "SettingValueType",
+    "SystemSetting",
+    "SystemSettingRepositoryPort",
+]

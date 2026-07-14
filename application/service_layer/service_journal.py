@@ -320,7 +320,7 @@ class JournalService:
             logger.warning(f"Network error publishing {event.__class__.__name__} for {log_context}: {e}")
         except RuntimeError as e:
             logger.warning(f"Runtime error publishing {event.__class__.__name__} for {log_context}: {e}")
-        except Exception as e:  # noqa: BLE001 - intentional: event failure must not break main transaction
+        except Exception as e:
             logger.warning(f"Unexpected error publishing {event.__class__.__name__} for {log_context}: {e}")
 
     # ==================== CORE POSTING ====================
@@ -403,7 +403,7 @@ class JournalService:
             # LedgerRepositoryPort implementation.
             await self._ledger_repo.post_journal_lines(journal)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -472,7 +472,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -522,7 +522,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -569,7 +569,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -626,7 +626,7 @@ class JournalService:
             # LedgerRepositoryPort implementation.
             await self._ledger_repo.post_journal_lines(aggregate.journal)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -715,7 +715,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -764,7 +764,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -813,7 +813,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -916,7 +916,7 @@ class JournalService:
             # LedgerRepositoryPort implementation.
             await self._ledger_repo.post_journal_lines(reversal_journal)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -968,7 +968,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 
@@ -1013,7 +1013,7 @@ class JournalService:
         try:
             await self._journal_repo.save(aggregate)
             await self._commit_transaction()
-        except Exception:  # noqa: BLE001 - intentional: any failure here must trigger rollback
+        except Exception:
             await self._rollback_transaction()
             raise
 

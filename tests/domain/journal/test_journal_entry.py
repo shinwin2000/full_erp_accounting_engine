@@ -18,7 +18,6 @@ import pytest
 
 from domain.journal.journal_entry import JournalEntry, JournalEntryStatus, JournalLine
 
-
 # ============================================================================
 # JournalEntryStatus
 # ============================================================================

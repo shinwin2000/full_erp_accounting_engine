@@ -24,7 +24,6 @@ from domain.journal.state_machine import (
     StateTransitionRule,
 )
 
-
 # ============================================================================
 # ALLOWED_TRANSITIONS graph
 # ============================================================================

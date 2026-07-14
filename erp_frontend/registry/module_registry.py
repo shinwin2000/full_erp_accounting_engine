@@ -135,6 +135,11 @@ _reg(ModuleConfig(
     base_path="/ap/ap", list_path="/invoices", custom_page=True,
 ))
 _reg(ModuleConfig(
+    key="approval_matrix", label="Approval Matrix & Delegasi", category="Akuntansi Inti", icon="🧭",
+    base_path="/approval/approvals", custom_page=True,
+    description="Konfigurasi aturan approval per level & delegasi wewenang.",
+))
+_reg(ModuleConfig(
     key="approvals", label="Approval Inbox", category="Akuntansi Inti", icon="✅",
     base_path="/approval/approvals", list_path="/my-tasks", custom_page=True,
 ))
@@ -282,6 +287,11 @@ _reg(ModuleConfig(
     actions=ACTIVATE_ACTIONS + LOCK_ACTIONS,
 ))
 _reg(ModuleConfig(
+    key="bank_reconciliation", label="Rekonsiliasi & Transfer Bank", category="Kas & Bank", icon="🔄",
+    base_path="/bank-cash/bank-cash", custom_page=True,
+    description="Rekonsiliasi bank, transfer antar rekening, petty cash, cash book.",
+))
+_reg(ModuleConfig(
     key="bank_transactions", label="Transaksi Bank/Kas", category="Kas & Bank", icon="💵",
     base_path="/bank-cash/bank-cash", list_path="/transactions",
     columns=[("transaction_date", "Tanggal"), ("amount", "Jumlah"), ("description", "Keterangan")],
@@ -427,6 +437,11 @@ _reg(ModuleConfig(
     can_edit=False,
 ))
 _reg(ModuleConfig(
+    key="stock_opname", label="Stock Opname & Valuasi", category="Inventori", icon="📋",
+    base_path="/inventory/inventory", custom_page=True,
+    description="Hitung fisik stok, kartu stok, valuasi persediaan, alert stok menipis.",
+))
+_reg(ModuleConfig(
     key="warehouses", label="Gudang", category="Inventori", icon="🏬",
     base_path="/inventory/inventory", list_path="/warehouses",
     columns=[("warehouse_code", "Kode"), ("warehouse_name", "Nama"), ("location", "Lokasi")],
@@ -482,6 +497,11 @@ _reg(ModuleConfig(
 ))
 
 # === Purchase / Sales / Project =============================================
+_reg(ModuleConfig(
+    key="goods_receipt", label="Goods Receipt & Delivery Order", category="Pembelian & Penjualan", icon="📥",
+    base_path="/purchase-sales/purchase-sales", custom_page=True,
+    description="Terima barang dari PO, kirim barang dari SO.",
+))
 _reg(ModuleConfig(
     key="purchase_orders", label="Purchase Order", category="Pembelian & Penjualan", icon="🛒",
     base_path="/purchase-sales/purchase-sales", list_path="/purchase-orders",
@@ -618,6 +638,11 @@ _reg(ModuleConfig(
     ],
 ))
 _reg(ModuleConfig(
+    key="consolidation_run", label="Jalankan Konsolidasi, Eliminasi & NCI", category="Treasury", icon="🧩",
+    base_path="/consolidation/consolidation", custom_page=True,
+    description="Eksekusi proses konsolidasi grup, eliminasi, dan perhitungan NCI.",
+))
+_reg(ModuleConfig(
     key="consolidation_groups", label="Grup Konsolidasi", category="Treasury", icon="🧩",
     base_path="/consolidation/consolidation", list_path="/groups",
     columns=[("group_code", "Kode"), ("group_name", "Nama Grup"), ("functional_currency", "Mata Uang Fungsional")],
@@ -647,6 +672,11 @@ _reg(ModuleConfig(
 ))
 
 # === Payroll, Budget, Tax, Documents, Reports ==============================
+_reg(ModuleConfig(
+    key="payroll_salary", label="Struktur Gaji & Payslip", category="SDM & Payroll", icon="💰",
+    base_path="/payroll", custom_page=True,
+    description="Salary structure, salary components, payslip per karyawan.",
+))
 _reg(ModuleConfig(
     key="payroll_runs", label="Payroll Run", category="SDM & Payroll", icon="🧮",
     base_path="/payroll", list_path="/runs",
@@ -678,6 +708,11 @@ _reg(ModuleConfig(
     actions=STANDARD_DOC_ACTIONS[:3],
 ))
 _reg(ModuleConfig(
+    key="tax_spt", label="SPT, e-Bupot & e-Meterai", category="Pajak", icon="🧾",
+    base_path="/tax/coretax/tax", custom_page=True,
+    description="SPT Masa PPN/PPh21/PPh23, SPT Tahunan Badan, e-Bupot, e-Meterai, NSFP.",
+))
+_reg(ModuleConfig(
     key="tax_faktur", label="Faktur Pajak (Coretax)", category="Pajak", icon="🧾",
     base_path="/tax/coretax/tax", list_path="/faktur-pajak",
     columns=[("reference_id", "No. Referensi"), ("faktur_date", "Tanggal"), ("nama_pembeli", "Pembeli"), ("dpp", "DPP")],
@@ -695,15 +730,8 @@ _reg(ModuleConfig(
 ))
 _reg(ModuleConfig(
     key="documents", label="Manajemen Dokumen", category="Umum", icon="📎",
-    base_path="/documents/documents", list_path="/",
-    columns=[("filename", "Nama File"), ("document_type", "Tipe"), ("entity_type", "Terkait")],
-    form_fields=[
-        FieldSpec("entity_type", "Tipe Entitas Terkait"),
-        FieldSpec("entity_id", "ID Entitas Terkait (UUID)", FieldType.UUID),
-        FieldSpec("document_type", "Tipe Dokumen"),
-        FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
-    ],
-    can_create=False,  # upload dilakukan lewat endpoint multipart terpisah
+    base_path="/documents/documents", custom_page=True,
+    description="Upload, download, dan workflow approval dokumen (implementasi lengkap).",
 ))
 _reg(ModuleConfig(
     key="reports", label="Report Terjadwal", category="Umum", icon="🗂️",

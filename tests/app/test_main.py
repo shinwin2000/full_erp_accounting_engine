@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit test untuk app/main.py
 Menggunakan pytest, mock, dan FastAPI TestClient.
 Semua koneksi eksternal (DB, Redis, Kafka, MinIO, OpenTelemetry) dimock.

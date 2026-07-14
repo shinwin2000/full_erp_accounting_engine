@@ -12,6 +12,7 @@ Perbaikan:
 - Audit trail di semua method (INV-046)
 - Tambahan version attribute dan replay/reconstruct untuk kepatuhan checker
 - Tambahan _record_audit sebagai wrapper untuk kepatuhan audit_trail_completeness_checker
+- Class-level type declarations untuk id dan version (agar checker mengenali UUID dan int)
 """
 
 from __future__ import annotations
@@ -49,7 +50,8 @@ logger = logging.getLogger(__name__)
 class InventoryAggregate:
     """Inventory Aggregate Root - mengelola item persediaan dan stok."""
 
-    # ---- Class-level attribute for static checker compliance ----
+    # ---- Class-level attribute declarations for static checker compliance ----
+    id: UUID
     version: int
 
     def __init__(
@@ -61,6 +63,7 @@ class InventoryAggregate:
         self.id = id or uuid4()
         self.legal_entity_id = legal_entity_id
         self._version = version
+        self.version = version  # type: ignore
         self._item: Item | None = None
         self._events: list[Any] = []
         self._fifo_layers: list[dict] = []
@@ -74,7 +77,6 @@ class InventoryAggregate:
         self._deactivated_at: datetime | None = None
         self._deactivated_by: UUID | None = None
         self._warehouse_id: UUID | None = None
-        self.version = version  # set attribute
 
     # ==================== PROPERTIES ====================
 

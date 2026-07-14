@@ -11,7 +11,6 @@ Responsibility:
     dan sistem eksternal.
 
 Modules exported:
-    - read_model_projection_port   : Projection & read model handling
     - snapshot_store_port          : Snapshot storage for aggregate states
     - cqrs_query_handler_port      : Query bus and handler for CQRS read side
     - analytics_export_port        : Data export to various formats and destinations
@@ -53,18 +52,6 @@ from .cqrs_query_handler_port import (
     apply_sorting,
 )
 
-# ==================== READ MODEL PROJECTION ====================
-from .read_model_projection_port import (
-    BaseProjector,
-    Checkpoint,
-    ProjectionError,
-    ProjectionEvent,
-    ProjectionStatus,
-    ProjectionVersion,
-    Projector,
-    ReadModelProjectionPort,
-)
-
 # ==================== SNAPSHOT STORE ====================
 from .snapshot_store_port import (
     Snapshot,
@@ -81,15 +68,6 @@ logger = logging.getLogger(__name__)
 # ==================== EXPORTS ====================
 
 __all__ = [
-    # Read Model Projection
-    "ReadModelProjectionPort",
-    "Projector",
-    "BaseProjector",
-    "ProjectionEvent",
-    "Checkpoint",
-    "ProjectionStatus",
-    "ProjectionVersion",
-    "ProjectionError",
     # Snapshot Store
     "SnapshotStorePort",
     "Snapshot",

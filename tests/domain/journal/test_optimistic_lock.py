@@ -11,7 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
@@ -24,7 +23,6 @@ from domain.journal.optimistic_lock import (
     OptimisticLockManager,
     VersionedJournalMixin,
 )
-
 
 # ============================================================================
 # OptimisticLockException

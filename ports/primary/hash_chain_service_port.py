@@ -2,16 +2,12 @@
 """
 Module: hash_chain_service_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory hash chain service untuk tamper-proof audit trail.
-               Mendukung multiple chain types (event store, audit log, journal batch, tax submission),
-               cryptographic hashing (SHA3-256), digital signing (simulasi RSA-PSS),
-               timestamp notary integration, chain verification, gap detection,
-               export/import chain in JSON, integrity monitoring, dan alerting.
-Audit: Setiap penambahan entri, verifikasi, dan operasi signing tercatat.
+Responsibility: Port untuk hash chain service (tamper-proof audit trail).
 """
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import hashlib
 import json
@@ -27,9 +23,9 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 
-class ChainType(Enum):
-    """Jenis hash chain yang didukung."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class ChainType(Enum):
     EVENT_STORE = "event_store"
     AUDIT_LOG = "audit_log"
     JOURNAL_BATCH = "journal_batch"
@@ -39,8 +35,6 @@ class ChainType(Enum):
 
 
 class ChainStatus(Enum):
-    """Status integritas chain."""
-
     VALID = "valid"
     CORRUPTED = "corrupted"
     PARTIAL = "partial"
@@ -48,8 +42,6 @@ class ChainStatus(Enum):
 
 
 class SignatureAlgorithm(Enum):
-    """Algoritma digital signature."""
-
     RSA_PSS = "rsa_pss"
     ECDSA = "ecdsa"
     NONE = "none"
@@ -57,20 +49,18 @@ class SignatureAlgorithm(Enum):
 
 @dataclass
 class HashChainEntry:
-    """Entri dalam hash chain."""
-
     sequence: int
     prev_hash: str | None
     current_hash: str
     payload_hash: str
-    payload_type: str  # "event", "audit", "journal", "tax", dll
-    payload_ref_id: UUID | None  # ID dari objek asli (event_id, journal_id, dll)
+    payload_type: str
+    payload_ref_id: UUID | None
     timestamp: datetime
     created_by: UUID
     signature: str | None = None
     signature_algorithm: SignatureAlgorithm = SignatureAlgorithm.NONE
     signer_cert_fingerprint: str | None = None
-    timestamp_token: str | None = None  # dari timestamp notary
+    timestamp_token: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -93,8 +83,6 @@ class HashChainEntry:
 
 @dataclass
 class IntegrityCheckResult:
-    """Hasil verifikasi integritas chain."""
-
     chain_type: ChainType
     chain_id: UUID
     status: ChainStatus
@@ -107,37 +95,182 @@ class IntegrityCheckResult:
     duration_ms: int
 
 
-class HashChainServicePort:
+# ==================== PORT (INTERFACE) ====================
+
+class HashChainServicePort(abc.ABC):
+    """Port untuk hash chain service."""
+
+    @abc.abstractmethod
+    async def append(
+        self,
+        chain_type: ChainType,
+        chain_id: UUID,
+        payload: dict[str, Any],
+        payload_type: str,
+        payload_ref_id: UUID | None,
+        created_by: UUID,
+        metadata: dict[str, Any] | None = None,
+        sign: bool = True,
+        timestamp_token: str | None = None,
+    ) -> HashChainEntry:
+        """Tambahkan entri baru ke hash chain."""
+        ...
+
+    @abc.abstractmethod
+    async def verify_chain(
+        self,
+        chain_type: ChainType,
+        chain_id: UUID,
+        deep_verify: bool = True,
+        check_signatures: bool = True,
+    ) -> IntegrityCheckResult:
+        """Verifikasi integritas seluruh chain."""
+        ...
+
+    @abc.abstractmethod
+    async def verify_all_chains(
+        self, check_signatures: bool = True
+    ) -> dict[ChainType, dict[UUID, IntegrityCheckResult]]:
+        """Verifikasi semua chain yang ada."""
+        ...
+
+    @abc.abstractmethod
+    async def get_last_hash(self, chain_type: ChainType, chain_id: UUID) -> str | None:
+        """Dapatkan hash terakhir dari chain."""
+        ...
+
+    @abc.abstractmethod
+    async def get_chain_entries(
+        self,
+        chain_type: ChainType,
+        chain_id: UUID,
+        limit: int = 1000,
+        offset: int = 0,
+        include_payload: bool = False,
+    ) -> list[HashChainEntry]:
+        """Ambil entri chain dengan pagination."""
+        ...
+
+    @abc.abstractmethod
+    async def get_chain_length(self, chain_type: ChainType, chain_id: UUID) -> int:
+        """Jumlah entri dalam chain."""
+        ...
+
+    @abc.abstractmethod
+    async def get_entry_by_hash(self, current_hash: str) -> HashChainEntry | None:
+        """Cari entri berdasarkan hash."""
+        ...
+
+    @abc.abstractmethod
+    async def get_entry_by_sequence(
+        self, chain_type: ChainType, chain_id: UUID, sequence: int
+    ) -> HashChainEntry | None:
+        """Cari entri berdasarkan sequence."""
+        ...
+
+    @abc.abstractmethod
+    async def detect_gaps(self, chain_type: ChainType, chain_id: UUID) -> list[int]:
+        """Deteksi missing sequences dalam chain."""
+        ...
+
+    @abc.abstractmethod
+    async def repair_gap(
+        self,
+        chain_type: ChainType,
+        chain_id: UUID,
+        missing_sequence: int,
+        payload: dict[str, Any],
+        payload_type: str,
+        payload_ref_id: UUID | None,
+        created_by: UUID,
+        metadata: dict[str, Any] | None = None,
+    ) -> HashChainEntry | None:
+        """Isi gap pada sequence tertentu."""
+        ...
+
+    @abc.abstractmethod
+    async def start_monitoring(
+        self, interval_seconds: int = 3600, alert_callback: callable | None = None
+    ):
+        """Mulai background monitoring untuk verifikasi periodik."""
+        ...
+
+    @abc.abstractmethod
+    async def stop_monitoring(self):
+        """Hentikan background monitoring."""
+        ...
+
+    @abc.abstractmethod
+    async def export_chain(
+        self, chain_type: ChainType, chain_id: UUID, include_payload: bool = False
+    ) -> str:
+        """Ekspor chain ke JSON."""
+        ...
+
+    @abc.abstractmethod
+    async def import_chain(
+        self, chain_json: str, overwrite: bool = False
+    ) -> tuple[ChainType, UUID]:
+        """Impor chain dari JSON."""
+        ...
+
+    @abc.abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Statistik service."""
+        ...
+
+    @abc.abstractmethod
+    async def get_integrity_history(self, limit: int = 50) -> list[IntegrityCheckResult]:
+        """Riwayat verifikasi integritas."""
+        ...
+
+    @abc.abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check."""
+        ...
+
+    @abc.abstractmethod
+    async def build_merkle_root(self, chain_type: ChainType, chain_id: UUID) -> str | None:
+        """Bangun Merkle root dari chain."""
+        ...
+
+    @abc.abstractmethod
+    async def attach_timestamp_token(
+        self,
+        chain_type: ChainType,
+        chain_id: UUID,
+        sequence: int,
+        timestamp_token: str,
+        user_id: UUID,
+    ) -> bool:
+        """Attach timestamp token ke entri tertentu."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY ====================
+
+class InMemoryHashChainService(HashChainServicePort):
     """
     In-memory hash chain service dengan fitur enterprise.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self):
         self._chains: dict[ChainType, dict[UUID, list[HashChainEntry]]] = {}
-        self._hash_index: dict[
-            str, tuple[ChainType, UUID, int]
-        ] = {}  # current_hash -> (chain_type, chain_id, sequence)
+        self._hash_index: dict[str, tuple[ChainType, UUID, int]] = {}
         self._integrity_results: list[IntegrityCheckResult] = []
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._monitor_task: asyncio.Task | None = None
         self._monitoring = False
-
-        # Inisialisasi dummy keys untuk signing (development)
         self._private_key_pem: str | None = None
         self._public_key_pem: str | None = None
         self._init_dummy_keys()
 
-    # ==================== INISIALISASI ====================
-
     def _init_dummy_keys(self):
-        """Generate dummy RSA key pair untuk development (simulasi)."""
-        # Di production, gunakan HSM atau Vault. Untuk development, generate simulasi.
         self._private_key_pem = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n-----END PRIVATE KEY-----"
         self._public_key_pem = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END PUBLIC KEY-----"
         logger.info("Hash chain service initialized with dummy keys for development")
-
-    # ==================== AUDIT LOG ====================
 
     async def _log_audit(
         self,
@@ -158,14 +291,8 @@ class HashChainServicePort:
         self._audit_log.append(entry)
         logger.info(f"HASH CHAIN AUDIT: {action} on {chain_type.value}/{chain_id} by {user_id}")
 
-    # ==================== HASH COMPUTATION ====================
-
     @staticmethod
     async def compute_hash(data: dict[str, Any], prev_hash: str | None = None) -> str:
-        """
-        Menghitung hash SHA3-256 dari data dictionary + prev_hash.
-        Menggunakan JSON serialization dengan sort_keys=True untuk konsistensi.
-        """
         json_str = json.dumps(data, sort_keys=True, separators=(",", ":"))
         if prev_hash:
             combined = prev_hash + json_str
@@ -175,27 +302,17 @@ class HashChainServicePort:
 
     @staticmethod
     async def compute_payload_hash(payload: dict[str, Any]) -> str:
-        """Hash dari payload data (tanpa prev_hash)."""
         return hashlib.sha3_256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
 
-    # ==================== DIGITAL SIGNATURE ====================
-
     async def sign_hash(self, hash_value: str, key_id: str | None = None) -> str:
-        """
-        Menandatangani hash dengan private key (simulasi RSA-PSS).
-        Di production, gunakan HSM atau key vault.
-        """
-        # Simulasi: signature = "sig:" + hash_value[:16] + ":" + secrets.token_hex(32)
         signature = f"sig:{hash_value[:16]}:{secrets.token_hex(32)}"
         return signature
 
     async def verify_signature(
         self, hash_value: str, signature: str, cert_fingerprint: str | None = None
     ) -> bool:
-        """Verifikasi signature (simulasi)."""
-        # Simulasi: signature must start with "sig:" and contain hash prefix
         if not signature.startswith("sig:"):
             return False
         parts = signature.split(":")
@@ -203,8 +320,6 @@ class HashChainServicePort:
             return False
         expected_prefix = hash_value[:16]
         return parts[1] == expected_prefix
-
-    # ==================== APPEND TO CHAIN ====================
 
     async def append(
         self,
@@ -218,12 +333,6 @@ class HashChainServicePort:
         sign: bool = True,
         timestamp_token: str | None = None,
     ) -> HashChainEntry:
-        """
-        Menambahkan entri baru ke hash chain.
-        Menghitung payload_hash, lalu current_hash dari prev_hash + payload_hash.
-        Opsional: sign dan attach timestamp token.
-        """
-        # Inisialisasi chain storage jika belum ada
         if chain_type not in self._chains:
             self._chains[chain_type] = {}
         if chain_id not in self._chains[chain_type]:
@@ -233,13 +342,9 @@ class HashChainServicePort:
         sequence = len(chain) + 1
         prev_hash = chain[-1].current_hash if chain else None
 
-        # Hitung hash payload
         payload_hash = await self.compute_payload_hash(payload)
-
-        # Hitung current hash
         current_hash = await self.compute_hash({"payload_hash": payload_hash}, prev_hash)
 
-        # Tanda tangan
         signature = None
         sig_alg = SignatureAlgorithm.NONE
         cert_fp = None
@@ -282,8 +387,6 @@ class HashChainServicePort:
         )
         return entry
 
-    # ==================== VERIFY CHAIN INTEGRITY ====================
-
     async def verify_chain(
         self,
         chain_type: ChainType,
@@ -291,12 +394,6 @@ class HashChainServicePort:
         deep_verify: bool = True,
         check_signatures: bool = True,
     ) -> IntegrityCheckResult:
-        """
-        Memverifikasi integritas seluruh rantai.
-        - Memeriksa konsistensi hash berantai.
-        - Opsional memeriksa signature digital.
-        - Mendeteksi gap atau korupsi.
-        """
         start_time = time.perf_counter()
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
         if not chain:
@@ -316,14 +413,12 @@ class HashChainServicePort:
         prev_hash_calc = None
         invalid_sequences = []
         for idx, entry in enumerate(chain):
-            # Verify hash chain
             combined = {"payload_hash": entry.payload_hash}
             expected_hash = await self.compute_hash(combined, prev_hash_calc)
             if expected_hash != entry.current_hash:
                 invalid_sequences.append(entry.sequence)
                 continue
 
-            # Verify signature jika diminta
             if (
                 check_signatures
                 and entry.signature
@@ -379,7 +474,6 @@ class HashChainServicePort:
     async def verify_all_chains(
         self, check_signatures: bool = True
     ) -> dict[ChainType, dict[UUID, IntegrityCheckResult]]:
-        """Verifikasi semua chain yang ada."""
         results = {}
         for chain_type, chains in self._chains.items():
             results[chain_type] = {}
@@ -388,8 +482,6 @@ class HashChainServicePort:
                     chain_type, chain_id, check_signatures=check_signatures
                 )
         return results
-
-    # ==================== GETTERS ====================
 
     async def get_last_hash(self, chain_type: ChainType, chain_id: UUID) -> str | None:
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
@@ -406,9 +498,6 @@ class HashChainServicePort:
         include_payload: bool = False,
     ) -> list[HashChainEntry]:
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
-        if not chain:
-            return []
-        # offset dari awal, atau bisa juga dari akhir? Default dari awal.
         return chain[offset : offset + limit]
 
     async def get_chain_length(self, chain_type: ChainType, chain_id: UUID) -> int:
@@ -432,12 +521,7 @@ class HashChainServicePort:
             return chain[sequence - 1]
         return None
 
-    # ==================== GAP DETECTION ====================
-
     async def detect_gaps(self, chain_type: ChainType, chain_id: UUID) -> list[int]:
-        """
-        Mendeteksi missing sequences dalam chain (jika ada gap karena kegagalan penyimpanan).
-        """
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
         if not chain:
             return []
@@ -457,10 +541,6 @@ class HashChainServicePort:
         created_by: UUID,
         metadata: dict[str, Any] | None = None,
     ) -> HashChainEntry | None:
-        """
-        Mengisi gap pada sequence tertentu (hanya jika belum ada). Hati-hati: ini bisa merusak chain.
-        Gunakan hanya untuk recovery yang terkontrol.
-        """
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
         existing = [e for e in chain if e.sequence == missing_sequence]
         if existing:
@@ -468,7 +548,6 @@ class HashChainServicePort:
                 f"Sequence {missing_sequence} already exists in chain {chain_type}/{chain_id}"
             )
             return None
-        # Cari prev_hash dari entry sebelumnya
         prev_entry = None
         for e in chain:
             if e.sequence == missing_sequence - 1:
@@ -491,7 +570,6 @@ class HashChainServicePort:
             metadata=metadata or {},
         )
         async with self._lock:
-            # Masukkan ke posisi yang benar (urut berdasarkan sequence)
             chain.append(new_entry)
             chain.sort(key=lambda x: x.sequence)
             self._hash_index[current_hash] = (chain_type, chain_id, missing_sequence)
@@ -500,12 +578,9 @@ class HashChainServicePort:
         )
         return new_entry
 
-    # ==================== INTEGRITY MONITORING ====================
-
     async def start_monitoring(
         self, interval_seconds: int = 3600, alert_callback: callable | None = None
     ):
-        """Mulai background task untuk verifikasi periodik semua chain."""
         if self._monitoring:
             logger.warning("Monitoring already running")
             return
@@ -537,17 +612,13 @@ class HashChainServicePort:
             try:
                 await self._monitor_task
             except asyncio.CancelledError:
-                # Log that the task was cancelled as expected during shutdown
                 logger.debug("Hash chain monitoring task cancelled during stop")
             self._monitor_task = None
         logger.info("Hash chain monitoring stopped")
 
-    # ==================== EXPORT/IMPORT ====================
-
     async def export_chain(
         self, chain_type: ChainType, chain_id: UUID, include_payload: bool = False
     ) -> str:
-        """Ekspor seluruh chain ke format JSON (untuk backup/audit)."""
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
         data = {
             "chain_type": chain_type.value,
@@ -555,16 +626,11 @@ class HashChainServicePort:
             "exported_at": datetime.now(UTC).isoformat(),
             "entries": [e.to_dict() for e in chain],
         }
-        if include_payload:
-            # Payload tidak disimpan di HashChainEntry, perlu diambil dari sumber lain.
-            # Untuk export sederhana, kita hanya export metadata.
-            pass
         return json.dumps(data, indent=2)
 
     async def import_chain(
         self, chain_json: str, overwrite: bool = False
     ) -> tuple[ChainType, UUID]:
-        """Impor chain dari JSON. Hati-hati: bisa merusak integritas jika tidak divalidasi."""
         data = json.loads(chain_json)
         chain_type = ChainType(data["chain_type"])
         chain_id = UUID(data["chain_id"])
@@ -594,15 +660,12 @@ class HashChainServicePort:
             if chain_id in self._chains[chain_type] and not overwrite:
                 raise ValueError(f"Chain {chain_type.value}/{chain_id} already exists")
             self._chains[chain_type][chain_id] = imported_entries
-            # Rebuild hash index
             for entry in imported_entries:
                 self._hash_index[entry.current_hash] = (chain_type, chain_id, entry.sequence)
         await self._log_audit(
             "IMPORT", chain_type, chain_id, UUID(int=0), {"entries": len(imported_entries)}
         )
         return chain_type, chain_id
-
-    # ==================== STATISTICS & HEALTH ====================
 
     async def get_statistics(self) -> dict[str, Any]:
         total_chains = sum(len(chains) for chains in self._chains.values())
@@ -637,10 +700,7 @@ class HashChainServicePort:
             "audit_log_size": len(self._audit_log),
         }
 
-    # ==================== MERKLE TREE (optional extension) ====================
-
     async def build_merkle_root(self, chain_type: ChainType, chain_id: UUID) -> str | None:
-        """Bangun Merkle root dari seluruh hash di chain (untuk verifikasi cepat)."""
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
         if not chain:
             return None
@@ -655,8 +715,6 @@ class HashChainServicePort:
             hashes = new_hashes
         return hashes[0]
 
-    # ==================== TIMESTAMP INTEGRATION ====================
-
     async def attach_timestamp_token(
         self,
         chain_type: ChainType,
@@ -665,7 +723,6 @@ class HashChainServicePort:
         timestamp_token: str,
         user_id: UUID,
     ) -> bool:
-        """Attach timestamp token dari notary ke entry tertentu."""
         chain = self._chains.get(chain_type, {}).get(chain_id, [])
         if sequence > len(chain):
             return False
@@ -677,3 +734,14 @@ class HashChainServicePort:
             "ATTACH_TIMESTAMP", chain_type, chain_id, user_id, {"sequence": sequence}
         )
         return True
+
+
+__all__ = [
+    "ChainStatus",
+    "ChainType",
+    "HashChainEntry",
+    "HashChainServicePort",
+    "InMemoryHashChainService",
+    "IntegrityCheckResult",
+    "SignatureAlgorithm",
+]

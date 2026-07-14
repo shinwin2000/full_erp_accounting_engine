@@ -54,7 +54,6 @@ from domain.journal.domain_events import (
 )
 from domain.journal.journal_entity import JournalEntity, JournalStatus, JournalType
 
-
 # ============================================================================
 # DomainEventType
 # ============================================================================

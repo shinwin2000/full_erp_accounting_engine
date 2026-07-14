@@ -183,6 +183,45 @@ class ApiClient:
     def delete(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
         return self.request("DELETE", path, params=params)
 
+    def upload_file(
+        self,
+        path: str,
+        file_path: str,
+        form_fields: Optional[dict[str, Any]] = None,
+    ) -> Any:
+        """Upload file via multipart/form-data (mis. POST /documents/documents/upload)."""
+        if session.access_token:
+            self._ensure_fresh_token()
+        url = f"{self.base_url}{path}"
+        headers = {"Authorization": f"Bearer {session.access_token}"} if session.access_token else {}
+        clean_fields = {k: str(v) for k, v in (form_fields or {}).items() if v is not None and v != ""}
+        try:
+            with open(file_path, "rb") as fh:
+                files = {"file": (file_path.split("/")[-1].split("\\")[-1], fh)}
+                resp = self._http.post(
+                    url, files=files, data=clean_fields, headers=headers,
+                    timeout=settings.request_timeout, verify=settings.verify_ssl,
+                )
+        except requests.exceptions.RequestException as exc:
+            raise ConnectionFailedError(f"Upload gagal: {exc}") from exc
+        except OSError as exc:
+            raise ConnectionFailedError(f"Tidak bisa membaca file: {exc}") from exc
+
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text or resp.reason
+            raise ApiError(resp.status_code, detail, url=url)
+        return resp.json() if resp.content else None
+
+    def download_file(self, path: str, save_path: str) -> str:
+        """Download binary response (mis. GET /documents/{id}/download) ke file lokal."""
+        resp = self.request("GET", path, raw=True)
+        with open(save_path, "wb") as fh:
+            fh.write(resp.content)
+        return save_path
+
     # ------------------------------------------------------------------
     def login(
         self,

@@ -2,11 +2,9 @@
 """
 Module: snapshot_store_port.py
 Layer: Ports (Secondary)
-Responsibility: Antarmuka dan implementasi in-memory untuk snapshot store.
-               Menyimpan state aggregate secara periodik untuk mempercepat
-               event sourcing replay. Mendukung kompresi, enkripsi opsional,
-               TTL, versioning, multi-tenant, audit, dan cleanup.
-Audit: Setiap penyimpanan dan pengambilan snapshot tercatat.
+Responsibility:
+    - Mendefinisikan antarmuka (port) untuk snapshot store.
+    - Menyediakan implementasi in-memory untuk testing/fallback.
 """
 
 from __future__ import annotations
@@ -16,6 +14,7 @@ import hashlib
 import json
 import logging
 import zlib
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -25,17 +24,15 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 
-class SnapshotCompression(Enum):
-    """Jenis kompresi snapshot."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class SnapshotCompression(Enum):
     NONE = "none"
     ZLIB = "zlib"
-    GZIP = "gzip"  # simulated as zlib
+    GZIP = "gzip"
 
 
 class SnapshotStatus(Enum):
-    """Status snapshot."""
-
     ACTIVE = "active"
     ARCHIVED = "archived"
     DELETED = "deleted"
@@ -43,8 +40,6 @@ class SnapshotStatus(Enum):
 
 @dataclass
 class SnapshotMetadata:
-    """Metadata snapshot."""
-
     snapshot_id: UUID
     aggregate_type: str
     aggregate_id: UUID
@@ -83,22 +78,123 @@ class SnapshotMetadata:
 
 @dataclass
 class Snapshot:
-    """Snapshot dengan data dan metadata."""
-
     metadata: SnapshotMetadata
-    data: bytes  # snapshot data (state aggregate)
+    data: bytes
 
 
-class SnapshotStorePort:
+# ==================== PORT (INTERFACE) ====================
+
+class SnapshotStorePort(ABC):
     """
-    In-memory snapshot store.
+    Port untuk snapshot store.
+    Semua metode wajib diimplementasikan oleh adapter konkret.
+    """
+
+    @abstractmethod
+    async def save(
+        self,
+        aggregate_type: str,
+        aggregate_id: UUID,
+        version: int,
+        last_event_sequence: int,
+        state: Any,
+        created_by: UUID,
+        tags: dict[str, str] | None = None,
+        ttl_days: int | None = None,
+    ) -> UUID:
+        """Simpan snapshot dari state aggregate. Return snapshot_id."""
+        ...
+
+    @abstractmethod
+    async def load_latest(
+        self, aggregate_type: str, aggregate_id: UUID
+    ) -> tuple[UUID, Any, int, int] | None:
+        """
+        Load snapshot terbaru untuk aggregate.
+        Return (snapshot_id, state, version, last_event_sequence) atau None.
+        """
+        ...
+
+    @abstractmethod
+    async def load_by_version(
+        self, aggregate_type: str, aggregate_id: UUID, version: int
+    ) -> tuple[UUID, Any, int] | None:
+        """Load snapshot berdasarkan version tertentu."""
+        ...
+
+    @abstractmethod
+    async def delete(self, snapshot_id: UUID, permanent: bool = False) -> bool:
+        """Soft delete (default) atau permanent delete snapshot."""
+        ...
+
+    @abstractmethod
+    async def delete_by_aggregate(self, aggregate_type: str, aggregate_id: UUID) -> int:
+        """Hapus semua snapshot untuk aggregate tertentu. Return jumlah yang dihapus."""
+        ...
+
+    @abstractmethod
+    async def cleanup_expired(self) -> int:
+        """Hapus snapshot yang expired. Return jumlah yang dihapus."""
+        ...
+
+    @abstractmethod
+    async def start_cleanup_scheduler(self, interval_hours: int = 24):
+        """Start background task untuk cleanup berkala."""
+        ...
+
+    @abstractmethod
+    async def stop_cleanup(self):
+        """Stop background cleanup task."""
+        ...
+
+    @abstractmethod
+    async def list_snapshots(
+        self,
+        aggregate_type: str | None = None,
+        aggregate_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[SnapshotMetadata]:
+        """Daftar snapshot dengan filter."""
+        ...
+
+    @abstractmethod
+    async def get_snapshot_metadata(self, snapshot_id: UUID) -> SnapshotMetadata | None:
+        """Ambil metadata snapshot."""
+        ...
+
+    @abstractmethod
+    async def get_latest_version(self, aggregate_type: str, aggregate_id: UUID) -> int | None:
+        """Dapatkan version terbaru dari snapshot yang tersimpan."""
+        ...
+
+    @abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Dapatkan statistik snapshot."""
+        ...
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Cek kesehatan snapshot store."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemorySnapshotStore(SnapshotStorePort):
+    """
+    Implementasi in-memory untuk snapshot store.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self, default_ttl_days: int = 30, enable_compression: bool = True):
         self._snapshots: dict[UUID, Snapshot] = {}
-        self._index_by_aggregate: dict[
-            tuple[str, UUID], list[UUID]
-        ] = {}  # (aggregate_type, aggregate_id) -> list of snapshot ids
+        self._index_by_aggregate: dict[tuple[str, UUID], list[UUID]] = {}
         self._default_ttl = default_ttl_days
         self._enable_compression = enable_compression
         self._audit_log: list[dict[str, Any]] = []
@@ -106,7 +202,7 @@ class SnapshotStorePort:
         self._cleanup_task: asyncio.Task | None = None
         self._running = False
 
-    # ==================== HELPER ====================
+    # ------------------- Helpers -------------------
 
     async def _log_audit(self, action: str, snapshot_id: UUID, details: dict[str, Any]):
         entry = {
@@ -133,17 +229,15 @@ class SnapshotStorePort:
         elif compression == SnapshotCompression.ZLIB:
             return zlib.decompress(data)
         else:
-            return data  # fallback
+            return data
 
     async def _serialize_state(self, state: Any) -> bytes:
-        """Serialize state ke JSON bytes."""
         return json.dumps(state, default=str, sort_keys=True).encode()
 
     async def _deserialize_state(self, data: bytes) -> Any:
-        """Deserialize dari bytes ke state."""
         return json.loads(data.decode())
 
-    # ==================== SAVE ====================
+    # ------------------- Save -------------------
 
     async def save(
         self,
@@ -156,13 +250,11 @@ class SnapshotStorePort:
         tags: dict[str, str] | None = None,
         ttl_days: int | None = None,
     ) -> UUID:
-        """Simpan snapshot dari state aggregate."""
         snapshot_id = uuid4()
         now = datetime.now(UTC)
         ttl = ttl_days or self._default_ttl
         expires_at = now + timedelta(days=ttl) if ttl > 0 else None
 
-        # Serialize
         raw_data = await self._serialize_state(state)
         compressed_data, compression = await self._compress(raw_data)
         data_hash = await self._compute_hash(compressed_data)
@@ -206,20 +298,15 @@ class SnapshotStorePort:
         )
         return snapshot_id
 
-    # ==================== LOAD ====================
+    # ------------------- Load -------------------
 
     async def load_latest(
         self, aggregate_type: str, aggregate_id: UUID
     ) -> tuple[UUID, Any, int, int] | None:
-        """
-        Load snapshot terbaru untuk aggregate.
-        Returns (snapshot_id, state, version, last_event_sequence) atau None.
-        """
         key = (aggregate_type, aggregate_id)
         snapshot_ids = self._index_by_aggregate.get(key, [])
         if not snapshot_ids:
             return None
-        # Cari yang status ACTIVE dan terbaru
         latest = None
         latest_sequence = -1
         for sid in snapshot_ids:
@@ -230,9 +317,7 @@ class SnapshotStorePort:
                     latest_sequence = snap.metadata.last_event_sequence
         if not latest:
             return None
-        # Check expiration
         if latest.metadata.expires_at and latest.metadata.expires_at < datetime.now(UTC):
-            # Snapshot expired, treat as not exists
             return None
         decompressed = await self._decompress(latest.data, latest.metadata.compression)
         state = await self._deserialize_state(decompressed)
@@ -254,7 +339,6 @@ class SnapshotStorePort:
     async def load_by_version(
         self, aggregate_type: str, aggregate_id: UUID, version: int
     ) -> tuple[UUID, Any, int] | None:
-        """Load snapshot berdasarkan version tertentu (max version <= given)."""
         key = (aggregate_type, aggregate_id)
         snapshot_ids = self._index_by_aggregate.get(key, [])
         best = None
@@ -273,15 +357,13 @@ class SnapshotStorePort:
         state = await self._deserialize_state(decompressed)
         return (best.metadata.snapshot_id, state, best.metadata.version)
 
-    # ==================== DELETE & CLEANUP ====================
+    # ------------------- Delete & Cleanup -------------------
 
     async def delete(self, snapshot_id: UUID, permanent: bool = False) -> bool:
-        """Soft delete (default) atau permanent delete snapshot."""
         snap = self._snapshots.get(snapshot_id)
         if not snap:
             return False
         if permanent:
-            # Hapus dari index
             key = (snap.metadata.aggregate_type, snap.metadata.aggregate_id)
             if key in self._index_by_aggregate:
                 self._index_by_aggregate[key] = [
@@ -295,7 +377,6 @@ class SnapshotStorePort:
         return True
 
     async def delete_by_aggregate(self, aggregate_type: str, aggregate_id: UUID) -> int:
-        """Hapus semua snapshot untuk aggregate tertentu."""
         key = (aggregate_type, aggregate_id)
         snapshot_ids = self._index_by_aggregate.get(key, []).copy()
         count = 0
@@ -314,7 +395,6 @@ class SnapshotStorePort:
         return count
 
     async def cleanup_expired(self) -> int:
-        """Hapus snapshot yang expired."""
         now = datetime.now(UTC)
         expired_ids = []
         for sid, snap in self._snapshots.items():
@@ -326,7 +406,6 @@ class SnapshotStorePort:
         return len(expired_ids)
 
     async def start_cleanup_scheduler(self, interval_hours: int = 24):
-        """Start background task untuk cleanup berkala."""
         if self._running:
             return
         self._running = True
@@ -344,11 +423,9 @@ class SnapshotStorePort:
             try:
                 await self._cleanup_task
             except asyncio.CancelledError:
-                # Perbaikan: log bahwa task berhenti normal, tidak lagi silent swallow
                 logger.info("Cleanup task cancelled successfully.")
-                # Tidak perlu raise karena ini adalah shutdown yang diinginkan
 
-    # ==================== QUERY ====================
+    # ------------------- Query -------------------
 
     async def list_snapshots(
         self,
@@ -357,7 +434,6 @@ class SnapshotStorePort:
         limit: int = 100,
         offset: int = 0,
     ) -> list[SnapshotMetadata]:
-        """Daftar snapshot dengan filter."""
         result = []
         for snap in self._snapshots.values():
             if aggregate_type and snap.metadata.aggregate_type != aggregate_type:
@@ -375,19 +451,16 @@ class SnapshotStorePort:
         return snap.metadata if snap else None
 
     async def get_latest_version(self, aggregate_type: str, aggregate_id: UUID) -> int | None:
-        """Dapatkan version terbaru dari snapshot yang tersimpan."""
         latest = await self.load_latest(aggregate_type, aggregate_id)
         if latest:
-            return latest[2]  # version
+            return latest[2]
         return None
 
-    # ==================== STATISTICS & HEALTH ====================
+    # ------------------- Statistics & Health -------------------
 
     async def get_statistics(self) -> dict[str, Any]:
         total_snapshots = len(self._snapshots)
-        active = sum(
-            1 for s in self._snapshots.values() if s.metadata.status == SnapshotStatus.ACTIVE
-        )
+        active = sum(1 for s in self._snapshots.values() if s.metadata.status == SnapshotStatus.ACTIVE)
         total_size = sum(s.metadata.compressed_size_bytes for s in self._snapshots.values())
         by_aggregate_type = {}
         for s in self._snapshots.values():
@@ -416,3 +489,15 @@ class SnapshotStorePort:
             "cleanup_running": self._running,
             "audit_log_size": len(self._audit_log),
         }
+
+
+# ==================== EXPORTS ====================
+
+__all__ = [
+    "InMemorySnapshotStore",
+    "Snapshot",
+    "SnapshotCompression",
+    "SnapshotMetadata",
+    "SnapshotStatus",
+    "SnapshotStorePort",
+]

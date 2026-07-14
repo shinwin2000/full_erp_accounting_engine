@@ -134,6 +134,13 @@ filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    # kafka-python (via gssapi's legacy `six` meta-path-importer shim) emits an
+    # ImportWarning on modern Python because it still calls the old
+    # find_module() API instead of find_spec(). This is a third-party library
+    # quirk, not a bug in our own code, and our own optional-import guards
+    # only catch ImportError - "error" above was silently turning this into
+    # an uncaught exception during test collection. Ignore it specifically.
+    "ignore::ImportWarning",
 ]
 
 # ── Coverage ─────────────────────────────────────────────────

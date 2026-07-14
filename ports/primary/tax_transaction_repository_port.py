@@ -2,19 +2,18 @@
 """
 Module: tax_transaction_repository_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory repository untuk transaksi pajak.
-               Mendukung PPN (keluaran/masukan), PPh (21,22,23,25,26,4(2), badan),
-               kredit pajak, pembayaran pajak, SPT Masa/Tahunan, restitusi,
-               audit trail, import/export CSV, dan statistik perpajakan.
-Audit: Setiap transaksi pajak tercatat.
-Perbaikan: Semua nilai moneter menggunakan str() bukan float().
+Responsibility: 
+    - Mendefinisikan antarmuka (port) untuk repository transaksi pajak.
+    - Menyediakan implementasi in-memory untuk keperluan testing/fallback.
 """
 
 from __future__ import annotations
 
 import asyncio
 import csv
+import io
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -25,36 +24,32 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 
-class TaxType(Enum):
-    """Jenis pajak."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
-    PPN_OUT = "ppn_out"  # PPN keluaran
-    PPN_IN = "ppn_in"  # PPN masukan
-    PPH_21 = "pph_21"  # PPh Pasal 21 (pegawai)
-    PPH_22 = "pph_22"  # PPh Pasal 22 (impor, pembelian)
-    PPH_23 = "pph_23"  # PPh Pasal 23 (jasa)
-    PPH_24 = "pph_24"  # PPh Pasal 24 (PPh luar negeri)
-    PPH_25 = "pph_25"  # PPh Pasal 25 (angsuran)
-    PPH_26 = "pph_26"  # PPh Pasal 26 (LN)
-    PPH_4_2 = "pph_4_2"  # PPh Final Pasal 4 ayat 2
-    PPH_BADAN = "pph_badan"  # PPh Badan tahunan
-    PPH_OP = "pph_op"  # PPh Orang Pribadi
+class TaxType(Enum):
+    PPN_OUT = "ppn_out"
+    PPN_IN = "ppn_in"
+    PPH_21 = "pph_21"
+    PPH_22 = "pph_22"
+    PPH_23 = "pph_23"
+    PPH_24 = "pph_24"
+    PPH_25 = "pph_25"
+    PPH_26 = "pph_26"
+    PPH_4_2 = "pph_4_2"
+    PPH_BADAN = "pph_badan"
+    PPH_OP = "pph_op"
 
 
 class TaxTransactionStatus(Enum):
-    """Status transaksi pajak."""
-
-    DRAFT = "draft"  # Draft
-    SUBMITTED = "submitted"  # Diajukan
-    PAID = "paid"  # Dibayar
-    REPORTED = "reported"  # Dilaporkan di SPT
-    ADJUSTED = "adjusted"  # Disesuaikan
-    VOID = "void"  # Batal
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    PAID = "paid"
+    REPORTED = "reported"
+    ADJUSTED = "adjusted"
+    VOID = "void"
 
 
 class SPTType(Enum):
-    """Jenis SPT."""
-
     PPN_MASA = "ppn_masa"
     PPH_21_MASA = "pph_21_masa"
     PPH_22_MASA = "pph_22_masa"
@@ -67,30 +62,25 @@ class SPTType(Enum):
 
 @dataclass
 class TaxTransaction:
-    """
-    Aggregate Root TaxTransaction.
-    Mencatat setiap kewajiban atau kredit pajak.
-    """
-
     id: UUID
     legal_entity_id: UUID
     tax_type: TaxType
     transaction_date: date
     tax_period_month: int
     tax_period_year: int
-    amount: Decimal  # Jumlah dasar (DPP untuk PPN)
-    tax_amount: Decimal  # Pajak terutang/kredit
-    rate: Decimal  # Tarif pajak saat transaksi
+    amount: Decimal
+    tax_amount: Decimal
+    rate: Decimal
     status: TaxTransactionStatus
-    reference_type: str | None
-    reference_id: UUID | None
-    description: str | None
-    is_credit: bool = False  # True jika ini kredit pajak (masukan/PPh dipotong)
+    reference_type: str | None = None
+    reference_id: UUID | None = None
+    description: str | None = None
+    is_credit: bool = False
     payment_date: date | None = None
     payment_amount: Decimal = Decimal(0)
-    ntpn: str | None = None  # Nomor Transaksi Penerimaan Negara
+    ntpn: str | None = None
     reported_in_spt_id: UUID | None = None
-    adjusted_from_id: UUID | None = None  # Jika ini adjustment
+    adjusted_from_id: UUID | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: UUID = field(default_factory=lambda: UUID(int=0))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -106,16 +96,16 @@ class TaxTransaction:
             "transaction_date": self.transaction_date.isoformat(),
             "tax_period_month": self.tax_period_month,
             "tax_period_year": self.tax_period_year,
-            "amount": str(self.amount),          # ← str
-            "tax_amount": str(self.tax_amount),  # ← str
-            "rate": str(self.rate),              # ← str
+            "amount": str(self.amount),
+            "tax_amount": str(self.tax_amount),
+            "rate": str(self.rate),
             "status": self.status.value,
             "reference_type": self.reference_type,
             "reference_id": str(self.reference_id) if self.reference_id else None,
             "description": self.description,
             "is_credit": self.is_credit,
             "payment_date": self.payment_date.isoformat() if self.payment_date else None,
-            "payment_amount": str(self.payment_amount),   # ← str
+            "payment_amount": str(self.payment_amount),
             "ntpn": self.ntpn,
             "reported_in_spt_id": str(self.reported_in_spt_id) if self.reported_in_spt_id else None,
             "adjusted_from_id": str(self.adjusted_from_id) if self.adjusted_from_id else None,
@@ -130,40 +120,184 @@ class TaxTransaction:
 
 @dataclass
 class SPTSubmission:
-    """
-    Record SPT yang dilaporkan ke DJP.
-    """
-
     id: UUID
     legal_entity_id: UUID
     spt_type: SPTType
     period_month: int
     period_year: int
-    status: str  # DRAFT, SUBMITTED, APPROVED, REJECTED
+    status: str
     total_tax_due: Decimal
     total_tax_paid: Decimal
     total_tax_credit: Decimal
-    submission_date: date | None
-    approval_code: str | None
-    rejection_reason: str | None
-    xml_content: str | None
-    created_at: datetime
-    created_by: UUID
-    updated_at: datetime
-    updated_by: UUID
+    submission_date: date | None = None
+    approval_code: str | None = None
+    rejection_reason: str | None = None
+    xml_content: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_by: UUID = field(default_factory=lambda: UUID(int=0))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_by: UUID = field(default_factory=lambda: UUID(int=0))
 
 
-class TaxTransactionRepositoryPort:
+# ==================== PORT (INTERFACE) ====================
+
+class TaxTransactionRepositoryPort(ABC):
+    """Port untuk repository transaksi pajak."""
+
+    @abstractmethod
+    async def add(self, tax_transaction: TaxTransaction) -> None:
+        pass
+
+    @abstractmethod
+    async def get_by_id(self, tax_transaction_id: UUID) -> TaxTransaction | None:
+        pass
+
+    @abstractmethod
+    async def update(self, tax_transaction: TaxTransaction) -> None:
+        pass
+
+    @abstractmethod
+    async def delete(
+        self, tax_transaction_id: UUID, user_id: UUID, permanent: bool = False
+    ) -> bool:
+        pass
+
+    @abstractmethod
+    async def find_by_period(
+        self, legal_entity_id: UUID, tax_type: TaxType, year: int, month: int
+    ) -> list[TaxTransaction]:
+        pass
+
+    @abstractmethod
+    async def find_by_period_range(
+        self,
+        legal_entity_id: UUID,
+        tax_type: TaxType,
+        start_year: int,
+        start_month: int,
+        end_year: int,
+        end_month: int,
+    ) -> list[TaxTransaction]:
+        pass
+
+    @abstractmethod
+    async def get_total_tax_liability(
+        self, legal_entity_id: UUID, tax_type: TaxType, start_date: date, end_date: date
+    ) -> Decimal:
+        pass
+
+    @abstractmethod
+    async def get_total_tax_credit(
+        self, legal_entity_id: UUID, tax_type: TaxType, start_date: date, end_date: date
+    ) -> Decimal:
+        pass
+
+    @abstractmethod
+    async def find_by_reference(
+        self, reference_type: str, reference_id: UUID
+    ) -> list[TaxTransaction]:
+        pass
+
+    @abstractmethod
+    async def create_spt_submission(
+        self,
+        legal_entity_id: UUID,
+        spt_type: SPTType,
+        period_month: int,
+        period_year: int,
+        total_tax_due: Decimal,
+        total_tax_paid: Decimal,
+        total_tax_credit: Decimal,
+        created_by: UUID,
+    ) -> UUID:
+        pass
+
+    @abstractmethod
+    async def submit_spt(
+        self, spt_id: UUID, submission_date: date, xml_content: str, user_id: UUID
+    ) -> bool:
+        pass
+
+    @abstractmethod
+    async def approve_spt(self, spt_id: UUID, approval_code: str, user_id: UUID) -> bool:
+        pass
+
+    @abstractmethod
+    async def reject_spt(self, spt_id: UUID, reason: str, user_id: UUID) -> bool:
+        pass
+
+    @abstractmethod
+    async def get_spt_by_period(
+        self, legal_entity_id: UUID, spt_type: SPTType, period_month: int, period_year: int
+    ) -> SPTSubmission | None:
+        pass
+
+    @abstractmethod
+    async def mark_transactions_reported(
+        self, tax_transaction_ids: list[UUID], spt_id: UUID, user_id: UUID
+    ) -> int:
+        pass
+
+    @abstractmethod
+    async def record_payment(
+        self,
+        tax_transaction_id: UUID,
+        payment_date: date,
+        amount: Decimal,
+        ntpn: str,
+        user_id: UUID,
+    ) -> bool:
+        pass
+
+    @abstractmethod
+    async def create_adjustment(
+        self, original_tx_id: UUID, new_tax_amount: Decimal, description: str, user_id: UUID
+    ) -> TaxTransaction | None:
+        pass
+
+    @abstractmethod
+    async def export_to_csv(
+        self,
+        legal_entity_id: UUID,
+        tax_type: TaxType | None = None,
+        start_year: int | None = None,
+        start_month: int | None = None,
+        end_year: int | None = None,
+        end_month: int | None = None,
+    ) -> str:
+        pass
+
+    @abstractmethod
+    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, user_id: UUID) -> int:
+        pass
+
+    @abstractmethod
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
+        pass
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        pass
+
+
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemoryTaxTransactionRepository(TaxTransactionRepositoryPort):
     """
-    In-memory repository untuk transaksi pajak.
+    Implementasi in-memory untuk TaxTransactionRepositoryPort.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self):
         self._storage: dict[UUID, TaxTransaction] = {}
         self._period_index: dict[
             tuple[UUID, int, int, TaxType], list[UUID]
-        ] = {}  # (legal_entity, year, month, tax_type)
-        self._reference_index: dict[tuple[str, UUID], list[UUID]] = {}  # (ref_type, ref_id)
+        ] = {}
+        self._reference_index: dict[tuple[str, UUID], list[UUID]] = {}
         self._spt_submissions: dict[UUID, SPTSubmission] = {}
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
@@ -221,7 +355,7 @@ class TaxTransactionRepositoryPort:
             tax_transaction.created_by,
             {
                 "tax_type": tax_transaction.tax_type.value,
-                "amount": str(tax_transaction.tax_amount),   # ← str
+                "amount": str(tax_transaction.tax_amount),
                 "period": f"{tax_transaction.tax_period_year}-{tax_transaction.tax_period_month}",
             },
         )
@@ -238,7 +372,6 @@ class TaxTransactionRepositoryPort:
         old = self._storage[tax_transaction.id]
         if old.deleted_at is not None:
             raise ValueError("Cannot update deleted transaction")
-        # Remove old indices and add new if period/ref changed
         if (old.legal_entity_id, old.tax_period_year, old.tax_period_month, old.tax_type) != (
             tax_transaction.legal_entity_id,
             tax_transaction.tax_period_year,
@@ -383,10 +516,6 @@ class TaxTransactionRepositoryPort:
             total_tax_due=total_tax_due,
             total_tax_paid=total_tax_paid,
             total_tax_credit=total_tax_credit,
-            submission_date=None,
-            approval_code=None,
-            rejection_reason=None,
-            xml_content=None,
             created_at=datetime.now(UTC),
             created_by=created_by,
             updated_at=datetime.now(UTC),
@@ -493,7 +622,7 @@ class TaxTransactionRepositoryPort:
         tx.version += 1
         await self.update(tx)
         await self._log_audit(
-            "PAYMENT", tax_transaction_id, user_id, {"ntpn": ntpn, "amount": str(amount)}  # ← str
+            "PAYMENT", tax_transaction_id, user_id, {"ntpn": ntpn, "amount": str(amount)}
         )
         return True
 
@@ -525,7 +654,6 @@ class TaxTransactionRepositoryPort:
             updated_by=user_id,
         )
         await self.add(adjustment)
-        # Mark original as adjusted
         original.status = TaxTransactionStatus.ADJUSTED
         original.updated_by = user_id
         original.updated_at = datetime.now(UTC)
@@ -533,7 +661,7 @@ class TaxTransactionRepositoryPort:
         await self.update(original)
         return adjustment
 
-    # ==================== IMPORT/EXPORT ====================
+    # ==================== IMPORT / EXPORT ====================
 
     async def export_to_csv(
         self,
@@ -544,27 +672,13 @@ class TaxTransactionRepositoryPort:
         end_year: int | None = None,
         end_month: int | None = None,
     ) -> str:
-        import io
-
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(
-            [
-                "id",
-                "tax_type",
-                "transaction_date",
-                "period",
-                "amount",
-                "tax_amount",
-                "rate",
-                "status",
-                "is_credit",
-                "payment_date",
-                "ntpn",
-                "reference_type",
-                "reference_id",
-            ]
-        )
+        writer.writerow([
+            "id", "tax_type", "transaction_date", "period", "amount",
+            "tax_amount", "rate", "status", "is_credit",
+            "payment_date", "ntpn", "reference_type", "reference_id"
+        ])
 
         for tx in self._storage.values():
             if tx.legal_entity_id != legal_entity_id or tx.deleted_at is not None:
@@ -574,36 +688,28 @@ class TaxTransactionRepositoryPort:
             if start_year and end_year:
                 if (tx.tax_period_year < start_year) or (tx.tax_period_year > end_year):
                     continue
-                if (
-                    tx.tax_period_year == start_year
-                    and start_month
-                    and tx.tax_period_month < start_month
-                ):
+                if tx.tax_period_year == start_year and start_month and tx.tax_period_month < start_month:
                     continue
                 if tx.tax_period_year == end_year and end_month and tx.tax_period_month > end_month:
                     continue
-            writer.writerow(
-                [
-                    str(tx.id),
-                    tx.tax_type.value,
-                    tx.transaction_date.isoformat(),
-                    f"{tx.tax_period_year}-{tx.tax_period_month:02d}",
-                    str(tx.amount),          # ← str
-                    str(tx.tax_amount),      # ← str
-                    str(tx.rate),            # ← str
-                    tx.status.value,
-                    "1" if tx.is_credit else "0",
-                    tx.payment_date.isoformat() if tx.payment_date else "",
-                    tx.ntpn or "",
-                    tx.reference_type or "",
-                    str(tx.reference_id) if tx.reference_id else "",
-                ]
-            )
+            writer.writerow([
+                str(tx.id),
+                tx.tax_type.value,
+                tx.transaction_date.isoformat(),
+                f"{tx.tax_period_year}-{tx.tax_period_month:02d}",
+                str(tx.amount),
+                str(tx.tax_amount),
+                str(tx.rate),
+                tx.status.value,
+                "1" if tx.is_credit else "0",
+                tx.payment_date.isoformat() if tx.payment_date else "",
+                tx.ntpn or "",
+                tx.reference_type or "",
+                str(tx.reference_id) if tx.reference_id else "",
+            ])
         return output.getvalue()
 
     async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, user_id: UUID) -> int:
-        import io
-
         reader = csv.DictReader(io.StringIO(csv_content))
         count = 0
         for row in reader:
@@ -623,9 +729,7 @@ class TaxTransactionRepositoryPort:
                     rate=Decimal(row["rate"]),
                     status=TaxTransactionStatus(row["status"]),
                     is_credit=row["is_credit"] == "1",
-                    payment_date=date.fromisoformat(row["payment_date"])
-                    if row["payment_date"]
-                    else None,
+                    payment_date=date.fromisoformat(row["payment_date"]) if row["payment_date"] else None,
                     ntpn=row["ntpn"] or None,
                     reference_type=row["reference_type"] or None,
                     reference_id=UUID(row["reference_id"]) if row["reference_id"] else None,
@@ -641,11 +745,7 @@ class TaxTransactionRepositoryPort:
     # ==================== STATISTICS & AUDIT ====================
 
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
-        transactions = [
-            t
-            for t in self._storage.values()
-            if t.legal_entity_id == legal_entity_id and t.deleted_at is None
-        ]
+        transactions = [t for t in self._storage.values() if t.legal_entity_id == legal_entity_id and t.deleted_at is None]
         total = len(transactions)
         total_liability = sum(t.tax_amount for t in transactions if not t.is_credit)
         total_credit = sum(t.tax_amount for t in transactions if t.is_credit)
@@ -656,11 +756,11 @@ class TaxTransactionRepositoryPort:
             by_type[t.tax_type.value] = by_type.get(t.tax_type.value, 0) + 1
         return {
             "total_transactions": total,
-            "total_liability": str(total_liability),   # ← str
-            "total_credit": str(total_credit),         # ← str
-            "net_payable": str(net_payable),           # ← str
-            "total_paid": str(paid),                   # ← str
-            "outstanding": str(net_payable - paid),    # ← str
+            "total_liability": str(total_liability),
+            "total_credit": str(total_credit),
+            "net_payable": str(net_payable),
+            "total_paid": str(paid),
+            "outstanding": str(net_payable - paid),
             "by_tax_type": by_type,
             "spt_submissions": len(self._spt_submissions),
         }
@@ -675,3 +775,14 @@ class TaxTransactionRepositoryPort:
             "total_spt": len(self._spt_submissions),
             "audit_log_size": len(self._audit_log),
         }
+
+
+__all__ = [
+    "InMemoryTaxTransactionRepository",
+    "SPTSubmission",
+    "SPTType",
+    "TaxTransaction",
+    "TaxTransactionRepositoryPort",
+    "TaxTransactionStatus",
+    "TaxType",
+]

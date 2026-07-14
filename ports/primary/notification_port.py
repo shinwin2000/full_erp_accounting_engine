@@ -2,15 +2,12 @@
 """
 Module: notification_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory notification service dengan multi-channel
-               (email, WhatsApp, SMS, Slack, push notification, webhook).
-               Mendukung template, antrian, retry mechanism, delivery status,
-               rate limiting, audit log, dan metrics.
-Audit: Setiap pengiriman notifikasi tercatat.
+Responsibility: Port untuk notification service multi-channel.
 """
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import json
 import logging
@@ -24,9 +21,9 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 
-class NotificationChannel(Enum):
-    """Jenis channel notifikasi."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class NotificationChannel(Enum):
     EMAIL = "email"
     WHATSAPP = "whatsapp"
     SMS = "sms"
@@ -36,8 +33,6 @@ class NotificationChannel(Enum):
 
 
 class NotificationPriority(Enum):
-    """Prioritas notifikasi."""
-
     LOW = 0
     NORMAL = 1
     HIGH = 2
@@ -45,8 +40,6 @@ class NotificationPriority(Enum):
 
 
 class NotificationStatus(Enum):
-    """Status pengiriman notifikasi."""
-
     PENDING = "pending"
     SENT = "sent"
     DELIVERED = "delivered"
@@ -56,8 +49,6 @@ class NotificationStatus(Enum):
 
 
 class NotificationTemplateType(Enum):
-    """Jenis template."""
-
     JOURNAL_POSTED = "journal_posted"
     INVOICE_CREATED = "invoice_created"
     PAYMENT_RECEIVED = "payment_received"
@@ -70,8 +61,6 @@ class NotificationTemplateType(Enum):
 
 @dataclass
 class Notification:
-    """Notifikasi individual."""
-
     id: UUID
     channel: NotificationChannel
     recipient: str
@@ -111,8 +100,6 @@ class Notification:
 
 @dataclass
 class NotificationTemplate:
-    """Template notifikasi."""
-
     id: UUID
     template_type: NotificationTemplateType
     channel: NotificationChannel
@@ -126,24 +113,213 @@ class NotificationTemplate:
 
 @dataclass
 class NotificationConfig:
-    """Konfigurasi channel."""
-
     channel: NotificationChannel
     enabled: bool
-    config: dict[str, Any]  # api keys, endpoints, dll
+    config: dict[str, Any]
 
 
-class NotificationPort:
+# ==================== PORT (INTERFACE) ====================
+
+class NotificationPort(abc.ABC):
+    """Port untuk notification service."""
+
+    @abc.abstractmethod
+    async def send_email(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> list[UUID]:
+        """Kirim email ke multiple recipients."""
+        ...
+
+    @abc.abstractmethod
+    async def send_whatsapp(
+        self,
+        to: str,
+        message: str,
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> UUID:
+        """Kirim WhatsApp."""
+        ...
+
+    @abc.abstractmethod
+    async def send_sms(
+        self,
+        to: str,
+        message: str,
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> UUID:
+        """Kirim SMS."""
+        ...
+
+    @abc.abstractmethod
+    async def send_slack(
+        self,
+        channel: str,
+        message: str,
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> UUID:
+        """Kirim Slack message."""
+        ...
+
+    @abc.abstractmethod
+    async def send_push(
+        self,
+        device_token: str,
+        title: str,
+        body: str,
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> UUID:
+        """Kirim push notification."""
+        ...
+
+    @abc.abstractmethod
+    async def send_webhook(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> UUID:
+        """Kirim webhook."""
+        ...
+
+    @abc.abstractmethod
+    async def send_with_template(
+        self,
+        template_type: NotificationTemplateType,
+        channel: NotificationChannel,
+        recipient: str,
+        variables: dict[str, Any],
+        priority: NotificationPriority = NotificationPriority.NORMAL,
+        metadata: dict[str, Any] | None = None,
+        created_by: UUID | None = None,
+    ) -> UUID | None:
+        """Kirim notifikasi menggunakan template."""
+        ...
+
+    @abc.abstractmethod
+    async def get_template(
+        self, template_type: NotificationTemplateType, channel: NotificationChannel
+    ) -> NotificationTemplate | None:
+        """Ambil template."""
+        ...
+
+    @abc.abstractmethod
+    async def render_template(
+        self, template: NotificationTemplate, variables: dict[str, Any]
+    ) -> tuple[str | None, str]:
+        """Render template dengan variabel."""
+        ...
+
+    @abc.abstractmethod
+    async def get_notification(self, notification_id: UUID) -> Notification | None:
+        """Ambil notifikasi berdasarkan ID."""
+        ...
+
+    @abc.abstractmethod
+    async def get_notifications(
+        self,
+        status: NotificationStatus | None = None,
+        channel: NotificationChannel | None = None,
+        recipient: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Notification]:
+        """Daftar notifikasi dengan filter."""
+        ...
+
+    @abc.abstractmethod
+    async def get_failed_notifications(self, limit: int = 100) -> list[Notification]:
+        """Ambil notifikasi gagal."""
+        ...
+
+    @abc.abstractmethod
+    async def get_pending_count(self) -> int:
+        """Jumlah notifikasi pending."""
+        ...
+
+    @abc.abstractmethod
+    async def update_channel_config(
+        self, channel: NotificationChannel, enabled: bool, config: dict[str, Any]
+    ) -> None:
+        """Update konfigurasi channel."""
+        ...
+
+    @abc.abstractmethod
+    async def add_template(
+        self,
+        template_type: NotificationTemplateType,
+        channel: NotificationChannel,
+        subject_template: str | None,
+        body_template: str,
+        variables: list[str],
+        created_by: UUID,
+    ) -> UUID:
+        """Tambah template baru."""
+        ...
+
+    @abc.abstractmethod
+    async def delete_template(self, template_id: UUID) -> bool:
+        """Hapus template."""
+        ...
+
+    @abc.abstractmethod
+    async def cancel_notification(self, notification_id: UUID) -> bool:
+        """Batalkan notifikasi pending/retry."""
+        ...
+
+    @abc.abstractmethod
+    async def start_worker(self, concurrency: int = 5):
+        """Start background worker."""
+        ...
+
+    @abc.abstractmethod
+    async def stop_worker(self):
+        """Stop background worker."""
+        ...
+
+    @abc.abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Statistik notifikasi."""
+        ...
+
+    @abc.abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abc.abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY ====================
+
+class InMemoryNotification(NotificationPort):
     """
     In-memory notification service dengan multi-channel.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self):
         self._notifications: dict[UUID, Notification] = {}
         self._templates: dict[UUID, NotificationTemplate] = {}
-        self._template_index: dict[
-            tuple[NotificationTemplateType, NotificationChannel], NotificationTemplate
-        ] = {}
+        self._template_index: dict[tuple[NotificationTemplateType, NotificationChannel], NotificationTemplate] = {}
         self._configs: dict[NotificationChannel, NotificationConfig] = {}
         self._queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
@@ -152,36 +328,25 @@ class NotificationPort:
         self._lock = asyncio.Lock()
         self._rate_limiters: dict[NotificationChannel, dict[str, list[datetime]]] = {}
         self._default_templates_loaded = False
-
-        # ===== PERBAIKAN: Simpan referensi task =====
         self._pending_tasks: list[asyncio.Task] = []
 
-        # Task inisialisasi juga disimpan
         init_task1 = asyncio.create_task(self._init_default_configs())
         init_task2 = asyncio.create_task(self._init_default_templates())
         self._add_pending_task(init_task1)
         self._add_pending_task(init_task2)
 
     def _add_pending_task(self, task: asyncio.Task) -> None:
-        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
         self._pending_tasks.append(task)
         task.add_done_callback(
             lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
         )
 
-    # ==================== INITIALIZATION ====================
-
     async def _init_default_configs(self):
-        """Initialize default configurations for channels."""
         self._configs = {
             NotificationChannel.EMAIL: NotificationConfig(
                 channel=NotificationChannel.EMAIL,
                 enabled=True,
-                config={
-                    "smtp_host": "smtp.gmail.com",
-                    "smtp_port": 587,
-                    "from_email": "noreply@erp.com",
-                },
+                config={"smtp_host": "smtp.gmail.com", "smtp_port": 587, "from_email": "noreply@erp.com"},
             ),
             NotificationChannel.WHATSAPP: NotificationConfig(
                 channel=NotificationChannel.WHATSAPP,
@@ -211,52 +376,15 @@ class NotificationPort:
         }
 
     async def _init_default_templates(self):
-        """Load default templates."""
         if self._default_templates_loaded:
             return
         templates = [
-            (
-                NotificationTemplateType.JOURNAL_POSTED,
-                NotificationChannel.EMAIL,
-                "[ERP] Journal {voucher_number} Posted",
-                "Journal {voucher_number} for {amount} has been posted. Date: {date}",
-                ["voucher_number", "amount", "date"],
-            ),
-            (
-                NotificationTemplateType.INVOICE_CREATED,
-                NotificationChannel.EMAIL,
-                "Invoice {invoice_number} Created",
-                "Invoice {invoice_number} for {customer} amount {amount} is due on {due_date}.",
-                ["invoice_number", "customer", "amount", "due_date"],
-            ),
-            (
-                NotificationTemplateType.PAYMENT_RECEIVED,
-                NotificationChannel.EMAIL,
-                "Payment Received - {invoice_number}",
-                "Payment of {amount} received for invoice {invoice_number}.",
-                ["invoice_number", "amount"],
-            ),
-            (
-                NotificationTemplateType.APPROVAL_REQUIRED,
-                NotificationChannel.SLACK,
-                None,
-                "Approval required: {document_type} {document_number} by {requester}. Please review.",
-                ["document_type", "document_number", "requester"],
-            ),
-            (
-                NotificationTemplateType.SYSTEM_ALERT,
-                NotificationChannel.SLACK,
-                None,
-                "⚠️ {alert_level}: {message}",
-                ["alert_level", "message"],
-            ),
-            (
-                NotificationTemplateType.TAX_SUBMISSION,
-                NotificationChannel.EMAIL,
-                "Tax Submission {tax_type} {period}",
-                "Tax {tax_type} for period {period} has been submitted. Status: {status}.",
-                ["tax_type", "period", "status"],
-            ),
+            (NotificationTemplateType.JOURNAL_POSTED, NotificationChannel.EMAIL, "[ERP] Journal {voucher_number} Posted", "Journal {voucher_number} for {amount} has been posted. Date: {date}", ["voucher_number", "amount", "date"]),
+            (NotificationTemplateType.INVOICE_CREATED, NotificationChannel.EMAIL, "Invoice {invoice_number} Created", "Invoice {invoice_number} for {customer} amount {amount} is due on {due_date}.", ["invoice_number", "customer", "amount", "due_date"]),
+            (NotificationTemplateType.PAYMENT_RECEIVED, NotificationChannel.EMAIL, "Payment Received - {invoice_number}", "Payment of {amount} received for invoice {invoice_number}.", ["invoice_number", "amount"]),
+            (NotificationTemplateType.APPROVAL_REQUIRED, NotificationChannel.SLACK, None, "Approval required: {document_type} {document_number} by {requester}. Please review.", ["document_type", "document_number", "requester"]),
+            (NotificationTemplateType.SYSTEM_ALERT, NotificationChannel.SLACK, None, "⚠️ {alert_level}: {message}", ["alert_level", "message"]),
+            (NotificationTemplateType.TAX_SUBMISSION, NotificationChannel.EMAIL, "Tax Submission {tax_type} {period}", "Tax {tax_type} for period {period} has been submitted. Status: {status}.", ["tax_type", "period", "status"]),
         ]
         for tt, ch, subj, body, vars_list in templates:
             template = NotificationTemplate(
@@ -275,8 +403,6 @@ class NotificationPort:
         self._default_templates_loaded = True
         logger.info("Default notification templates loaded")
 
-    # ==================== HELPERS ====================
-
     async def _log_audit(self, action: str, notification_id: UUID, details: dict[str, Any]):
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -288,14 +414,12 @@ class NotificationPort:
         logger.info(f"NOTIFICATION AUDIT: {action} on {notification_id}")
 
     async def _check_rate_limit(self, channel: NotificationChannel, recipient: str) -> bool:
-        """Check rate limit per channel and recipient."""
         key = f"{channel.value}:{recipient}"
         now = datetime.now(UTC)
-        limit = 10  # max 10 per minute default
+        limit = 10
         window = timedelta(minutes=1)
         if key not in self._rate_limiters:
             self._rate_limiters[key] = []
-        # Clean old entries
         self._rate_limiters[key] = [ts for ts in self._rate_limiters[key] if now - ts < window]
         if len(self._rate_limiters[key]) >= limit:
             logger.warning(f"Rate limit exceeded for {key}")
@@ -304,13 +428,10 @@ class NotificationPort:
         return True
 
     async def _send_email(self, notification: Notification) -> bool:
-        """Simulate sending email."""
         config = self._configs.get(NotificationChannel.EMAIL)
         if not config or not config.enabled:
             return False
-        # Simulate SMTP
         await asyncio.sleep(0.05)
-        # 99% success rate
         if secrets.randbelow(100) < 99:
             logger.info(f"EMAIL sent to {notification.recipient}: {notification.subject}")
             return True
@@ -318,7 +439,6 @@ class NotificationPort:
             raise Exception("Simulated email delivery failure")
 
     async def _send_whatsapp(self, notification: Notification) -> bool:
-        """Simulate sending WhatsApp."""
         config = self._configs.get(NotificationChannel.WHATSAPP)
         if not config or not config.enabled:
             return False
@@ -330,7 +450,6 @@ class NotificationPort:
             raise Exception("Simulated WhatsApp failure")
 
     async def _send_sms(self, notification: Notification) -> bool:
-        """Simulate sending SMS."""
         config = self._configs.get(NotificationChannel.SMS)
         if not config or not config.enabled:
             return False
@@ -342,7 +461,6 @@ class NotificationPort:
             raise Exception("Simulated SMS failure")
 
     async def _send_slack(self, notification: Notification) -> bool:
-        """Simulate sending Slack message."""
         config = self._configs.get(NotificationChannel.SLACK)
         if not config or not config.enabled:
             return False
@@ -354,7 +472,6 @@ class NotificationPort:
             raise Exception("Simulated Slack failure")
 
     async def _send_push(self, notification: Notification) -> bool:
-        """Simulate push notification."""
         config = self._configs.get(NotificationChannel.PUSH)
         if not config or not config.enabled:
             return False
@@ -366,7 +483,6 @@ class NotificationPort:
             raise Exception("Simulated push failure")
 
     async def _send_webhook(self, notification: Notification) -> bool:
-        """Simulate webhook POST."""
         config = self._configs.get(NotificationChannel.WEBHOOK)
         if not config or not config.enabled:
             return False
@@ -378,7 +494,6 @@ class NotificationPort:
             raise Exception("Simulated webhook failure")
 
     async def _send_notification(self, notification: Notification) -> bool:
-        """Route notification to appropriate channel."""
         if notification.channel == NotificationChannel.EMAIL:
             return await self._send_email(notification)
         elif notification.channel == NotificationChannel.WHATSAPP:
@@ -394,10 +509,7 @@ class NotificationPort:
         else:
             raise ValueError(f"Unknown channel: {notification.channel}")
 
-    # ==================== WORKER ====================
-
     async def start_worker(self, concurrency: int = 5):
-        """Start background worker to process notifications."""
         if self._running:
             logger.warning("Worker already running")
             return
@@ -407,13 +519,11 @@ class NotificationPort:
         logger.info("Notification worker started")
 
     async def _worker_loop(self, concurrency: int):
-        """Main worker loop."""
         semaphore = asyncio.Semaphore(concurrency)
         while self._running:
             try:
                 notification = await self._queue.get()
                 async with semaphore:
-                    # ===== PERBAIKAN: Simpan task =====
                     task = asyncio.create_task(self._process_notification(notification))
                     self._add_pending_task(task)
             except asyncio.CancelledError:
@@ -423,30 +533,21 @@ class NotificationPort:
                 logger.error(f"Worker error: {e}")
 
     async def _process_notification(self, notification: Notification):
-        """Process a single notification (send, retry, fail)."""
         try:
-            # Check rate limit
             if not await self._check_rate_limit(notification.channel, notification.recipient):
                 notification.status = NotificationStatus.FAILED
                 notification.error_message = "Rate limit exceeded"
                 await self._update_notification(notification)
-                await self._log_audit(
-                    "RATE_LIMITED", notification.id, {"recipient": notification.recipient}
-                )
+                await self._log_audit("RATE_LIMITED", notification.id, {"recipient": notification.recipient})
                 return
-
-            # Send
             success = await self._send_notification(notification)
             if success:
                 notification.status = NotificationStatus.DELIVERED
                 notification.delivered_at = datetime.now(UTC)
                 notification.error_message = None
                 await self._update_notification(notification)
-                await self._log_audit(
-                    "DELIVERED", notification.id, {"channel": notification.channel.value}
-                )
+                await self._log_audit("DELIVERED", notification.id, {"channel": notification.channel.value})
             else:
-                # Will be caught in exception handler
                 raise Exception("Send failed")
         except Exception as e:
             notification.retry_count += 1
@@ -454,31 +555,17 @@ class NotificationPort:
             if notification.retry_count >= 3:
                 notification.status = NotificationStatus.FAILED
                 await self._update_notification(notification)
-                await self._log_audit(
-                    "FAILED",
-                    notification.id,
-                    {"error": str(e), "retries": notification.retry_count},
-                )
+                await self._log_audit("FAILED", notification.id, {"error": str(e), "retries": notification.retry_count})
             else:
-                # Schedule retry with exponential backoff
-                delay = min(
-                    2 ** (notification.retry_count - 1) * 5, 300
-                )  # 5s, 10s, 20s, 40s, 80s, max 300s
+                delay = min(2 ** (notification.retry_count - 1) * 5, 300)
                 notification.status = NotificationStatus.RETRY
                 notification.scheduled_at = datetime.now(UTC) + timedelta(seconds=delay)
                 await self._update_notification(notification)
-                # Re-queue after delay
-                # ===== PERBAIKAN: Simpan task =====
                 task = asyncio.create_task(self._schedule_retry(notification, delay))
                 self._add_pending_task(task)
-                await self._log_audit(
-                    "RETRY_SCHEDULED",
-                    notification.id,
-                    {"delay": delay, "retry_count": notification.retry_count},
-                )
+                await self._log_audit("RETRY_SCHEDULED", notification.id, {"delay": delay, "retry_count": notification.retry_count})
 
     async def _schedule_retry(self, notification: Notification, delay: float):
-        """Re-queue notification after delay."""
         await asyncio.sleep(delay)
         await self._queue.put(notification)
 
@@ -487,26 +574,18 @@ class NotificationPort:
         async with self._lock:
             self._notifications[notification.id] = notification
 
-    # ========================================================================
-    # PERBAIKAN: stop_worker membatalkan semua task pending
-    # ========================================================================
-
     async def stop_worker(self):
         self._running = False
-        # Batalkan semua task pending
         if self._pending_tasks:
             for task in self._pending_tasks:
                 if not task.done():
                     task.cancel()
-            # Tunggu hingga semua task selesai
             if self._pending_tasks:
                 await asyncio.gather(*self._pending_tasks, return_exceptions=True)
                 self._pending_tasks.clear()
         if self._worker_task:
             self._worker_task = None
         logger.info("Notification worker stopped")
-
-    # ==================== SEND API ====================
 
     async def send_email(
         self,
@@ -517,7 +596,6 @@ class NotificationPort:
         metadata: dict[str, Any] | None = None,
         created_by: UUID | None = None,
     ) -> list[UUID]:
-        """Send email to multiple recipients."""
         ids = []
         for recipient in to:
             nid = await self._send_raw(
@@ -571,7 +649,6 @@ class NotificationPort:
         metadata: dict[str, Any] | None = None,
         created_by: UUID | None = None,
     ) -> UUID:
-        # Combine title and body for storage
         full_body = f"{title}\n{body}"
         return await self._send_raw(
             NotificationChannel.PUSH, device_token, title, full_body, priority, metadata, created_by
@@ -600,7 +677,6 @@ class NotificationPort:
         metadata: dict[str, Any] | None,
         created_by: UUID | None,
     ) -> UUID:
-        """Internal send method."""
         nid = uuid4()
         now = datetime.now(UTC)
         notification = Notification(
@@ -627,8 +703,6 @@ class NotificationPort:
         await self._log_audit("ENQUEUED", nid, {"channel": channel.value, "recipient": recipient})
         return nid
 
-    # ==================== TEMPLATES ====================
-
     async def get_template(
         self, template_type: NotificationTemplateType, channel: NotificationChannel
     ) -> NotificationTemplate | None:
@@ -637,7 +711,6 @@ class NotificationPort:
     async def render_template(
         self, template: NotificationTemplate, variables: dict[str, Any]
     ) -> tuple[str | None, str]:
-        """Render template with variables."""
         subject = None
         if template.subject_template:
             subject = template.subject_template.format(**variables)
@@ -654,17 +727,12 @@ class NotificationPort:
         metadata: dict[str, Any] | None = None,
         created_by: UUID | None = None,
     ) -> UUID | None:
-        """Send notification using a template."""
         template = await self.get_template(template_type, channel)
         if not template or not template.is_active:
             logger.warning(f"Template {template_type}/{channel.value} not found or inactive")
             return None
         subject, body = await self.render_template(template, variables)
-        return await self._send_raw(
-            channel, recipient, subject, body, priority, metadata, created_by
-        )
-
-    # ==================== QUERY ====================
+        return await self._send_raw(channel, recipient, subject, body, priority, metadata, created_by)
 
     async def get_notification(self, notification_id: UUID) -> Notification | None:
         return self._notifications.get(notification_id)
@@ -688,31 +756,21 @@ class NotificationPort:
         return result[offset : offset + limit]
 
     async def get_failed_notifications(self, limit: int = 100) -> list[Notification]:
-        return [n for n in self._notifications.values() if n.status == NotificationStatus.FAILED][
-            :limit
-        ]
+        return [n for n in self._notifications.values() if n.status == NotificationStatus.FAILED][:limit]
 
     async def get_pending_count(self) -> int:
-        return sum(
-            1 for n in self._notifications.values() if n.status == NotificationStatus.PENDING
-        )
-
-    # ==================== ADMIN ====================
+        return sum(1 for n in self._notifications.values() if n.status == NotificationStatus.PENDING)
 
     async def update_channel_config(
         self, channel: NotificationChannel, enabled: bool, config: dict[str, Any]
     ) -> None:
         async with self._lock:
             if channel not in self._configs:
-                self._configs[channel] = NotificationConfig(
-                    channel=channel, enabled=enabled, config=config
-                )
+                self._configs[channel] = NotificationConfig(channel=channel, enabled=enabled, config=config)
             else:
                 self._configs[channel].enabled = enabled
                 self._configs[channel].config.update(config)
-        await self._log_audit(
-            "UPDATE_CONFIG", UUID(int=0), {"channel": channel.value, "enabled": enabled}
-        )
+        await self._log_audit("UPDATE_CONFIG", UUID(int=0), {"channel": channel.value, "enabled": enabled})
 
     async def add_template(
         self,
@@ -739,9 +797,7 @@ class NotificationPort:
         async with self._lock:
             self._templates[tid] = template
             self._template_index[(template_type, channel)] = template
-        await self._log_audit(
-            "ADD_TEMPLATE", tid, {"type": template_type.value, "channel": channel.value}
-        )
+        await self._log_audit("ADD_TEMPLATE", tid, {"type": template_type.value, "channel": channel.value})
         return tid
 
     async def delete_template(self, template_id: UUID) -> bool:
@@ -758,18 +814,13 @@ class NotificationPort:
 
     async def cancel_notification(self, notification_id: UUID) -> bool:
         notification = self._notifications.get(notification_id)
-        if not notification or notification.status not in (
-            NotificationStatus.PENDING,
-            NotificationStatus.RETRY,
-        ):
+        if not notification or notification.status not in (NotificationStatus.PENDING, NotificationStatus.RETRY):
             return False
         notification.status = NotificationStatus.CANCELLED
         notification.updated_at = datetime.now(UTC)
         await self._update_notification(notification)
         await self._log_audit("CANCEL", notification_id, {})
         return True
-
-    # ==================== STATISTICS & HEALTH ====================
 
     async def get_statistics(self) -> dict[str, Any]:
         all_notifications = list(self._notifications.values())
@@ -778,10 +829,7 @@ class NotificationPort:
         failed = sum(1 for n in all_notifications if n.status == NotificationStatus.FAILED)
         pending = sum(1 for n in all_notifications if n.status == NotificationStatus.PENDING)
         retry = sum(1 for n in all_notifications if n.status == NotificationStatus.RETRY)
-        by_channel = {
-            ch.value: sum(1 for n in all_notifications if n.channel == ch)
-            for ch in NotificationChannel
-        }
+        by_channel = {ch.value: sum(1 for n in all_notifications if n.channel == ch) for ch in NotificationChannel}
         return {
             "total_notifications": total,
             "delivered": sent,
@@ -807,3 +855,16 @@ class NotificationPort:
             "templates_count": len(self._templates),
             "audit_log_size": len(self._audit_log),
         }
+
+
+__all__ = [
+    "InMemoryNotification",
+    "Notification",
+    "NotificationChannel",
+    "NotificationConfig",
+    "NotificationPort",
+    "NotificationPriority",
+    "NotificationStatus",
+    "NotificationTemplate",
+    "NotificationTemplateType",
+]

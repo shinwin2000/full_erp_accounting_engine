@@ -2,11 +2,9 @@
 """
 Module: analytics_export_port.py
 Layer: Ports (Secondary)
-Responsibility: Antarmuka dan implementasi in-memory untuk export data analitik.
-               Mendukung ekspor ke berbagai format (CSV, JSON, Excel, Parquet),
-               kompresi (ZIP, GZIP), enkripsi AES, scheduling, delivery (email,
-               FTP, S3), audit trail, dan monitoring.
-Audit: Setiap export yang dijalankan tercatat.
+Responsibility:
+    - Mendefinisikan antarmuka (port) untuk ekspor data analitik.
+    - Menyediakan implementasi in-memory untuk testing/fallback.
 """
 
 from __future__ import annotations
@@ -20,6 +18,7 @@ import json
 import logging
 import secrets
 import zipfile
+from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,7 +26,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC as PBKDF2
@@ -35,9 +34,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC as PBKDF2
 logger = logging.getLogger(__name__)
 
 
-class ExportFormat(Enum):
-    """Format ekspor yang didukung."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class ExportFormat(Enum):
     CSV = "csv"
     JSON = "json"
     EXCEL = "excel"
@@ -46,16 +45,12 @@ class ExportFormat(Enum):
 
 
 class CompressionType(Enum):
-    """Jenis kompresi."""
-
     NONE = "none"
     GZIP = "gzip"
     ZIP = "zip"
 
 
 class DeliveryMethod(Enum):
-    """Metode pengiriman hasil ekspor."""
-
     NONE = "none"
     EMAIL = "email"
     FTP = "ftp"
@@ -65,8 +60,6 @@ class DeliveryMethod(Enum):
 
 
 class ExportStatus(Enum):
-    """Status ekspor."""
-
     PENDING = "pending"
     PROCESSING = "processing"
     SUCCESS = "success"
@@ -76,8 +69,6 @@ class ExportStatus(Enum):
 
 @dataclass
 class ExportJob:
-    """Job ekspor."""
-
     id: UUID
     name: str
     query_type: str
@@ -122,9 +113,101 @@ class ExportJob:
         }
 
 
-class AnalyticsExportPort:
+# ==================== PORT (INTERFACE) ====================
+
+class AnalyticsExportPort(ABC):
     """
-    In-memory analytics export service.
+    Port untuk ekspor data analitik.
+    Semua metode wajib diimplementasikan oleh adapter konkret.
+    """
+
+    @abstractmethod
+    def set_data_provider(
+        self,
+        provider: Callable[
+            [str, dict[str, Any], list[dict[str, Any]]], Awaitable[list[dict[str, Any]]]
+        ],
+    ) -> None:
+        """Set data provider untuk mengambil data berdasarkan query."""
+        ...
+
+    @abstractmethod
+    async def create_export_job(
+        self,
+        name: str,
+        query_type: str,
+        query_parameters: dict[str, Any],
+        format: ExportFormat,
+        created_by: UUID,
+        filters: list[dict[str, Any]] | None = None,
+        compression: CompressionType = CompressionType.NONE,
+        encryption_key_id: str | None = None,
+        delivery_method: DeliveryMethod = DeliveryMethod.NONE,
+        delivery_config: dict[str, Any] | None = None,
+        scheduled_at: datetime | None = None,
+    ) -> UUID:
+        """Buat job ekspor baru, kembalikan job ID."""
+        ...
+
+    @abstractmethod
+    async def execute_job(self, job_id: UUID) -> bool:
+        """Eksekusi job ekspor. Return True jika berhasil."""
+        ...
+
+    @abstractmethod
+    async def cancel_job(self, job_id: UUID) -> bool:
+        """Batalkan job yang pending/processing."""
+        ...
+
+    @abstractmethod
+    async def get_job_status(self, job_id: UUID) -> dict[str, Any] | None:
+        """Dapatkan status job."""
+        ...
+
+    @abstractmethod
+    async def get_job_output(self, job_id: UUID) -> bytes | None:
+        """Ambil output job (jika tersimpan in-memory)."""
+        ...
+
+    @abstractmethod
+    async def start_scheduler(self, poll_interval_seconds: int = 60):
+        """Start background scheduler untuk menjalankan job terjadwal."""
+        ...
+
+    @abstractmethod
+    async def stop_scheduler(self):
+        """Stop background scheduler."""
+        ...
+
+    @abstractmethod
+    async def list_jobs(
+        self, status: ExportStatus | None = None, limit: int = 100, offset: int = 0
+    ) -> list[ExportJob]:
+        """Daftar job dengan filter status."""
+        ...
+
+    @abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Dapatkan statistik ekspor."""
+        ...
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Cek kesehatan service."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemoryAnalyticsExport(AnalyticsExportPort):
+    """
+    Implementasi in-memory untuk ekspor data analitik.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self):
@@ -137,18 +220,15 @@ class AnalyticsExportPort:
         self._lock = asyncio.Lock()
         self._scheduler_task: asyncio.Task | None = None
         self._running = False
-
-        # ===== PERBAIKAN: Simpan referensi task =====
         self._pending_tasks: list[asyncio.Task] = []
 
     def _add_pending_task(self, task: asyncio.Task) -> None:
-        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
         self._pending_tasks.append(task)
         task.add_done_callback(
             lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
         )
 
-    # ==================== HELPER ====================
+    # ------------------- Helpers -------------------
 
     async def _log_audit(self, action: str, job_id: UUID, details: dict[str, Any]):
         entry = {
@@ -161,9 +241,7 @@ class AnalyticsExportPort:
         logger.info(f"EXPORT AUDIT: {action} on {job_id}")
 
     async def _encrypt_data(self, data: bytes, key_id: str, password: str | None = None) -> bytes:
-        """Enkripsi data dengan AES-256-GCM (simulasi)."""
         if not password:
-            # Use derived key from key_id
             password = key_id + "default_salt_32bytes_long!!"
         salt = secrets.token_bytes(16)
         kdf = PBKDF2(
@@ -176,8 +254,7 @@ class AnalyticsExportPort:
         nonce = secrets.token_bytes(12)
         aesgcm = AESGCM(key)
         ciphertext = aesgcm.encrypt(nonce, data, None)
-        result = salt + nonce + ciphertext
-        return result
+        return salt + nonce + ciphertext
 
     async def _compress_data(self, data: bytes, compression: CompressionType) -> bytes:
         if compression == CompressionType.GZIP:
@@ -203,8 +280,7 @@ class AnalyticsExportPort:
         return json.dumps(data, indent=2, default=str)
 
     async def _export_excel(self, data: list[dict[str, Any]]) -> bytes:
-        """Simulate Excel export (return CSV as fallback)."""
-        # In real implementation, use openpyxl or xlsxwriter
+        # Simulasi Excel: fallback ke CSV
         csv_content = await self._export_csv(data)
         return csv_content.encode()
 
@@ -230,18 +306,17 @@ class AnalyticsExportPort:
         </html>"""
         return html
 
-    # ==================== DATA PROVIDER ====================
+    # ------------------- Data Provider -------------------
 
     def set_data_provider(
         self,
         provider: Callable[
             [str, dict[str, Any], list[dict[str, Any]]], Awaitable[list[dict[str, Any]]]
         ],
-    ):
-        """Set data provider untuk mengambil data berdasarkan query."""
+    ) -> None:
         self._query_data_provider = provider
 
-    # ==================== EXPORT JOB MANAGEMENT ====================
+    # ------------------- Export Job Management -------------------
 
     async def create_export_job(
         self,
@@ -257,7 +332,6 @@ class AnalyticsExportPort:
         delivery_config: dict[str, Any] | None = None,
         scheduled_at: datetime | None = None,
     ) -> UUID:
-        """Buat job ekspor baru."""
         job_id = uuid4()
         now = datetime.now(UTC)
         job = ExportJob(
@@ -297,7 +371,6 @@ class AnalyticsExportPort:
         return job_id
 
     async def execute_job(self, job_id: UUID) -> bool:
-        """Eksekusi job ekspor (ambil data, export, compress, encrypt, deliver)."""
         job = self._jobs.get(job_id)
         if not job:
             return False
@@ -309,7 +382,6 @@ class AnalyticsExportPort:
         await self._log_audit("START", job_id, {})
 
         try:
-            # 1. Ambil data dari query provider
             if not self._query_data_provider:
                 raise Exception("No data provider configured")
             data = await self._query_data_provider(
@@ -317,7 +389,6 @@ class AnalyticsExportPort:
             )
             row_count = len(data)
 
-            # 2. Export data
             if job.format == ExportFormat.CSV:
                 content = await self._export_csv(data)
                 output_data = content.encode()
@@ -332,20 +403,14 @@ class AnalyticsExportPort:
             else:
                 output_data = json.dumps(data, default=str).encode()
 
-            # 3. Compress
             output_data = await self._compress_data(output_data, job.compression)
 
-            # 4. Encrypt
             if job.encryption_key_id:
                 output_data = await self._encrypt_data(output_data, job.encryption_key_id)
 
-            # 5. Compute hash
             file_hash = hashlib.sha256(output_data).hexdigest()
-
-            # 6. Deliver
             output_url = await self._deliver(job, output_data)
 
-            # 7. Update job
             job.status = ExportStatus.SUCCESS
             job.completed_at = datetime.now(UTC)
             job.output_url = output_url
@@ -371,19 +436,12 @@ class AnalyticsExportPort:
             await self._log_audit("FAILED", job_id, {"error": str(e)})
             return False
 
-    # ========================================================================
-    # PERBAIKAN: _deliver menggunakan aiofiles untuk local path
-    # ========================================================================
-
     async def _deliver(self, job: ExportJob, data: bytes) -> str:
-        """Kirim hasil ekspor sesuai delivery method."""
         method = job.delivery_method
         config = job.delivery_config
         if method == DeliveryMethod.NONE:
-            # Simpan in-memory, return "memory://{job_id}"
             return f"memory://{job.id}"
         elif method == DeliveryMethod.EMAIL:
-            # Simulate email send
             recipients = config.get("recipients", [])
             subject = config.get("subject", f"Export {job.name}")
             logger.info(f"EMAIL would be sent to {recipients} with attachment of {len(data)} bytes")
@@ -398,7 +456,6 @@ class AnalyticsExportPort:
             return f"s3://{bucket}/{key}"
         elif method == DeliveryMethod.LOCAL_PATH:
             path = config.get("path")
-            # ===== PERBAIKAN: gunakan aiofiles.open untuk async write =====
             async with aiofiles.open(path, "wb") as f:
                 await f.write(data)
             return f"file://{path}"
@@ -410,7 +467,6 @@ class AnalyticsExportPort:
             raise ValueError(f"Unknown delivery method: {method}")
 
     async def cancel_job(self, job_id: UUID) -> bool:
-        """Batalkan job yang masih pending atau processing."""
         job = self._jobs.get(job_id)
         if not job:
             return False
@@ -428,24 +484,17 @@ class AnalyticsExportPort:
         return job.to_dict()
 
     async def get_job_output(self, job_id: UUID) -> bytes | None:
-        """Ambil output (hanya untuk delivery method NONE / in-memory)."""
         job = self._jobs.get(job_id)
         if not job or job.status != ExportStatus.SUCCESS:
             return None
         if not job.output_url or not job.output_url.startswith("memory://"):
-            # For real storage, would need to fetch from S3 etc.
             return None
-        # In-memory storage not persisted, so cannot retrieve actual bytes
+        # In-memory tidak menyimpan data aktual, hanya simulasi
         return None
 
-    # ==================== SCHEDULER ====================
-
-    # ========================================================================
-    # PERBAIKAN: start_scheduler dengan task management
-    # ========================================================================
+    # ------------------- Scheduler -------------------
 
     async def start_scheduler(self, poll_interval_seconds: int = 60):
-        """Start background scheduler to process scheduled jobs."""
         if self._running:
             return
         self._running = True
@@ -472,14 +521,8 @@ class AnalyticsExportPort:
         for job_id in jobs_to_run:
             await self.execute_job(job_id)
 
-    # ========================================================================
-    # PERBAIKAN: stop_scheduler membatalkan semua pending tasks
-    # ========================================================================
-
     async def stop_scheduler(self):
-        """Stop the background scheduler."""
         self._running = False
-        # Batalkan semua pending tasks
         if self._pending_tasks:
             for task in self._pending_tasks:
                 if not task.done():
@@ -490,7 +533,7 @@ class AnalyticsExportPort:
         self._scheduler_task = None
         logger.info("Export scheduler stopped")
 
-    # ==================== QUERY ====================
+    # ------------------- Query -------------------
 
     async def list_jobs(
         self, status: ExportStatus | None = None, limit: int = 100, offset: int = 0
@@ -530,3 +573,16 @@ class AnalyticsExportPort:
             "audit_log_size": len(self._audit_log),
             "data_provider_configured": self._query_data_provider is not None,
         }
+
+
+# ==================== EXPORTS ====================
+
+__all__ = [
+    "AnalyticsExportPort",
+    "CompressionType",
+    "DeliveryMethod",
+    "ExportFormat",
+    "ExportJob",
+    "ExportStatus",
+    "InMemoryAnalyticsExport",
+]

@@ -50,8 +50,7 @@ import pytest
 
 from domain.journal.aggregate_root import Journal, JournalAggregate, JournalRepository
 from domain.journal.journal_entity import JournalStatus, JournalType
-from domain.journal.journal_line_vo import JournalLineVO, JournalSide
-
+from domain.journal.journal_line_vo import JournalLineVO
 
 # ============================================================================
 # Fixtures / builders

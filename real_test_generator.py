@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 real_test_generator.py (Fixed Version)
 Membaca semua file .py di direktori sumber dan menghasilkan file test pytest.

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 dead_code_checker.py - Dead code detection for enterprise Python projects
 ===================================================================================
@@ -20,9 +19,9 @@ import sys
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Dict, List, Set, Tuple, Optional, Iterator, Callable, Any
+from datetime import UTC, datetime
 
 # ---- Setup logging ----
 logger = logging.getLogger("dead_code")
@@ -116,32 +115,32 @@ class Symbol:
 @dataclass
 class Report:
     total_defs: int
-    used: List[Symbol]
-    unused: List[Symbol]
+    used: list[Symbol]
+    unused: list[Symbol]
     score: float
     scan_time: float
     files_scanned: int
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 # ---- Main Checker ----
 class DeadCodeChecker:
-    def __init__(self, root: pathlib.Path, exclude: List[str] = None, max_workers: int = 4):
+    def __init__(self, root: pathlib.Path, exclude: list[str] = None, max_workers: int = 4):
         self.root = root
         self.exclude = set(exclude or [])
         self.max_workers = max_workers
-        self.defs: Dict[str, List[Symbol]] = defaultdict(list)
-        self.refs: Dict[str, int] = defaultdict(int)
-        self.import_map: Dict[str, Dict[str, str]] = {}
-        self.module_name_cache: Dict[pathlib.Path, str] = {}
-        self.class_hierarchy: Dict[str, List[str]] = defaultdict(list)
-        self.method_overrides: Dict[str, str] = {}
-        self.class_methods: Dict[str, List[str]] = defaultdict(list)
-        self.exported: Dict[str, Set[str]] = defaultdict(set)
+        self.defs: dict[str, list[Symbol]] = defaultdict(list)
+        self.refs: dict[str, int] = defaultdict(int)
+        self.import_map: dict[str, dict[str, str]] = {}
+        self.module_name_cache: dict[pathlib.Path, str] = {}
+        self.class_hierarchy: dict[str, list[str]] = defaultdict(list)
+        self.method_overrides: dict[str, str] = {}
+        self.class_methods: dict[str, list[str]] = defaultdict(list)
+        self.exported: dict[str, set[str]] = defaultdict(set)
         self._lock = threading.Lock()
         self.files_scanned = 0
         self._current_module = ""
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         start = time.perf_counter()
         files = list(self._walk())
         self.files_scanned = len(files)
@@ -721,7 +720,7 @@ class DeadCodeChecker:
 
 # ---- Definition Collector ----
 class DefinitionCollector(ast.NodeVisitor):
-    def __init__(self, module: str, rel_path: str, checker: 'DeadCodeChecker'):
+    def __init__(self, module: str, rel_path: str, checker: DeadCodeChecker):
         self.module = module
         self.rel_path = rel_path
         self.checker = checker
@@ -795,7 +794,7 @@ class DefinitionCollector(ast.NodeVisitor):
 
 # ---- Reference Collector ----
 class ReferenceCollector(ast.NodeVisitor):
-    def __init__(self, module: str, rel_path: str, import_map: Dict[str, str], checker: 'DeadCodeChecker'):
+    def __init__(self, module: str, rel_path: str, import_map: dict[str, str], checker: DeadCodeChecker):
         self.module = module
         self.rel_path = rel_path
         self.import_map = import_map

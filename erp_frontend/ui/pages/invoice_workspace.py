@@ -15,6 +15,7 @@ from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDateEdit,
     QDialog,
@@ -52,6 +53,9 @@ class InvoiceWorkspaceConfig:
         party_label: str,        # "Customer" | "Vendor"
         invoice_number_field: str,  # "invoice_number" | "invoice_number_vendor"
         account_hint: str,       # akun default lawan transaksi (revenue/expense)
+        has_write_off: bool = False,
+        has_collection: bool = False,
+        has_payment_run: bool = False,
     ):
         self.base_path = base_path
         self.label = label
@@ -60,17 +64,22 @@ class InvoiceWorkspaceConfig:
         self.party_label = party_label
         self.invoice_number_field = invoice_number_field
         self.account_hint = account_hint
+        self.has_write_off = has_write_off
+        self.has_collection = has_collection
+        self.has_payment_run = has_payment_run
 
 
 AR_CONFIG = InvoiceWorkspaceConfig(
     base_path="/ar/ar", label="Piutang (Account Receivable)", icon="💰",
     party_code_field="customer_code", party_label="Customer",
     invoice_number_field="invoice_number", account_hint="Akun Pendapatan (mis. 4-1100)",
+    has_write_off=True, has_collection=True,
 )
 AP_CONFIG = InvoiceWorkspaceConfig(
     base_path="/ap/ap", label="Utang (Account Payable)", icon="💳",
     party_code_field="vendor_code", party_label="Vendor",
     invoice_number_field="invoice_number_vendor", account_hint="Akun Beban (mis. 5-1100)",
+    has_payment_run=True,
 )
 
 STATUS_FILTERS = ["Semua", "draft", "submitted", "approved", "posted", "paid", "partially_paid", "rejected", "cancelled"]
@@ -99,6 +108,13 @@ class InvoiceWorkspacePage(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_invoice_tab(), "Daftar Invoice")
         self.tabs.addTab(self._build_aging_tab(), "Aging Report")
+        self.tabs.addTab(CreditNoteTab(self.config), "Credit Note")
+        if self.config.has_write_off:
+            self.tabs.addTab(WriteOffTab(self.config), "Write-off")
+        if self.config.has_collection:
+            self.tabs.addTab(CollectionTab(self.config), "Collection")
+        if self.config.has_payment_run:
+            self.tabs.addTab(PaymentRunTab(self.config), "Payment Run")
         outer.addWidget(self.tabs, stretch=1)
 
     def _build_invoice_tab(self) -> QWidget:
@@ -520,3 +536,351 @@ def _to_decimal(text: str) -> Decimal:
         return Decimal(text)
     except InvalidOperation:
         return Decimal("0")
+
+
+# ==========================================================================
+# Credit Note — dipakai AR maupun AP
+# ==========================================================================
+class CreditNoteTab(QWidget):
+    def __init__(self, config: InvoiceWorkspaceConfig):
+        super().__init__()
+        self.config = config
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(f"<b>Buat Credit Note untuk Invoice {self.config.party_label}</b>"))
+
+        form = QFormLayout()
+        self.invoice_id_edit = QLineEdit()
+        self.invoice_id_edit.setPlaceholderText("UUID invoice")
+        form.addRow("Invoice", self.invoice_id_edit)
+        self.date_edit = QDateEdit(QDate.currentDate())
+        self.date_edit.setCalendarPopup(True)
+        form.addRow("Tanggal Credit Note", self.date_edit)
+        self.amount_edit = QLineEdit()
+        form.addRow("Jumlah", self.amount_edit)
+        self.reason_edit = QLineEdit()
+        form.addRow("Alasan", self.reason_edit)
+        self.ref_edit = QLineEdit()
+        form.addRow("No. Referensi", self.ref_edit)
+        outer.addLayout(form)
+
+        submit_btn = QPushButton("+ Buat Credit Note")
+        submit_btn.setObjectName("primaryButton")
+        submit_btn.clicked.connect(self._submit)
+        outer.addWidget(submit_btn)
+
+        approve_row = QHBoxLayout()
+        self.approve_id_edit = QLineEdit()
+        self.approve_id_edit.setPlaceholderText("ID Credit Note untuk di-approve")
+        approve_row.addWidget(self.approve_id_edit)
+        approve_btn = QPushButton("✔ Approve Credit Note")
+        approve_btn.setProperty("class", "success")
+        approve_btn.clicked.connect(self._approve)
+        approve_row.addWidget(approve_btn)
+        outer.addLayout(approve_row)
+
+        outer.addStretch()
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        outer.addWidget(self.status_label)
+
+    def _submit(self) -> None:
+        try:
+            amount = Decimal(self.amount_edit.text().strip())
+            if amount <= 0:
+                raise InvalidOperation
+        except InvalidOperation:
+            QMessageBox.warning(self, "Validasi", "Jumlah harus > 0.")
+            return
+        if not (self.invoice_id_edit.text().strip() and self.reason_edit.text().strip()):
+            QMessageBox.warning(self, "Validasi", "Invoice & alasan wajib diisi.")
+            return
+        payload = {
+            "invoice_id": self.invoice_id_edit.text().strip(),
+            "credit_note_date": self.date_edit.date().toString("yyyy-MM-dd"),
+            "amount": float(amount),
+            "reason": self.reason_edit.text().strip(),
+            "reference_number": self.ref_edit.text().strip() or None,
+        }
+        run_task(api_client.post, on_success=self._on_created, on_error=self._on_error,
+                  path=f"{self.config.base_path}/credit-notes", json_body=payload)
+
+    def _on_created(self, result: Any) -> None:
+        cid = (result or {}).get("id", "") if isinstance(result, dict) else ""
+        if cid:
+            self.approve_id_edit.setText(str(cid))
+        self.status_label.setText(f"Credit Note dibuat. ID: {cid}")
+
+    def _approve(self) -> None:
+        cid = self.approve_id_edit.text().strip()
+        if not cid:
+            return
+        run_task(api_client.post, on_success=lambda _r: self.status_label.setText("Credit Note di-approve."),
+                  on_error=self._on_error, path=f"{self.config.base_path}/credit-notes/{cid}/approve")
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Gagal", message)
+
+
+# ==========================================================================
+# Write-off — khusus AR
+# ==========================================================================
+class WriteOffTab(QWidget):
+    def __init__(self, config: InvoiceWorkspaceConfig):
+        super().__init__()
+        self.config = config
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(
+            "<b>Write-off Piutang Tak Tertagih</b><br>"
+            "<span style='color:#DC2626;'>Aksi permanen — hanya untuk piutang yang benar-benar sudah "
+            "tidak mungkin tertagih.</span>"
+        ))
+        form = QFormLayout()
+        self.invoice_id_edit = QLineEdit()
+        self.invoice_id_edit.setPlaceholderText("UUID invoice")
+        form.addRow("Invoice", self.invoice_id_edit)
+        self.amount_edit = QLineEdit()
+        form.addRow("Jumlah Write-off", self.amount_edit)
+        self.account_code_edit = QLineEdit()
+        self.account_code_edit.setPlaceholderText("mis. 6-2100 (Beban Piutang Tak Tertagih)")
+        form.addRow("Kode Akun Beban", self.account_code_edit)
+        self.reason_edit = QLineEdit()
+        form.addRow("Alasan (min. 5 karakter)", self.reason_edit)
+        outer.addLayout(form)
+
+        submit_btn = QPushButton("⚠ Write-off Piutang")
+        submit_btn.setProperty("class", "danger")
+        submit_btn.clicked.connect(self._submit)
+        outer.addWidget(submit_btn)
+
+        outer.addStretch()
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        outer.addWidget(self.status_label)
+
+    def _submit(self) -> None:
+        try:
+            amount = Decimal(self.amount_edit.text().strip())
+            if amount <= 0:
+                raise InvalidOperation
+        except InvalidOperation:
+            QMessageBox.warning(self, "Validasi", "Jumlah harus > 0.")
+            return
+        if len(self.reason_edit.text().strip()) < 5:
+            QMessageBox.warning(self, "Validasi", "Alasan minimal 5 karakter.")
+            return
+        if not (self.invoice_id_edit.text().strip() and self.account_code_edit.text().strip()):
+            QMessageBox.warning(self, "Validasi", "Invoice & kode akun wajib diisi.")
+            return
+        confirm = QMessageBox.question(
+            self, "Konfirmasi", "Write-off piutang ini secara permanen? Aksi tidak bisa dibatalkan."
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        payload = {
+            "invoice_id": self.invoice_id_edit.text().strip(),
+            "write_off_amount": float(amount),
+            "account_code": self.account_code_edit.text().strip(),
+            "reason": self.reason_edit.text().strip(),
+        }
+        run_task(api_client.post, on_success=self._on_ok, on_error=self._on_error,
+                  path=f"{self.config.base_path}/write-off", json_body=payload)
+
+    def _on_ok(self, result: Any) -> None:
+        self.status_label.setText("Piutang berhasil di-write-off.")
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Gagal", message)
+
+
+# ==========================================================================
+# Collection — khusus AR
+# ==========================================================================
+class CollectionTab(QWidget):
+    def __init__(self, config: InvoiceWorkspaceConfig):
+        super().__init__()
+        self.config = config
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+
+        outer.addWidget(QLabel("<b>Kirim Reminder Penagihan</b>"))
+        form = QFormLayout()
+        self.invoice_ids_edit = QTextEdit()
+        self.invoice_ids_edit.setPlaceholderText("UUID invoice, satu per baris")
+        self.invoice_ids_edit.setFixedHeight(60)
+        form.addRow("Invoice yang Ditagih", self.invoice_ids_edit)
+        self.reminder_type_combo = QComboBox()
+        self.reminder_type_combo.addItems(["friendly", "firm", "final_notice"])
+        form.addRow("Tipe Reminder", self.reminder_type_combo)
+        self.message_edit = QLineEdit()
+        form.addRow("Pesan Tambahan", self.message_edit)
+        self.send_email_check = QCheckBox("Kirim via Email")
+        self.send_email_check.setChecked(True)
+        form.addRow("", self.send_email_check)
+        self.send_sms_check = QCheckBox("Kirim via SMS")
+        form.addRow("", self.send_sms_check)
+        outer.addLayout(form)
+        send_btn = QPushButton("✉ Kirim Reminder")
+        send_btn.setObjectName("primaryButton")
+        send_btn.clicked.connect(self._send_reminders)
+        outer.addWidget(send_btn)
+
+        outer.addWidget(QLabel("<b>Mulai Workflow Penagihan Otomatis (Semua Invoice Overdue)</b>"))
+        start_btn = QPushButton("▶ Mulai Collection Workflow")
+        start_btn.clicked.connect(self._start_workflow)
+        outer.addWidget(start_btn)
+
+        outer.addWidget(QLabel("<b>Eskalasi Invoice ke Legal/Collection Agency</b>"))
+        escalate_form = QFormLayout()
+        self.escalate_invoice_edit = QLineEdit()
+        self.escalate_invoice_edit.setPlaceholderText("UUID invoice")
+        escalate_form.addRow("Invoice", self.escalate_invoice_edit)
+        self.escalate_reason_edit = QLineEdit()
+        escalate_form.addRow("Alasan (min. 5 karakter)", self.escalate_reason_edit)
+        outer.addLayout(escalate_form)
+        escalate_btn = QPushButton("⬆ Eskalasi")
+        escalate_btn.setProperty("class", "danger")
+        escalate_btn.clicked.connect(self._escalate)
+        outer.addWidget(escalate_btn)
+
+        outer.addStretch()
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        outer.addWidget(self.status_label)
+
+    def _send_reminders(self) -> None:
+        ids = [x.strip() for x in self.invoice_ids_edit.toPlainText().splitlines() if x.strip()]
+        if not ids:
+            QMessageBox.warning(self, "Validasi", "Minimal 1 invoice ID diperlukan.")
+            return
+        payload = {
+            "invoice_ids": ids,
+            "reminder_type": self.reminder_type_combo.currentText(),
+            "message": self.message_edit.text().strip() or None,
+            "send_email": self.send_email_check.isChecked(),
+            "send_sms": self.send_sms_check.isChecked(),
+        }
+        run_task(api_client.post, on_success=self._on_reminder_result, on_error=self._on_error,
+                  path=f"{self.config.base_path}/collection/send-reminders", json_body=payload)
+
+    def _on_reminder_result(self, result: Any) -> None:
+        sent = (result or {}).get("reminders_sent", 0)
+        self.status_label.setText(f"{sent} reminder berhasil dikirim.")
+
+    def _start_workflow(self) -> None:
+        confirm = QMessageBox.question(
+            self, "Konfirmasi", "Mulai proses collection otomatis untuk semua invoice overdue?"
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        run_task(api_client.post, on_success=self._on_workflow_result, on_error=self._on_error,
+                  path=f"{self.config.base_path}/collection/start")
+
+    def _on_workflow_result(self, result: Any) -> None:
+        data = result or {}
+        self.status_label.setText(
+            f"Workflow dimulai. {data.get('invoices_processed', 0)} invoice diproses, "
+            f"{data.get('reminders_sent', 0)} reminder terkirim."
+        )
+
+    def _escalate(self) -> None:
+        invoice_id = self.escalate_invoice_edit.text().strip()
+        reason = self.escalate_reason_edit.text().strip()
+        if not invoice_id or len(reason) < 5:
+            QMessageBox.warning(self, "Validasi", "Invoice ID & alasan (min. 5 karakter) wajib diisi.")
+            return
+        run_task(api_client.post, on_success=lambda _r: self.status_label.setText("Invoice dieskalasi."),
+                  on_error=self._on_error, path=f"{self.config.base_path}/collection/{invoice_id}/escalate",
+                  params={"reason": reason})
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Gagal", message)
+
+
+# ==========================================================================
+# Payment Run — khusus AP
+# ==========================================================================
+class PaymentRunTab(QWidget):
+    def __init__(self, config: InvoiceWorkspaceConfig):
+        super().__init__()
+        self.config = config
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(
+            "<b>Buat Batch Pembayaran (Payment Run)</b><br>"
+            "<span style='color:#6B7280;'>Otomatis mengumpulkan semua invoice AP yang jatuh tempo "
+            "sampai tanggal tertentu untuk dibayar sekaligus.</span>"
+        ))
+        form = QFormLayout()
+        self.payment_date_edit = QDateEdit(QDate.currentDate())
+        self.payment_date_edit.setCalendarPopup(True)
+        form.addRow("Tanggal Bayar", self.payment_date_edit)
+        self.due_up_to_edit = QDateEdit(QDate.currentDate().addDays(7))
+        self.due_up_to_edit.setCalendarPopup(True)
+        form.addRow("Invoice Jatuh Tempo s/d", self.due_up_to_edit)
+        self.bank_account_edit = QLineEdit()
+        self.bank_account_edit.setPlaceholderText("UUID rekening bank (opsional)")
+        form.addRow("Rekening Bank", self.bank_account_edit)
+        outer.addLayout(form)
+
+        submit_btn = QPushButton("+ Buat Payment Run")
+        submit_btn.setObjectName("primaryButton")
+        submit_btn.clicked.connect(self._create_run)
+        outer.addWidget(submit_btn)
+
+        process_row = QHBoxLayout()
+        self.run_id_edit = QLineEdit()
+        self.run_id_edit.setPlaceholderText("ID Payment Run untuk diproses")
+        process_row.addWidget(self.run_id_edit)
+        process_btn = QPushButton("⚙ Proses Payment Run")
+        process_btn.setProperty("class", "success")
+        process_btn.clicked.connect(self._process_run)
+        process_row.addWidget(process_btn)
+        outer.addLayout(process_row)
+
+        outer.addStretch()
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        outer.addWidget(self.status_label)
+
+    def _create_run(self) -> None:
+        payload = {
+            "payment_date": self.payment_date_edit.date().toString("yyyy-MM-dd"),
+            "due_date_up_to": self.due_up_to_edit.date().toString("yyyy-MM-dd"),
+            "bank_account_id": self.bank_account_edit.text().strip() or None,
+        }
+        run_task(api_client.post, on_success=self._on_created, on_error=self._on_error,
+                  path=f"{self.config.base_path}/payment-runs", json_body=payload)
+
+    def _on_created(self, result: Any) -> None:
+        data = result or {}
+        rid = data.get("payment_run_id", "")
+        if rid:
+            self.run_id_edit.setText(str(rid))
+        self.status_label.setText(
+            f"Payment Run dibuat. {data.get('number_of_invoices', 0)} invoice, "
+            f"total {format_money(data.get('total_amount'))}."
+        )
+
+    def _process_run(self) -> None:
+        rid = self.run_id_edit.text().strip()
+        if not rid:
+            QMessageBox.information(self, "Info", "Isi ID Payment Run dulu.")
+            return
+        confirm = QMessageBox.question(self, "Konfirmasi", "Proses payment run ini? Pembayaran akan dieksekusi.")
+        if confirm != QMessageBox.Yes:
+            return
+        run_task(api_client.post, on_success=lambda _r: self.status_label.setText("Payment Run diproses."),
+                  on_error=self._on_error, path=f"{self.config.base_path}/payment-runs/{rid}/process")
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Gagal", message)

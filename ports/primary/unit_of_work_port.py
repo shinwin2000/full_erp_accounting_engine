@@ -2,17 +2,12 @@
 """
 Module: unit_of_work_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory Unit of Work dengan ACID semantics.
-               Mendukung transaction boundaries, repository registration,
-               commit/rollback, after-commit hooks (event publishing),
-               nested transactions (savepoints), retry with backoff,
-               deadlock detection simulation, isolation level,
-               audit trail, dan health checks.
-Audit: Setiap commit, rollback, dan nested transaction tercatat.
+Responsibility: Port untuk Unit of Work (ACID semantics).
 """
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import logging
 import time
@@ -24,11 +19,10 @@ from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 class IsolationLevel(Enum):
-    """Tingkat isolasi transaksi (simulasi)."""
-
     READ_UNCOMMITTED = "read_uncommitted"
     READ_COMMITTED = "read_committed"
     REPEATABLE_READ = "repeatable_read"
@@ -36,20 +30,119 @@ class IsolationLevel(Enum):
 
 
 class TransactionStatus(Enum):
-    """Status transaksi saat ini."""
-
     ACTIVE = "active"
     COMMITTED = "committed"
     ROLLED_BACK = "rolled_back"
     FAILED = "failed"
 
 
-T = TypeVar("T")
+class DeadlockError(Exception):
+    pass
 
 
-class UnitOfWorkPort:
+# ==================== PORT (INTERFACE) ====================
+
+class UnitOfWorkPort(abc.ABC):
+    """Port untuk Unit of Work."""
+
+    @abc.abstractmethod
+    async def __aenter__(self) -> UnitOfWorkPort:
+        """Enter transaction context."""
+        ...
+
+    @abc.abstractmethod
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit transaction context."""
+        ...
+
+    @abc.abstractmethod
+    async def commit(self) -> None:
+        """Commit semua perubahan."""
+        ...
+
+    @abc.abstractmethod
+    async def rollback(self) -> None:
+        """Rollback semua perubahan."""
+        ...
+
+    @abc.abstractmethod
+    async def savepoint(self, name: str | None = None) -> str:
+        """Buat savepoint."""
+        ...
+
+    @abc.abstractmethod
+    async def rollback_to_savepoint(self, name: str) -> bool:
+        """Rollback ke savepoint."""
+        ...
+
+    @abc.abstractmethod
+    async def release_savepoint(self, name: str) -> bool:
+        """Release savepoint."""
+        ...
+
+    @abc.abstractmethod
+    def register_repository(self, name: str, repository: Any) -> None:
+        """Daftarkan repository."""
+        ...
+
+    @abc.abstractmethod
+    def get_repository(self, name: str) -> Any:
+        """Ambil repository."""
+        ...
+
+    @abc.abstractmethod
+    def add_before_commit_hook(self, hook: Callable[[], Awaitable[bool]]) -> None:
+        """Hook sebelum commit."""
+        ...
+
+    @abc.abstractmethod
+    def add_after_commit_hook(self, hook: Callable[[], Awaitable[None]]) -> None:
+        """Hook setelah commit."""
+        ...
+
+    @abc.abstractmethod
+    def add_after_rollback_hook(self, hook: Callable[[], Awaitable[None]]) -> None:
+        """Hook setelah rollback."""
+        ...
+
+    @abc.abstractmethod
+    async def flush(self) -> None:
+        """Flush perubahan tanpa commit."""
+        ...
+
+    @abc.abstractmethod
+    async def execute_raw_sql(self, statement: str, params: dict[str, Any] | None = None) -> Any:
+        """Eksekusi raw SQL (simulasi)."""
+        ...
+
+    @abc.abstractmethod
+    async def is_active(self) -> bool:
+        """Apakah transaksi aktif?"""
+        ...
+
+    @abc.abstractmethod
+    async def get_transaction_id(self) -> UUID:
+        """Dapatkan ID transaksi."""
+        ...
+
+    @abc.abstractmethod
+    async def get_isolation_level(self) -> str:
+        """Dapatkan tingkat isolasi."""
+        ...
+
+    @asynccontextmanager
+    @abc.abstractmethod
+    async def transaction(self):
+        """Async context manager untuk explicit transaction block."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY ====================
+
+class InMemoryUnitOfWork(UnitOfWorkPort):
     """
     In-memory Unit of Work dengan ACID semantics.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(
@@ -61,7 +154,7 @@ class UnitOfWorkPort:
         self._repositories: dict[str, Any] = {}
         self._after_commit_hooks: list[Callable[[], Awaitable[None]]] = []
         self._after_rollback_hooks: list[Callable[[], Awaitable[None]]] = []
-        self._before_commit_hooks: list[Callable[[], Awaitable[bool]]] = []  # return False to abort
+        self._before_commit_hooks: list[Callable[[], Awaitable[bool]]] = []
         self._savepoints: list[dict[str, Any]] = []
         self._status: TransactionStatus = TransactionStatus.ACTIVE
         self._isolation_level = isolation_level
@@ -69,15 +162,13 @@ class UnitOfWorkPort:
         self._retry_on_deadlock = retry_on_deadlock
         self._deadlock_detector = DeadlockDetector()
         self._audit_log: list[dict[str, Any]] = []
-        self._session_data: dict[str, Any] = {}  # in-memory "session" storage
-        self._change_set: dict[str, list[Any]] = {}  # track changes per repository
+        self._session_data: dict[str, Any] = {}
+        self._change_set: dict[str, list[Any]] = {}
         self._transaction_id: UUID = uuid4()
         self._start_time: datetime | None = None
         self._commit_time: datetime | None = None
         self._rollback_time: datetime | None = None
         self._nesting_level = 0
-
-    # ==================== HELPER ====================
 
     async def _log_audit(self, action: str, details: dict[str, Any]):
         entry = {
@@ -90,7 +181,6 @@ class UnitOfWorkPort:
         logger.info(f"UOW AUDIT: {action} (tx={self._transaction_id})")
 
     async def _execute_with_retry(self, func: Callable[[], Awaitable[None]]) -> None:
-        """Execute a function with retry on simulated deadlock."""
         for attempt in range(self._retry_on_deadlock + 1):
             try:
                 await func()
@@ -102,10 +192,7 @@ class UnitOfWorkPort:
                 logger.warning(f"Deadlock detected, retrying in {wait}s (attempt {attempt + 1})")
                 await asyncio.sleep(wait)
 
-    # ==================== TRANSACTION MANAGEMENT ====================
-
     async def __aenter__(self) -> UnitOfWorkPort:
-        """Enter transaction context."""
         self._start_time = datetime.now(UTC)
         self._status = TransactionStatus.ACTIVE
         self._transaction_id = uuid4()
@@ -114,7 +201,6 @@ class UnitOfWorkPort:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Exit transaction context. Auto-commit if no exception and auto_commit is True."""
         if exc_type is not None:
             await self.rollback()
             await self._log_audit("EXIT_WITH_ERROR", {"error": str(exc_val)})
@@ -123,14 +209,9 @@ class UnitOfWorkPort:
         await self._log_audit("EXIT", {"status": self._status.value})
 
     async def commit(self) -> None:
-        """
-        Commit semua perubahan.
-        Jalankan before-commit hooks, lalu commit, lalu after-commit hooks.
-        """
         if self._status != TransactionStatus.ACTIVE:
             raise ValueError(f"Cannot commit in status {self._status.value}")
 
-        # Run before-commit hooks (can abort)
         for hook in self._before_commit_hooks:
             try:
                 should_continue = await hook()
@@ -142,7 +223,6 @@ class UnitOfWorkPort:
                 raise RuntimeError(f"Before-commit hook failed: {e}")
 
         try:
-            # Simulate commit to repositories
             for repo_name, repo in self._repositories.items():
                 if hasattr(repo, "_commit"):
                     await repo._commit()
@@ -162,7 +242,6 @@ class UnitOfWorkPort:
             await self._log_audit("COMMIT_FAILED", {"error": str(e)})
             raise
 
-        # Run after-commit hooks (e.g., event publishing)
         for hook in self._after_commit_hooks:
             try:
                 await hook()
@@ -170,15 +249,11 @@ class UnitOfWorkPort:
                 logger.error(f"After-commit hook failed: {e}")
 
     async def rollback(self) -> None:
-        """Rollback semua perubahan."""
         if self._status not in (TransactionStatus.ACTIVE, TransactionStatus.FAILED):
             return
-
-        # Simulate rollback to repositories
         for repo_name, repo in self._repositories.items():
             if hasattr(repo, "_rollback"):
                 await repo._rollback()
-
         self._status = TransactionStatus.ROLLED_BACK
         self._rollback_time = datetime.now(UTC)
         self._change_set.clear()
@@ -190,121 +265,83 @@ class UnitOfWorkPort:
                 else 0,
             },
         )
-
-        # Run after-rollback hooks
         for hook in self._after_rollback_hooks:
             try:
                 await hook()
             except Exception as e:
                 logger.error(f"After-rollback hook failed: {e}")
 
-    # ==================== SAVEPOINT (NESTED TRANSACTION) ====================
-
     async def savepoint(self, name: str | None = None) -> str:
-        """Create a savepoint within current transaction."""
         if self._status != TransactionStatus.ACTIVE:
             raise ValueError("Cannot create savepoint in non-active transaction")
         savepoint_id = name or f"sp_{len(self._savepoints)}"
-        # Capture current state (snapshot of change_set)
         snapshot = {
             "name": savepoint_id,
             "change_set_snapshot": {k: list(v) for k, v in self._change_set.items()},
             "repositories_snapshot": {},
         }
-        # Ask repositories to capture their state
         for repo_name, repo in self._repositories.items():
             if hasattr(repo, "_savepoint"):
                 snapshot["repositories_snapshot"][repo_name] = await repo._savepoint()
         self._savepoints.append(snapshot)
-        await self._log_audit(
-            "SAVEPOINT", {"name": savepoint_id, "nesting_level": len(self._savepoints)}
-        )
+        await self._log_audit("SAVEPOINT", {"name": savepoint_id, "nesting_level": len(self._savepoints)})
         return savepoint_id
 
     async def rollback_to_savepoint(self, name: str) -> bool:
-        """Rollback to a specific savepoint."""
         for idx, sp in enumerate(self._savepoints):
             if sp["name"] == name:
-                # Rollback change_set
                 self._change_set = sp["change_set_snapshot"]
-                # Rollback repositories
                 for repo_name, repo in self._repositories.items():
-                    if (
-                        hasattr(repo, "_rollback_to_savepoint")
-                        and repo_name in sp["repositories_snapshot"]
-                    ):
+                    if hasattr(repo, "_rollback_to_savepoint") and repo_name in sp["repositories_snapshot"]:
                         await repo._rollback_to_savepoint(sp["repositories_snapshot"][repo_name])
-                # Remove savepoints after this one
                 self._savepoints = self._savepoints[:idx]
                 await self._log_audit("ROLLBACK_TO_SAVEPOINT", {"name": name})
                 return True
         return False
 
     async def release_savepoint(self, name: str) -> bool:
-        """Release a savepoint (remove without rolling back)."""
         for idx, sp in enumerate(self._savepoints):
             if sp["name"] == name:
-                self._savepoints = self._savepoints[:idx] + self._savepoints[idx + 1 :]
+                self._savepoints = self._savepoints[:idx] + self._savepoints[idx + 1:]
                 await self._log_audit("RELEASE_SAVEPOINT", {"name": name})
                 return True
         return False
 
-    # ==================== REPOSITORY MANAGEMENT ====================
-
     def register_repository(self, name: str, repository: Any) -> None:
-        """Daftarkan repository ke dalam UoW."""
         self._repositories[name] = repository
-        # Register the UoW with repository if repository supports it
         if hasattr(repository, "_set_uow"):
             repository._set_uow(self)
         logger.debug(f"Repository '{name}' registered in UoW {self._transaction_id}")
 
     def get_repository(self, name: str) -> Any:
-        """Ambil repository yang terdaftar."""
         if name not in self._repositories:
             raise KeyError(f"Repository '{name}' not registered")
         return self._repositories[name]
 
-    # ==================== HOOKS ====================
-
     def add_before_commit_hook(self, hook: Callable[[], Awaitable[bool]]) -> None:
-        """Hook yang dijalankan sebelum commit. Return False to abort."""
         self._before_commit_hooks.append(hook)
 
     def add_after_commit_hook(self, hook: Callable[[], Awaitable[None]]) -> None:
-        """Hook yang dijalankan setelah commit sukses."""
         self._after_commit_hooks.append(hook)
 
     def add_after_rollback_hook(self, hook: Callable[[], Awaitable[None]]) -> None:
-        """Hook yang dijalankan setelah rollback."""
         self._after_rollback_hooks.append(hook)
 
-    # ==================== CHANGE TRACKING ====================
-
     def _get_change_summary(self) -> dict[str, int]:
-        """Ringkasan perubahan yang terjadi dalam transaksi."""
         return {repo: len(changes) for repo, changes in self._change_set.items()}
 
     def record_change(self, repository_name: str, change: Any) -> None:
-        """Catat perubahan untuk audit (dipanggil oleh repository)."""
         if repository_name not in self._change_set:
             self._change_set[repository_name] = []
         self._change_set[repository_name].append(change)
 
-    # ==================== DEADLOCK SIMULATION ====================
-
     async def _acquire_lock(self, lock_id: str, timeout: float = 5.0) -> bool:
-        """Acquire a lock for a specific resource to simulate pessimistic locking."""
         return await self._deadlock_detector.acquire_lock(self._transaction_id, lock_id, timeout)
 
     async def _release_lock(self, lock_id: str) -> None:
-        """Release a lock."""
         await self._deadlock_detector.release_lock(self._transaction_id, lock_id)
 
-    # ==================== FLUSH & RAW SQL ====================
-
     async def flush(self) -> None:
-        """Flush pending changes to repositories without committing."""
         if self._status != TransactionStatus.ACTIVE:
             raise ValueError("Cannot flush in non-active transaction")
         for repo_name, repo in self._repositories.items():
@@ -313,17 +350,9 @@ class UnitOfWorkPort:
         await self._log_audit("FLUSH", {})
 
     async def execute_raw_sql(self, statement: str, params: dict[str, Any] | None = None) -> Any:
-        """
-        Execute raw SQL (simulasi). Dalam implementasi nyata, ini akan memanggil database.
-        Untuk in-memory, hanya log dan return None.
-        """
-        await self._log_audit(
-            "RAW_SQL", {"statement": statement[:100], "params": str(params)[:100]}
-        )
+        await self._log_audit("RAW_SQL", {"statement": statement[:100], "params": str(params)[:100]})
         logger.warning(f"Raw SQL executed in in-memory UoW (simulated): {statement[:100]}")
         return None
-
-    # ==================== QUERY ====================
 
     async def is_active(self) -> bool:
         return self._status == TransactionStatus.ACTIVE
@@ -334,11 +363,8 @@ class UnitOfWorkPort:
     async def get_isolation_level(self) -> str:
         return self._isolation_level.value
 
-    # ==================== CONTEXT MANAGER SHORTCUT ====================
-
     @asynccontextmanager
     async def transaction(self):
-        """Async context manager for explicit transaction block."""
         await self.__aenter__()
         try:
             yield self
@@ -352,32 +378,12 @@ class UnitOfWorkPort:
 
 
 class DeadlockDetector:
-    """
-    Simple deadlock detector for simulation.
-    """
-
     def __init__(self):
-        self._locks: dict[str, UUID | None] = {}  # lock_id -> transaction_id holding lock
-        self._waiting: dict[UUID, list[str]] = {}  # transaction_id -> list of lock_ids waiting
+        self._locks: dict[str, UUID | None] = {}
+        self._waiting: dict[UUID, list[str]] = {}
         self._lock = asyncio.Lock()
 
     async def acquire_lock(self, tx_id: UUID, lock_id: str, timeout: float) -> bool:
-        # FIX (KRITIS): sebelumnya `while True:` ada DI DALAM `async with
-        # self._lock:`. Kalau lock sedang dipegang transaksi lain dan bukan
-        # deadlock, loop itu tidak punya `break` atau `await` apa pun -- ia
-        # busy-loop TANPA HENTI sambil TETAP MENAHAN `self._lock`. Akibatnya:
-        #   1. Seluruh event loop asyncio MACET TOTAL (busy-loop murni CPU
-        #      tanpa `await` mencegah loop mengeksekusi task lain sama sekali
-        #      -- dibuktikan: bahkan `asyncio.wait_for()` pemanggilnya sendiri
-        #      tidak pernah sempat memicu timeout-nya).
-        #   2. `release_lock()` transaksi LAIN pun ikut macet, karena itu
-        #      juga butuh `self._lock` yang sedang ditahan busy-loop ini.
-        # Kode `await asyncio.sleep(0.01)` + retry setelah `async with` di
-        # versi lama TIDAK PERNAH TERCAPAI justru karena bug ini.
-        # Perbaikan: `while True` dipindah ke LUAR `async with`, sehingga
-        # `self._lock` dilepas setiap iterasi sebelum sleep+retry. Retry
-        # juga diubah dari rekursi (berisiko RecursionError untuk timeout
-        # panjang) menjadi loop biasa.
         start = time.time()
         while True:
             async with self._lock:
@@ -385,20 +391,14 @@ class DeadlockDetector:
                 if current_holder is None:
                     self._locks[lock_id] = tx_id
                     return True
-                # Check for deadlock (tx waiting on itself)
                 if current_holder == tx_id:
                     return True
-                # Simulate deadlock detection: if waiting cycle detected
                 if self._detect_cycle(tx_id, lock_id):
                     raise DeadlockError(f"Deadlock detected for lock {lock_id}")
-                # Record waiting
                 if tx_id not in self._waiting:
                     self._waiting[tx_id] = []
                 if lock_id not in self._waiting[tx_id]:
                     self._waiting[tx_id].append(lock_id)
-            # `self._lock` sudah dilepas di sini (keluar dari `async with`)
-            # sebelum sleep -- transaksi lain bisa acquire/release selama
-            # kita menunggu.
             if time.time() - start > timeout:
                 return False
             await asyncio.sleep(0.01)
@@ -413,11 +413,9 @@ class DeadlockDetector:
                     del self._waiting[tx_id]
 
     def _detect_cycle(self, tx_id: UUID, lock_id: str) -> bool:
-        """Simple cycle detection: if the lock is held by a transaction that is waiting for current tx."""
         holder = self._locks.get(lock_id)
         if holder is None:
             return False
-        # Check if holder is waiting for any lock that this tx holds
         waiting_locks = self._waiting.get(holder, [])
         for wl in waiting_locks:
             if self._locks.get(wl) == tx_id:
@@ -425,16 +423,9 @@ class DeadlockDetector:
         return False
 
 
-class DeadlockError(Exception):
-    pass
-
-
-# ==================== PROVIDER (for backward compatibility) ====================
-
+# ==================== PROVIDER (untuk backward compatibility) ====================
 
 class RepositoryProvider:
-    """Provider untuk repository yang akan digunakan UoW."""
-
     def __init__(
         self,
         journals=None,
@@ -520,29 +511,18 @@ class RepositoryProvider:
         return self._tax_transactions
 
 
-# ==================== SINGLETON ACCESS ====================
-
 _uow_instance: UnitOfWorkPort | None = None
 
 
 def get_uow() -> UnitOfWorkPort:
-    """Get singleton UoW instance."""
     global _uow_instance
     if _uow_instance is None:
-        _uow_instance = UnitOfWorkPort()
+        _uow_instance = InMemoryUnitOfWork()
     return _uow_instance
 
 
 async def create_uow_with_provider(provider: RepositoryProvider) -> UnitOfWorkPort:
-    """Create UoW and register all repositories from provider."""
-    uow = UnitOfWorkPort()
-    # FIX: sebelumnya pengecekan pakai `if provider.journals():` (truthy
-    # check). Kalau implementasi repository punya `__len__`/`__bool__`
-    # (umum untuk objek mirip koleksi) dan repository itu VALID tapi
-    # sedang KOSONG, `if repo:` akan `False` dan repository itu diam-diam
-    # TIDAK terdaftar ke UoW -- padahal repository-nya sah, cuma kosong.
-    # Diganti jadi `is not None` supaya hanya repository yang benar-benar
-    # tidak disediakan (None) yang dilewati.
+    uow = InMemoryUnitOfWork()
     if provider.journals() is not None:
         uow.register_repository("journals", provider.journals())
     if provider.ledger_entries() is not None:
@@ -578,9 +558,6 @@ async def create_uow_with_provider(provider: RepositoryProvider) -> UnitOfWorkPo
     return uow
 
 
-# ==================== STATISTICS & HEALTH ====================
-
-
 async def get_uow_statistics() -> dict[str, Any]:
     uow = get_uow()
     return {
@@ -590,3 +567,16 @@ async def get_uow_statistics() -> dict[str, Any]:
         "audit_log_size": len(uow._audit_log) if uow else 0,
         "transaction_id": str(uow._transaction_id) if uow else None,
     }
+
+
+__all__ = [
+    "DeadlockError",
+    "InMemoryUnitOfWork",
+    "IsolationLevel",
+    "RepositoryProvider",
+    "TransactionStatus",
+    "UnitOfWorkPort",
+    "create_uow_with_provider",
+    "get_uow",
+    "get_uow_statistics",
+]

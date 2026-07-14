@@ -2,18 +2,12 @@
 """
 Module: bank_statement_import_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory untuk import laporan bank (MT940, CAMT, CSV).
-               Mendukung parsing multi-format, validasi, deduplikasi transaksi,
-               matching dengan transaksi internal, dan audit import.
-Audit: Setiap import statement tercatat, termasuk jumlah transaksi, error, dan mapping.
-
-Perbaikan presisi:
-    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
-      untuk menjaga presisi dan memenuhi aturan MNY-003.
+Responsibility: Port untuk import laporan bank (MT940, CAMT, CSV).
 """
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import csv
 import hashlib
@@ -29,9 +23,9 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 
-class StatementFormat(Enum):
-    """Format file statement bank."""
+# ==================== ENUMS & DOMAIN MODELS ====================
 
+class StatementFormat(Enum):
     MT940 = "mt940"
     CAMT_053 = "camt_053"
     CAMT_054 = "camt_054"
@@ -43,8 +37,6 @@ class StatementFormat(Enum):
 
 
 class ImportStatus(Enum):
-    """Status proses import."""
-
     PENDING = "pending"
     PROCESSING = "processing"
     SUCCESS = "success"
@@ -54,8 +46,6 @@ class ImportStatus(Enum):
 
 @dataclass
 class StatementTransaction:
-    """Transaksi dari statement bank."""
-
     id: UUID
     transaction_date: date
     amount: Decimal
@@ -66,14 +56,14 @@ class StatementTransaction:
     counterparty_account: str | None
     transaction_type: str  # CREDIT, DEBIT
     statement_balance: Decimal | None
-    unique_id: str  # hash untuk deteksi duplikat
-    original_data: dict[str, Any]  # data mentah dari parser
+    unique_id: str
+    original_data: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "transaction_date": self.transaction_date.isoformat(),
-            "amount": str(self.amount),  # ganti float -> str untuk presisi
+            "amount": str(self.amount),
             "currency": self.currency,
             "description": self.description,
             "reference_number": self.reference_number,
@@ -87,8 +77,6 @@ class StatementTransaction:
 
 @dataclass
 class BankStatementImport:
-    """Record of a bank statement import."""
-
     id: UUID
     bank_account_id: UUID
     file_name: str
@@ -108,20 +96,65 @@ class BankStatementImport:
     completed_at: datetime | None = None
 
 
-class BankStatementImportPort:
+# ==================== PORT (INTERFACE) ====================
+
+class BankStatementImportPort(abc.ABC):
+    """Port untuk bank statement import service."""
+
+    @abc.abstractmethod
+    async def parse_and_import(
+        self,
+        file_content: str,
+        file_name: str,
+        bank_account_id: UUID,
+        user_id: UUID,
+        statement_date: date | None = None,
+        override_format: StatementFormat | None = None,
+    ) -> BankStatementImport:
+        """Parse file dan import transaksi ke sistem."""
+        ...
+
+    @abc.abstractmethod
+    async def get_import_status(self, import_id: UUID) -> BankStatementImport | None:
+        """Dapatkan status import."""
+        ...
+
+    @abc.abstractmethod
+    async def get_imported_transactions(self, import_id: UUID) -> list[StatementTransaction]:
+        """Ambil transaksi hasil import."""
+        ...
+
+    @abc.abstractmethod
+    async def get_all_imports(
+        self, bank_account_id: UUID | None = None
+    ) -> list[BankStatementImport]:
+        """Daftar semua import (opsional filter bank_account)."""
+        ...
+
+    @abc.abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Ambil audit log."""
+        ...
+
+    @abc.abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check."""
+        ...
+
+
+# ==================== IMPLEMENTASI IN-MEMORY ====================
+
+class InMemoryBankStatementImport(BankStatementImportPort):
     """
     In-memory bank statement import service.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
     """
 
     def __init__(self):
         self._imports: dict[UUID, BankStatementImport] = {}
-        self._imported_transactions: dict[
-            UUID, list[StatementTransaction]
-        ] = {}  # import_id -> transactions
+        self._imported_transactions: dict[UUID, list[StatementTransaction]] = {}
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
-
-    # ==================== HELPER ====================
 
     async def _log_audit(
         self, action: str, import_id: UUID, user_id: UUID, details: dict[str, Any]
@@ -140,7 +173,6 @@ class BankStatementImportPort:
         return hashlib.sha256(file_content.encode("utf-8")).hexdigest()
 
     async def _detect_format(self, file_content: str, file_name: str) -> StatementFormat:
-        """Deteksi format berdasarkan ekstensi dan isi."""
         if file_name.lower().endswith(".mt940") or ":20:" in file_content[:500]:
             return StatementFormat.MT940
         if file_name.lower().endswith(".camt") or "<Document" in file_content[:500]:
@@ -155,16 +187,12 @@ class BankStatementImportPort:
             return StatementFormat.CSV_BRI
         return StatementFormat.CSV_GENERIC
 
-    # ==================== PARSING METHODS ====================
-
     async def parse_mt940(self, file_content: str) -> list[StatementTransaction]:
-        """Parse format MT940 (SWIFT)."""
         transactions = []
         lines = file_content.splitlines()
         current_tx = {}
         for line in lines:
             if line.startswith(":61:"):
-                # Start new transaction
                 if current_tx:
                     tx = await self._build_mt940_transaction(current_tx)
                     if tx:
@@ -183,35 +211,24 @@ class BankStatementImportPort:
 
     async def _build_mt940_transaction(self, data: dict[str, str]) -> StatementTransaction | None:
         raw = data.get("raw_61", "")
-        # Format: YYMMDDDD C? Amount, where C=Credit, D=Debit
         match = re.match(r"(\d{6})(C|D)(\d+(?:,\d{0,2})?)", raw)
         if not match:
             return None
-
         date_str, sign, amount_str = match.groups()
-
         try:
             txn_date = datetime.strptime(date_str, "%y%m%d").date()
         except ValueError:
-            # SOLUSI: Tangkap ValueError spesifik dan log input yang bermasalah.
-            # Ini krusial agar Anda bisa memperbaiki data input yang salah.
             logger.error("Failed to parse MT940 date '%s' from raw string: %s", date_str, raw)
             return None
-
         try:
             amount = Decimal(amount_str.replace(",", "."))
         except Exception as e:
             logger.error("Failed to parse amount from string '%s': %s", amount_str, e)
             return None
-
         if sign == "D":
             amount = -amount
-
         description = data.get("description", "No description")
-        unique_id = hashlib.sha256(
-            f"{txn_date.isoformat()}{amount}{description[:50]}".encode()
-        ).hexdigest()
-
+        unique_id = hashlib.sha256(f"{txn_date.isoformat()}{amount}{description[:50]}".encode()).hexdigest()
         return StatementTransaction(
             id=uuid4(),
             transaction_date=txn_date,
@@ -228,13 +245,7 @@ class BankStatementImportPort:
         )
 
     async def parse_camt(self, file_content: str) -> list[StatementTransaction]:
-        """Parse CAMT.053/054 (XML). Simulasi sederhana."""
-        # Di implementasi nyata, gunakan xml.etree.ElementTree
-        # Untuk simulasi, kita ekstrak menggunakan regex sederhana
         transactions = []
-        # Cari pattern: <Ntry> ... <Amt Ccy="IDR">123.45</Amt> ...
-        import re
-
         entries = re.findall(r"<Ntry>(.*?)</Ntry>", file_content, re.DOTALL)
         for entry in entries:
             amt_match = re.search(r"<Amt[^>]*>(\d+(?:\.\d{1,2})?)</Amt>", entry)
@@ -265,7 +276,6 @@ class BankStatementImportPort:
         return transactions
 
     async def parse_csv(self, file_content: str, bank_format: str) -> list[StatementTransaction]:
-        """Parse CSV sesuai format bank."""
         reader = csv.reader(file_content.splitlines())
         headers = next(reader, None)
         if not headers:
@@ -276,7 +286,6 @@ class BankStatementImportPort:
                 continue
             try:
                 if bank_format == "BCA":
-                    # BCA: Tanggal, Deskripsi, Debet, Kredit, Saldo
                     txn_date = datetime.strptime(row[0].strip(), "%d/%m/%Y").date()
                     description = row[1].strip()
                     debit = Decimal(row[2].replace(",", "")) if row[2] else Decimal(0)
@@ -284,7 +293,6 @@ class BankStatementImportPort:
                     amount = credit if credit > 0 else -debit
                     tx_type = "CREDIT" if credit > 0 else "DEBIT"
                 elif bank_format == "MANDIRI":
-                    # Mandiri: Tanggal, Keterangan, Nominal, DB/CR, Saldo
                     txn_date = datetime.strptime(row[0].strip(), "%d/%m/%Y").date()
                     description = row[1].strip()
                     nominal = Decimal(row[2].replace(",", ""))
@@ -292,15 +300,12 @@ class BankStatementImportPort:
                     amount = nominal if dbcr == "CR" else -nominal
                     tx_type = "CREDIT" if dbcr == "CR" else "DEBIT"
                 else:
-                    # Generic: date, description, amount (positive for credit, negative for debit)
                     txn_date = datetime.strptime(row[0].strip(), "%Y-%m-%d").date()
                     description = row[1].strip()
                     amount = Decimal(row[2].replace(",", ""))
                     tx_type = "CREDIT" if amount > 0 else "DEBIT"
                     amount = abs(amount)
-                unique_id = hashlib.sha256(
-                    f"{txn_date}{amount}{description}{tx_type}".encode()
-                ).hexdigest()
+                unique_id = hashlib.sha256(f"{txn_date}{amount}{description}{tx_type}".encode()).hexdigest()
                 transactions.append(
                     StatementTransaction(
                         id=uuid4(),
@@ -321,8 +326,6 @@ class BankStatementImportPort:
                 logger.warning(f"CSV parse error: {e}")
         return transactions
 
-    # ==================== MAIN IMPORT ====================
-
     async def parse_and_import(
         self,
         file_content: str,
@@ -332,24 +335,15 @@ class BankStatementImportPort:
         statement_date: date | None = None,
         override_format: StatementFormat | None = None,
     ) -> BankStatementImport:
-        """Parse file dan import transaksi ke sistem."""
-        # Detect format
-        if override_format:
-            fmt = override_format
-        else:
-            fmt = await self._detect_format(file_content, file_name)
-
-        # Parse sesuai format
+        fmt = override_format if override_format else await self._detect_format(file_content, file_name)
         if fmt == StatementFormat.MT940:
             transactions = await self.parse_mt940(file_content)
         elif fmt in (StatementFormat.CAMT_053, StatementFormat.CAMT_054):
             transactions = await self.parse_camt(file_content)
         else:
-            # CSV
             bank_code = fmt.value.replace("csv_", "").upper()
             transactions = await self.parse_csv(file_content, bank_code)
 
-        # Buat import record
         import_id = uuid4()
         file_hash = await self._compute_file_hash(file_content)
         stmt_date = statement_date or date.today()
@@ -375,11 +369,9 @@ class BankStatementImportPort:
             self._imports[import_id] = import_record
             self._imported_transactions[import_id] = []
 
-        # Proses deduplikasi (simulasi)
         imported_tx = []
         duplicate_count = 0
         for tx in transactions:
-            # Cek duplikat dengan transaksi yang sudah ada (simulasi sederhana)
             is_duplicate = False
             for existing_import in self._imports.values():
                 if existing_import.id != import_id:
@@ -395,7 +387,6 @@ class BankStatementImportPort:
                 continue
             imported_tx.append(tx)
 
-        # Simpan transaksi
         self._imported_transactions[import_id] = imported_tx
         import_record.imported_transactions = len(imported_tx)
         import_record.duplicate_transactions = duplicate_count
@@ -436,8 +427,16 @@ class BankStatementImportPort:
         return {
             "status": "healthy",
             "total_imports": len(self._imports),
-            "total_transactions_imported": sum(
-                len(txs) for txs in self._imported_transactions.values()
-            ),
+            "total_transactions_imported": sum(len(txs) for txs in self._imported_transactions.values()),
             "audit_log_size": len(self._audit_log),
         }
+
+
+__all__ = [
+    "BankStatementImport",
+    "BankStatementImportPort",
+    "ImportStatus",
+    "InMemoryBankStatementImport",
+    "StatementFormat",
+    "StatementTransaction",
+]

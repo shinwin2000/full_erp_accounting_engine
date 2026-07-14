@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Module: test_warehouse_to_cogs.py
 
@@ -11,11 +11,10 @@ Responsibility:
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -29,7 +28,6 @@ from transformers.warehouse_to_cogs import (
     WarehouseToCOGSTransformer,
     WarehouseToCOGSTransformerError,
 )
-
 
 # ============================================================================
 # TestBaseTransformer

@@ -249,6 +249,30 @@ class MainWindow(QMainWindow):
             if key == "iam_roles":
                 from ui.pages.iam_roles_page import IamRolesPage
                 return IamRolesPage()
+            if key == "bank_reconciliation":
+                from ui.pages.bank_reconciliation_page import BankReconciliationPage
+                return BankReconciliationPage()
+            if key == "stock_opname":
+                from ui.pages.stock_opname_page import StockOpnamePage
+                return StockOpnamePage()
+            if key == "documents":
+                from ui.pages.documents_page import DocumentsPage
+                return DocumentsPage()
+            if key == "tax_spt":
+                from ui.pages.tax_spt_page import TaxSptPage
+                return TaxSptPage()
+            if key == "payroll_salary":
+                from ui.pages.payroll_salary_page import PayrollSalaryPage
+                return PayrollSalaryPage()
+            if key == "goods_receipt":
+                from ui.pages.goods_receipt_page import GoodsReceiptPage
+                return GoodsReceiptPage()
+            if key == "consolidation_run":
+                from ui.pages.consolidation_run_page import ConsolidationRunPage
+                return ConsolidationRunPage()
+            if key == "approval_matrix":
+                from ui.pages.approval_matrix_page import ApprovalMatrixPage
+                return ApprovalMatrixPage()
 
             # 37 modul lain -> masing-masing punya file halaman sendiri di
             # ui/pages/<key>_page.py (lihat MODULE_PAGE_MAP di bawah), yang

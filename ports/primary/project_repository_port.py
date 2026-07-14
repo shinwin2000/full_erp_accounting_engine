@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
 Module: project_repository_port.py
-Layer: 7 - Ports / Primary
-Responsibility: Port for project repository operations.
+Layer: Ports / Primary
+Responsibility:
+    - Mendefinisikan antarmuka (port) untuk repository project.
+    - Menyediakan implementasi in-memory untuk testing/fallback.
 
 Defines the contract for:
 - Creating and managing projects
@@ -16,11 +18,13 @@ Defines the contract for:
 from __future__ import annotations
 
 import abc
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
+# ==================== DOMAIN ENTITIES ====================
 
 class ProjectEntity:
     """Represents a project (simplified)."""
@@ -158,6 +162,8 @@ class ProjectExpenseEntry:
         self.billable = billable
 
 
+# ==================== PORT (INTERFACE) ====================
+
 class ProjectRepositoryPort(abc.ABC):
     """Port for project data persistence."""
 
@@ -167,45 +173,45 @@ class ProjectRepositoryPort(abc.ABC):
     @abc.abstractmethod
     async def save_project(self, project: ProjectEntity) -> None:
         """Save or update a project."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def get_project_by_id(self, project_id: UUID) -> ProjectEntity | None:
         """Get project by ID."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def get_project_by_code(
         self, project_code: str, legal_entity_id: UUID
     ) -> ProjectEntity | None:
         """Get project by code."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def list_projects_by_legal_entity(
         self, legal_entity_id: UUID, status: str | None = None, limit: int = 100, offset: int = 0
     ) -> list[ProjectEntity]:
         """List projects for a legal entity."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def list_projects_by_customer(
         self, customer_id: UUID, legal_entity_id: UUID
     ) -> list[ProjectEntity]:
         """List projects for a customer."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def update_project_status(
         self, project_id: UUID, new_status: str, updated_by: UUID
     ) -> None:
         """Update project status."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def get_last_project_code(self, legal_entity_id: UUID) -> str | None:
         """Get last used project code."""
-        raise NotImplementedError
+        ...
 
     # --------------------------------------------------------------------
     # Task Management
@@ -213,22 +219,22 @@ class ProjectRepositoryPort(abc.ABC):
     @abc.abstractmethod
     async def save_task(self, task: ProjectTaskEntity) -> None:
         """Save or update a project task."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def get_task_by_id(self, task_id: UUID) -> ProjectTaskEntity | None:
         """Get task by ID."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def list_tasks_by_project(self, project_id: UUID) -> list[ProjectTaskEntity]:
         """List all tasks for a project."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def update_task_status(self, task_id: UUID, new_status: str, updated_by: UUID) -> None:
         """Update task status."""
-        raise NotImplementedError
+        ...
 
     # --------------------------------------------------------------------
     # Time and Expenses
@@ -236,26 +242,26 @@ class ProjectRepositoryPort(abc.ABC):
     @abc.abstractmethod
     async def save_time_entry(self, entry: ProjectTimeEntry) -> None:
         """Save a time entry."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def list_time_entries_by_project(
         self, project_id: UUID, from_date: date, to_date: date
     ) -> list[ProjectTimeEntry]:
         """List time entries for a project within date range."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def save_expense_entry(self, entry: ProjectExpenseEntry) -> None:
         """Save an expense entry."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def list_expense_entries_by_project(
         self, project_id: UUID, from_date: date, to_date: date
     ) -> list[ProjectExpenseEntry]:
         """List expense entries for a project within date range."""
-        raise NotImplementedError
+        ...
 
     # --------------------------------------------------------------------
     # Financials
@@ -263,22 +269,21 @@ class ProjectRepositoryPort(abc.ABC):
     @abc.abstractmethod
     async def update_project_costs(self, project_id: UUID, additional_cost: Decimal) -> None:
         """Increment actual cost for a project."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def update_project_billed(self, project_id: UUID, billed_amount: Decimal) -> None:
         """Increment billed amount for a project."""
-        raise NotImplementedError
+        ...
 
     @abc.abstractmethod
     async def get_project_financial_summary(self, project_id: UUID) -> dict[str, Decimal]:
         """Get budget, actual cost, billed amount, remaining budget, etc."""
-        raise NotImplementedError
+        ...
 
 
 class ProjectRepositoryPortProtocol(Protocol):
     """Protocol version for structural typing."""
-
     async def save_project(self, project: ProjectEntity) -> None: ...
     async def get_project_by_id(self, project_id: UUID) -> ProjectEntity | None: ...
     async def get_project_by_code(
@@ -313,7 +318,189 @@ class ProjectRepositoryPortProtocol(Protocol):
     async def get_project_financial_summary(self, project_id: UUID) -> dict[str, Decimal]: ...
 
 
+# ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
+
+class InMemoryProjectRepository(ProjectRepositoryPort):
+    """
+    Implementasi in-memory untuk repository project.
+    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
+    """
+
+    def __init__(self):
+        self._projects: dict[UUID, ProjectEntity] = {}
+        self._tasks: dict[UUID, ProjectTaskEntity] = {}
+        self._time_entries: list[ProjectTimeEntry] = []
+        self._expense_entries: list[ProjectExpenseEntry] = []
+        self._lock = asyncio.Lock()
+
+    # --------------------------------------------------------------------
+    # Project Management
+    # --------------------------------------------------------------------
+    async def save_project(self, project: ProjectEntity) -> None:
+        async with self._lock:
+            project.updated_at = datetime.utcnow()
+            self._projects[project.id] = project
+
+    async def get_project_by_id(self, project_id: UUID) -> ProjectEntity | None:
+        async with self._lock:
+            return self._projects.get(project_id)
+
+    async def get_project_by_code(
+        self, project_code: str, legal_entity_id: UUID
+    ) -> ProjectEntity | None:
+        async with self._lock:
+            for project in self._projects.values():
+                if project.project_code == project_code and project.legal_entity_id == legal_entity_id:
+                    return project
+            return None
+
+    async def list_projects_by_legal_entity(
+        self, legal_entity_id: UUID, status: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[ProjectEntity]:
+        async with self._lock:
+            result = []
+            for project in self._projects.values():
+                if project.legal_entity_id != legal_entity_id:
+                    continue
+                if status and project.status != status:
+                    continue
+                result.append(project)
+            result.sort(key=lambda x: x.created_at, reverse=True)
+            return result[offset:offset + limit]
+
+    async def list_projects_by_customer(
+        self, customer_id: UUID, legal_entity_id: UUID
+    ) -> list[ProjectEntity]:
+        async with self._lock:
+            result = []
+            for project in self._projects.values():
+                if project.customer_id == customer_id and project.legal_entity_id == legal_entity_id:
+                    result.append(project)
+            return result
+
+    async def update_project_status(
+        self, project_id: UUID, new_status: str, updated_by: UUID
+    ) -> None:
+        async with self._lock:
+            project = self._projects.get(project_id)
+            if project:
+                project.status = new_status
+                project.updated_at = datetime.utcnow()
+
+    async def get_last_project_code(self, legal_entity_id: UUID) -> str | None:
+        async with self._lock:
+            codes = []
+            for project in self._projects.values():
+                if project.legal_entity_id == legal_entity_id:
+                    codes.append(project.project_code)
+            if not codes:
+                return None
+            codes.sort()
+            return codes[-1]
+
+    # --------------------------------------------------------------------
+    # Task Management
+    # --------------------------------------------------------------------
+    async def save_task(self, task: ProjectTaskEntity) -> None:
+        async with self._lock:
+            self._tasks[task.id] = task
+
+    async def get_task_by_id(self, task_id: UUID) -> ProjectTaskEntity | None:
+        async with self._lock:
+            return self._tasks.get(task_id)
+
+    async def list_tasks_by_project(self, project_id: UUID) -> list[ProjectTaskEntity]:
+        async with self._lock:
+            result = []
+            for task in self._tasks.values():
+                if task.project_id == project_id:
+                    result.append(task)
+            return result
+
+    async def update_task_status(self, task_id: UUID, new_status: str, updated_by: UUID) -> None:
+        async with self._lock:
+            task = self._tasks.get(task_id)
+            if task:
+                task.status = new_status
+
+    # --------------------------------------------------------------------
+    # Time and Expenses
+    # --------------------------------------------------------------------
+    async def save_time_entry(self, entry: ProjectTimeEntry) -> None:
+        async with self._lock:
+            # Remove old entry if exists
+            for i, e in enumerate(self._time_entries):
+                if e.id == entry.id:
+                    self._time_entries[i] = entry
+                    return
+            self._time_entries.append(entry)
+
+    async def list_time_entries_by_project(
+        self, project_id: UUID, from_date: date, to_date: date
+    ) -> list[ProjectTimeEntry]:
+        async with self._lock:
+            result = []
+            for entry in self._time_entries:
+                if entry.project_id == project_id:
+                    if from_date <= entry.entry_date <= to_date:
+                        result.append(entry)
+            return result
+
+    async def save_expense_entry(self, entry: ProjectExpenseEntry) -> None:
+        async with self._lock:
+            for i, e in enumerate(self._expense_entries):
+                if e.id == entry.id:
+                    self._expense_entries[i] = entry
+                    return
+            self._expense_entries.append(entry)
+
+    async def list_expense_entries_by_project(
+        self, project_id: UUID, from_date: date, to_date: date
+    ) -> list[ProjectExpenseEntry]:
+        async with self._lock:
+            result = []
+            for entry in self._expense_entries:
+                if entry.project_id == project_id:
+                    if from_date <= entry.expense_date <= to_date:
+                        result.append(entry)
+            return result
+
+    # --------------------------------------------------------------------
+    # Financials
+    # --------------------------------------------------------------------
+    async def update_project_costs(self, project_id: UUID, additional_cost: Decimal) -> None:
+        async with self._lock:
+            project = self._projects.get(project_id)
+            if project:
+                project.actual_cost += additional_cost
+                project.updated_at = datetime.utcnow()
+
+    async def update_project_billed(self, project_id: UUID, billed_amount: Decimal) -> None:
+        async with self._lock:
+            project = self._projects.get(project_id)
+            if project:
+                project.billed_amount += billed_amount
+                project.updated_at = datetime.utcnow()
+
+    async def get_project_financial_summary(self, project_id: UUID) -> dict[str, Decimal]:
+        async with self._lock:
+            project = self._projects.get(project_id)
+            if not project:
+                return {}
+            return {
+                "budget": project.budget_amount,
+                "actual_cost": project.actual_cost,
+                "billed_amount": project.billed_amount,
+                "remaining_budget": project.budget_amount - project.actual_cost,
+                "remaining_to_bill": project.budget_amount - project.billed_amount,
+                "profit": project.billed_amount - project.actual_cost,
+            }
+
+
+# ==================== EXPORTS ====================
+
 __all__ = [
+    "InMemoryProjectRepository",
     "ProjectEntity",
     "ProjectExpenseEntry",
     "ProjectRepositoryPort",

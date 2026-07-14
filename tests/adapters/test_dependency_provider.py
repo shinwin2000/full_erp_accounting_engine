@@ -1,4 +1,4 @@
-﻿# tests/unit/adapters/test_dependency_provider.py
+# tests/unit/adapters/test_dependency_provider.py
 """
 Unit tests for adapters/dependency_provider.py
 ===============================================

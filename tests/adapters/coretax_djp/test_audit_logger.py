@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for adapters/coretax_djp/audit_logger.py
 Menggunakan pytest dan mock untuk semua dependency eksternal.
 """
