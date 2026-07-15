@@ -16,6 +16,7 @@ from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from domain.consolidation.elimination_entry import EliminationEntry
+from domain.consolidation.domain_events import ConsolidationCompleted
 from domain.consolidation.intercompany_transaction import IntercompanyTransaction
 from domain.legal_entity.company_entity import Company
 
@@ -475,8 +476,8 @@ class ConsolidationGroup:
             "auditor",
         )
 
-    def approve(self, approved_by: str) -> ConsolidationGroup:
-        if not self.can_approve():
+    def approve(self, approved_by: str, approver_role: str = "user") -> ConsolidationGroup:
+        if not self.can_approve(approver_role):
             raise ValueError("Cannot approve consolidation in current status")
         new_group = self._copy()
         new_group.status = ConsolidationStatus.COMPLETED
@@ -503,8 +504,8 @@ class ConsolidationGroup:
             "admin",
         )
 
-    def reject(self, rejected_by: str, reason: str) -> ConsolidationGroup:
-        if not self.can_reject():
+    def reject(self, rejected_by: str, reason: str, approver_role: str = "user") -> ConsolidationGroup:
+        if not self.can_reject(approver_role):
             raise ValueError("Cannot reject consolidation in current status")
         new_group = self._copy()
         new_group.status = ConsolidationStatus.DRAFT
@@ -517,8 +518,8 @@ class ConsolidationGroup:
     def can_cancel(self, user_role: str = "user") -> bool:
         return self.status != ConsolidationStatus.COMPLETED and user_role in ("admin",)
 
-    def cancel(self, cancelled_by: str, reason: str) -> ConsolidationGroup:
-        if not self.can_cancel():
+    def cancel(self, cancelled_by: str, reason: str, approver_role: str = "user") -> ConsolidationGroup:
+        if not self.can_cancel(approver_role):
             raise ValueError("Cannot cancel consolidation in current status")
         new_group = self._copy()
         new_group.status = ConsolidationStatus.CANCELLED

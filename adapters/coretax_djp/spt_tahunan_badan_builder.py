@@ -1023,9 +1023,6 @@ class SPTTahunanBadan:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def add_koreksi_positif(self, jenis_kode: str, jumlah: Decimal, keterangan: str = "", sumber: str = "") -> SPTTahunanBadan:
         if self.is_locked:
             raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")

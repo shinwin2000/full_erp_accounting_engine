@@ -8,7 +8,16 @@
       "metadata": {
         "source": "auto_generated"
       }
+    },
+    "test_value": {
+      "key_id": "test_value",
+      "key": "YUqPC0/90gENF1JjCL4YLDaBMGQNVT9e6xdYiJfTPdU=",
+      "created_at": "2026-07-15T01:38:17.939199+00:00",
+      "version": 1,
+      "metadata": {
+        "rotated_from": "default"
+      }
     }
   },
-  "current": "default"
+  "current": "test_value"
 }

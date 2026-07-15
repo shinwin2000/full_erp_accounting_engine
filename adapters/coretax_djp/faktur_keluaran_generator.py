@@ -927,9 +927,6 @@ class FakturKeluaran:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def calculate_tax(self) -> dict[str, Decimal]:
         ppn = (self._dpp * PPN_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return {

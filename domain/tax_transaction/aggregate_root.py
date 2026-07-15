@@ -184,7 +184,7 @@ class FakturPajak:
         new._record_audit("SUBMIT", str(submitted_by), {})
         return new
 
-    def approve(self, approval_code: str, approved_at: date, approved_by: UUID) -> FakturPajak:
+    def _approve_core(self, approval_code: str, approved_at: date, approved_by: UUID) -> FakturPajak:
         if not self.status.can_approve():
             raise ValueError(f"Cannot approve faktur with status {self.status.value}")
         new = self._copy()
@@ -197,7 +197,7 @@ class FakturPajak:
         new._record_audit("APPROVE", str(approved_by), {"approval_code": approval_code})
         return new
 
-    def reject(self, reason: str, rejected_by: UUID) -> FakturPajak:
+    def _reject_core(self, reason: str, rejected_by: UUID) -> FakturPajak:
         if not self.status.can_approve():
             raise ValueError(f"Cannot reject faktur with status {self.status.value}")
         new = self._copy()
@@ -210,7 +210,7 @@ class FakturPajak:
         new._record_audit("REJECT", str(rejected_by), {"reason": reason})
         return new
 
-    def cancel(self, cancelled_by: UUID) -> FakturPajak:
+    def _cancel_core(self, cancelled_by: UUID) -> FakturPajak:
         if not self.status.can_cancel():
             raise ValueError(f"Cannot cancel faktur with status {self.status.value}")
         new = self._copy()
@@ -459,7 +459,7 @@ class FakturPajak:
     def approve(self, user_id: str, resource: str, approved_by: str) -> FakturPajak:
         if not self.can_approve(user_id, resource):
             raise ValueError("Cannot approve in current state")
-        return self.approve(self.approval_code or "MANUAL", date.today(), UUID(approved_by))
+        return self._approve_core(self.approval_code or "MANUAL", date.today(), UUID(approved_by))
 
     def can_reject(self, user_id: str, resource: str) -> bool:
         return self.status.can_approve()
@@ -467,7 +467,7 @@ class FakturPajak:
     def reject(self, user_id: str, resource: str, rejected_by: str, reason: str) -> FakturPajak:
         if not self.can_reject(user_id, resource):
             raise ValueError("Cannot reject in current state")
-        return self.reject(reason, UUID(rejected_by))
+        return self._reject_core(reason, UUID(rejected_by))
 
     def can_cancel(self, user_id: str, resource: str) -> bool:
         return self.status.can_cancel()
@@ -475,7 +475,7 @@ class FakturPajak:
     def cancel(self, user_id: str, resource: str, cancelled_by: str, reason: str) -> FakturPajak:
         if not self.can_cancel(user_id, resource):
             raise ValueError("Cannot cancel in current state")
-        return self.cancel(UUID(cancelled_by))
+        return self._cancel_core(UUID(cancelled_by))
 
     def can_reverse(self, user_id: str, resource: str) -> bool:
         return False
@@ -487,6 +487,8 @@ class FakturPajak:
         return self.status == FakturStatus.APPROVED
 
     def close(self, user_id: str, resource: str, closed_by: str, reason: str) -> FakturPajak:
+        if not self.can_close(user_id, resource):
+            raise ValueError(f"Cannot close faktur in status {self.status.value}")
         new = self._copy()
         new.status = FakturStatus.EXPIRED
         new.updated_at = datetime.now(UTC)

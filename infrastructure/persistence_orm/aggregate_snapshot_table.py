@@ -11,11 +11,7 @@ import uuid
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import (
-    BigInteger,
-    DateTime,
-    String,
-)
+from sqlalchemy import BigInteger, DateTime, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,17 +23,15 @@ class AggregateSnapshotTable(Base):
 
     __tablename__ = "aggregate_snapshot"
 
-    id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        nullable=False,
-    )
+    # id diwarisi dari Base (UUID primary key)
+
     aggregate_type: Mapped[str] = mapped_column(String(255), nullable=False)
     aggregate_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     version: Mapped[int] = mapped_column(BigInteger(), nullable=False)
-    snapshot_data: Mapped[dict] = mapped_column(JSONB(), nullable=False)  # perbaiki tipe menjadi dict
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    snapshot_data: Mapped[dict] = mapped_column(JSONB(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     def __repr__(self) -> str:
         pk = getattr(self, "id", "?")

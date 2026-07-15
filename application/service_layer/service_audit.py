@@ -625,7 +625,13 @@ class AuditService:
     def get_stats(self) -> dict[str, int]:
         return self._stats.copy()
 
-    def get_audit_trail(self) -> list[dict[str, Any]]:
+    def get_recent_audit_entries(self) -> list[dict[str, Any]]:
+        """Diganti nama dari get_audit_trail() -- nama itu bentrok dengan
+        method produksi async get_audit_trail(self, request) di atas
+        (dipakai oleh adapters/primary_api/v1/fastapi_audit_router.py) dan
+        menyebabkan endpoint audit trail API rusak total (TypeError setiap
+        request). Method ini cuma return in-memory _audit_trail lokal,
+        bukan query ke event store."""
         return self._audit_trail.copy()
 
 

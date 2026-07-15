@@ -1003,9 +1003,6 @@ class FakturMasukan:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def _calculate_hash(self) -> None:
         data = f"{self._faktur_id}{self._faktur_number}{self._npwp_penjual}{self._dpp}{self._ppn}{self._status.value}{self._version}"
         self._hash = hashlib.sha256(data.encode()).hexdigest()
@@ -1977,7 +1974,13 @@ class FakturMasukanProcessor:
             return today > expiry_date
         return False
 
-    def approve(self, faktur_data: dict[str, Any]) -> Any:
+    def legacy_approve_expiry_check(self, faktur_data: dict[str, Any]) -> Any:
+        """Diganti nama dari approve() -- nama itu bentrok dengan method
+        produksi async approve(self, faktur_id, approver_id, notes) di atas
+        dan membuatnya jadi dead code/unreachable (method ini menang karena
+        didefinisikan belakangan, padahal sengaja ditandai 'Legacy/Test' oleh
+        penulisnya sendiri). Method produksi asli sekarang bisa dipanggil
+        lagi dengan benar."""
         if self._check_expiry(faktur_data):
             raise ValueError("Faktur sudah melebihi batas waktu 3 bulan")
         class ApprovalResult:

@@ -945,9 +945,6 @@ class SPTMasaPPN:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def collect_pk_data(self, faktur_list: list[dict[str, Any]]) -> SPTMasaPPN:
         self._detail_pk = []
         self._total_penyerahan_dpp = Decimal(0)

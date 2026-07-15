@@ -669,9 +669,6 @@ class EMeterai:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def check_expiry(self) -> bool:
         if self.is_expired and self._status not in [EMeteraiStatus.USED, EMeteraiStatus.REVOKED, EMeteraiStatus.ARCHIVED]:
             self._status = EMeteraiStatus.EXPIRED

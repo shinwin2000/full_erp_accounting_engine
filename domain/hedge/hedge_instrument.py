@@ -372,7 +372,11 @@ class HedgeInstrument:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: str) -> HedgeInstrument:
+    def stamp_create_audit(self, created_by: str) -> HedgeInstrument:
+        """Rename dari create() semula -- nama itu bentrok dengan
+        factory classmethod create() di atas dan membuatnya jadi dead
+        code (Python: definisi terakhir menang). Method ini cuma stempel
+        audit trail pada instance yang sudah ada, BUKAN factory."""
         self._record_audit("CREATE", created_by, {"instrument_number": self.instrument_number})
         return self
 

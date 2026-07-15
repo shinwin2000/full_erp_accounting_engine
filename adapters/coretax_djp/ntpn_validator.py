@@ -643,9 +643,6 @@ class NTPN:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def set_validation_response(self, response: dict[str, Any]) -> NTPN:
         self._validation_response = response
         if response.get("is_valid"):

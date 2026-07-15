@@ -916,7 +916,12 @@ class ValidationPipeline(BaseValidationPipeline):
         self._record_audit("RESET", "system", {})
 
     # === Entity dasar methods ===
-    def validate(self) -> dict[str, Any]:
+    def validate_internal_state(self) -> dict[str, Any]:
+        """Diganti nama dari validate() -- nama itu bentrok dengan method
+        produksi async validate(self, command_id, command_type, ...) di atas
+        (dipakai oleh kernel/sealed_gate.py) dan membuatnya SEPENUHNYA TIDAK
+        BISA DIPANGGIL. Ini cuma cek konsistensi internal (max_history),
+        bukan validasi command terhadap axiom bisnis."""
         errors = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")

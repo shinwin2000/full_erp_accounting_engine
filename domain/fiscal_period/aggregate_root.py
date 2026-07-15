@@ -448,10 +448,6 @@ class FiscalPeriod:
         return (self._end_date - self._start_date).days
 
     @property
-    def can_post(self) -> bool:
-        return self._status.can_post()
-
-    @property
     def can_adjust(self) -> bool:
         return self._status.can_adjust()
 
@@ -970,7 +966,7 @@ class FiscalPeriod:
             "is_locked": self.is_locked,
             "is_closed": self.is_closed,
             "is_draft": self.is_draft,
-            "can_post": self.can_post,
+            "can_post": self.can_post(),
             "can_adjust": self.can_adjust,
             "opened_at": self._opened_at.isoformat() if self._opened_at else None,
             "opened_by": self._opened_by,
@@ -1015,9 +1011,6 @@ class FiscalPeriod:
             "status": self._status.value,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-
-    def version(self) -> int:
-        return self._version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]

@@ -804,9 +804,6 @@ class SPTMasaPPH21:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def calculate_tax(self, penghasilan_netto: Decimal) -> Decimal:
         pph = Decimal(0)
         sisa = penghasilan_netto

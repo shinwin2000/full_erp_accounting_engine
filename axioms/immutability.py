@@ -317,8 +317,13 @@ class ImmutableRecord:
             _version=self._version,
         )
 
-    def deactivate(self) -> ImmutableRecord:
-        """Alias for deactivate"""
+    def deactivate_default(self) -> ImmutableRecord:
+        """Alias for deactivate() dengan nilai default. Diganti nama dari
+        deactivate() -- nama itu bentrok dengan method utama
+        deactivate(self, deactivated_by, reason=None) di atas (dipakai oleh
+        service_coa.py, faktur_masukan_processor.py,
+        constitutional_invariants.py) dan menyebabkan TypeError setiap kali
+        method utama itu dipanggil dengan argumen."""
         return self.deactivate("system", "Deactivated")
 
 
@@ -1123,7 +1128,7 @@ class ImmutabilityAxiom:
         self.save_correction(correction)
         original = self.get_immutable_record(original_record_id)
         if original and original.is_active:
-            deactivated = original.deactivate()
+            deactivated = original.deactivate_default()
             self.save_immutable_record(deactivated)
         return correction
 

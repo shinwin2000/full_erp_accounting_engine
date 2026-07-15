@@ -215,9 +215,12 @@ class SalesOrderAggregate:
         object.__setattr__(agg, 'version', len(events) + 1)
         return agg
 
-    def reconstruct(self, events: list[DomainEvent]) -> SalesOrderAggregate:
+    def replay_events(self, events: list[DomainEvent]) -> SalesOrderAggregate:
         """
-        Reconstruct aggregate from events (alias for replay).
+        Alias for replay(). Diganti nama dari reconstruct() karena nama itu
+        bentrok dengan factory classmethod reconstruct() di atas dan
+        membuatnya jadi dead code (event-sourcing rehydration jadi tidak
+        bisa dipanggil).
 
         Args:
             events: List of domain events.

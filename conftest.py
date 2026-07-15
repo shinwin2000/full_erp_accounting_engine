@@ -40,3 +40,16 @@ try:
     print("[conftest] infrastructure.telemetry berhasil diimport")
 except ImportError as e:
     print(f"[conftest] Gagal import infrastructure.telemetry: {e}")
+
+# ========== 5. Import semua ORM modules untuk menghindari circular dependency issues ==========
+try:
+    import infrastructure.persistence_orm
+    # Force import all ORM modules to resolve SQLAlchemy relationships
+    for module_name in infrastructure.persistence_orm._MODULE_NAMES:
+        try:
+            getattr(infrastructure.persistence_orm, module_name)
+        except Exception as e:
+            print(f"[conftest] Warning: Failed to import {module_name}: {e}")
+    print("[conftest] Semua ORM modules berhasil diimport")
+except Exception as e:
+    print(f"[conftest] Gagal import ORM modules: {e}")

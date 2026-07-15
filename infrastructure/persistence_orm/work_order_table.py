@@ -22,7 +22,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
@@ -51,17 +51,26 @@ class WorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_work_order_status", "status"),
         Index("idx_work_order_legal_entity", "legal_entity_id"),
         Index("idx_work_order_bom", "bom_id"),
+        {"extend_existing": True},  # opsional, untuk keamanan
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # id diwarisi dari Base (primary key UUID), tidak perlu didefinisikan ulang
+
     work_order_number: Mapped[str] = mapped_column(String(50), nullable=False)
-    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     planned_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     completed_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     rejected_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    bom_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("bill_of_materials.id"), nullable=True)
-    routing_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    bom_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("bill_of_materials.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    routing_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=True
+    )
     planned_start_date: Mapped[date] = mapped_column(Date, nullable=False)
     planned_end_date: Mapped[date] = mapped_column(Date, nullable=False)
     actual_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -71,7 +80,7 @@ class WorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="planned")
     cost_center: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
 
     @property
     def remaining_quantity(self) -> Decimal:

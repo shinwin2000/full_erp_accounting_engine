@@ -198,8 +198,11 @@ class ManufacturingAggregate:
         self.version = len(events) + 1
         self._record_audit("REPLAY_EVENTS", {"count": len(events)})
 
-    def reconstruct(self, events: list[DomainEvent]) -> None:
-        """Alias for replay."""
+    def replay_events(self, events: list[DomainEvent]) -> None:
+        """Alias for replay(). Diganti nama dari reconstruct() karena nama
+        itu bentrok dengan factory classmethod reconstruct() di atas dan
+        membuatnya jadi dead code (event-sourcing rehydration jadi tidak
+        bisa dipanggil)."""
         self.replay(events)
 
     # ==================== AUDIT TRAIL ====================

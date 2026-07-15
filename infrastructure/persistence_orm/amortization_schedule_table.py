@@ -12,11 +12,11 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Index, Numeric, String
+from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from infrastructure.persistence_orm.base_model import Base, TimestampMixin, UUIDMixin
+from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 
 
 class AmortizationStatus(str, enum.Enum):
@@ -26,7 +26,7 @@ class AmortizationStatus(str, enum.Enum):
     ADJUSTED = "ADJUSTED"
 
 
-class AmortizationScheduleTable(Base, UUIDMixin, TimestampMixin):
+class AmortizationScheduleTable(Base, TimestampMixin):
     __tablename__ = "amortization_schedule"
     __table_args__ = (
         CheckConstraint("planned_amount >= 0", name="ck_amort_planned_nonneg"),
@@ -36,6 +36,8 @@ class AmortizationScheduleTable(Base, UUIDMixin, TimestampMixin):
         {},
     )
 
+    # id diwarisi dari Base (UUID primary key)
+
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("intangible_asset.id", ondelete="CASCADE"),
@@ -43,8 +45,8 @@ class AmortizationScheduleTable(Base, UUIDMixin, TimestampMixin):
         index=True,
     )
     period_date: Mapped[date] = mapped_column(Date, nullable=False)
-    fiscal_year: Mapped[int] = mapped_column(nullable=False)
-    fiscal_period: Mapped[int] = mapped_column(nullable=False)
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    fiscal_period: Mapped[int] = mapped_column(Integer, nullable=False)
     planned_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     actual_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     remaining_carrying_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)

@@ -827,9 +827,6 @@ class SPTMasaPPH23:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def calculate_pph23_rate(self, object_type: str, has_npwp: bool, is_construction: bool = False) -> Decimal:
         if is_construction:
             return PPh23_RATE_KONSTRUKSI

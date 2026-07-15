@@ -906,9 +906,6 @@ class EBupot:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def calculate_tax(self) -> dict[str, Decimal]:
         pph = (self._dpp * self._tarif).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return {

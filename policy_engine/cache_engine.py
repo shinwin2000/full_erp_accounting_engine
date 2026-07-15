@@ -448,20 +448,17 @@ class PolicyCacheEngine:
             logger.error(f"Failed to save cache to disk: {e}")
 
     def _load_from_disk(self) -> None:
-        """Load cache dari disk dengan aman menggunakan jsonpickle."""
+        """Load cache dari disk (pickle, konsisten dengan _save_to_disk)."""
         if not self._persistence_file:
             return
         try:
             import os
 
-            import jsonpickle  # Menggantikan pickle biasa untuk faktor keamanan
-
             if not os.path.exists(self._persistence_file):
                 return
 
-            # Ubah mode baca dari "rb" (read binary) menjadi "r" (read text) dengan encoding utf-8
-            with open(self._persistence_file, encoding="utf-8") as f:
-                entries = jsonpickle.decode(f.read())
+            with open(self._persistence_file, "rb") as f:
+                entries = pickle.load(f)
 
             now = datetime.now(UTC)
             with self._lock:
@@ -471,21 +468,6 @@ class PolicyCacheEngine:
             logger.info(f"Loaded {len(self._cache)} cache entries from disk")
         except Exception as e:
             logger.warning(f"Failed to load cache from disk: {e}")
-
-    def _save_to_disk(self) -> None:
-        """Simpan cache ke disk menggunakan format jsonpickle yang aman."""
-        if not self._persistence_file:
-            return
-        with self._lock:
-            # Mengkloning cache saat ini untuk disimpan
-            entries_to_save = dict(self._cache)
-
-        import jsonpickle
-
-        # Ubah mode tulis dari "wb" (write binary) menjadi "w" (write text) dengan encoding utf-8
-        with open(self._persistence_file, "w", encoding="utf-8") as f:
-            frozen_data = jsonpickle.encode(entries_to_save, indent=4)
-            f.write(frozen_data)
 
     def persist(self) -> bool:
         """Simpan cache ke disk secara manual."""

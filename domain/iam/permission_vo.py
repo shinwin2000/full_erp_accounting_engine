@@ -456,10 +456,6 @@ class PermissionVO:
             "metadata": self.metadata,
         }
 
-    def to_string(self) -> str:
-        """Alias for to_string property."""
-        return self.to_string
-
     # ==================== DUNDER METHODS ====================
 
     def __str__(self) -> str:

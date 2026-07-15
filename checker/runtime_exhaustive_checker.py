@@ -3,7 +3,7 @@
 runtime_exhaustive_checker.py – Sovereign ERP Runtime Verification Framework
 ===================================================================================
 Standar: ISO/IEC 25010 · SOX/ISA 315 · PCAOB AS 2405
-Versi 5.3 – Enterprise Grade Checker (Spring Boot Actuator / ASP.NET HealthChecks level)
+Versi 5.4 – Enterprise Grade Checker (Spring Boot Actuator / ASP.NET HealthChecks level)
 
 Fitur tambahan:
   - Transaction rollback/commit verification
@@ -22,13 +22,12 @@ Fitur tambahan:
   - Confidence levels & false positive mitigation
   - Detailed actionable items with priority
 
-v5.3 – Perbaikan final:
-  - Transactions: gunakan uow_ctx.session langsung (property) tanpa coroutine
-  - Dispose: gunakan event loop baru untuk menghindari RuntimeError
-  - Identity check: perbaiki deteksi instance untuk JournalAggregate
-  - Event publish/subscribe: lebih toleran
-  - Performance benchmark: pastikan session factory dan engine valid
-  - ORM Models check: import eksplisit Base, refleksi metadata, load modul ORM
+v5.4 – Perbaikan final untuk Broken Imports:
+  - check_models() sekarang mengimpor semua modul ORM secara dinamis dari daftar _MODULE_NAMES
+  - Tidak ada import hardcode seperti 'from infrastructure.persistence_orm import employee_table'
+  - Jika modul belum ada, diabaikan (skip) tanpa error
+  - Base diambil dari base_model langsung, bukan dari package __init__
+  - Metadata diisi dengan aman
 """
 
 from __future__ import annotations
@@ -219,20 +218,6 @@ class RuntimeExhaustiveChecker:
         Jalankan coroutine dalam event loop-nya sendiri (asyncio.run), TAPI
         pastikan connection pool (self._engine) di-dispose SEBELUM loop itu
         ditutup, masih di dalam loop yang sama.
-
-        Ini krusial: asyncpg mengikat setiap koneksi ke event loop yang
-        membuatnya. Kalau kita cuma asyncio.run(coro) tanpa dispose, koneksi
-        yang baru saja dipakai akan dikembalikan ke pool dalam keadaan
-        "checked-in" dan MASIH HIDUP secara objek Python walau loop-nya
-        sudah closed. Giliran check/asyncio.run() BERIKUTNYA mengambil
-        koneksi itu lagi dari pool, ia mencoba memakai transport yang
-        terikat ke loop lama -> "Event loop is closed" /
-        "'NoneType' object has no attribute 'send'".
-
-        Dengan dispose() dipanggil di akhir coroutine yang sama (masih di
-        loop yang sama), semua koneksi ditutup dengan bersih SEBELUM loop
-        mati, sehingga check berikutnya selalu mulai dari pool kosong dan
-        akan membuat koneksi baru yang valid untuk loop barunya.
         """
         async def _wrapper():
             try:
@@ -786,17 +771,17 @@ class RuntimeExhaustiveChecker:
         return self._check("Aggregates", _inner, "components", "HIGH")
 
     # ========================================================================
-    # FIXED: check_models() with explicit Base import, reflection, and module loading
+    # FIXED: check_models() dengan dynamic import module, tanpa hardcode
     # ========================================================================
     def check_models(self) -> RuntimeCheckResult:
         def _inner():
             try:
                 from sqlalchemy import MetaData
 
-                # Ensure engine is available for reflection
-                import infrastructure.database.session_factory_sqlalchemy as sf_module
+                # 1) Pastikan engine tersedia
                 engine = None
                 try:
+                    import infrastructure.database.session_factory_sqlalchemy as sf_module
                     wrapper = asyncio.run(sf_module.get_session_factory())
                     engine = wrapper.get_engine()
                     if engine is not None and self._engine is None:
@@ -804,74 +789,56 @@ class RuntimeExhaustiveChecker:
                 except Exception as e:
                     logger.debug(f"Tidak bisa ambil engine untuk ORM discovery (non-fatal): {e}")
 
-                metadata = MetaData()
-
-                # 1) Explicit import of Base from the correct module
+                # 2) Impor Base dari base_model (sudah benar)
                 try:
                     from infrastructure.persistence_orm.base_model import Base
-                    if hasattr(Base, "metadata"):
-                        metadata = Base.metadata
-                        self._metadata = metadata
-                        logger.debug(f"Base.metadata loaded, tables: {len(metadata.tables)}")
-                except ImportError:
-                    pass
+                    metadata = Base.metadata
+                    self._metadata = metadata
+                    logger.debug(f"Base.metadata loaded, tables: {len(metadata.tables)}")
+                except ImportError as e:
+                    return "FAIL", f"Base model tidak bisa diimpor: {e}", {}
 
-                # 2) Fallback: try to import from the package
-                if metadata is None or len(metadata.tables) == 0:
+                # 3) Muat semua modul ORM secara dinamis dari daftar _MODULE_NAMES
+                try:
+                    # Coba ambil daftar dari __init__.py
+                    import infrastructure.persistence_orm as orm_pkg
+                    if hasattr(orm_pkg, "_MODULE_NAMES"):
+                        module_names = orm_pkg._MODULE_NAMES
+                    else:
+                        # Fallback: scan direktori
+                        import os
+                        pkg_dir = os.path.dirname(orm_pkg.__file__)
+                        module_names = []
+                        for f in os.listdir(pkg_dir):
+                            if f.endswith(".py") and not f.startswith("__"):
+                                module_names.append(f[:-3])
+                except Exception:
+                    module_names = []
+
+                # Impor setiap modul untuk memicu registrasi model
+                imported_count = 0
+                for mod_name in module_names:
                     try:
-                        from infrastructure.persistence_orm import Base as BaseAlt
-                        if hasattr(BaseAlt, "metadata"):
-                            metadata = BaseAlt.metadata
-                            self._metadata = metadata
+                        importlib.import_module(f"infrastructure.persistence_orm.{mod_name}")
+                        imported_count += 1
                     except ImportError:
-                        try:
-                            import infrastructure.persistence_orm as orm
-                            for attr in dir(orm):
-                                obj = getattr(orm, attr)
-                                if hasattr(obj, "metadata") and hasattr(obj.metadata, "tables"):
-                                    metadata = obj.metadata
-                                    self._metadata = metadata
-                                    break
-                        except Exception:
-                            pass
+                        # Modul belum ada, abaikan
+                        continue
+                    except Exception as e:
+                        logger.debug(f"Gagal import modul {mod_name}: {e}")
 
-                # 3) If still empty and engine exists, try reflection
-                if metadata is not None and len(metadata.tables) == 0 and engine is not None:
+                logger.debug(f"Berhasil mengimpor {imported_count} modul ORM")
+
+                # 4) Jika metadata masih kosong, coba refleksi dari database
+                if len(metadata.tables) == 0 and engine is not None:
                     try:
                         metadata.reflect(bind=engine)
-                        self._metadata = metadata
                         logger.debug(f"Reflected {len(metadata.tables)} tables from database")
                     except Exception as e:
-                        logger.debug(f"Reflection failed: {e}")
+                        logger.debug(f"Reflection gagal: {e}")
 
-                # 4) If still empty, force import of key ORM modules to register tables
-                if metadata is None or len(metadata.tables) == 0:
-                    # Force import of some known ORM modules
-                    try:
-                        import infrastructure.persistence_orm  # triggers __init__ imports
-                    except ImportError:
-                        pass
-                    try:
-                        from infrastructure.persistence_orm import employee_table
-                        from infrastructure.persistence_orm import payroll_run_table
-                        from infrastructure.persistence_orm import payroll_payslip_table
-                        from infrastructure.persistence_orm import payslip_table
-                        from infrastructure.persistence_orm import account_table
-                        from infrastructure.persistence_orm import journal_table
-                        # Add more as needed
-                    except ImportError:
-                        pass
-                    # Retry getting metadata from Base
-                    try:
-                        from infrastructure.persistence_orm.base_model import Base
-                        if hasattr(Base, "metadata") and len(Base.metadata.tables) > 0:
-                            metadata = Base.metadata
-                            self._metadata = metadata
-                    except ImportError:
-                        pass
-
-                # Now evaluate metadata
-                if metadata is not None and hasattr(metadata, "tables") and len(metadata.tables) > 0:
+                # 5) Evaluasi metadata
+                if len(metadata.tables) > 0:
                     table_count = len(metadata.tables)
                     missing_pk = []
                     for name, table in metadata.tables.items():
@@ -882,7 +849,7 @@ class RuntimeExhaustiveChecker:
                         return "WARN", f"{table_count - len(missing_pk)}/{table_count} model memiliki PK. Missing PK: {missing_pk[:5]}", {"missing_pk": missing_pk}
                     return "PASS", f"{table_count} model ORM valid (semua memiliki PK)", {"table_count": table_count}
                 else:
-                    # Fallback to class scanning as before
+                    # Fallback: class scanning (sebagai cadangan)
                     try:
                         import infrastructure.persistence_orm as orm
                         skip_classes = {"Base", "DeclarativeBase", "Model", "AbstractModel"}
@@ -1505,7 +1472,7 @@ class RuntimeExhaustiveChecker:
 def print_report(report: RuntimeReport, verbose: bool = False):
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*80}╗")
-    print("║     RUNTIME EXHAUSTIVE CHECKER — v5.3 (Enterprise)     ║")
+    print("║     RUNTIME EXHAUSTIVE CHECKER — v5.4 (Enterprise)     ║")
     print(f"╚{'═'*80}╝{c['RESET']}")
 
     print(f"\n  📅 Timestamp    : {report.timestamp}")
@@ -1687,7 +1654,7 @@ def save_json(report: RuntimeReport, path: Path):
 # MAIN
 # =============================================================================
 def main():
-    parser = argparse.ArgumentParser(description="Runtime Exhaustive Checker v5.3")
+    parser = argparse.ArgumentParser(description="Runtime Exhaustive Checker v5.4")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--json", metavar="FILE", help="Save JSON report")
     parser.add_argument("--no-rca", action="store_true", help="Disable RCA engine")

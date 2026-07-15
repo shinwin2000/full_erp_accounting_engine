@@ -600,9 +600,6 @@ class NSFP:
         self._events.clear()
         return self
 
-    def version(self) -> int:
-        return self._version
-
     def validate_nsfp(self) -> bool:
         return self._validate_format()
 
