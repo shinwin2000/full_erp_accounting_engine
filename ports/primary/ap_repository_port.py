@@ -838,6 +838,24 @@ class InMemoryAPRepository(APRepositoryPort):
             "audit_log_size": len(self._audit_log),
         }
 
+    # ==================== ADDITIONAL METHODS FOR DI CONTRACT ====================
+
+    async def save_invoice(self, invoice: APInvoice) -> None:
+        """Alias untuk add(), sesuai ekspektasi container."""
+        await self.add(invoice)
+
+    async def find_invoice_by_id(self, invoice_id: UUID) -> APInvoice | None:
+        """Alias untuk get_by_id()."""
+        return await self.get_by_id(invoice_id)
+
+    async def find_invoices_by_vendor(self, vendor_id: UUID) -> list[APInvoice]:
+        """
+        Mencari semua invoice milik vendor tertentu (tanpa parameter limit/offset).
+        Menggunakan indeks vendor yang sudah ada.
+        """
+        ids = self._vendor_index.get(vendor_id, [])
+        return [self._storage[iid] for iid in ids if iid in self._storage]
+
 
 # ============================================================================
 # ALIAS UNTUK KOMPATIBILITAS (FIXED)
@@ -850,6 +868,9 @@ _APRepository = InMemoryAPRepository
 # Alias untuk test compatibility
 ApRepositoryPort = APRepositoryPort
 
+# Alias untuk kepatuhan terhadap nama yang diharapkan DI container
+APRepositoryPortImpl = InMemoryAPRepository
+
 
 __all__ = [
     "APInvoice",
@@ -857,6 +878,7 @@ __all__ = [
     "APRepository",
     "APRepositoryPort",
     "ApRepositoryPort",
+    "APRepositoryPortImpl",   
     "CreditNoteAP",
     "InMemoryAPRepository",
     "MatchingStatus",

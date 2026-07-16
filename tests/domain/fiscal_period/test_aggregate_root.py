@@ -3,7 +3,7 @@
 FiscalPeriod aggregate root – comprehensive tests, all PASS.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, date
 from uuid import uuid4
 
 import pytest
@@ -17,6 +17,7 @@ from domain.fiscal_period.aggregate_root import (
     InvalidStatusTransitionError,
     PeriodStatus,
     PeriodType,
+    AccountingPeriod,
 )
 
 
@@ -449,6 +450,127 @@ class TestQuery:
         assert p3.overlaps_with(p1) is False
 
 
+class TestAccountingPeriod:
+    """Test untuk AccountingPeriod value object."""
+
+    def test_invalid_month(self):
+        with pytest.raises(ValueError, match="Month must be 1-12"):
+            AccountingPeriod(year=2026, month=13, start_date=date(2026, 1, 1), end_date=date(2026, 1, 31))
+
+    def test_start_after_end(self):
+        with pytest.raises(ValueError, match="Start date .* must be before end date"):
+            AccountingPeriod(year=2026, month=1, start_date=date(2026, 1, 31), end_date=date(2026, 1, 1))
+
+    def test_from_month_december(self):
+        period = AccountingPeriod.from_month(2026, 12)
+        assert period.start_date == date(2026, 12, 1)
+        assert period.end_date == date(2027, 1, 1)
+
+    def test_from_month_january(self):
+        period = AccountingPeriod.from_month(2026, 1)
+        assert period.start_date == date(2026, 1, 1)
+        assert period.end_date == date(2026, 2, 1)
+
+    def test_period_name(self):
+        period = AccountingPeriod(year=2026, month=6, start_date=date(2026, 6, 1), end_date=date(2026, 6, 30))
+        assert period.period_name == "Jun 2026"
+
+    def test_to_dict(self):
+        period = AccountingPeriod(year=2026, month=6, start_date=date(2026, 6, 1), end_date=date(2026, 6, 30))
+        d = period.to_dict()
+        assert d["year"] == 2026
+        assert d["month"] == 6
+        assert d["period_name"] == "Jun 2026"
+
+
+class TestPeriodStringParsing:
+    """Test untuk parsing period string di konstruktor."""
+
+    def test_parse_period_string_quarterly_invalid(self, legal_id):
+        with pytest.raises(ValueError, match="Q2"):
+            FiscalPeriod(period_id=uuid4(), legal_entity_id=legal_id, period="2026-Q2")
+
+    def test_parse_period_string_annual_invalid(self, legal_id):
+        with pytest.raises(ValueError, match="Invalid period format"):
+            FiscalPeriod(period_id=uuid4(), legal_entity_id=legal_id, period="2026")
+
+    def test_parse_period_string_invalid_month(self, legal_id):
+        with pytest.raises(ValueError, match="Month must be 1-12"):
+            FiscalPeriod(period_id=uuid4(), legal_entity_id=legal_id, period="2026-13")
+
+
+class TestAdditionalCoverage:
+    """Test tambahan untuk menutup branch yang belum tercover."""
+
+    def test_period_from_string_with_quarterly(self, legal_id):
+        p = FiscalPeriod.create_quarterly(legal_id, 2026, 2, "user")
+        assert p.period_type == PeriodType.QUARTERLY
+        assert p.period_number == 2
+        assert p.period == "2026-Q2"
+        assert p.year == 2026
+
+    def test_period_from_string_with_annual(self, legal_id):
+        p = FiscalPeriod.create_annual(legal_id, 2026, "user")
+        assert p.period_type == PeriodType.ANNUAL
+        assert p.period_number == 1
+        assert p.period == "2026"
+        assert p.year == 2026
+
+    def test_update_method_with_closed_period(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        with pytest.raises(InvalidStatusTransitionError, match="Cannot update a closed period"):
+            p.update("admin", period_type="quarterly")
+
+    def test_delete_method_with_open_period(self, period):
+        p = period.open("u1")
+        p2 = p.delete("admin", reason="test delete")
+        assert p2 is not p
+        assert any(entry["action"] == "DELETE" for entry in p2._audit_trail)
+
+    def test_restore_method_closed(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        restored = p.restore("admin")
+        assert restored.status == PeriodStatus.OPEN
+        assert any(entry["action"] == "RESTORE" for entry in restored._audit_trail)
+
+    def test_can_post_draft(self, period):
+        assert period.can_post() is False
+
+    def test_can_post_locked(self, period):
+        p = period.open("u1").lock("u2", "reason")
+        assert p.can_post() is False
+
+    def test_can_post_closed(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        assert p.can_post() is False
+
+    def test_cancel_already_closed(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        with pytest.raises(InvalidStatusTransitionError, match="must be LOCKED"):
+            p.cancel("admin", "reason")
+
+    def test_lock_with_reason(self, period):
+        p = period.open("u1")
+        locked = p.lock("admin", "lock reason")
+        assert locked.locked_by == "admin"
+        assert locked.locked_at is not None
+
+    def test_unlock_period_method(self, period):
+        p = period.open("u1").lock("u2", "reason")
+        unlocked = p.unlock_period("admin")
+        assert unlocked.status == PeriodStatus.OPEN
+        assert unlocked.locked_at is None
+
+    def test_clone_audit(self, period):
+        clone = period.clone()
+        assert any(entry["action"] == "CLONE" for entry in clone._audit_trail)
+
+    def test_audit_trail_limit(self, period):
+        trail = period.audit_trail(limit=1)
+        assert len(trail) == 1
+        assert trail[0]["action"] == "CREATE"
+
+
 class TestAdditionalEdgeCases:
     """Test cases for all status transitions and error conditions."""
 
@@ -582,10 +704,7 @@ class TestAdditionalEdgeCases:
         p2 = p.lock("u2", "reason").close("u3").reopen("u4")
         assert p2.is_reopened is True
 
-   
-
     def test_can_post_without_transaction_date(self):
-        # Buat periode OPEN yang mencakup waktu sekarang
         now = datetime.now(UTC)
         start = now - timedelta(days=1)
         end = now + timedelta(days=1)

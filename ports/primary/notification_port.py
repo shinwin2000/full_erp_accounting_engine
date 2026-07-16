@@ -857,12 +857,21 @@ class InMemoryNotification(NotificationPort):
         }
 
 
+# ==================== ALIAS UNTUK DI CONTAINER ====================
+
+# Alias untuk kepatuhan terhadap nama yang diharapkan DI container
+NotificationPortImpl = InMemoryNotification
+
+
+# ==================== EXPORTS ====================
+
 __all__ = [
     "InMemoryNotification",
     "Notification",
     "NotificationChannel",
     "NotificationConfig",
     "NotificationPort",
+    "NotificationPortImpl",     
     "NotificationPriority",
     "NotificationStatus",
     "NotificationTemplate",

@@ -782,12 +782,19 @@ class InMemoryFileStorage(FileStoragePort):
         }
 
 
+# ==================== ALIAS UNTUK DI CONTAINER ====================
+
+# Alias untuk kepatuhan terhadap nama yang diharapkan DI container
+FileStoragePortImpl = InMemoryFileStorage
+
+
 # ==================== EXPORTS ====================
 
 __all__ = [
     "FileStoragePort",
     "FileStorageStatus",
     "InMemoryFileStorage",
+    "FileStoragePortImpl",      
     "StoredFile",
     "UploadSession",
 ]

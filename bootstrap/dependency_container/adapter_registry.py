@@ -6,10 +6,10 @@ Layer: Bootstrap (Dependency Container)
 Responsibility: Mendaftarkan semua adapter (implementasi port) ke IoC container
 secara dinamis dengan auto-discovery dan penanganan kasus khusus.
 
-FIX v5:
-- _discover_implementations() sekarang juga scan ports/primary dan ports/secondary
-  untuk menemukan implementasi konkret (misal InMemoryFileStorage, InMemoryNotification).
-- Filter hanya mengecualikan kelas abstrak (ABC) dan kelas berakhiran Port/Protocol/Base.
+FIX v6:
+- Mengganti InMemoryFileStorage → LocalFileStorage (persistent storage)
+- Mengganti InMemoryNotification → ConsoleNotification (logging ke console)
+- Menambahkan direktori 'adapters' ke scan implementasi untuk menemukan kelas-kelas tersebut.
 """
 
 from __future__ import annotations
@@ -54,8 +54,15 @@ class AdapterRegistry:
             "BankAccountRepositoryPort": "SQLAlchemyBankAccountRepository",
             "CachePort": "SQLAlchemyCacheRepository",
             "EmployeeRepositoryPort": "SQLAlchemyEmployeeRepository",
-            # [FIX] FileStoragePort → InMemoryFileStorage (implementasi lengkap dari port)
-            "FileStoragePort": "InMemoryFileStorage",
+
+            # =================================================================
+            # FIX 2026-07-16: Ganti in-memory dengan implementasi persistent
+            # =================================================================
+            # FileStoragePort → LocalFileStorage (penyimpanan di disk)
+            "FileStoragePort": "LocalFileStorage",
+            # NotificationPort → ConsoleNotification (log ke console, siap diganti)
+            "NotificationPort": "ConsoleNotification",
+
             "FixedAssetRepositoryPort": "SQLAlchemyFixedAssetRepository",
             "IAMUserRepositoryPort": "SQLAlchemyIAMUserRepository",
             "IAMRepositoryPort": "SQLAlchemyIAMRepository",
@@ -63,8 +70,6 @@ class AdapterRegistry:
             "JournalRepositoryPort": "SQLAlchemyJournalRepository",
             "LedgerRepositoryPort": "SQLAlchemyLedgerRepository",
             "LegalEntityRepositoryPort": "SQLAlchemyLegalEntityRepository",
-            # [FIX] NotificationPort → InMemoryNotification (implementasi lengkap dari port)
-            "NotificationPort": "InMemoryNotification",
             "PayrollRepositoryPort": "SQLAlchemyPayrollRepository",
             "ReadModelProjectionPort": "SQLAlchemyReadModelProjection",
             "TrialBalanceRepositoryPort": "TrialBalanceRepositoryAdapter",
@@ -226,11 +231,12 @@ class AdapterRegistry:
 
     def _discover_implementations(self) -> list[type]:
         """
-        Scan semua file di adapters/secondary_impl, ports/primary, dan ports/secondary
+        Scan semua file di adapters, adapters/secondary_impl, ports/primary, dan ports/secondary
         untuk mencari implementasi konkret (non-abstract, bukan Port/Protocol/Base).
         """
         root = Path(__file__).resolve().parent.parent.parent
         search_dirs = [
+            root / "adapters",                     # <-- ditambahkan agar LocalFileStorage, ConsoleNotification ditemukan
             root / "adapters" / "secondary_impl",
             root / "ports" / "primary",
             root / "ports" / "secondary",
@@ -257,7 +263,6 @@ class AdapterRegistry:
                         if inspect.isabstract(obj):
                             continue
                         # Ambil semua kelas konkret yang memiliki pola implementasi
-                        # (tidak perlu filter ketat, biarkan semua konkret)
                         implementations.append(obj)
                 except Exception as e:
                     self._logger.debug(f"Could not scan {py_file}: {e}")

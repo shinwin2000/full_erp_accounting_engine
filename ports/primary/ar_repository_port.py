@@ -1004,6 +1004,24 @@ class InMemoryARRepository(ARRepositoryPort):
             "audit_log_size": len(self._audit_log),
         }
 
+    # ==================== ADDITIONAL METHODS FOR DI CONTRACT ====================
+
+    async def save_invoice(self, invoice: ARInvoice) -> None:
+        """Alias untuk add(), sesuai ekspektasi container."""
+        await self.add(invoice)
+
+    async def find_invoice_by_id(self, invoice_id: UUID) -> ARInvoice | None:
+        """Alias untuk get_by_id()."""
+        return await self.get_by_id(invoice_id)
+
+    async def find_invoices_by_customer(self, customer_id: UUID) -> list[ARInvoice]:
+        """
+        Mencari semua invoice milik customer tertentu (tanpa filter legal_entity_id).
+        Menggunakan indeks customer yang sudah ada.
+        """
+        ids = self._customer_index.get(customer_id, [])
+        return [self._storage[iid] for iid in ids if iid in self._storage]
+
 
 # ============================================================================
 # ALIAS UNTUK KOMPATIBILITAS (FIXED)
@@ -1016,6 +1034,9 @@ _ARRepository = InMemoryARRepository
 # Alias untuk test compatibility
 ArRepositoryPort = ARRepositoryPort
 
+# Alias untuk kepatuhan terhadap nama yang diharapkan DI container
+ARRepositoryPortImpl = InMemoryARRepository
+
 
 __all__ = [
     "ARInvoice",
@@ -1023,6 +1044,7 @@ __all__ = [
     "ARRepository",
     "ARRepositoryPort",
     "ArRepositoryPort",
+    "ARRepositoryPortImpl",   
     "CollectionStatus",
     "CreditNoteAR",
     "DebitNoteAR",
