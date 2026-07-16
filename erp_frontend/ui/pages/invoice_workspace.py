@@ -56,6 +56,7 @@ class InvoiceWorkspaceConfig:
         has_write_off: bool = False,
         has_collection: bool = False,
         has_payment_run: bool = False,
+        has_three_way_match: bool = False,
     ):
         self.base_path = base_path
         self.label = label
@@ -67,6 +68,7 @@ class InvoiceWorkspaceConfig:
         self.has_write_off = has_write_off
         self.has_collection = has_collection
         self.has_payment_run = has_payment_run
+        self.has_three_way_match = has_three_way_match
 
 
 AR_CONFIG = InvoiceWorkspaceConfig(
@@ -79,7 +81,7 @@ AP_CONFIG = InvoiceWorkspaceConfig(
     base_path="/ap/ap", label="Utang (Account Payable)", icon="💳",
     party_code_field="vendor_code", party_label="Vendor",
     invoice_number_field="invoice_number_vendor", account_hint="Akun Beban (mis. 5-1100)",
-    has_payment_run=True,
+    has_payment_run=True, has_three_way_match=True,
 )
 
 STATUS_FILTERS = ["Semua", "draft", "submitted", "approved", "posted", "paid", "partially_paid", "rejected", "cancelled"]
@@ -115,6 +117,8 @@ class InvoiceWorkspacePage(QWidget):
             self.tabs.addTab(CollectionTab(self.config), "Collection")
         if self.config.has_payment_run:
             self.tabs.addTab(PaymentRunTab(self.config), "Payment Run")
+        if self.config.has_three_way_match:
+            self.tabs.addTab(ThreeWayMatchTab(self.config), "3-Way Match")
         outer.addWidget(self.tabs, stretch=1)
 
     def _build_invoice_tab(self) -> QWidget:
@@ -884,3 +888,102 @@ class PaymentRunTab(QWidget):
 
     def _on_error(self, message: str) -> None:
         QMessageBox.warning(self, "Gagal", message)
+
+
+# ==========================================================================
+# 3-Way Match — khusus AP (validasi PO vs GRN vs Invoice)
+# ==========================================================================
+class ThreeWayMatchTab(QWidget):
+    def __init__(self, config: InvoiceWorkspaceConfig):
+        super().__init__()
+        self.config = config
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(
+            "<b>Validasi 3-Way Match</b><br>"
+            "<span style='color:#6B7280;'>Mencocokkan Purchase Order, Goods Receipt Note (GRN), dan Invoice "
+            "untuk memastikan tidak ada penyimpangan qty/harga sebelum invoice disetujui untuk dibayar.</span>"
+        ))
+        row = QHBoxLayout()
+        self.invoice_id_edit = QLineEdit()
+        self.invoice_id_edit.setPlaceholderText("UUID invoice AP")
+        row.addWidget(self.invoice_id_edit)
+        row.addWidget(QLabel("Toleransi (%):"))
+        self.tolerance_edit = QLineEdit("5")
+        self.tolerance_edit.setMaximumWidth(60)
+        row.addWidget(self.tolerance_edit)
+        validate_btn = QPushButton("🔍 Validasi 3-Way Match")
+        validate_btn.setObjectName("primaryButton")
+        validate_btn.clicked.connect(self._validate)
+        row.addWidget(validate_btn)
+        outer.addLayout(row)
+
+        self.status_summary = QLabel("")
+        self.status_summary.setStyleSheet("font-weight:700; font-size:14px;")
+        outer.addWidget(self.status_summary)
+
+        cards = QHBoxLayout()
+        self.po_match_label = QLabel("PO Match: -")
+        self.grn_match_label = QLabel("GRN Match: -")
+        self.qty_match_label = QLabel("Qty Match: -")
+        self.price_match_label = QLabel("Price Match: -")
+        for lbl in (self.po_match_label, self.grn_match_label, self.qty_match_label, self.price_match_label):
+            lbl.setStyleSheet("padding:8px; border:1px solid #E5E7EB; border-radius:6px;")
+            cards.addWidget(lbl)
+        outer.addLayout(cards)
+
+        outer.addWidget(QLabel("<b>Discrepancy (jika ada):</b>"))
+        self.discrepancy_table = QTableWidget(0, 3)
+        self.discrepancy_table.setHorizontalHeaderLabels(["Item", "Tipe Selisih", "Detail"])
+        self.discrepancy_table.horizontalHeader().setStretchLastSection(True)
+        outer.addWidget(self.discrepancy_table, stretch=1)
+
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        outer.addWidget(self.status_label)
+
+    def _validate(self) -> None:
+        invoice_id = self.invoice_id_edit.text().strip()
+        if not invoice_id:
+            QMessageBox.information(self, "Info", "Masukkan ID invoice AP.")
+            return
+        try:
+            tolerance = float(self.tolerance_edit.text().strip() or "5")
+        except ValueError:
+            tolerance = 5.0
+        run_task(api_client.get, on_success=self._on_result, on_error=self._on_error,
+                  path=f"{self.config.base_path}/invoices/{invoice_id}/3way-match",
+                  params={"tolerance_percent": tolerance})
+
+    def _on_result(self, data: Any) -> None:
+        data = data or {}
+        status = str(data.get("match_status", "")).upper()
+        color = "#059669" if status == "MATCHED" else ("#D97706" if status == "PARTIAL" else "#DC2626")
+        self.status_summary.setText(f"Status: {status}")
+        self.status_summary.setStyleSheet(f"font-weight:700; font-size:14px; color:{color};")
+
+        def fmt(label: str, value: bool) -> str:
+            return f"{label}: {'✅ Cocok' if value else '❌ Tidak Cocok'}"
+
+        self.po_match_label.setText(fmt("PO Match", data.get("po_match", False)))
+        self.grn_match_label.setText(fmt("GRN Match", data.get("grn_match", False)))
+        self.qty_match_label.setText(fmt("Qty Match", data.get("quantity_match", False)))
+        self.price_match_label.setText(fmt("Price Match", data.get("price_match", False)))
+
+        discrepancies = data.get("discrepancies", []) or []
+        self.discrepancy_table.setRowCount(len(discrepancies))
+        for r, d in enumerate(discrepancies):
+            if isinstance(d, dict):
+                values = [d.get("item", d.get("item_name", "")), d.get("type", ""), str(d.get("detail", d))]
+            else:
+                values = ["-", "-", str(d)]
+            for c, v in enumerate(values):
+                self.discrepancy_table.setItem(r, c, QTableWidgetItem(v))
+        self.discrepancy_table.resizeColumnsToContents()
+        self.status_label.setText(f"{len(discrepancies)} discrepancy ditemukan." if discrepancies else "Tidak ada discrepancy.")
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Gagal", message)
+        self.status_label.setText("Gagal.")

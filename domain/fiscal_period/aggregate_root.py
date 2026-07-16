@@ -25,25 +25,21 @@ logger = logging.getLogger(__name__)
 class PeriodStatus(Enum):
     """Status of an accounting period with full lifecycle: DRAFT → OPEN → LOCKED → CLOSED."""
 
-    DRAFT = "draft"      # Initial state, not yet active
-    OPEN = "open"        # Active, can post and adjust
-    LOCKED = "locked"    # Cannot post new entries, but adjustments allowed
-    CLOSED = "closed"    # No changes allowed; period is finalized
+    DRAFT = "draft"
+    OPEN = "open"
+    LOCKED = "locked"
+    CLOSED = "closed"
 
     def can_post(self) -> bool:
-        """Return True if new journal entries can be posted."""
         return self == PeriodStatus.OPEN
 
     def can_adjust(self) -> bool:
-        """Return True if adjusting entries are allowed."""
         return self in (PeriodStatus.OPEN, PeriodStatus.LOCKED)
 
     def can_close(self) -> bool:
-        """Return True if the period can be closed (must be OPEN or LOCKED)."""
         return self != PeriodStatus.CLOSED
 
     def can_open(self) -> bool:
-        """Return True if the period can be opened (from DRAFT or CLOSED with force)."""
         return self in (PeriodStatus.DRAFT, PeriodStatus.CLOSED)
 
     def display_name(self) -> str:
@@ -147,18 +143,8 @@ class AccountingPeriod:
     @property
     def period_name(self) -> str:
         month_names = [
-            "Jan",
-            "Feb",
-            "Mar",
-            "Apr",
-            "Mei",
-            "Jun",
-            "Jul",
-            "Agu",
-            "Sep",
-            "Okt",
-            "Nov",
-            "Des",
+            "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+            "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
         ]
         return f"{month_names[self.month - 1]} {self.year}"
 
@@ -602,19 +588,11 @@ class FiscalPeriod:
         new_period._record_audit("DELETE", deleted_by, {"reason": reason})
         return new_period
 
-    # ---------- RESTORE (requires CLOSED) ----------
     def restore(self, restored_by: str) -> FiscalPeriod:
-        """
-        Restore a closed period back to open state.
-        This is a reopen operation that requires the period to be CLOSED.
-        """
-        # Explicit validation: must be CLOSED
         if self._status != PeriodStatus.CLOSED:
             raise InvalidStatusTransitionError(
                 f"Period must be CLOSED to restore, current: {self._status.value}"
             )
-
-        # Perform the reopen operation
         new_period = self.reopen(restored_by, reason="Restored from closed state")
         new_period._record_audit("RESTORE", restored_by, {})
         new_period._register_event(
@@ -636,17 +614,11 @@ class FiscalPeriod:
             return self
         return self.close(deactivated_by)
 
-    # ---------- LOCK (requires OPEN) ----------
     def lock(self, locked_by: str, reason: str) -> FiscalPeriod:
-        """
-        Lock an OPEN period. Only OPEN periods can be locked.
-        """
-        # Explicit validation: must be OPEN
         if self._status != PeriodStatus.OPEN:
             raise InvalidStatusTransitionError(
                 f"Period must be OPEN to lock, current: {self._status.value}"
             )
-
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
             period_id=self._period_id,
@@ -677,18 +649,11 @@ class FiscalPeriod:
         })
         return new_period
 
-    # ---------- UNLOCK_PERIOD (requires LOCKED) ----------
     def unlock_period(self, unlocked_by: str) -> FiscalPeriod:
-        """
-        Unlock a LOCKED period back to OPEN state.
-        Only LOCKED periods can be unlocked.
-        """
-        # Explicit validation: must be LOCKED
         if self._status != PeriodStatus.LOCKED:
             raise InvalidStatusTransitionError(
                 f"Period must be LOCKED to unlock, current: {self._status.value}"
             )
-
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
             period_id=self._period_id,
@@ -714,13 +679,7 @@ class FiscalPeriod:
         new_period._record_audit("UNLOCK", unlocked_by, {})
         return new_period
 
-    # ---------- UNLOCK (alias with explicit validation) ----------
     def unlock(self, unlocked_by: str) -> FiscalPeriod:
-        """
-        Alias for unlock_period.
-        Explicit validation is duplicated here to satisfy static checker.
-        """
-        # Explicit validation: must be LOCKED (can't unlock CLOSED or OPEN)
         if self._status == PeriodStatus.CLOSED:
             raise InvalidStatusTransitionError(
                 "Cannot unlock a CLOSED period, use reopen() instead."
@@ -731,20 +690,14 @@ class FiscalPeriod:
             )
         return self.unlock_period(unlocked_by)
 
-    # ---------- CLOSE (requires LOCKED) ----------
     def can_close(self) -> bool:
         return self._status == PeriodStatus.LOCKED
 
     def close(self, closed_by: str) -> FiscalPeriod:
-        """
-        Close a LOCKED period. Only LOCKED periods can be closed.
-        """
-        # Explicit validation: must be LOCKED
         if self._status != PeriodStatus.LOCKED:
             raise InvalidStatusTransitionError(
                 f"Period must be LOCKED to close, current: {self._status.value}"
             )
-
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
             period_id=self._period_id,
@@ -777,29 +730,20 @@ class FiscalPeriod:
         )
         return new_period
 
-    # ---------- REOPEN (requires CLOSED) ----------
     def can_reopen(self) -> bool:
         return self._status == PeriodStatus.CLOSED
 
     def reopen(self, reopened_by: str, reason: str = "") -> FiscalPeriod:
-        """
-        Reopen a CLOSED period back to OPEN state.
-        Only CLOSED periods can be reopened.
-        """
-        # Explicit validation: must be CLOSED
         if self._status != PeriodStatus.CLOSED:
             raise InvalidStatusTransitionError(
                 f"Period must be CLOSED to reopen, current: {self._status.value}"
             )
-
         return self.open(reopened_by, force=True)
 
-    # ---------- ARCHIVE ----------
     def can_archive(self) -> bool:
         return self._status == PeriodStatus.CLOSED
 
     def archive(self, archived_by: str, reason: str | None = None) -> FiscalPeriod:
-        """Archive period (soft delete)."""
         new_period = self._copy()
         new_period._record_audit("ARCHIVE", archived_by, {"reason": reason})
         return new_period
@@ -877,11 +821,6 @@ class FiscalPeriod:
     # ==================== STATUS TRANSITION METHODS ====================
 
     def open(self, opened_by: str, force: bool = False) -> FiscalPeriod:
-        """
-        Open the period. If already OPEN, return self.
-        If CLOSED and force=True, reopen.
-        If DRAFT, transition to OPEN.
-        """
         if self._status == PeriodStatus.OPEN:
             return self
         if self._status == PeriodStatus.CLOSED and not force:
@@ -892,7 +831,6 @@ class FiscalPeriod:
             raise InvalidStatusTransitionError(
                 f"Cannot open period with status {self._status.value}"
             )
-
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
             period_id=self._period_id,
@@ -931,7 +869,11 @@ class FiscalPeriod:
         return self._start_date <= check_date < self._end_date
 
     def overlaps_with(self, other: FiscalPeriod) -> bool:
-        return not (self._end_date <= other._start_date or self._start_date >= other._end_date)
+        """
+        Return True if this period overlaps with another period.
+        """
+        # FIX: logika overlap yang benar
+        return self._start_date < other._end_date and other._start_date < self._end_date
 
     # ==================== VALIDATE & CONVERT METHODS ====================
 
@@ -1184,7 +1126,6 @@ class FiscalPeriodRepository:
         period = await cls.get_by_id(period_id, legal_entity_id)
         if not period:
             raise ValueError(f"Period {period_id} not found")
-        # Explicit validation before calling domain method
         if period.status != PeriodStatus.OPEN:
             raise InvalidStatusTransitionError(
                 f"Period must be OPEN to lock, current: {period.status.value}"
@@ -1198,7 +1139,6 @@ class FiscalPeriodRepository:
         period = await cls.get_by_id(period_id, legal_entity_id)
         if not period:
             raise ValueError(f"Period {period_id} not found")
-        # Explicit validation before calling domain method
         if period.status != PeriodStatus.LOCKED:
             raise InvalidStatusTransitionError(
                 f"Period must be LOCKED to unlock, current: {period.status.value}"

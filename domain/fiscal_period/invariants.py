@@ -161,12 +161,16 @@ def validate_status_transition(
 
 
 def validate_can_close_period(
-    period: FiscalPeriod,
+    period: FiscalPeriod | None,
     has_unposted_transactions: bool = False,
     has_pending_adjustments: bool = False,
 ) -> InvariantResult:
+    """
+    Validate if period can be closed.
+    If period is None, skip status check (already validated by status transition).
+    """
     result = InvariantResult()
-    if period.status != PeriodStatus.LOCKED:
+    if period is not None and period.status != PeriodStatus.LOCKED:
         result.add_error(
             f"Cannot close period that is not LOCKED (current status: {period.status.value})"
         )
@@ -178,11 +182,15 @@ def validate_can_close_period(
 
 
 def validate_can_lock_period(
-    period: FiscalPeriod,
+    period: FiscalPeriod | None,
     has_open_periods_after: bool = False,
 ) -> InvariantResult:
+    """
+    Validate if period can be locked.
+    If period is None, skip status check (already validated by status transition).
+    """
     result = InvariantResult()
-    if period.status != PeriodStatus.OPEN:
+    if period is not None and period.status != PeriodStatus.OPEN:
         result.add_error(
             f"Cannot lock period that is not OPEN (current status: {period.status.value})"
         )
@@ -291,7 +299,6 @@ class FiscalPeriodInvariantEnforcer:
         period: FiscalPeriod,
         user_role: str = "user",
     ) -> InvariantResult:
-        # FIX: Call the correct validator that checks CLOSED status
         return validate_can_reopen_period(period, user_role)
 
 

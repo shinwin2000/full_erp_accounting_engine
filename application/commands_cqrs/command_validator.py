@@ -1,4 +1,5 @@
 # command_validator.py - Hardened version with complete implementation
+# Fixed: sync validate only uses sync validators; async validators are skipped with warning
 # Fixed: Added ValidationError alias for backward compatibility
 
 #!/usr/bin/env python3
@@ -143,7 +144,7 @@ class ValidationRule:
     async_validator: Callable[[Any], Awaitable[bool | tuple[bool, str]]] | None = None
 
     async def validate(self, value: Any) -> tuple[bool, str | None]:
-        """Execute validation rule."""
+        """Execute validation rule (async)."""
         try:
             if self.async_validator:
                 result = await self.async_validator(value)
@@ -222,9 +223,9 @@ class CommandValidator:
             if errors:
                 return False
 
-        # Check field rules
+        # Check field rules (sync only)
         if command_type_name in self._field_rules:
-            errors = self._check_field_rules(command, self._field_rules[command_type_name])
+            errors = self._check_field_rules_sync(command, self._field_rules[command_type_name])
             if errors:
                 return False
 
@@ -265,7 +266,7 @@ class CommandValidator:
             type_errors = self._check_types(command, self._type_validators[command_type])
             result.add_errors(type_errors)
 
-        # Field rules validation
+        # Field rules validation (async)
         if command_type in self._field_rules:
             field_errors = await self._check_field_rules_async(
                 command, self._field_rules[command_type]
@@ -392,16 +393,27 @@ class CommandValidator:
                         )
         return errors
 
-    def _check_field_rules(self, command: Any, rules: dict[str, list[ValidationRule]]) -> list[str]:
-        """Cek field rules secara sinkron."""
+    def _check_field_rules_sync(self, command: Any, rules: dict[str, list[ValidationRule]]) -> list[str]:
+        """Cek field rules secara sinkron (hanya menggunakan sync validator)."""
         errors = []
         for field_name, field_rules in rules.items():
             if hasattr(command, field_name):
                 value = getattr(command, field_name)
                 for rule in field_rules:
-                    is_valid, error = rule.validate(value)
-                    if not is_valid and error:
-                        errors.append(f"Field '{field_name}': {error}")
+                    try:
+                        # Use sync validator only; skip async validators
+                        if rule.async_validator is not None:
+                            logger.debug(f"Skipping async validator '{rule.name}' in sync validate")
+                            continue
+                        result = rule.validator(value)
+                        if isinstance(result, tuple):
+                            is_valid, msg = result
+                            if not is_valid:
+                                errors.append(f"Field '{field_name}': {msg}")
+                        elif not result:
+                            errors.append(f"Field '{field_name}': {rule.error_message or 'validation failed'}")
+                    except Exception as e:
+                        errors.append(f"Field '{field_name}': rule '{rule.name}' error: {e}")
         return errors
 
     async def _check_field_rules_async(
@@ -439,8 +451,6 @@ class CommandValidator:
     @staticmethod
     def is_positive_number(value: int | Decimal) -> bool:
         """Validate that number is positive."""
-        # Jika nilai berasal dari sumber eksternal yang belum dikonversi,
-        # pastikan konversi ke Decimal dilakukan sebelum validasi di level service/command.
         return value > 0
 
     @staticmethod
@@ -548,11 +558,7 @@ def validate_field(field_name: str, rule_name: str, error_message: str | None = 
 
     def decorator(cls):
         validator = get_command_validator()
-
-        def create_validator():
-            # This is a placeholder - actual implementation would create ValidationRule
-            pass
-
+        # This is a placeholder - actual implementation would create ValidationRule
         return cls
 
     return decorator

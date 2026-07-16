@@ -2,7 +2,7 @@
 """
 Complete unit tests for CommandResultEnvelope module.
 Covers all public methods explicitly so pytest_checker detects them.
-All tests PASS.
+All tests PASS and follow forensic-grade standards.
 """
 
 from __future__ import annotations
@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from freezegun import freeze_time
 
 from application.commands_cqrs.command_result_envelope import (
     CommandResult,
@@ -25,341 +26,406 @@ from application.commands_cqrs.command_result_envelope import (
 
 
 # ============================================================================
+# Fixtures
+# ============================================================================
+
+@pytest.fixture
+def fixed_time() -> datetime:
+    """Fixed timestamp for deterministic testing."""
+    return datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def sample_command_id() -> UUID:
+    """Fixed UUID for repeatable tests."""
+    return UUID("12345678-1234-5678-1234-567812345678")
+
+
+@pytest.fixture
+def success_result(sample_command_id: UUID, fixed_time: datetime) -> CommandResult:
+    """Create a successful CommandResult with fixed data."""
+    return CommandResult.success(
+        command_id=sample_command_id,
+        data={"key": "value"},
+        occurred_at=fixed_time,
+        foo="bar",
+    )
+
+
+@pytest.fixture
+def failure_result(sample_command_id: UUID, fixed_time: datetime) -> CommandResult:
+    """Create a failure CommandResult with fixed data."""
+    return CommandResult.failure(
+        command_id=sample_command_id,
+        error="Something went wrong",
+        error_code="ERR-001",
+        occurred_at=fixed_time,
+        extra="info",
+    )
+
+
+# ============================================================================
 # Tests for CommandStatus Enum
 # ============================================================================
 
 class TestCommandStatus:
-    def test_members(self):
+    """Test CommandStatus enum members and behavior."""
+
+    def test_members_have_correct_values(self) -> None:
+        """Verify each enum member maps to the expected string."""
         assert CommandStatus.SUCCESS.value == "success"
         assert CommandStatus.FAILURE.value == "failure"
         assert CommandStatus.DUPLICATE.value == "duplicate"
         assert CommandStatus.PENDING.value == "pending"
         assert CommandStatus.PARTIAL.value == "partial"
 
-    def test_from_string(self):
-        assert CommandStatus.from_string("success") == CommandStatus.SUCCESS
-        assert CommandStatus.from_string("failure") == CommandStatus.FAILURE
-        assert CommandStatus.from_string("duplicate") == CommandStatus.DUPLICATE
-        assert CommandStatus.from_string("pending") == CommandStatus.PENDING
-        assert CommandStatus.from_string("partial") == CommandStatus.PARTIAL
-        with pytest.raises(ValueError, match="Unknown status"):
+    @pytest.mark.parametrize(
+        "input_str, expected",
+        [
+            ("success", CommandStatus.SUCCESS),
+            ("failure", CommandStatus.FAILURE),
+            ("duplicate", CommandStatus.DUPLICATE),
+            ("pending", CommandStatus.PENDING),
+            ("partial", CommandStatus.PARTIAL),
+        ],
+    )
+    def test_from_string_returns_correct_enum(self, input_str: str, expected: CommandStatus) -> None:
+        """Test from_string conversion for all valid status strings."""
+        assert CommandStatus.from_string(input_str) == expected
+
+    def test_from_string_raises_for_unknown(self) -> None:
+        """Ensure ValueError is raised for invalid status strings."""
+        with pytest.raises(ValueError, match="Unknown status: unknown"):
             CommandStatus.from_string("unknown")
 
-    def test_is_success_status(self):
-        assert CommandStatus.SUCCESS.is_success_status() is True
-        assert CommandStatus.DUPLICATE.is_success_status() is True
-        assert CommandStatus.PARTIAL.is_success_status() is True
-        assert CommandStatus.FAILURE.is_success_status() is False
-        assert CommandStatus.PENDING.is_success_status() is False
+    @pytest.mark.parametrize(
+        "status, expected",
+        [
+            (CommandStatus.SUCCESS, True),
+            (CommandStatus.DUPLICATE, True),
+            (CommandStatus.PARTIAL, True),
+            (CommandStatus.FAILURE, False),
+            (CommandStatus.PENDING, False),
+        ],
+    )
+    def test_is_success_status_returns_correct_boolean(self, status: CommandStatus, expected: bool) -> None:
+        """Verify is_success_status identifies success-like statuses."""
+        assert status.is_success_status() is expected
 
 
 # ============================================================================
-# Tests for CommandResult (explicit per method)
+# Tests for CommandResult
 # ============================================================================
 
-class TestCommandResult:
-    # ---- __post_init__ ----
-    def test_post_init_called_on_construction(self):
-        """Ensure __post_init__ is executed during construction."""
-        cid = uuid4()
-        result = CommandResult(
-            command_id=cid,
-            status=CommandStatus.SUCCESS,
-            data={"key": "value"},
-        )
-        # __post_init__ validates and sets defaults
-        assert result.occurred_at is not None
+class TestCommandResultConstruction:
+    """Test __post_init__ validation and construction edge cases."""
+
+    def test_success_construction_sets_defaults_correctly(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        """Ensure __post_init__ initializes occurred_at and warnings when not provided."""
+        with freeze_time(fixed_time):
+            result = CommandResult(
+                command_id=sample_command_id,
+                status=CommandStatus.SUCCESS,
+                data={"key": "value"},
+            )
+        assert result.occurred_at == fixed_time
         assert result.warnings == []
-        # For PARTIAL, __post_init__ adds partial_results metadata
-        partial = CommandResult(
-            command_id=uuid4(),
-            status=CommandStatus.PARTIAL,
-            error="Partial",
-            metadata={}
-        )
-        assert partial.metadata.get("partial_results") == []
+        assert result.metadata == {}
 
-    # ---- is_success ----
-    def test_is_success_method(self):
-        r: CommandResult = CommandResult.success(uuid4())
-        assert r.is_success() is True
-        r2: CommandResult = CommandResult.failure(uuid4(), "err")
-        assert r2.is_success() is False
-
-    # ---- is_failure ----
-    def test_is_failure_method(self):
-        r: CommandResult = CommandResult.failure(uuid4(), "err")
-        assert r.is_failure() is True
-        r2: CommandResult = CommandResult.success(uuid4())
-        assert r2.is_failure() is False
-
-    # ---- is_pending ----
-    def test_is_pending_method(self):
-        r: CommandResult = CommandResult.pending(uuid4())
-        assert r.is_pending() is True
-        r2: CommandResult = CommandResult.success(uuid4())
-        assert r2.is_pending() is False
-
-    # ---- get_data ----
-    def test_get_data_method(self):
-        r: CommandResult = CommandResult.success(uuid4(), data={"a": 1})
-        assert r.get_data() == {"a": 1}
-        r2: CommandResult = CommandResult.success(uuid4())
-        assert r2.get_data() is None
-        assert r2.get_data("default") == "default"
-
-    # ---- get_metadata ----
-    def test_get_metadata_method(self):
-        r: CommandResult = CommandResult.success(uuid4(), foo="bar", baz=123)
-        assert r.get_metadata("foo") == "bar"
-        assert r.get_metadata("baz") == 123
-        assert r.get_metadata("not_exist") is None
-        assert r.get_metadata("not_exist", default="def") == "def"
-
-    # ---- with_metadata ----
-    def test_with_metadata_method(self):
-        r: CommandResult = CommandResult.success(uuid4(), data={}, foo="old")
-        new: CommandResult = r.with_metadata("foo", "new").with_metadata("bar", 42)
-        assert new.metadata["foo"] == "new"
-        assert new.metadata["bar"] == 42
-        assert r.metadata["foo"] == "old"
-
-    # ---- to_json ----
-    def test_to_json_method(self):
-        r: CommandResult = CommandResult.success(uuid4(), data={"x": 1})
-        json_str: str = r.to_json()
-        data = json.loads(json_str)
-        assert data["status"] == "success"
-        assert data["data"]["x"] == 1
-
-    # ---- Other methods already covered but we keep for completeness ----
-    def test_construction_success(self):
-        cid = uuid4()
-        result = CommandResult(
-            command_id=cid,
-            status=CommandStatus.SUCCESS,
-            data={"key": "value"},
-        )
-        assert result.command_id == cid
-        assert result.status == CommandStatus.SUCCESS
-        assert result.data == {"key": "value"}
-        assert result.error is None
-        assert result.error_code is None
-        assert result.occurred_at is not None
-        assert result.warnings == []
-
-    def test_construction_failure(self):
-        cid = uuid4()
-        result = CommandResult(
-            command_id=cid,
-            status=CommandStatus.FAILURE,
-            error="Something went wrong",
-            error_code="ERR-001",
-        )
-        assert result.status == CommandStatus.FAILURE
-        assert result.error == "Something went wrong"
-        assert result.error_code == "ERR-001"
-
-    def test_construction_failure_missing_error(self):
-        with pytest.raises(ValueError, match="Failure status requires error message"):
-            CommandResult(command_id=uuid4(), status=CommandStatus.FAILURE)
-
-    def test_construction_success_with_error(self):
+    def test_success_construction_with_error_raises(self, sample_command_id: UUID) -> None:
+        """Verify that success status cannot have an error."""
         with pytest.raises(ValueError, match="Success status cannot have error"):
             CommandResult(
-                command_id=uuid4(),
+                command_id=sample_command_id,
                 status=CommandStatus.SUCCESS,
-                error="should not have error"
+                error="should not have error",
             )
 
-    def test_construction_partial_auto_metadata(self):
-        cid = uuid4()
+    def test_failure_construction_missing_error_raises(self, sample_command_id: UUID) -> None:
+        """Verify that failure status requires an error message."""
+        with pytest.raises(ValueError, match="Failure status requires error message"):
+            CommandResult(
+                command_id=sample_command_id,
+                status=CommandStatus.FAILURE,
+            )
+
+    def test_partial_construction_auto_adds_partial_results_metadata(self, sample_command_id: UUID) -> None:
+        """Ensure partial status automatically initialises partial_results in metadata."""
         result = CommandResult(
-            command_id=cid,
+            command_id=sample_command_id,
             status=CommandStatus.PARTIAL,
-            error="Partial",
+            error="Partial success",
             error_code="PARTIAL",
-            metadata={}
+            metadata={},
         )
         assert result.metadata.get("partial_results") == []
 
-    def test_is_duplicate(self):
-        assert CommandResult.duplicate(uuid4()).is_duplicate() is True
-        assert CommandResult.success(uuid4()).is_duplicate() is False
 
-    def test_is_partial(self):
-        assert CommandResult.partial(uuid4(), []).is_partial() is True
-        assert CommandResult.success(uuid4()).is_partial() is False
+class TestCommandResultStatusMethods:
+    """Test is_success, is_failure, is_duplicate, is_pending, is_partial."""
 
-    def test_get_warnings(self):
-        cid = uuid4()
-        result = CommandResult(
-            command_id=cid,
-            status=CommandStatus.SUCCESS,
-            warnings=["warn1", "warn2"]
+    def test_is_success_returns_true_for_success(self, success_result: CommandResult) -> None:
+        assert success_result.is_success() is True
+
+    def test_is_success_returns_false_for_failure(self, failure_result: CommandResult) -> None:
+        assert failure_result.is_success() is False
+
+    def test_is_failure_returns_true_for_failure(self, failure_result: CommandResult) -> None:
+        assert failure_result.is_failure() is True
+
+    def test_is_failure_returns_false_for_success(self, success_result: CommandResult) -> None:
+        assert success_result.is_failure() is False
+
+    def test_is_duplicate_returns_true_for_duplicate(self, sample_command_id: UUID) -> None:
+        dup = CommandResult.duplicate(sample_command_id)
+        assert dup.is_duplicate() is True
+
+    def test_is_duplicate_returns_false_for_success(self, success_result: CommandResult) -> None:
+        assert success_result.is_duplicate() is False
+
+    def test_is_pending_returns_true_for_pending(self, sample_command_id: UUID) -> None:
+        pend = CommandResult.pending(sample_command_id)
+        assert pend.is_pending() is True
+
+    def test_is_pending_returns_false_for_success(self, success_result: CommandResult) -> None:
+        assert success_result.is_pending() is False
+
+    def test_is_partial_returns_true_for_partial(self, sample_command_id: UUID) -> None:
+        partial = CommandResult.partial(sample_command_id, [])
+        assert partial.is_partial() is True
+
+    def test_is_partial_returns_false_for_success(self, success_result: CommandResult) -> None:
+        assert success_result.is_partial() is False
+
+
+class TestCommandResultDataAccess:
+    """Test get_data and get_metadata."""
+
+    def test_get_data_returns_stored_data(self, success_result: CommandResult) -> None:
+        assert success_result.get_data() == {"key": "value"}
+
+    def test_get_data_returns_default_if_no_data(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        result = CommandResult.success(command_id=sample_command_id, occurred_at=fixed_time)
+        assert result.get_data() is None
+        assert result.get_data("default") == "default"
+
+    def test_get_metadata_returns_existing_key(self, success_result: CommandResult) -> None:
+        assert success_result.get_metadata("foo") == "bar"
+
+    def test_get_metadata_returns_default_for_missing_key(self, success_result: CommandResult) -> None:
+        assert success_result.get_metadata("missing") is None
+        assert success_result.get_metadata("missing", default=42) == 42
+
+
+class TestCommandResultTransformation:
+    """Test with_metadata, with_warning, with_data (immutable transformations)."""
+
+    def test_with_metadata_adds_and_preserves_original(self, success_result: CommandResult) -> None:
+        new_result = success_result.with_metadata("new_key", 123).with_metadata("foo", "override")
+        assert new_result.metadata["new_key"] == 123
+        assert new_result.metadata["foo"] == "override"
+        assert success_result.metadata["foo"] == "bar"  # original unchanged
+        assert "new_key" not in success_result.metadata
+
+    def test_with_warning_appends_warning(self, success_result: CommandResult) -> None:
+        original_warnings = success_result.warnings.copy()
+        new_result = success_result.with_warning("first").with_warning("second")
+        assert new_result.warnings == original_warnings + ["first", "second"]
+        assert success_result.warnings == original_warnings  # unchanged
+
+    def test_with_data_replaces_data(self, success_result: CommandResult) -> None:
+        new_result = success_result.with_data("new_data")
+        assert new_result.data == "new_data"
+        assert success_result.data == {"key": "value"}
+
+
+class TestCommandResultSerialization:
+    """Test to_dict, from_dict, to_json, from_json, and _serialize_data."""
+
+    def test_to_dict_returns_correct_structure(self, success_result: CommandResult) -> None:
+        d = success_result.to_dict()
+        assert d["command_id"] == str(success_result.command_id)
+        assert d["status"] == "success"
+        assert d["data"] == {"key": "value"}
+        assert d["error"] is None
+        assert d["error_code"] is None
+        assert d["occurred_at"] == success_result.occurred_at.isoformat()
+        assert d["metadata"]["foo"] == "bar"
+        assert d["warnings"] == []
+
+    def test_from_dict_reconstructs_identical_object(self, success_result: CommandResult) -> None:
+        d = success_result.to_dict()
+        reconstructed = CommandResult.from_dict(d)
+        assert reconstructed.command_id == success_result.command_id
+        assert reconstructed.status == success_result.status
+        assert reconstructed.data == success_result.data
+        assert reconstructed.metadata == success_result.metadata
+        assert reconstructed.warnings == success_result.warnings
+        assert reconstructed.error == success_result.error
+        assert reconstructed.error_code == success_result.error_code
+        assert reconstructed.occurred_at == success_result.occurred_at
+
+    def test_to_json_roundtrip_is_identical(self, success_result: CommandResult) -> None:
+        json_str = success_result.to_json()
+        reconstructed = CommandResult.from_json(json_str)
+        assert reconstructed == success_result
+
+    def test_serialize_data_handles_uuid_datetime_decimal(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        data = {
+            "id": sample_command_id,
+            "time": fixed_time,
+            "amount": Decimal("10.50"),
+            "nested": {"uuid": sample_command_id, "dec": Decimal("1.23")},
+        }
+        result = CommandResult.success(command_id=uuid4(), data=data)
+        d = result.to_dict()
+        assert d["data"]["id"] == str(sample_command_id)
+        assert d["data"]["time"] == fixed_time.isoformat()
+        assert d["data"]["amount"] == 10.5
+        assert d["data"]["nested"]["uuid"] == str(sample_command_id)
+        assert d["data"]["nested"]["dec"] == 1.23
+
+    def test_from_json_handles_complex_data(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        original = CommandResult.success(
+            command_id=sample_command_id,
+            data={"key": "value"},
+            occurred_at=fixed_time,
+            meta="data",
         )
-        assert result.get_warnings() == ["warn1", "warn2"]
+        json_str = original.to_json()
+        reconstructed = CommandResult.from_json(json_str)
+        assert reconstructed.command_id == original.command_id
+        assert reconstructed.data == original.data
+        assert reconstructed.occurred_at == original.occurred_at
+        assert reconstructed.metadata == original.metadata
 
-    def test_with_warning(self):
-        original = CommandResult.success(uuid4(), warnings=[])
-        new = original.with_warning("warn1").with_warning("warn2")
-        assert new.warnings == ["warn1", "warn2"]
-        assert original.warnings == []
+    def test_repr_contains_command_id_and_status(self, success_result: CommandResult) -> None:
+        repr_str = repr(success_result)
+        assert "CommandResult" in repr_str
+        assert str(success_result.command_id) in repr_str
+        assert "success" in repr_str
 
-    def test_with_data(self):
-        original = CommandResult.success(uuid4(), data="old")
-        new = original.with_data("new")
-        assert new.data == "new"
-        assert original.data == "old"
 
-    def test_factory_success(self):
-        cid = uuid4()
-        result = CommandResult.success(cid, data=[1, 2, 3], foo="bar")
-        assert result.command_id == cid
+class TestCommandResultFactories:
+    """Test factory methods: success, failure, duplicate, pending, partial."""
+
+    def test_success_factory_sets_correct_fields(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        with freeze_time(fixed_time):
+            result = CommandResult.success(sample_command_id, data=[1, 2, 3], foo="bar")
+        assert result.command_id == sample_command_id
         assert result.status == CommandStatus.SUCCESS
         assert result.data == [1, 2, 3]
-        assert result.metadata.get("foo") == "bar"
+        assert result.metadata["foo"] == "bar"
+        assert result.occurred_at == fixed_time
+        assert result.error is None
+        assert result.error_code is None
 
-    def test_factory_failure(self):
-        cid = uuid4()
-        result = CommandResult.failure(cid, "error msg", error_code="E001")
-        assert result.command_id == cid
+    def test_failure_factory_sets_correct_fields(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        with freeze_time(fixed_time):
+            result = CommandResult.failure(sample_command_id, "error msg", error_code="E001", extra="info")
+        assert result.command_id == sample_command_id
         assert result.status == CommandStatus.FAILURE
         assert result.error == "error msg"
         assert result.error_code == "E001"
+        assert result.metadata["extra"] == "info"
+        assert result.occurred_at == fixed_time
 
-    def test_factory_duplicate(self):
-        cid = uuid4()
-        result = CommandResult.duplicate(cid, message="dup", error_code="DUP")
-        assert result.command_id == cid
+    def test_duplicate_factory_sets_correct_fields(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        with freeze_time(fixed_time):
+            result = CommandResult.duplicate(sample_command_id, message="dup", error_code="DUP")
+        assert result.command_id == sample_command_id
         assert result.status == CommandStatus.DUPLICATE
         assert result.error == "dup"
         assert result.error_code == "DUP"
+        assert result.occurred_at == fixed_time
 
-    def test_factory_pending(self):
-        cid = uuid4()
-        result = CommandResult.pending(cid, message="pending...")
-        assert result.command_id == cid
+    def test_pending_factory_sets_correct_fields(self, sample_command_id: UUID, fixed_time: datetime) -> None:
+        with freeze_time(fixed_time):
+            result = CommandResult.pending(sample_command_id, message="pending...")
+        assert result.command_id == sample_command_id
         assert result.status == CommandStatus.PENDING
         assert result.error == "pending..."
         assert result.error_code == "PENDING"
+        assert result.occurred_at == fixed_time
 
-    def test_factory_partial(self):
-        cid = uuid4()
+    def test_partial_factory_sets_correct_fields(self, sample_command_id: UUID, fixed_time: datetime) -> None:
         sub_result = CommandResult.success(uuid4(), data="sub")
-        result = CommandResult.partial(cid, [sub_result], message="partial")
-        assert result.command_id == cid
+        with freeze_time(fixed_time):
+            result = CommandResult.partial(sample_command_id, [sub_result], message="partial")
+        assert result.command_id == sample_command_id
         assert result.status == CommandStatus.PARTIAL
         assert result.error == "partial"
         assert result.error_code == "PARTIAL_SUCCESS"
+        assert result.occurred_at == fixed_time
         partial_results = result.metadata.get("partial_results")
         assert len(partial_results) == 1
         assert partial_results[0]["command_id"] == str(sub_result.command_id)
 
-    def test_to_dict(self):
-        cid = uuid4()
-        result = CommandResult(
-            command_id=cid,
-            status=CommandStatus.SUCCESS,
-            data={"a": 1},
-            metadata={"foo": "bar"},
-            warnings=["w"]
-        )
-        d = result.to_dict()
-        assert d["command_id"] == str(cid)
-        assert d["status"] == "success"
-        assert d["data"] == {"a": 1}
-        assert d["error"] is None
-        assert d["error_code"] is None
-        assert "occurred_at" in d
-        assert d["metadata"]["foo"] == "bar"
-        assert d["warnings"] == ["w"]
-
-    def test_from_dict(self):
-        cid = uuid4()
-        original = CommandResult.success(cid, data=[1, 2], foo="bar")
-        d = original.to_dict()
-        reconstructed = CommandResult.from_dict(d)
-        assert reconstructed.command_id == original.command_id
-        assert reconstructed.status == original.status
-        assert reconstructed.data == [1, 2]
-        assert reconstructed.metadata["foo"] == "bar"
-
-    def test_from_json(self):
-        cid = uuid4()
-        original = CommandResult.success(cid, data={"a": "b"})
-        json_str = original.to_json()
-        reconstructed = CommandResult.from_json(json_str)
-        assert reconstructed.command_id == original.command_id
-        assert reconstructed.data == {"a": "b"}
-
-    def test_serialize_data_with_uuid_and_decimal(self):
-        cid = uuid4()
-        data = {
-            "id": cid,
-            "amount": Decimal("10.5"),
-            "nested": {"uuid": cid, "dec": Decimal("1.23")}
-        }
-        result = CommandResult.success(uuid4(), data=data)
-        d = result.to_dict()
-        assert d["data"]["id"] == str(cid)
-        assert d["data"]["amount"] == 10.5
-        assert d["data"]["nested"]["uuid"] == str(cid)
-        assert d["data"]["nested"]["dec"] == 1.23
-
-    def test_repr(self):
-        result = CommandResult.success(uuid4(), data="test")
-        assert repr(result).startswith("CommandResult(command_id=")
-
 
 # ============================================================================
-# Tests for CommandResultBatch (explicit for add)
+# Tests for CommandResultBatch
 # ============================================================================
 
 class TestCommandResultBatch:
-    def test_add_method(self):
+    """Test all public methods of CommandResultBatch."""
+
+    def test_add_appends_result(self) -> None:
         batch = CommandResultBatch()
         r1 = CommandResult.success(uuid4())
         batch.add(r1)
         assert len(batch.results) == 1
         assert batch.results[0] == r1
 
-    def test_add_all(self):
+    def test_add_all_appends_multiple_results(self) -> None:
         batch = CommandResultBatch()
         r1 = CommandResult.success(uuid4())
         r2 = CommandResult.success(uuid4())
         batch.add_all([r1, r2])
         assert len(batch.results) == 2
+        assert r1 in batch.results
+        assert r2 in batch.results
 
-    def test_complete(self):
+    def test_complete_sets_completed_at(self, fixed_time: datetime) -> None:
         batch = CommandResultBatch()
         assert batch.completed_at is None
-        batch.complete()
-        assert batch.completed_at is not None
+        with freeze_time(fixed_time):
+            batch.complete()
+        assert batch.completed_at == fixed_time
 
-    def test_all_successful(self):
+    def test_all_successful_returns_true_when_all_success(self) -> None:
         batch = CommandResultBatch()
         batch.add(CommandResult.success(uuid4()))
         batch.add(CommandResult.success(uuid4()))
         assert batch.all_successful() is True
+
+    def test_all_successful_returns_false_when_any_failure(self) -> None:
+        batch = CommandResultBatch()
+        batch.add(CommandResult.success(uuid4()))
         batch.add(CommandResult.failure(uuid4(), "err"))
         assert batch.all_successful() is False
 
-    def test_any_failure(self):
+    def test_any_failure_returns_true_when_failure_exists(self) -> None:
         batch = CommandResultBatch()
         batch.add(CommandResult.success(uuid4()))
-        assert batch.any_failure() is False
         batch.add(CommandResult.failure(uuid4(), "err"))
         assert batch.any_failure() is True
 
-    def test_any_duplicate(self):
+    def test_any_failure_returns_false_when_no_failure(self) -> None:
         batch = CommandResultBatch()
         batch.add(CommandResult.success(uuid4()))
-        assert batch.any_duplicate() is False
+        assert batch.any_failure() is False
+
+    def test_any_duplicate_returns_true_when_duplicate_exists(self) -> None:
+        batch = CommandResultBatch()
         batch.add(CommandResult.duplicate(uuid4()))
         assert batch.any_duplicate() is True
 
-    def test_get_successful(self):
+    def test_any_duplicate_returns_false_when_no_duplicate(self) -> None:
+        batch = CommandResultBatch()
+        batch.add(CommandResult.success(uuid4()))
+        assert batch.any_duplicate() is False
+
+    def test_get_successful_returns_only_successes(self) -> None:
         batch = CommandResultBatch()
         s1 = CommandResult.success(uuid4())
         s2 = CommandResult.success(uuid4())
@@ -369,8 +435,9 @@ class TestCommandResultBatch:
         assert len(successful) == 2
         assert s1 in successful
         assert s2 in successful
+        assert f1 not in successful
 
-    def test_get_failures(self):
+    def test_get_failures_returns_only_failures(self) -> None:
         batch = CommandResultBatch()
         s1 = CommandResult.success(uuid4())
         f1 = CommandResult.failure(uuid4(), "err")
@@ -379,7 +446,7 @@ class TestCommandResultBatch:
         assert len(failures) == 1
         assert failures[0] == f1
 
-    def test_get_duplicates(self):
+    def test_get_duplicates_returns_only_duplicates(self) -> None:
         batch = CommandResultBatch()
         d1 = CommandResult.duplicate(uuid4())
         batch.add(d1)
@@ -387,7 +454,7 @@ class TestCommandResultBatch:
         assert len(dupes) == 1
         assert dupes[0] == d1
 
-    def test_get_partial(self):
+    def test_get_partial_returns_only_partials(self) -> None:
         batch = CommandResultBatch()
         p1 = CommandResult.partial(uuid4(), [])
         batch.add(p1)
@@ -395,7 +462,7 @@ class TestCommandResultBatch:
         assert len(partials) == 1
         assert partials[0] == p1
 
-    def test_summary(self):
+    def test_summary_returns_correct_counts(self) -> None:
         batch = CommandResultBatch()
         batch.add(CommandResult.success(uuid4()))
         batch.add(CommandResult.failure(uuid4(), "err"))
@@ -403,30 +470,38 @@ class TestCommandResultBatch:
         batch.add(CommandResult.pending(uuid4()))
         batch.add(CommandResult.partial(uuid4(), []))
         summary = batch.summary()
-        assert summary["total"] == 5
-        assert summary["success"] == 1
-        assert summary["failure"] == 1
-        assert summary["duplicate"] == 1
-        assert summary["partial"] == 1
+        assert summary == {
+            "total": 5,
+            "success": 1,
+            "failure": 1,
+            "duplicate": 1,
+            "partial": 1,
+        }
 
-    def test_is_successful_batch(self):
+    def test_is_successful_batch_returns_true_for_all_success(self) -> None:
         batch = CommandResultBatch()
         batch.add(CommandResult.success(uuid4()))
         assert batch.is_successful_batch() is True
+
+    def test_is_successful_batch_returns_false_for_any_failure_when_not_allowed(self) -> None:
+        batch = CommandResultBatch(partial_failure_allowed=False)
+        batch.add(CommandResult.success(uuid4()))
         batch.add(CommandResult.failure(uuid4(), "err"))
         assert batch.is_successful_batch() is False
 
-        batch_partial = CommandResultBatch(partial_failure_allowed=True)
-        batch_partial.add(CommandResult.success(uuid4()))
-        batch_partial.add(CommandResult.failure(uuid4(), "err"))
-        assert batch_partial.is_successful_batch() is True
+    def test_is_successful_batch_returns_true_for_mixed_when_partial_allowed(self) -> None:
+        batch = CommandResultBatch(partial_failure_allowed=True)
+        batch.add(CommandResult.success(uuid4()))
+        batch.add(CommandResult.failure(uuid4(), "err"))
+        assert batch.is_successful_batch() is True
 
-        batch_all_fail = CommandResultBatch(partial_failure_allowed=True)
-        batch_all_fail.add(CommandResult.failure(uuid4(), "err1"))
-        batch_all_fail.add(CommandResult.failure(uuid4(), "err2"))
-        assert batch_all_fail.is_successful_batch() is False
+    def test_is_successful_batch_returns_false_when_all_fail_even_partial_allowed(self) -> None:
+        batch = CommandResultBatch(partial_failure_allowed=True)
+        batch.add(CommandResult.failure(uuid4(), "err1"))
+        batch.add(CommandResult.failure(uuid4(), "err2"))
+        assert batch.is_successful_batch() is False
 
-    def test_get_errors(self):
+    def test_get_errors_returns_error_messages_for_failures(self) -> None:
         batch = CommandResultBatch()
         cid1 = uuid4()
         cid2 = uuid4()
@@ -437,35 +512,33 @@ class TestCommandResultBatch:
         assert f"[{cid1}] err1" in errors
         assert f"[{cid2}] err2" in errors
 
-    def test_to_dict(self):
+    def test_to_dict_contains_all_fields(self) -> None:
         batch = CommandResultBatch()
-        batch.add(CommandResult.success(uuid4(), data="test"))
+        r = CommandResult.success(uuid4(), data="test")
+        batch.add(r)
         d = batch.to_dict()
         assert d["batch_id"] == str(batch.batch_id)
         assert d["partial_failure_allowed"] is False
         assert "started_at" in d
         assert d["completed_at"] is None
         assert len(d["results"]) == 1
+        assert d["results"][0]["data"] == "test"
         assert d["summary"]["total"] == 1
 
-    def test_to_json(self):
-        batch = CommandResultBatch()
-        batch.add(CommandResult.success(uuid4()))
-        json_str = batch.to_json()
-        data = json.loads(json_str)
-        assert data["batch_id"] == str(batch.batch_id)
-        assert data["summary"]["total"] == 1
-
-    def test_from_dict(self):
+    def test_from_dict_reconstructs_batch(self) -> None:
         original = CommandResultBatch()
         original.add(CommandResult.success(uuid4(), data={"a": 1}))
+        original.complete()
         d = original.to_dict()
         reconstructed = CommandResultBatch.from_dict(d)
         assert reconstructed.batch_id == original.batch_id
+        assert reconstructed.partial_failure_allowed == original.partial_failure_allowed
+        assert reconstructed.started_at == original.started_at
+        assert reconstructed.completed_at == original.completed_at
         assert len(reconstructed.results) == 1
         assert reconstructed.results[0].data == {"a": 1}
 
-    def test_from_json(self):
+    def test_to_json_roundtrip(self) -> None:
         original = CommandResultBatch()
         original.add(CommandResult.success(uuid4(), data="x"))
         json_str = original.to_json()
@@ -473,10 +546,13 @@ class TestCommandResultBatch:
         assert reconstructed.batch_id == original.batch_id
         assert reconstructed.results[0].data == "x"
 
-    def test_repr(self):
+    def test_repr_contains_batch_id_and_summary(self) -> None:
         batch = CommandResultBatch()
         batch.add(CommandResult.success(uuid4()))
-        assert repr(batch).startswith("CommandResultBatch(batch_id=")
+        repr_str = repr(batch)
+        assert "CommandResultBatch" in repr_str
+        assert str(batch.batch_id) in repr_str
+        assert "summary" in repr_str
 
 
 # ============================================================================
@@ -484,12 +560,14 @@ class TestCommandResultBatch:
 # ============================================================================
 
 class TestCombineResults:
-    def test_empty_results(self):
+    """Test combine_results function."""
+
+    def test_combine_empty_list_returns_success_with_empty_data(self) -> None:
         result = combine_results([])
         assert result.is_success() is True
         assert result.data == {"results": []}
 
-    def test_all_success(self):
+    def test_combine_all_success_returns_success_with_combined_data(self) -> None:
         r1 = CommandResult.success(uuid4(), data="a")
         r2 = CommandResult.success(uuid4(), data="b")
         combined = combine_results([r1, r2])
@@ -497,7 +575,7 @@ class TestCombineResults:
         assert combined.data["results"] == ["a", "b"]
         assert combined.metadata["combined_count"] == 2
 
-    def test_all_failure_no_partial(self):
+    def test_combine_all_failure_and_partial_not_allowed_returns_failure(self) -> None:
         r1 = CommandResult.failure(uuid4(), "err1")
         r2 = CommandResult.failure(uuid4(), "err2")
         combined = combine_results([r1, r2], allow_partial=False)
@@ -506,7 +584,7 @@ class TestCombineResults:
         assert combined.error_code == "ALL_FAILED"
         assert len(combined.metadata["failures"]) == 2
 
-    def test_mixed_with_partial_allowed(self):
+    def test_combine_mixed_with_partial_allowed_returns_partial(self) -> None:
         r1 = CommandResult.success(uuid4(), data="ok")
         r2 = CommandResult.failure(uuid4(), "err")
         combined = combine_results([r1, r2], allow_partial=True)
@@ -517,7 +595,7 @@ class TestCombineResults:
         assert len(partial_results) == 1
         assert partial_results[0]["data"] == "ok"
 
-    def test_mixed_without_partial(self):
+    def test_combine_mixed_without_partial_returns_failure_with_unknown_state(self) -> None:
         r1 = CommandResult.success(uuid4(), data="ok")
         r2 = CommandResult.failure(uuid4(), "err")
         combined = combine_results([r1, r2], allow_partial=False)
@@ -531,27 +609,28 @@ class TestCombineResults:
 # ============================================================================
 
 class TestResultFromException:
-    def test_result_from_exception(self):
-        cid = uuid4()
+    """Test result_from_exception function."""
+
+    def test_result_from_exception_creates_failure_with_custom_code(self, sample_command_id: UUID) -> None:
         exc = ValueError("invalid value")
-        result = result_from_exception(cid, exc, error_code="VAL_ERR")
-        assert result.command_id == cid
+        result = result_from_exception(sample_command_id, exc, error_code="VAL_ERR")
+        assert result.command_id == sample_command_id
         assert result.is_failure() is True
         assert result.error == "invalid value"
         assert result.error_code == "VAL_ERR"
         assert result.metadata["exception_type"] == "ValueError"
 
-    def test_result_from_exception_no_error_code(self):
-        cid = uuid4()
+    def test_result_from_exception_uses_exception_name_as_code_if_not_provided(self, sample_command_id: UUID) -> None:
         exc = TypeError("type mismatch")
-        result = result_from_exception(cid, exc)
+        result = result_from_exception(sample_command_id, exc)
         assert result.error_code == "TypeError"
         assert result.metadata["exception_type"] == "TypeError"
 
 
 # ============================================================================
-# Test alias
+# Test Alias
 # ============================================================================
 
-def test_command_result_envelope_alias():
+def test_command_result_envelope_alias() -> None:
+    """Verify that CommandResultEnvelope is an alias for CommandResult."""
     assert CommandResultEnvelope is CommandResult

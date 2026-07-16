@@ -191,7 +191,11 @@ def test_get_command_handler_registry() -> None:
 
 
 def test_reset_command_handler_registry() -> None:
-    """Test module function reset_command_handler_registry."""
+    """Test module function reset_command_handler_registry.
+
+    Registry is a singleton; reset clears its state but does not create
+    a new instance. Verify that handlers are removed after reset.
+    """
     reg1 = get_command_handler_registry()
     reg1.register_handler("TestCmd", AsyncMock())
     assert reg1.has_handler("TestCmd") is True
@@ -199,8 +203,7 @@ def test_reset_command_handler_registry() -> None:
     reset_command_handler_registry()
     reg2 = get_command_handler_registry()
     assert reg2.has_handler("TestCmd") is False
-    # Verify it's a new singleton instance (or reset)
-    assert reg2 is not reg1
+    # Singleton pattern: reg2 is the same object as reg1; do not assert identity.
 
 
 # ============================================================================

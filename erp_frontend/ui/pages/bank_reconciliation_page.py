@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -69,6 +70,7 @@ class BankReconciliationPage(QWidget):
         self.tabs.addTab(TransferTab(), "Transfer Antar Rekening")
         self.tabs.addTab(PettyCashTab(), "Petty Cash")
         self.tabs.addTab(CashBookTab(), "Cash Book")
+        self.tabs.addTab(ImportStatementTab(), "Import Rekening Koran")
         outer.addWidget(self.tabs, stretch=1)
 
 
@@ -622,3 +624,93 @@ class CashBookFormDialog(QDialog):
         if self.min_balance_edit.text().strip():
             payload["min_balance"] = float(Decimal(self.min_balance_edit.text().strip()))
         return payload
+
+
+# ==========================================================================
+class ImportStatementTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._file_path = ""
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(
+            "Import file rekening koran (mutasi bank) untuk mempercepat proses rekonsiliasi. "
+            "Format yang didukung tergantung konfigurasi backend (umumnya MT940/CSV)."
+        ))
+
+        file_row = QHBoxLayout()
+        self.file_label = QLabel("Belum ada file dipilih.")
+        file_row.addWidget(self.file_label, stretch=1)
+        browse_btn = QPushButton("📁 Pilih File")
+        browse_btn.clicked.connect(self._browse)
+        file_row.addWidget(browse_btn)
+        outer.addLayout(file_row)
+
+        form = QFormLayout()
+        self.account_edit = QLineEdit()
+        self.account_edit.setPlaceholderText("UUID rekening bank")
+        form.addRow("Rekening Bank", self.account_edit)
+        self.date_edit = QDateEdit(QDate.currentDate())
+        self.date_edit.setCalendarPopup(True)
+        form.addRow("Tanggal Statement", self.date_edit)
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["mt940", "csv", "ofx", "camt053"])
+        form.addRow("Format File", self.format_combo)
+        outer.addLayout(form)
+
+        upload_btn = QPushButton("⬆ Import Statement")
+        upload_btn.setObjectName("primaryButton")
+        upload_btn.clicked.connect(self._upload)
+        outer.addWidget(upload_btn)
+
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        outer.addWidget(self.result_text, stretch=1)
+
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        outer.addWidget(self.status_label)
+
+    def _browse(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Pilih File Rekening Koran")
+        if path:
+            self._file_path = path
+            self.file_label.setText(path.split("/")[-1].split("\\")[-1])
+
+    def _upload(self) -> None:
+        if not self._file_path:
+            QMessageBox.warning(self, "Validasi", "Pilih file dulu.")
+            return
+        if not self.account_edit.text().strip():
+            QMessageBox.warning(self, "Validasi", "Rekening bank wajib diisi.")
+            return
+        form_fields = {
+            "bank_account_id": self.account_edit.text().strip(),
+            "statement_date": self.date_edit.date().toString("yyyy-MM-dd"),
+            "file_format": self.format_combo.currentText(),
+        }
+        self.status_label.setText("Mengunggah & memproses statement...")
+        run_task(
+            api_client.upload_file,
+            on_success=self._on_uploaded,
+            on_error=self._on_error,
+            path=f"{BASE}/import-statement",
+            file_path=self._file_path,
+            form_fields=form_fields,
+        )
+
+    def _on_uploaded(self, result: Any) -> None:
+        data = result or {}
+        lines = [
+            f"Transaksi diimpor: {data.get('transactions_imported', 0)}",
+            f"Transaksi cocok otomatis: {data.get('auto_matched', 0)}",
+            f"Perlu review manual: {data.get('needs_review', 0)}",
+        ]
+        self.result_text.setPlainText("\n".join(lines))
+        self.status_label.setText("Import selesai.")
+
+    def _on_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Gagal", message)
+        self.status_label.setText("Gagal.")

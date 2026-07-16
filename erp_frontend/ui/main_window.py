@@ -273,6 +273,42 @@ class MainWindow(QMainWindow):
             if key == "approval_matrix":
                 from ui.pages.approval_matrix_page import ApprovalMatrixPage
                 return ApprovalMatrixPage()
+            if key == "audit_forensic":
+                from ui.pages.audit_forensic_page import AuditForensicPage
+                return AuditForensicPage()
+            if key == "budget_advanced":
+                from ui.pages.budget_advanced_page import BudgetAdvancedPage
+                return BudgetAdvancedPage()
+            if key == "currency_exchange_advanced":
+                from ui.pages.forex_workspace_page import ForexWorkspacePage, CURRENCY_EXCHANGE_CONFIG
+                return ForexWorkspacePage(CURRENCY_EXCHANGE_CONFIG)
+            if key == "forex_advanced":
+                from ui.pages.forex_workspace_page import ForexWorkspacePage, FOREX_CONFIG
+                return ForexWorkspacePage(FOREX_CONFIG)
+            if key == "asset_lifecycle":
+                from ui.pages.asset_lifecycle_page import AssetLifecyclePage
+                return AssetLifecyclePage()
+            if key == "hedge_advanced":
+                from ui.pages.hedge_advanced_page import HedgeAdvancedPage
+                return HedgeAdvancedPage()
+            if key == "iam_security":
+                from ui.pages.iam_security_page import IamSecurityPage
+                return IamSecurityPage()
+            if key == "maintenance_schedule":
+                from ui.pages.maintenance_schedule_page import MaintenanceSchedulePage
+                return MaintenanceSchedulePage()
+            if key == "manufacturing_advanced":
+                from ui.pages.manufacturing_advanced_page import ManufacturingAdvancedPage
+                return ManufacturingAdvancedPage()
+            if key == "project_advanced":
+                from ui.pages.project_advanced_page import ProjectAdvancedPage
+                return ProjectAdvancedPage()
+            if key == "report_generation":
+                from ui.pages.report_generation_page import ReportGenerationPage
+                return ReportGenerationPage()
+            if key == "umkm_advanced":
+                from ui.pages.umkm_advanced_page import UmkmAdvancedPage
+                return UmkmAdvancedPage()
 
             # 37 modul lain -> masing-masing punya file halaman sendiri di
             # ui/pages/<key>_page.py (lihat MODULE_PAGE_MAP di bawah), yang

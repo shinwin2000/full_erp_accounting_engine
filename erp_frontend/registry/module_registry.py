@@ -239,6 +239,11 @@ _reg(ModuleConfig(
     ],
 ))
 _reg(ModuleConfig(
+    key="iam_security", label="Keamanan Akun: Sesi, MFA & Password", category="Master Data", icon="🔐",
+    base_path="/iam/iam", custom_page=True,
+    description="Manajemen sesi login, setup MFA, riwayat percobaan login, ganti password.",
+))
+_reg(ModuleConfig(
     key="iam_roles", label="Role & Permission", category="Master Data", icon="🔑",
     base_path="/iam/iam", list_path="/roles", custom_page=True,
     description="Manajemen role, permission, dan assignment role ke user.",
@@ -300,6 +305,11 @@ _reg(ModuleConfig(
         FieldSpec("amount", "Jumlah", FieldType.DECIMAL, required=True),
         FieldSpec("description", "Keterangan", FieldType.TEXTAREA, required=True),
     ],
+))
+_reg(ModuleConfig(
+    key="asset_lifecycle", label="Depresiasi, Amortisasi & Impairment", category="Aset", icon="🏗️",
+    base_path="/fixed-assets/fixed-assets", custom_page=True,
+    description="Jadwal depresiasi Aset Tetap, amortisasi Aset Tak Berwujud, uji impairment Goodwill.",
 ))
 _reg(ModuleConfig(
     key="fixed_assets", label="Aset Tetap", category="Aset", icon="🏗️",
@@ -364,6 +374,11 @@ _reg(ModuleConfig(
         FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
     ],
     actions=[ActionSpec("impairment-test", "Uji Penurunan Nilai", path_suffix="/impairment-tests", style="primary")],
+))
+_reg(ModuleConfig(
+    key="maintenance_schedule", label="Jadwal Maintenance & Spare Parts", category="Aset", icon="🔧",
+    base_path="/maintenance/maintenance", custom_page=True,
+    description="Jadwal maintenance preventif, pemakaian spare parts, ringkasan biaya.",
 ))
 _reg(ModuleConfig(
     key="maintenance_assets", label="Aset Maintenance", category="Aset", icon="🔧",
@@ -450,6 +465,11 @@ _reg(ModuleConfig(
         FieldSpec("warehouse_name", "Nama Gudang", required=True),
         FieldSpec("location", "Lokasi"),
     ],
+))
+_reg(ModuleConfig(
+    key="manufacturing_advanced", label="WIP, Cost Card & Close HPP", category="Manufaktur", icon="⚙️",
+    base_path="/manufacturing/manufacturing", custom_page=True,
+    description="Work in Process, cost card produksi, analisis varians, close HPP bulanan.",
 ))
 _reg(ModuleConfig(
     key="bom", label="Bill of Materials", category="Manufaktur", icon="📐",
@@ -539,6 +559,11 @@ _reg(ModuleConfig(
     actions=STANDARD_DOC_ACTIONS,
 ))
 _reg(ModuleConfig(
+    key="project_advanced", label="Retainer, Revenue Recognition & Dashboard", category="Pembelian & Penjualan", icon="📁",
+    base_path="/projects/projects", custom_page=True,
+    description="Retainer contract, pengakuan pendapatan PSAK 72, dashboard, utilisasi tim.",
+))
+_reg(ModuleConfig(
     key="projects", label="Proyek & Jasa", category="Pembelian & Penjualan", icon="📁",
     base_path="/projects/projects", list_path="/",
     columns=[("project_code", "Kode"), ("project_name", "Nama Proyek"), ("contract_value", "Nilai Kontrak"), ("status", "Status")],
@@ -574,6 +599,11 @@ _reg(ModuleConfig(
 
 # === Treasury, Forex, Hedge, Consolidation ==================================
 _reg(ModuleConfig(
+    key="currency_exchange_advanced", label="Currency Exchange: Revaluasi & Dashboard", category="Treasury", icon="💱",
+    base_path="/currency-exchange/currency-exchange", custom_page=True,
+    description="Master mata uang, revaluasi kurs, posisi, dashboard.",
+))
+_reg(ModuleConfig(
     key="exchange_rates", label="Kurs Mata Uang", category="Treasury", icon="💱",
     base_path="/currency-exchange/currency-exchange", list_path="/rates",
     columns=[("from_currency", "Dari"), ("to_currency", "Ke"), ("rate", "Kurs"), ("effective_date", "Tanggal Berlaku")],
@@ -590,6 +620,11 @@ _reg(ModuleConfig(
     can_edit=False,
 ))
 _reg(ModuleConfig(
+    key="forex_advanced", label="Forex: Revaluasi & Dashboard", category="Treasury", icon="🌐",
+    base_path="/forex/forex", custom_page=True,
+    description="Master mata uang, revaluasi kurs, posisi, dashboard (Forex).",
+))
+_reg(ModuleConfig(
     key="forex", label="Forex & Revaluasi", category="Treasury", icon="🌐",
     base_path="/forex/forex", list_path="/rates",
     columns=[("from_currency", "Dari"), ("to_currency", "Ke"), ("rate", "Kurs"), ("effective_date", "Tanggal")],
@@ -600,6 +635,11 @@ _reg(ModuleConfig(
         FieldSpec("effective_date", "Tanggal Berlaku", FieldType.DATE, required=True),
     ],
     can_edit=False,
+))
+_reg(ModuleConfig(
+    key="hedge_advanced", label="Fair Value & Ketidakefektifan Hedge", category="Treasury", icon="📈",
+    base_path="/hedge/hedge", custom_page=True,
+    description="Pengukuran fair value (IFRS 13), ketidakefektifan hedge, dashboard.",
 ))
 _reg(ModuleConfig(
     key="hedge_derivatives", label="Instrumen Derivatif", category="Treasury", icon="📈",
@@ -689,6 +729,11 @@ _reg(ModuleConfig(
     actions=STANDARD_DOC_ACTIONS[:3] + [ActionSpec("finalize", "Finalize", path_suffix="/finalize", style="success")],
 ))
 _reg(ModuleConfig(
+    key="budget_advanced", label="Budget Advanced", category="Perencanaan", icon="📅",
+    base_path="/budget/budget", custom_page=True,
+    description="Dashboard, alert, transfer anggaran, rolling forecast, versi, vs-actual.",
+))
+_reg(ModuleConfig(
     key="budgets", label="Budget / Anggaran", category="Perencanaan", icon="📅",
     base_path="/budget/budget", list_path="/",
     columns=[("budget_code", "Kode"), ("budget_name", "Nama"), ("fiscal_year", "Tahun"), ("budget_type", "Tipe")],
@@ -734,6 +779,11 @@ _reg(ModuleConfig(
     description="Upload, download, dan workflow approval dokumen (implementasi lengkap).",
 ))
 _reg(ModuleConfig(
+    key="report_generation", label="Generate Laporan Ad-hoc", category="Umum", icon="🗂️",
+    base_path="/reports/reports", custom_page=True,
+    description="Generate laporan financial/ledger/subledger/tax/analytics on-demand.",
+))
+_reg(ModuleConfig(
     key="reports", label="Report Terjadwal", category="Umum", icon="🗂️",
     base_path="/reports/reports", list_path="/",
     columns=[("report_type", "Tipe Laporan"), ("schedule_name", "Nama Jadwal"), ("schedule_frequency", "Frekuensi")],
@@ -752,10 +802,20 @@ _reg(ModuleConfig(
     base_path="/settings/settings", custom_page=True,
 ))
 _reg(ModuleConfig(
+    key="audit_forensic", label="Audit Forensik & Kepatuhan", category="Umum", icon="🕵️",
+    base_path="/audit/audit", custom_page=True,
+    description="Hash-chain integrity, SOX control test, gap detection, laporan audit.",
+))
+_reg(ModuleConfig(
     key="audit", label="Audit & Forensik", category="Umum", icon="🕵️",
     base_path="/audit/audit", list_path="/findings",
     columns=[("finding_type", "Tipe Temuan"), ("severity", "Tingkat"), ("status", "Status")],
     can_create=False, can_edit=False, can_delete=False,
+))
+_reg(ModuleConfig(
+    key="umkm_advanced", label="Profil, Akun & Kepatuhan Pajak UMKM", category="Umum", icon="🏪",
+    base_path="/umkm/umkm", custom_page=True,
+    description="Profil usaha, bagan akun sederhana, kepatuhan PPh Final, laporan sederhana.",
 ))
 _reg(ModuleConfig(
     key="umkm", label="UMKM Simplified", category="Umum", icon="🏪",
