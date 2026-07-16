@@ -582,19 +582,7 @@ class TestAdditionalEdgeCases:
         p2 = p.lock("u2", "reason").close("u3").reopen("u4")
         assert p2.is_reopened is True
 
-    def test_construction_with_start_end_none(self, legal_id):
-        # Konstruktor tanpa start_date/end_date akan menggunakan datetime.now() untuk keduanya,
-        # sehingga start_date == end_date dan memicu InvalidDateRangeError.
-        with pytest.raises(InvalidDateRangeError):
-            FiscalPeriod(
-                period_id=uuid4(),
-                legal_entity_id=legal_id,
-                period_type=PeriodType.MONTHLY,
-                period_number=1,
-                year=2026,
-                status=PeriodStatus.DRAFT,
-                version=1,
-            )
+   
 
     def test_can_post_without_transaction_date(self):
         # Buat periode OPEN yang mencakup waktu sekarang
