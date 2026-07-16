@@ -3,7 +3,7 @@
 FiscalPeriod aggregate root – comprehensive tests, all PASS.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -88,7 +88,6 @@ class TestConstruction:
         assert p.status == PeriodStatus.DRAFT
         assert p.version == 1
         assert len(p._audit_trail) == 1
-        # events may be empty, so no assertion
 
     def test_with_period_string(self, legal_id):
         p = FiscalPeriod(period_id=uuid4(), legal_entity_id=legal_id, period="2026-01")
@@ -410,7 +409,6 @@ class TestQuery:
         assert period.contains_date(dt2) is False
 
     def test_overlaps_with(self):
-        # Buat periode tanpa parameter period agar start_date dan end_date tidak ditimpa
         p1 = FiscalPeriod(
             period_id=uuid4(),
             legal_entity_id=uuid4(),
@@ -420,7 +418,6 @@ class TestQuery:
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
             end_date=datetime(2026, 2, 1, tzinfo=UTC),
             status=PeriodStatus.DRAFT,
-            # period="2026-01",  # JANGAN PAKAI period
             version=1,
         )
         p2 = FiscalPeriod(
@@ -432,7 +429,6 @@ class TestQuery:
             start_date=datetime(2026, 1, 15, tzinfo=UTC),
             end_date=datetime(2026, 2, 15, tzinfo=UTC),
             status=PeriodStatus.DRAFT,
-            # period="2026-02",
             version=1,
         )
         assert p1.overlaps_with(p2) is True
@@ -447,11 +443,185 @@ class TestQuery:
             start_date=datetime(2026, 2, 1, tzinfo=UTC),
             end_date=datetime(2026, 2, 28, tzinfo=UTC),
             status=PeriodStatus.DRAFT,
-            # period="2026-02",
             version=1,
         )
         assert p1.overlaps_with(p3) is False
         assert p3.overlaps_with(p1) is False
+
+
+class TestAdditionalEdgeCases:
+    """Test cases for all status transitions and error conditions."""
+
+    def test_delete_locked_raises(self, period):
+        p = period.open("u1").lock("u2", "reason")
+        with pytest.raises(InvalidStatusTransitionError, match="Cannot delete"):
+            p.delete("u3")
+
+    def test_delete_closed_raises(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        with pytest.raises(InvalidStatusTransitionError, match="Cannot delete"):
+            p.delete("u4")
+
+    def test_update_locked_succeeds(self, period):
+        p = period.open("u1").lock("u2", "reason")
+        p2 = p.update("admin", period_type="quarterly")
+        assert p2.period_type == PeriodType.QUARTERLY
+        assert p2.version == p.version
+
+    def test_restore_draft_raises(self, period):
+        with pytest.raises(InvalidStatusTransitionError, match="must be CLOSED"):
+            period.restore("admin")
+
+    def test_restore_open_raises(self, period):
+        p = period.open("u1")
+        with pytest.raises(InvalidStatusTransitionError, match="must be CLOSED"):
+            p.restore("admin")
+
+    def test_restore_locked_raises(self, period):
+        p = period.open("u1").lock("u2", "reason")
+        with pytest.raises(InvalidStatusTransitionError, match="must be CLOSED"):
+            p.restore("admin")
+
+    def test_activate_closed_without_force_raises(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        with pytest.raises(InvalidStatusTransitionError, match="force flag"):
+            p.activate("admin")
+
+    def test_activate_locked_raises(self, period):
+        p = period.open("u1").lock("u2", "reason")
+        with pytest.raises(InvalidStatusTransitionError, match="Cannot open"):
+            p.activate("admin")
+
+    def test_deactivate_closed_returns_self(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        p2 = p.deactivate("admin")
+        assert p2 is p
+
+    def test_archive_closed(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        archived = p.archive("admin")
+        assert any(entry["action"] == "ARCHIVE" for entry in archived._audit_trail)
+
+    def test_unarchive(self, period):
+        p = period.open("u1")
+        archived = p.archive("admin")
+        unarchived = archived.unarchive("admin")
+        assert any(entry["action"] == "UNARCHIVE" for entry in unarchived._audit_trail)
+
+    def test_can_archive(self, period):
+        assert period.can_archive() is False
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        assert p.can_archive() is True
+
+    def test_can_unarchive(self, period):
+        assert period.can_unarchive() is True
+
+    def test_can_post_out_of_range(self, period):
+        p = period.open("u1")
+        assert p.can_post(datetime(2025, 12, 31, tzinfo=UTC)) is False
+        assert p.can_post(datetime(2026, 2, 1, tzinfo=UTC)) is False
+
+    def test_can_approve(self, period):
+        p = period.open("u1")
+        assert p.can_approve("finance_manager") is True
+        assert p.can_approve("admin") is True
+        assert p.can_approve("user") is False
+        assert period.can_approve("admin") is False
+
+    def test_can_reject(self, period):
+        p = period.open("u1")
+        assert p.can_reject("user") is True
+        assert period.can_reject("admin") is False
+
+    def test_can_cancel(self, period):
+        assert period.can_cancel() is False
+        p = period.open("u1")
+        assert p.can_cancel() is True
+
+    def test_reject(self, period):
+        p = period.open("u1")
+        p2 = p.reject("admin", "bad data")
+        assert p2 is p
+        assert any(entry["action"] == "REJECT" for entry in p2._audit_trail)
+
+    def test_can_reverse(self, period):
+        assert period.can_reverse() is False
+
+    def test_reverse_raises(self, period):
+        with pytest.raises(NotImplementedError):
+            period.reverse("admin", "not applicable")
+
+    def test_add_child_raises(self, period):
+        with pytest.raises(NotImplementedError):
+            period.add_child(None, "admin")
+
+    def test_remove_child_raises(self, period):
+        with pytest.raises(NotImplementedError):
+            period.remove_child(uuid4(), "admin")
+
+    def test_validate_after_multiple_transitions(self, period):
+        p = period.open("u1")
+        p = p.lock("u2", "reason")
+        p = p.close("u3")
+        result = p.validate()
+        assert result["is_valid"] is True
+        assert result["errors"] == []
+
+    def test_to_dict_after_closed(self, period):
+        p = period.open("u1").lock("u2", "reason").close("u3")
+        d = p.to_dict()
+        assert d["is_closed"] is True
+        assert d["closed_by"] == "u3"
+        assert d["closed_at"] is not None
+        assert d["can_post"] is False
+        assert d["can_adjust"] is False
+
+    def test_is_reopened_true(self, period):
+        p = period.open("u1")
+        assert p.is_reopened is True
+        p2 = p.lock("u2", "reason").close("u3").reopen("u4")
+        assert p2.is_reopened is True
+
+    def test_construction_with_start_end_none(self, legal_id):
+        # Konstruktor tanpa start_date/end_date akan menggunakan datetime.now() untuk keduanya,
+        # sehingga start_date == end_date dan memicu InvalidDateRangeError.
+        with pytest.raises(InvalidDateRangeError):
+            FiscalPeriod(
+                period_id=uuid4(),
+                legal_entity_id=legal_id,
+                period_type=PeriodType.MONTHLY,
+                period_number=1,
+                year=2026,
+                status=PeriodStatus.DRAFT,
+                version=1,
+            )
+
+    def test_can_post_without_transaction_date(self):
+        # Buat periode OPEN yang mencakup waktu sekarang
+        now = datetime.now(UTC)
+        start = now - timedelta(days=1)
+        end = now + timedelta(days=1)
+        p = FiscalPeriod(
+            period_id=uuid4(),
+            legal_entity_id=uuid4(),
+            period_type=PeriodType.MONTHLY,
+            period_number=1,
+            year=start.year,
+            start_date=start,
+            end_date=end,
+            status=PeriodStatus.OPEN,
+            version=1,
+        )
+        assert p.can_post() is True
+
+    def test_contains_date_edge_cases(self, period):
+        start = period.start_date
+        end = period.end_date
+        assert period.contains_date(start) is True
+        assert period.contains_date(end - timedelta(microseconds=1)) is True
+        assert period.contains_date(start - timedelta(days=1)) is False
+        assert period.contains_date(end) is False
+        assert period.contains_date(end + timedelta(days=1)) is False
 
 
 class TestValidateAndSerialize:
@@ -482,7 +652,6 @@ class TestValidateAndSerialize:
         assert clone.period_id != period.period_id
         assert clone.status == PeriodStatus.DRAFT
         assert clone.version == 1
-        # clone.created_at may be same as period.created_at, but audit trail has CLONE
         assert any(entry["action"] == "CLONE" for entry in clone._audit_trail)
 
     def test_audit_trail(self, period):
