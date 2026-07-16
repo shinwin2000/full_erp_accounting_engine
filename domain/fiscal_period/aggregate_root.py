@@ -872,7 +872,7 @@ class FiscalPeriod:
         """
         Return True if this period overlaps with another period.
         """
-        # FIX: logika overlap yang benar
+        # Logika yang benar: overlap jika start_date < other.end_date AND other.start_date < end_date
         return self._start_date < other._end_date and other._start_date < self._end_date
 
     # ==================== VALIDATE & CONVERT METHODS ====================
