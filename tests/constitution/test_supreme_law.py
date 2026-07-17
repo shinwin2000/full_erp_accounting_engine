@@ -100,9 +100,9 @@ class TestConstitutionalRule:
             created_at=now,
             approved_by=["a", "b", "c"],
         )
-        assert rule.is_active() is True
-        assert rule.is_active(now - timedelta(days=2)) is False
-        assert rule.is_active(now + timedelta(days=2)) is False
+        assert rule.is_active()
+        assert not rule.is_active(now - timedelta(days=2))
+        assert not rule.is_active(now + timedelta(days=2))
 
     def test_update_creates_new_version(self):
         """Test update creates new instance with incremented version."""
@@ -140,7 +140,7 @@ class TestConstitutionalRule:
         assert deleted.deleted_at is not None
         assert deleted.deleted_by == "admin"
         assert deleted.effective_until is not None
-        assert deleted.is_active() is False
+        assert not deleted.is_active()
 
     def test_restore_recovers_deleted_rule(self):
         """Test restore recovers deleted rule."""
@@ -238,7 +238,7 @@ class TestConstitutionalRule:
         # Force hash mismatch
         object.__setattr__(rule, "cryptographic_hash", "fakehash")
         result = rule.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
 
@@ -345,7 +345,7 @@ class TestEmergencyOverride:
             authorized_at=now - timedelta(hours=12),
             justification_document="test",
         )
-        assert override.is_still_valid() is True
+        assert override.is_still_valid()
 
         expired = EmergencyOverride(
             override_id=uuid.uuid4(),
@@ -356,7 +356,7 @@ class TestEmergencyOverride:
             authorized_at=now - timedelta(hours=48),
             justification_document="test",
         )
-        assert expired.is_still_valid() is False
+        assert not expired.is_still_valid()
 
 
 class TestViolationRecord:
@@ -376,7 +376,7 @@ class TestViolationRecord:
         assert violation.principle == ConstitutionalPrinciple.DOUBLE_ENTRY
         assert violation.severity == ConstitutionalSeverity.HIGH
         assert violation.offending_module == "journal"
-        assert violation.is_resolved() is False
+        assert not violation.is_resolved()
 
     def test_acknowledge_marks_acknowledged(self):
         """Test acknowledge marks violation as acknowledged."""
@@ -411,7 +411,7 @@ class TestViolationRecord:
         assert resolved.resolved_by == "admin"
         assert resolved.resolved_at is not None
         assert resolved.resolution_action == "Corrected journal"
-        assert resolved.is_resolved() is True
+        assert resolved.is_resolved()
 
 
 class TestConstitutionalSnapshot:
@@ -608,7 +608,7 @@ class TestConstitution:
         """Test verify_integrity validates hash chain."""
         constitution = Constitution(version="1.0.0")
         result = constitution.verify_integrity()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_get_statistics_returns_summary(self):
         """Test get_statistics returns summary."""
@@ -634,7 +634,7 @@ class TestSupremeLaw:
             {"total_debit": 100, "total_credit": 100},
             "test_module",
         )
-        assert result is True
+        assert result
 
     def test_enforce_double_entry_invalid(self):
         """Test enforce creates violation for invalid double entry."""
@@ -740,7 +740,7 @@ class TestSupremeLawIntegration:
 
         # 5. Verify integrity
         integrity = law.verify_integrity()
-        assert integrity["is_valid"] is True
+        assert integrity["is_valid"]
 
 # ============================================================================
 # HELPER FUNCTIONS UNTUK TEST
@@ -875,7 +875,7 @@ class TestAmendmentRecordLifecycle:
     def test_validate_returns_valid(self):
         record = create_test_amendment()
         result = record.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_compute_signature_content(self):
         record = create_test_amendment()
@@ -885,7 +885,7 @@ class TestAmendmentRecordLifecycle:
 
     def test_verify_signature_returns_true(self):
         record = create_test_amendment()
-        assert record.verify_signature({}) is True
+        assert record.verify_signature({})
 
 
 class TestEmergencyOverrideLifecycle:
@@ -917,7 +917,7 @@ class TestEmergencyOverrideLifecycle:
     def test_validate_returns_valid(self):
         override = create_test_override()
         result = override.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestViolationRecordLifecycle:
@@ -949,7 +949,7 @@ class TestViolationRecordLifecycle:
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestConstitutionalSnapshotLifecycle:
@@ -981,7 +981,7 @@ class TestConstitutionalSnapshotLifecycle:
     def test_validate_returns_valid(self):
         snapshot = create_test_snapshot()
         result = snapshot.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 # ============================================================================
@@ -1007,7 +1007,7 @@ class TestConstitutionRepositoryMethods:
         rule = create_test_rule()
         constitution.save_rule(rule)
         result = constitution.delete_rule(rule.rule_id)
-        assert result is True
+        assert result
         assert constitution.get_rule(rule.rule_id) is None
 
     def test_save_amendment_and_get_amendments(self):
@@ -1022,7 +1022,7 @@ class TestConstitutionRepositoryMethods:
         amendment = create_test_amendment()
         constitution.save_amendment(amendment)
         result = constitution.delete_amendment(amendment.amendment_id)
-        assert result is True
+        assert result
 
     def test_save_override_and_get_overrides(self):
         constitution = Constitution(version="1.0")
@@ -1036,7 +1036,7 @@ class TestConstitutionRepositoryMethods:
         override = create_test_override()
         constitution.save_override(override)
         result = constitution.delete_override(override.override_id)
-        assert result is True
+        assert result
 
     def test_save_violation_and_get_violations(self):
         constitution = Constitution(version="1.0")
@@ -1051,7 +1051,7 @@ class TestConstitutionRepositoryMethods:
         constitution.save_violation(violation)
         resolved = constitution.resolve_violation(violation.violation_id, "admin", "action")
         assert resolved is not None
-        assert resolved.is_resolved() is True
+        assert resolved.is_resolved()
 
     def test_save_snapshot_and_get_snapshots(self):
         constitution = Constitution(version="1.0")
@@ -1078,7 +1078,7 @@ class TestSupremeLawDelegation:
         rule = create_test_rule()
         law.save_rule(rule)
         result = law.delete_rule(rule.rule_id)
-        assert result is True
+        assert result
 
     def test_save_amendment(self):
         law = SupremeLaw()
@@ -1092,7 +1092,7 @@ class TestSupremeLawDelegation:
         amendment = create_test_amendment()
         law.save_amendment(amendment)
         result = law.delete_amendment(amendment.amendment_id)
-        assert result is True
+        assert result
 
     def test_save_override(self):
         law = SupremeLaw()
@@ -1106,7 +1106,7 @@ class TestSupremeLawDelegation:
         override = create_test_override()
         law.save_override(override)
         result = law.delete_override(override.override_id)
-        assert result is True
+        assert result
 
     def test_save_violation(self):
         law = SupremeLaw()
@@ -1121,7 +1121,7 @@ class TestSupremeLawDelegation:
         law.save_violation(violation)
         resolved = law.resolve_violation(violation.violation_id, "admin", "action")
         assert resolved is not None
-        assert resolved.is_resolved() is True
+        assert resolved.is_resolved()
 
     def test_save_snapshot(self):
         law = SupremeLaw()
@@ -1267,7 +1267,7 @@ class TestConstitutionExtraMethods:
         constitution.modify_rule(rule.rule_id, new_rule, "admin")
         # Old rule should be inactive
         old = constitution.get_rule(rule.rule_id)
-        assert old.is_active() is False
+        assert not old.is_active()
         # New rule should exist
         assert new_rule.rule_id in constitution.rules
 
@@ -1348,7 +1348,7 @@ class TestConstitutionExtraMethods:
         # Tamper with chain
         snap2.hash_chain_previous = "tampered"
         result = constitution.verify_integrity()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "broken_at_index" in result
 
     def test_reset_reinitializes(self):
@@ -1389,7 +1389,7 @@ class TestEmergencyOverrideExtra:
         override = create_test_override()
         object.__setattr__(override, "cryptographic_hash", "fake")
         result = override.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
 
@@ -1417,7 +1417,7 @@ class TestSupremeLawExtraDelegation:
         # This modifies via constitution.modify_rule
         law.constitution.modify_rule(rule.rule_id, new_rule, "admin")
         old = law.get_rule(rule.rule_id)
-        assert old.is_active() is False
+        assert not old.is_active()
 
     def test_get_snapshots_delegates(self):
         law = SupremeLaw()
@@ -1465,4 +1465,4 @@ class TestSupremeLawExtraDelegation:
         law.save_violation(violation)
         resolved = law.resolve_violation(violation.violation_id, "admin", "action")
         assert resolved is not None
-        assert resolved.is_resolved() is True
+        assert resolved.is_resolved()

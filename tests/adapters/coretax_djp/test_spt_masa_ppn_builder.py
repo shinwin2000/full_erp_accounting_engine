@@ -136,8 +136,8 @@ class TestSPTMasaPPN:
         assert spt.status == SPTStatus.DRAFT
         assert spt.version == 1
         assert spt.hash != ""
-        assert spt.is_locked is False
-        assert spt.is_active is True
+        assert not spt.is_locked
+        assert spt.is_active
         assert spt.detail_pk == []
         assert spt.detail_pm == []
         assert spt.detail_retur == []
@@ -262,7 +262,7 @@ class TestSPTMasaPPN:
     def test_lock(self, sample_spt):
         locked_by = uuid.uuid4()
         result = sample_spt.lock(locked_by, "test")
-        assert result.is_locked is True
+        assert result.is_locked
         assert result.locked_by == locked_by
         assert result.locked_at is not None
         assert result.status == SPTStatus.LOCKED
@@ -278,7 +278,7 @@ class TestSPTMasaPPN:
         sample_spt._locked_by = uuid.uuid4()
         unlocked_by = uuid.uuid4()
         result = sample_spt.unlock(unlocked_by)
-        assert result.is_locked is False
+        assert not result.is_locked
         assert result.locked_by is None
         assert result.locked_at is None
         assert result.status == SPTStatus.PENDING
@@ -289,7 +289,6 @@ class TestSPTMasaPPN:
             sample_spt.unlock(uuid.uuid4())
 
     def test_validate_valid(self, sample_spt):
-        # Need to set some data to pass validation
         sample_spt._detail_pk = [{"dpp": 100000000, "ppn": 11000000}]
         sample_spt._detail_pm = [{"ppn": 5000000}]
         sample_spt._ppn_kurang_bayar = Decimal("6000000")
@@ -390,7 +389,6 @@ class TestSPTMasaPPN:
             sample_spt.calculate(uuid.uuid4())
 
     def test_submit(self, sample_spt):
-        # Need valid data
         sample_spt._status = SPTStatus.PENDING
         sample_spt._detail_pk = [{"dpp": 100000000, "ppn": 11000000}]
         sample_spt._detail_pm = [{"ppn": 5000000}]
@@ -439,10 +437,10 @@ class TestSPTMasaPPN:
     def test_get_status(self, sample_spt):
         status = sample_spt.get_status()
         assert status["status"] == "draft"
-        assert status["is_locked"] is False
-        assert status["is_active"] is True
-        assert status["can_submit"] is False
-        assert status["can_cancel"] is True
+        assert not status["is_locked"]
+        assert status["is_active"]
+        assert not status["can_submit"]
+        assert status["can_cancel"]
         assert status["masa_pajak"] == "2026-05"
 
     def test_get_history(self, sample_spt):
@@ -462,7 +460,7 @@ class TestSPTMasaPPN:
         assert d["npwp"] == "123456789012345"
         assert d["spt_type"] == "normal"
         assert d["detail_pk"] == []
-        assert d["is_locked"] is False
+        assert not d["is_locked"]
 
     def test_from_dict(self, sample_spt):
         d = sample_spt.to_dict()
@@ -479,10 +477,10 @@ class TestSPTMasaPPN:
         assert len(trail) == 1
 
     def test_can_transition(self, sample_spt):
-        assert sample_spt.can_transition(SPTStatus.PENDING) is True
-        assert sample_spt.can_transition(SPTStatus.SUBMITTED) is False
+        assert sample_spt.can_transition(SPTStatus.PENDING)
+        assert not sample_spt.can_transition(SPTStatus.SUBMITTED)
         sample_spt._status = SPTStatus.PENDING
-        assert sample_spt.can_transition(SPTStatus.CALCULATED) is True
+        assert sample_spt.can_transition(SPTStatus.CALCULATED)
 
     def test_transition(self, sample_spt):
         actor_id = uuid.uuid4()
@@ -575,7 +573,6 @@ class TestSPTMasaPPN:
         assert sample_spt._hash != h1
 
     def test_private__generate_xml(self, sample_spt):
-        # Need valid data for XML generation
         sample_spt._detail_pk = [{"faktur_number": "FK-001", "npwp_pembeli": "123", "nama_pembeli": "PT A", "dpp": 100000, "ppn": 11000, "tanggal_faktur": "2026-05-01"}]
         sample_spt._detail_pm = [{"faktur_number": "PM-001", "npwp_penjual": "456", "nama_penjual": "PT B", "ppn": 5000}]
         sample_spt._pemungut_ppn = {"dpp": 10000, "ppn": 1000}
@@ -585,15 +582,14 @@ class TestSPTMasaPPN:
         assert "1111" in xml
 
     def test_private__generate_xml_error(self, sample_spt):
-        # Force error by causing minidom parse error? Use a bad XML generation.
         with patch("xml.etree.ElementTree.tostring", side_effect=Exception("test")):
             with pytest.raises(SPTXMLGenerationError, match="Failed to create XML"):
                 sample_spt._generate_xml()
 
     def test_private__validate_ntpn_format(self, sample_spt):
-        assert sample_spt._validate_ntpn_format("1234567890123456") is True
-        assert sample_spt._validate_ntpn_format("1234") is False
-        assert sample_spt._validate_ntpn_format("abcdefghijklmnop") is False
+        assert sample_spt._validate_ntpn_format("1234567890123456")
+        assert not sample_spt._validate_ntpn_format("1234")
+        assert not sample_spt._validate_ntpn_format("abcdefghijklmnop")
 
 
 # ============================================================================
@@ -638,7 +634,6 @@ class TestFallbackSPTRepository:
         retrieved = await repo.get_by_npwp_period("123456789012345", 2026, 5)
         assert retrieved is not None
         assert retrieved.npwp == "123456789012345"
-        # Should not find different period
         retrieved = await repo.get_by_npwp_period("123456789012345", 2026, 6)
         assert retrieved is None
 
@@ -669,9 +664,9 @@ class TestFallbackSPTRepository:
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
         exists = await repo.exists("123456789012345", 2026, 5)
-        assert exists is True
+        assert exists
         exists = await repo.exists("123456789012345", 2026, 6)
-        assert exists is False
+        assert not exists
 
 
 # ============================================================================
@@ -681,20 +676,19 @@ class TestFallbackSPTRepository:
 @pytest.mark.asyncio
 class TestSPTMasaPPNBuilder:
     async def test_create_new_spt(self, sample_builder, sample_spt):
-        # Mock repository.exists returns False, then add
         sample_builder._repository.exists = AsyncMock(return_value=False)
         sample_builder._repository.add = AsyncMock()
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=None)
 
         result = await sample_builder.create("123456789012345", 2026, 5, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert "spt_id" in result
         assert result["masa_pajak"] == "2026-05"
 
     async def test_create_existing_spt_returns_error(self, sample_builder):
         sample_builder._repository.exists = AsyncMock(return_value=True)
         result = await sample_builder.create("123456789012345", 2026, 5, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "already exists" in result["error"]
 
     async def test_collect_data_success(self, sample_builder):
@@ -721,7 +715,7 @@ class TestSPTMasaPPNBuilder:
         assert result["total_retur_keluaran"] == Decimal("1000")
         assert result["total_retur_masukan"] == Decimal("500")
         assert result["kompensasi"] == Decimal("2000")
-        assert result["ppn_kurang_bayar"] == Decimal("26500")  # (33000-1000) - (8000-500) - 2000 = 26500
+        assert result["ppn_kurang_bayar"] == Decimal("26500")
         assert result["ppn_lebih_bayar"] == Decimal("0")
         assert result["ntpn"] == "1234567890123456"
         assert result["pk_count"] == 2
@@ -735,14 +729,11 @@ class TestSPTMasaPPNBuilder:
         assert result["total_ppn_keluaran"] == Decimal("0")  # fallback values
 
     async def test_build_new_spt(self, sample_builder):
-        # Mock repository.get_by_npwp_period returns None -> create new
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=None)
-        # Mock create method to return success
         with patch.object(sample_builder, "create", return_value={"success": True, "spt_id": "new"}):
             with patch.object(sample_builder, "collect_data", return_value={
                 "detail_pk": [], "detail_pm": [], "kompensasi": Decimal("0"), "ntpn": None
             }):
-                # We need to mock the SPT object that will be updated
                 mock_spt = MagicMock()
                 mock_spt.spt_id = uuid.uuid4()
                 mock_spt.masa_pajak = "2026-05"
@@ -754,7 +745,6 @@ class TestSPTMasaPPNBuilder:
                 mock_spt.pm_count = 0
                 mock_spt.status = SPTStatus.DRAFT
                 sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
-                # Mock the collect_pk_data, collect_pm_data, calculate methods on the mock
                 mock_spt.collect_pk_data = MagicMock(return_value=mock_spt)
                 mock_spt.collect_pm_data = MagicMock(return_value=mock_spt)
                 mock_spt.set_kompensasi = MagicMock(return_value=mock_spt)
@@ -763,7 +753,7 @@ class TestSPTMasaPPNBuilder:
                 sample_builder._repository.update = AsyncMock()
 
                 result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
-                assert result["success"] is True
+                assert result["success"]
                 assert "spt_id" in result
 
     async def test_build_existing_spt(self, sample_builder):
@@ -778,7 +768,6 @@ class TestSPTMasaPPNBuilder:
         mock_spt.pm_count = 0
         mock_spt.status = SPTStatus.DRAFT
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
-        # Mock collect_data
         with patch.object(sample_builder, "collect_data", return_value={
             "detail_pk": [], "detail_pm": [], "kompensasi": Decimal("0"), "ntpn": None
         }):
@@ -789,7 +778,7 @@ class TestSPTMasaPPNBuilder:
             mock_spt.calculate = MagicMock(return_value=mock_spt)
             sample_builder._repository.update = AsyncMock()
             result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
-            assert result["success"] is True
+            assert result["success"]
 
     async def test_validate_spt_success(self, sample_builder):
         mock_spt = MagicMock()
@@ -799,13 +788,13 @@ class TestSPTMasaPPNBuilder:
         sample_builder._set_cached = AsyncMock()
 
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is True
-        assert result["valid"] is True
+        assert result["success"]
+        assert result["valid"]
 
     async def test_validate_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_validate_spt_validation_error(self, sample_builder):
@@ -813,8 +802,8 @@ class TestSPTMasaPPNBuilder:
         mock_spt.validate = MagicMock(side_effect=SPTValidationError("Invalid"))
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
-        assert result["valid"] is False
+        assert not result["success"]
+        assert not result["valid"]
         assert "Invalid" in result["error"]
 
     async def test_submit_spt_success(self, sample_builder):
@@ -842,19 +831,18 @@ class TestSPTMasaPPNBuilder:
         sample_builder._repository.update = AsyncMock()
         sample_builder._set_cached = AsyncMock()
 
-        # Mock coretax client post
         client = sample_builder._coretax_client
         client.post = AsyncMock(return_value={"status": "success", "message": "OK"})
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["spt_number"] == "SPT-001"
         assert result["tracking_id"] == "TRK-123"
 
     async def test_submit_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_submit_spt_validation_error(self, sample_builder):
@@ -864,7 +852,7 @@ class TestSPTMasaPPNBuilder:
         mock_spt.validate = MagicMock(side_effect=SPTValidationError("Invalid"))
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "Invalid" in result["error"]
 
     async def test_submit_spt_coretax_auth_error(self, sample_builder):
@@ -890,9 +878,8 @@ class TestSPTMasaPPNBuilder:
         client.post = AsyncMock(side_effect=CoretaxAuthError("Auth failed"))
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "Coretax authentication failed" in result["error"]
-        # Should transition to ERROR
         mock_spt.transition.assert_called_with(SPTStatus.ERROR, unittest.mock.ANY, unittest.mock.ANY)
 
     async def test_submit_spt_retry_success(self, sample_builder):
@@ -919,16 +906,15 @@ class TestSPTMasaPPNBuilder:
         sample_builder._set_cached = AsyncMock()
 
         client = sample_builder._coretax_client
-        # First call raises Exception, second succeeds
         client.post = AsyncMock(side_effect=[Exception("Temp"), {"status": "success"}])
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
 
     async def test_check_spt_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_check_spt_status_no_tracking_id(self, sample_builder):
@@ -937,7 +923,7 @@ class TestSPTMasaPPNBuilder:
         mock_spt.status = SPTStatus.DRAFT
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["message"] == "Not yet submitted to Coretax"
 
     async def test_check_spt_status_success(self, sample_builder):
@@ -953,7 +939,7 @@ class TestSPTMasaPPNBuilder:
         client.get = AsyncMock(return_value={"status": "approved", "approval_date": "2026-05-15"})
 
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["status"] == SPTStatus.APPROVED.value
 
     async def test_cancel_spt_success(self, sample_builder):
@@ -974,13 +960,13 @@ class TestSPTMasaPPNBuilder:
         client.post = AsyncMock(return_value={"status": "ok"})
 
         result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
-        assert result["success"] is True
-        assert result["cancelled"] is True
+        assert result["success"]
+        assert result["cancelled"]
 
     async def test_cancel_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_create_correction_spt_success(self, sample_builder):
@@ -989,13 +975,13 @@ class TestSPTMasaPPNBuilder:
         sample_builder._repository.get_by_id = AsyncMock(return_value=previous_spt)
         sample_builder._repository.add = AsyncMock()
         result = await sample_builder.create_correction_spt("123", 2026, 5, uuid.uuid4(), 1, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["correction_number"] == 1
 
     async def test_create_correction_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.create_correction_spt("123", 2026, 5, uuid.uuid4(), 1, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_get_by_id(self, sample_builder):
@@ -1015,13 +1001,13 @@ class TestSPTMasaPPNBuilder:
         mock_spt.get_status = MagicMock(return_value={"status": "draft"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["status"] == "draft"
 
     async def test_get_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.get_status(uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_get_history(self, sample_builder):
@@ -1029,7 +1015,7 @@ class TestSPTMasaPPNBuilder:
         mock_spt.get_history = MagicMock(return_value=[{"event": "test"}])
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_history(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert len(result["history"]) == 1
 
     async def test_snapshot(self, sample_builder):
@@ -1037,7 +1023,7 @@ class TestSPTMasaPPNBuilder:
         mock_spt.snapshot = MagicMock(return_value={"spt_id": "123"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.snapshot(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["spt_id"] == "123"
 
     def test_build_sync(self, sample_builder):
@@ -1070,7 +1056,6 @@ class TestSPTMasaPpn:
 
     def test_pay(self):
         spt = SPTMasaPpn(Decimal("1000"), 5, 2026)
-        # random ntpn, so just check type
         ref = spt.pay(Decimal("1000"), "BNI")
         assert isinstance(ref, PaymentReference)
         assert ref.amount == Decimal("1000")
@@ -1082,7 +1067,7 @@ class TestSPTMasaPpn:
         spt = SPTMasaPpn(Decimal("1000"), 5, 2026)
         result = spt.submit("1234567890123456")
         assert isinstance(result, SubmissionResult)
-        assert result.is_submitted is True
+        assert result.is_submitted
         assert result.receipt_number.startswith("SPT-202605-")
 
 
@@ -1101,7 +1086,7 @@ class TestPaymentReference:
 class TestSubmissionResult:
     def test_init(self):
         res = SubmissionResult(is_submitted=True, receipt_number="RCPT-001")
-        assert res.is_submitted is True
+        assert res.is_submitted
         assert res.receipt_number == "RCPT-001"
 
 
@@ -1116,5 +1101,4 @@ async def test_get_spt_ppn_builder_singleton():
         builder1 = await get_spt_ppn_builder(config={})
         builder2 = await get_spt_ppn_builder(config={})
         assert builder1 is builder2
-        # Ensure constructor called only once
         assert MockBuilder.call_count == 1

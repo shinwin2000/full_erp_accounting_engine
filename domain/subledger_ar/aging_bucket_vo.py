@@ -7,9 +7,10 @@ Responsibility: Pengelompokan umur piutang (1-30, 31-60, >90 hari).
                berdasarkan umur tagihan, yang digunakan untuk analisis
                kualitas piutang dan perhitungan penyisihan piutang tak tertagih.
 
-Metode yang ditambahkan:
-- validate(), to_dict(), from_dict(), clone(), snapshot(), version(), audit_trail(), touch()
-- untuk AgingBucketVO dan AgingSummary.
+Metode yang ditambahkan (v2):
+- AgingBucket.from_string(), AgingBucket.get_display_name()
+- AgingSummary.get_bucket_amount(), AgingSummary.get_percentage_by_bucket()
+- Perbaikan to_dict/from_dict untuk konsistensi.
 """
 
 from __future__ import annotations
@@ -53,6 +54,25 @@ class AgingBucket(Enum):
             AgingBucket.OVER_90: base_rate * Decimal(25),
         }
         return rates.get(self, base_rate)
+
+    def get_display_name(self) -> str:
+        """Return human-readable name for the bucket."""
+        names = {
+            AgingBucket.CURRENT: "Current",
+            AgingBucket.DAYS_1_30: "1-30 Days",
+            AgingBucket.DAYS_31_60: "31-60 Days",
+            AgingBucket.DAYS_61_90: "61-90 Days",
+            AgingBucket.OVER_90: "Over 90 Days",
+        }
+        return names.get(self, self.value)
+
+    @classmethod
+    def from_string(cls, value: str) -> AgingBucket:
+        """Create enum from string value (case-insensitive)."""
+        for member in cls:
+            if member.value == value.lower():
+                return member
+        raise ValueError(f"Invalid AgingBucket value: {value}")
 
 
 # === 2. AGING BUCKET VALUE OBJECT ===
@@ -111,7 +131,7 @@ class AgingBucketVO:
         parts = value.split(":")
         if len(parts) != 3:
             raise ValueError(f"Invalid string format for AgingBucketVO: {value}")
-        bucket = AgingBucket(parts[0])
+        bucket = AgingBucket.from_string(parts[0])
         amount = Decimal(parts[1])
         currency = parts[2]
         return cls(bucket=bucket, amount=amount, currency=currency)
@@ -128,7 +148,7 @@ class AgingBucketVO:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgingBucketVO:
         return cls(
-            bucket=AgingBucket(data["bucket"]),
+            bucket=AgingBucket.from_string(data["bucket"]),
             amount=Decimal(data["amount"]),
             currency=data.get("currency", "IDR"),
         )
@@ -264,6 +284,18 @@ class AgingSummary:
             currency=self.currency,
         )
 
+    def get_bucket_amount(self, bucket: AgingBucket) -> Decimal:
+        """Return the amount in the specified bucket."""
+        vo = self.buckets.get(bucket)
+        return vo.amount if vo else Decimal(0)
+
+    def get_percentage_by_bucket(self, bucket: AgingBucket) -> Decimal:
+        """Return the percentage of total outstanding in this bucket."""
+        if self.total_outstanding == 0:
+            return Decimal(0)
+        amount = self.get_bucket_amount(bucket)
+        return (amount / self.total_outstanding) * Decimal(100)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "as_of_date": self.as_of_date.isoformat(),
@@ -294,7 +326,7 @@ class AgingSummary:
     def from_dict(cls, data: dict[str, Any]) -> AgingSummary:
         buckets = {}
         for bucket_val, bucket_data in data.get("buckets", {}).items():
-            bucket = AgingBucket(bucket_val)
+            bucket = AgingBucket.from_string(bucket_val)
             buckets[bucket] = AgingBucketVO.from_dict(bucket_data)
         instance = cls(
             as_of_date=datetime.fromisoformat(data["as_of_date"]),

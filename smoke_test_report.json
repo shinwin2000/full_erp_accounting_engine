@@ -1,0 +1,130 @@
+{
+  "timestamp": "2026-07-17T08:13:30Z",
+  "version": "6.0.0",
+  "summary": {
+    "total_duration_seconds": 18.646,
+    "passed": 3,
+    "failed": 4,
+    "warnings": 0,
+    "total_tests": 7
+  },
+  "results": [
+    {
+      "name": "Environment Safety",
+      "passed": false,
+      "duration_seconds": 0.0,
+      "severity": "CRITICAL",
+      "details": {
+        "environment": "production",
+        "is_production": true,
+        "debug_enabled": false,
+        "critical_vars_missing": [],
+        "python_version": "3.11.9",
+        "platform": "win32"
+      },
+      "error": "Cannot run smoke tests in production environment!",
+      "context": {},
+      "suggested_fix": "Set ENVIRONMENT=development or run from non-production environment",
+      "evidence": []
+    },
+    {
+      "name": "DI Container Integrity",
+      "passed": false,
+      "duration_seconds": 17.658,
+      "severity": "CRITICAL",
+      "details": {},
+      "error": "No DI Container found in expected locations",
+      "context": {},
+      "suggested_fix": "Ensure core.di_container or equivalent module exists with container instance",
+      "evidence": [
+        "Tried modules: core.di_container, infrastructure.di_container, container, di_container"
+      ]
+    },
+    {
+      "name": "FastAPI App Structure",
+      "passed": false,
+      "duration_seconds": 0.283,
+      "severity": "CRITICAL",
+      "details": {},
+      "error": "No module named 'main'",
+      "context": {},
+      "suggested_fix": "Create main.py with FastAPI app instance or factory",
+      "evidence": [
+        "Tried modules: main, app, application.main, erp_engine"
+      ]
+    },
+    {
+      "name": "Database Connectivity & Metadata",
+      "passed": false,
+      "duration_seconds": 0.698,
+      "severity": "CRITICAL",
+      "details": {},
+      "error": "Database connection failed: 'async_generator' object has no attribute 'execute'",
+      "context": {},
+      "suggested_fix": "Check DATABASE_URL credentials and ensure database server is running",
+      "evidence": []
+    },
+    {
+      "name": "Security Configuration Audit",
+      "passed": true,
+      "duration_seconds": 0.0,
+      "severity": "WARNING",
+      "details": {
+        "issues_found": 0,
+        "warnings_found": 1,
+        "issues": [],
+        "warnings": [
+          "Weak/default secrets: ['DB_PASSWORD (weak)', 'GITLAB_TOKEN (weak)']"
+        ],
+        "secrets_checked": 11
+      },
+      "error": null,
+      "context": {
+        "warnings": [
+          "Weak/default secrets: ['DB_PASSWORD (weak)', 'GITLAB_TOKEN (weak)']"
+        ]
+      },
+      "suggested_fix": null,
+      "evidence": []
+    },
+    {
+      "name": "Business Logic Sanity Check",
+      "passed": true,
+      "duration_seconds": 0.0,
+      "severity": "WARNING",
+      "details": {
+        "status": "skipped",
+        "reason": "Business logic tests require specific domain knowledge",
+        "recommendation": "Implement domain-specific sanity checks"
+      },
+      "error": null,
+      "context": {
+        "note": "Consider implementing domain-specific tests"
+      },
+      "suggested_fix": null,
+      "evidence": []
+    },
+    {
+      "name": "Resource Leak Detection",
+      "passed": true,
+      "duration_seconds": 0.0,
+      "severity": "INFO",
+      "details": {
+        "start_memory_mb": 22.55,
+        "end_memory_mb": 95.36,
+        "memory_diff_mb": 72.81,
+        "start_threads": 1,
+        "end_threads": 1,
+        "thread_diff": 0
+      },
+      "error": null,
+      "context": {},
+      "suggested_fix": null,
+      "evidence": []
+    }
+  ],
+  "baseline": {
+    "start_memory_mb": 22.55,
+    "start_thread_count": 1
+  }
+}

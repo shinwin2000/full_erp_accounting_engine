@@ -36,8 +36,8 @@ from axioms.causality_chain import (
 # ============================================================================
 
 def create_test_link(
-    cause_id: UUID | None = None,
-    effect_id: UUID | None = None,
+    cause_id: uuid.UUID | None = None,
+    effect_id: uuid.UUID | None = None,
     causality_type: CausalityType = CausalityType.DIRECT,
     strength: CausalityStrength = CausalityStrength.STRONG,
     evidence_refs: list[str] | None = None,
@@ -196,14 +196,14 @@ class TestCausalLink:
     def test_validate_returns_valid(self):
         link = create_test_link()
         result = link.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["link_id"] == str(link.link_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         link = create_test_link()
         object.__setattr__(link, "cryptographic_hash", "fake")
         result = link.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -269,20 +269,20 @@ class TestCausalityRecord:
         assert record.transaction_id is not None
         assert record.causes == []
         assert record.effects == []
-        assert record.is_complete is False
+        assert not record.is_complete
         assert record.version == 1
         assert record.cryptographic_hash != ""
 
     def test_has_complete_causality_property(self):
         record = create_test_record()
-        assert record.has_complete_causality is False
+        assert not record.has_complete_causality
 
         link = create_test_link()
         record = record.add_cause(link)
-        assert record.has_complete_causality is False  # still incomplete
+        assert not record.has_complete_causality  # still incomplete
 
         record = record.mark_complete("admin")
-        assert record.has_complete_causality is True
+        assert record.has_complete_causality
         assert len(record.causes) > 0
 
     def test_total_cause_weight(self):
@@ -314,7 +314,7 @@ class TestCausalityRecord:
         link = create_test_link()
         record = record.add_cause(link)
         completed = record.mark_complete("admin")
-        assert completed.is_complete is True
+        assert completed.is_complete
         assert completed.verified_by == "admin"
         assert completed.verified_at is not None
         assert completed.version == record.version + 1
@@ -360,14 +360,14 @@ class TestCausalityRecord:
     def test_validate_returns_valid(self):
         record = create_test_record()
         result = record.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["transaction_id"] == str(record.transaction_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         record = create_test_record()
         object.__setattr__(record, "cryptographic_hash", "fake")
         result = record.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -376,7 +376,7 @@ class TestCausalityRecord:
         assert d["transaction_id"] == str(record.transaction_id)
         assert d["causes_count"] == 0
         assert d["effects_count"] == 0
-        assert d["has_complete_causality"] is False
+        assert not d["has_complete_causality"]
 
     def test_from_dict_reconstructs(self):
         record = create_test_record()
@@ -420,19 +420,19 @@ class TestCausalityViolation:
         assert violation.violation_id is not None
         assert violation.transaction_id is not None
         assert violation.severity == CausalityViolationSeverity.HIGH
-        assert violation.is_resolved is False
+        assert not violation.is_resolved
         assert violation.cryptographic_hash != ""
 
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_update_raises(self):
@@ -475,7 +475,7 @@ class TestCausalityViolation:
         d = violation.to_dict()
         assert d["severity"] == "HIGH"
         assert d["message"] == "Test violation"
-        assert d["incomplete_chain"] is True
+        assert d["incomplete_chain"]
         assert "violation_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -491,7 +491,7 @@ class TestCausalityViolation:
         cloned = violation.clone()
         assert cloned.violation_id != violation.violation_id
         assert cloned.transaction_id == violation.transaction_id
-        assert cloned.is_resolved is False
+        assert not cloned.is_resolved
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -514,7 +514,7 @@ class TestCausalityViolation:
     def test_resolve_marks_resolved(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin", "Fixed")
-        assert resolved.is_resolved is True
+        assert resolved.is_resolved
         assert resolved.resolved_at is not None
         assert resolved.resolved_by == "admin"
         assert resolved.resolution_action == "Fixed"
@@ -535,14 +535,14 @@ class TestCausalityChainValidator:
     def test_validate_chain_incomplete(self):
         record = create_test_record()
         is_valid, errors = CausalityChainValidator.validate_chain(record)
-        assert is_valid is False
+        assert not is_valid
         assert "not marked as complete" in errors[0]
 
     def test_validate_chain_no_causes(self):
         record = create_test_record()
         record = record.mark_complete("admin")
         is_valid, errors = CausalityChainValidator.validate_chain(record)
-        assert is_valid is False
+        assert not is_valid
         assert "No causes" in errors[0]
 
     def test_validate_chain_no_effects(self):
@@ -551,7 +551,7 @@ class TestCausalityChainValidator:
         record = record.add_cause(link)
         record = record.mark_complete("admin")
         is_valid, errors = CausalityChainValidator.validate_chain(record)
-        assert is_valid is False
+        assert not is_valid
         assert "No effects" in errors[0]
 
     def test_validate_chain_valid(self):
@@ -562,7 +562,7 @@ class TestCausalityChainValidator:
         record = record.add_effect(effect_link)
         record = record.mark_complete("admin")
         is_valid, errors = CausalityChainValidator.validate_chain(record)
-        assert is_valid is True
+        assert is_valid
         assert errors == []
 
     def test_validate_chain_weight_sum_less_than_one(self):
@@ -574,7 +574,7 @@ class TestCausalityChainValidator:
         record = record.add_effect(create_test_link())
         record = record.mark_complete("admin")
         is_valid, errors = CausalityChainValidator.validate_chain(record)
-        assert is_valid is False
+        assert not is_valid
         assert any("weight" in e.lower() for e in errors)
 
     def test_validate_evidence_missing(self):
@@ -582,21 +582,13 @@ class TestCausalityChainValidator:
         is_valid, errors = CausalityChainValidator.validate_evidence(
             link, required_evidence=[EvidenceType.SOURCE_DOCUMENT]
         )
-        # Since evidence_refs is just strings, it will always be "missing"
-        # This test checks the logic; we might need to adjust expected outcome
-        # For this test, we assert it returns False because evidence_refs are strings,
-        # not EvidenceType enum values.
-        # Actually the implementation checks if EvidenceType.name in ''.join(evidence_refs)
-        # which is a weak check, but we test behavior.
-        # We'll just ensure it returns a bool and list.
         assert isinstance(is_valid, bool)
         assert isinstance(errors, list)
 
     def test_validate_evidence_no_required(self):
         link = create_test_link()
         is_valid, errors = CausalityChainValidator.validate_evidence(link, required_evidence=None)
-        # With default required evidence SOURCE_DOCUMENT, it will fail
-        assert is_valid is False  # because source_document is not in evidence_refs
+        assert not is_valid
         assert len(errors) > 0
 
 
@@ -632,7 +624,7 @@ class TestCausalityChainAxiom:
         link = create_test_link()
         axiom.save_link(link)
         result = axiom.delete_link(link.link_id)
-        assert result is True
+        assert result
         assert axiom.get_link(link.link_id) is None
 
     def test_save_and_get_causality_record(self):
@@ -657,7 +649,7 @@ class TestCausalityChainAxiom:
         record = create_test_record()
         axiom.save_causality_record(record)
         result = axiom.delete_causality_record(record.transaction_id)
-        assert result is True
+        assert result
         assert axiom.get_causality_record(record.transaction_id) is None
 
     def test_save_and_get_violations(self):
@@ -697,7 +689,7 @@ class TestCausalityChainAxiom:
         axiom.save_violation(violation)
         resolved = axiom.resolve_violation(violation.violation_id, "admin", "Fixed")
         assert resolved is not None
-        assert resolved.is_resolved is True
+        assert resolved.is_resolved
         assert resolved.resolved_by == "admin"
 
     def test_resolve_violation_not_found(self):
@@ -720,12 +712,10 @@ class TestCausalityChainAxiom:
         assert link is not None
         assert link.cause_id == cause_id
         assert link.effect_id == effect_id
-        # Check that records were created
         cause_record = axiom.get_causality_record(cause_id)
         effect_record = axiom.get_causality_record(effect_id)
         assert cause_record is not None
         assert effect_record is not None
-        # Check that effects/causes were added
         assert len(cause_record.effects) == 1
         assert len(effect_record.causes) == 1
 
@@ -751,26 +741,24 @@ class TestCausalityChainAxiom:
 
     def test_enforce_returns_true_and_no_violation(self):
         axiom = CausalityChainAxiom()
-        # The enforce method currently just returns (True, None) as placeholder
         is_valid, violation = axiom.enforce(
             transaction_id=uuid.uuid4(),
             transaction_type="test",
             evidence_available=[EvidenceType.SOURCE_DOCUMENT],
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_enforce_with_raise_on_violation(self):
         axiom = CausalityChainAxiom()
-        # Since enforce always returns True, no exception should be raised
         is_valid, violation = axiom.enforce(
             transaction_id=uuid.uuid4(),
             transaction_type="test",
             evidence_available=[],
             raise_on_violation=True,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_get_causality_chain_returns_dict(self):
@@ -789,7 +777,7 @@ class TestCausalityChainAxiom:
         axiom.save_causality_record(record)
         completed = axiom.mark_complete(record.transaction_id, "admin")
         assert completed is not None
-        assert completed.is_complete is True
+        assert completed.is_complete
         assert completed.verified_by == "admin"
 
     def test_mark_complete_not_found(self):

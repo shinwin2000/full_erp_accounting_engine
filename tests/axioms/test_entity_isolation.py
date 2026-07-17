@@ -56,8 +56,8 @@ def create_test_entity(
 
 
 def create_test_authorization(
-    from_entity_id: UUID | None = None,
-    to_entity_id: UUID | None = None,
+    from_entity_id: uuid.UUID | None = None,
+    to_entity_id: uuid.UUID | None = None,
     auth_type: InterEntityAuthorizationType = InterEntityAuthorizationType.CONSOLIDATION,
     allowed_operations: list[str] | None = None,
 ) -> InterEntityAuthorization:
@@ -108,7 +108,7 @@ class TestLegalEntityDefinition:
         entity = create_test_entity()
         assert entity.entity_code == "TEST"
         assert entity.entity_name == "Test Entity"
-        assert entity.is_active is True
+        assert entity.is_active
         assert entity.cryptographic_hash != ""
         assert entity.version == 1
 
@@ -168,7 +168,7 @@ class TestLegalEntityDefinition:
         deleted = entity.delete("admin", "test")
         assert deleted.deleted_at is not None
         assert deleted.deleted_by == "admin"
-        assert deleted.is_active is False
+        assert not deleted.is_active
         assert deleted.version == entity.version + 1
 
     def test_restore_recovers_deleted_entity(self):
@@ -177,7 +177,7 @@ class TestLegalEntityDefinition:
         restored = deleted.restore("admin")
         assert restored.deleted_at is None
         assert restored.deleted_by is None
-        assert restored.is_active is True
+        assert restored.is_active
         assert restored.version == deleted.version + 1
 
     def test_restore_not_deleted_raises(self):
@@ -194,7 +194,7 @@ class TestLegalEntityDefinition:
         entity = create_test_entity()
         deactivated = entity.deactivate("admin", "test")
         activated = deactivated.activate("admin")
-        assert activated.is_active is True
+        assert activated.is_active
         assert activated.version == deactivated.version + 1
 
     def test_deactivate_does_nothing_if_inactive(self):
@@ -216,15 +216,14 @@ class TestLegalEntityDefinition:
     def test_validate_returns_valid(self):
         entity = create_test_entity()
         result = entity.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["entity_id"] == str(entity.entity_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         entity = create_test_entity()
-        # Force hash mismatch
         object.__setattr__(entity, "cryptographic_hash", "fakehash")
         result = entity.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_all_fields(self):
@@ -252,7 +251,7 @@ class TestLegalEntityDefinition:
         assert cloned.entity_id != entity.entity_id
         assert cloned.entity_code == entity.entity_code + "_COPY"
         assert cloned.entity_name == entity.entity_name + " (COPY)"
-        assert cloned.is_active is False
+        assert not cloned.is_active
         assert cloned.version == 1
         assert cloned.parent_entity_id == entity.entity_id
 
@@ -270,7 +269,6 @@ class TestLegalEntityDefinition:
 
     def test_audit_trail_records_actions(self):
         entity = create_test_entity()
-        # CREATE already recorded
         assert len(entity.audit_trail()) >= 1
         entity.touch("toucher")
         trail = entity.audit_trail()
@@ -322,7 +320,7 @@ class TestInterEntityAuthorization:
     def test_delete_revokes_authorization(self):
         auth = create_test_authorization()
         deleted = auth.delete("admin", "test")
-        assert deleted.revoked is True
+        assert deleted.revoked
         assert deleted.revoked_at is not None
         assert deleted.revoked_by == "admin"
         assert deleted.version == auth.version + 1
@@ -331,7 +329,7 @@ class TestInterEntityAuthorization:
         auth = create_test_authorization()
         deleted = auth.delete("admin", "test")
         restored = deleted.restore("admin")
-        assert restored.revoked is False
+        assert not restored.revoked
         assert restored.revoked_at is None
         assert restored.revoked_by is None
         assert restored.version == deleted.version + 1
@@ -345,12 +343,12 @@ class TestInterEntityAuthorization:
         auth = create_test_authorization()
         deleted = auth.delete("admin", "test")
         activated = deleted.activate("admin")
-        assert activated.revoked is False
+        assert not activated.revoked
 
     def test_deactivate_deletes_if_not_revoked(self):
         auth = create_test_authorization()
         deactivated = auth.deactivate("admin", "test")
-        assert deactivated.revoked is True
+        assert deactivated.revoked
         assert deactivated.revoked_by == "admin"
 
     def test_lock_returns_self(self):
@@ -366,13 +364,13 @@ class TestInterEntityAuthorization:
     def test_validate_returns_valid(self):
         auth = create_test_authorization()
         result = auth.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         auth = create_test_authorization()
         object.__setattr__(auth, "cryptographic_hash", "fake")
         result = auth.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -428,20 +426,20 @@ class TestInterEntityAuthorization:
         now = datetime.now(UTC)
         auth = create_test_authorization()
         auth.expires_at = now + timedelta(days=1)
-        assert auth.is_valid() is True
+        assert auth.is_valid()
         auth.expires_at = now - timedelta(days=1)
-        assert auth.is_valid() is False
+        assert not auth.is_valid()
 
     def test_is_valid_handles_revoked(self):
         auth = create_test_authorization()
         deleted = auth.delete("admin", "test")
-        assert deleted.is_valid() is False
+        assert not deleted.is_valid()
 
     def test_allows_operation_case_insensitive(self):
         auth = create_test_authorization(allowed_operations=["READ", "WRITE"])
-        assert auth.allows_operation("read") is True
-        assert auth.allows_operation("WRITE") is True
-        assert auth.allows_operation("DELETE") is False
+        assert auth.allows_operation("read")
+        assert auth.allows_operation("WRITE")
+        assert not auth.allows_operation("DELETE")
 
 
 # ============================================================================
@@ -455,19 +453,19 @@ class TestEntityIsolationViolation:
         assert violation.target_entity_id is not None
         assert violation.attempted_operation == "READ"
         assert violation.severity == EntityIsolationViolationSeverity.MEDIUM
-        assert violation.resolved is False
+        assert not violation.resolved
         assert violation.cryptographic_hash != ""
 
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -493,7 +491,7 @@ class TestEntityIsolationViolation:
         assert cloned.violation_id != violation.violation_id
         assert cloned.source_entity_id == violation.source_entity_id
         assert cloned.target_entity_id == violation.target_entity_id
-        assert cloned.resolved is False
+        assert not cloned.resolved
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -516,7 +514,7 @@ class TestEntityIsolationViolation:
     def test_resolve_marks_resolved(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin")
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_at is not None
         assert resolved.resolved_by == "admin"
         assert resolved.version == violation.version + 1
@@ -541,7 +539,7 @@ class TestEntityIsolationValidator:
             operation="READ",
             user_authorizations=[],
         )
-        assert allowed is True
+        assert allowed
         assert violation is None
 
     def test_validate_access_with_valid_auth_allows(self):
@@ -552,7 +550,7 @@ class TestEntityIsolationValidator:
             operation="READ",
             user_authorizations=[auth],
         )
-        assert allowed is True
+        assert allowed
         assert violation is None
 
     def test_validate_access_no_auth_blocks(self):
@@ -566,9 +564,9 @@ class TestEntityIsolationValidator:
                 user_authorizations=[],
                 check_level=EntityIsolationCheckLevel.STRICT,
             )
-        assert allowed is False
+        assert not allowed
         assert violation is not None
-        assert violation.was_blocked is True
+        assert violation.was_blocked
 
     def test_validate_access_permissive_level_allows_even_no_auth(self):
         from_entity = uuid.uuid4()
@@ -580,7 +578,7 @@ class TestEntityIsolationValidator:
             user_authorizations=[],
             check_level=EntityIsolationCheckLevel.PERMISSIVE,
         )
-        assert allowed is True
+        assert allowed
         assert violation is None  # PERMISSIVE returns no violation
 
     def test_validate_access_moderate_allows_read_even_no_auth(self):
@@ -594,7 +592,7 @@ class TestEntityIsolationValidator:
                 user_authorizations=[],
                 check_level=EntityIsolationCheckLevel.MODERATE,
             )
-        assert allowed is True  # READ allowed in MODERATE
+        assert allowed  # READ allowed in MODERATE
         assert violation is not None  # violation still created, but not blocked
 
     def test_validate_access_moderate_blocks_write(self):
@@ -608,9 +606,9 @@ class TestEntityIsolationValidator:
                 user_authorizations=[],
                 check_level=EntityIsolationCheckLevel.MODERATE,
             )
-        assert allowed is False
+        assert not allowed
         assert violation is not None
-        assert violation.was_blocked is True
+        assert violation.was_blocked
 
 
 # ============================================================================
@@ -653,7 +651,7 @@ class TestEntityIsolationAxiom:
         entity = create_test_entity()
         axiom.save_entity(entity)
         result = axiom.delete_entity(entity.entity_id)
-        assert result is True
+        assert result
         assert axiom.get_entity(entity.entity_id) is None
 
     def test_save_and_get_authorization(self):
@@ -697,7 +695,7 @@ class TestEntityIsolationAxiom:
         auth = create_test_authorization()
         axiom.save_authorization(auth)
         result = axiom.delete_authorization(auth.auth_id)
-        assert result is True
+        assert result
         auths = axiom.get_authorizations(auth.from_entity_id, auth.to_entity_id)
         assert len(auths) == 0
 
@@ -716,7 +714,7 @@ class TestEntityIsolationAxiom:
         axiom.save_violation(violation)
         resolved = axiom.resolve_violation(violation.violation_id, "admin")
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
 
     def test_set_and_get_check_level(self):
         axiom = EntityIsolationAxiom()
@@ -770,7 +768,7 @@ class TestEntityIsolationAxiom:
             operation="READ",
             raise_on_violation=False,
         )
-        assert allowed is True
+        assert allowed
         assert violation is None
 
     def test_enforce_access_with_valid_auth_allows(self):
@@ -783,7 +781,7 @@ class TestEntityIsolationAxiom:
             operation="READ",
             raise_on_violation=False,
         )
-        assert allowed is True
+        assert allowed
         assert violation is None
 
     def test_enforce_access_no_auth_raises(self):
@@ -809,20 +807,20 @@ class TestEntityIsolationAxiom:
             raise_on_violation=False,
             module="test",
         )
-        assert allowed is False
+        assert not allowed
         assert violation is not None
         assert violation.module == "test"
 
     def test_is_same_entity(self):
         axiom = EntityIsolationAxiom()
         eid = uuid.uuid4()
-        assert axiom.is_same_entity(eid, eid) is True
-        assert axiom.is_same_entity(eid, uuid.uuid4()) is False
+        assert axiom.is_same_entity(eid, eid)
+        assert not axiom.is_same_entity(eid, uuid.uuid4())
 
     def test_is_related_entity_same_entity(self):
         axiom = EntityIsolationAxiom()
         eid = uuid.uuid4()
-        assert axiom.is_related_entity(eid, eid) is True
+        assert axiom.is_related_entity(eid, eid)
 
     def test_is_related_entity_parent_child(self):
         axiom = EntityIsolationAxiom()
@@ -830,9 +828,8 @@ class TestEntityIsolationAxiom:
         child = create_test_entity()
         child.parent_entity_id = parent_id
         axiom.save_entity(child)
-        # Need to have parent entity in store too? Not required for relationship test.
-        assert axiom.is_related_entity(parent_id, child.entity_id) is True
-        assert axiom.is_related_entity(child.entity_id, parent_id) is True
+        assert axiom.is_related_entity(parent_id, child.entity_id)
+        assert axiom.is_related_entity(child.entity_id, parent_id)
 
     def test_is_related_entity_consolidation_group(self):
         axiom = EntityIsolationAxiom()
@@ -840,7 +837,7 @@ class TestEntityIsolationAxiom:
         entity2 = create_test_entity(consolidation_group="GROUP1")
         axiom.save_entity(entity1)
         axiom.save_entity(entity2)
-        assert axiom.is_related_entity(entity1.entity_id, entity2.entity_id) is True
+        assert axiom.is_related_entity(entity1.entity_id, entity2.entity_id)
 
     def test_is_related_entity_not_related(self):
         axiom = EntityIsolationAxiom()
@@ -848,7 +845,7 @@ class TestEntityIsolationAxiom:
         e2 = create_test_entity()
         axiom.save_entity(e1)
         axiom.save_entity(e2)
-        assert axiom.is_related_entity(e1.entity_id, e2.entity_id) is False
+        assert not axiom.is_related_entity(e1.entity_id, e2.entity_id)
 
     def test_get_statistics(self):
         axiom = EntityIsolationAxiom()
@@ -897,7 +894,7 @@ class TestHelperFunctions:
         assert entity.country_code == "US"
         assert entity.parent_entity_id is not None
         assert entity.consolidation_group == "GROUP1"
-        assert entity.is_active is True
+        assert entity.is_active
 
     def test_create_inter_entity_authorization_dict(self):
         from_entity = uuid.uuid4()

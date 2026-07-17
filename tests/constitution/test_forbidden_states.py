@@ -102,7 +102,7 @@ class TestForbiddenStateDefinition:
         assert state.category == ForbiddenStateCategory.NEGATIVE_CASH
         assert state.name == "Test State"
         assert state.severity == ForbiddenStateSeverity.HIGH
-        assert state.is_active is True
+        assert state.is_active
         assert state.version_number == 1
         assert state.cryptographic_hash != ""
 
@@ -134,7 +134,7 @@ class TestForbiddenStateDefinition:
     def test_private_validate_called(self):
         state = create_test_state()
         result = state.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_private_ensure_hash_called(self):
         state = create_test_state()
@@ -196,7 +196,7 @@ class TestForbiddenStateDefinition:
         deleted = state.delete("admin", "test")
         assert deleted.deleted_at is not None
         assert deleted.deleted_by == "admin"
-        assert deleted.is_active is False
+        assert not deleted.is_active
         assert deleted.version_number == state.version_number + 1
 
     def test_restore_recovers_deleted_state(self):
@@ -205,7 +205,7 @@ class TestForbiddenStateDefinition:
         restored = deleted.restore("admin")
         assert restored.deleted_at is None
         assert restored.deleted_by is None
-        assert restored.is_active is True
+        assert restored.is_active
 
     def test_restore_not_deleted_raises(self):
         state = create_test_state()
@@ -221,7 +221,7 @@ class TestForbiddenStateDefinition:
         state = create_test_state()
         deactivated = state.deactivate("admin", "test")
         activated = deactivated.activate("admin")
-        assert activated.is_active is True
+        assert activated.is_active
         assert activated.version_number == deactivated.version_number + 1
 
     def test_deactivate_does_nothing_if_inactive(self):
@@ -250,14 +250,14 @@ class TestForbiddenStateDefinition:
     def test_validate_returns_valid(self):
         state = create_test_state()
         result = state.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["state_id"] == str(state.state_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         state = create_test_state()
         object.__setattr__(state, "cryptographic_hash", "fake")
         result = state.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -266,7 +266,7 @@ class TestForbiddenStateDefinition:
         assert d["category"] == "NEGATIVE_CASH"
         assert d["name"] == "Test State"
         assert d["severity"] == "HIGH"
-        assert d["is_active"] is True
+        assert d["is_active"]
         assert "version_number" in d
 
     def test_from_dict_reconstructs(self):
@@ -285,7 +285,7 @@ class TestForbiddenStateDefinition:
         assert cloned.state_id != state.state_id
         assert cloned.category == state.category
         assert cloned.name == state.name
-        assert cloned.is_active is False
+        assert not cloned.is_active
         assert cloned.version_number == 1
 
     def test_snapshot_returns_summary(self):
@@ -328,8 +328,8 @@ class TestForbiddenStateDetection:
         detection = create_test_detection()
         assert detection.detection_id is not None
         assert detection.category == ForbiddenStateCategory.NEGATIVE_CASH
-        assert detection.prevented is True
-        assert detection.resolved is False
+        assert detection.prevented
+        assert not detection.resolved
         assert detection.version_number == 1
 
     def test_validate_version_number(self):
@@ -401,15 +401,12 @@ class TestForbiddenStateDetection:
     def test_validate_returns_valid(self):
         detection = create_test_detection()
         result = detection.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["detection_id"] == str(detection.detection_id)
 
     def test_validate_returns_error_on_invalid(self):
         detection = create_test_detection()
         detection.version_number = 0
-        # validate will call _validate, but we need to trigger error
-        # Actually we test with version_number=0 above, but we can set to 0 after creation
-        # But validation is only called in __post_init__, so we need a new invalid instance
         with pytest.raises(ValueError):
             ForbiddenStateDetection(
                 detection_id=uuid.uuid4(),
@@ -431,7 +428,7 @@ class TestForbiddenStateDetection:
         detection = create_test_detection()
         d = detection.to_dict()
         assert d["category"] == "NEGATIVE_CASH"
-        assert d["prevented"] is True
+        assert d["prevented"]
         assert d["action_taken"] == "REJECT"
         assert d["source_module"] == "test_module"
 
@@ -449,7 +446,7 @@ class TestForbiddenStateDetection:
         cloned = detection.clone()
         assert cloned.detection_id != detection.detection_id
         assert cloned.category == detection.category
-        assert cloned.resolved is False
+        assert not cloned.resolved
         assert cloned.version_number == 1
 
     def test_snapshot_returns_summary(self):
@@ -486,7 +483,7 @@ class TestForbiddenStateDetection:
     def test_resolve_marks_resolved(self):
         detection = create_test_detection()
         resolved = detection.resolve("admin", "Fixed")
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_at is not None
         assert resolved.resolved_by == "admin"
         assert resolved.version_number == detection.version_number + 1
@@ -509,7 +506,7 @@ class TestForbiddenStateDetector:
             proposed_change=Decimal("-50"),
             allow_overdraft=False,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -519,7 +516,7 @@ class TestForbiddenStateDetector:
             proposed_change=Decimal("-150"),
             allow_overdraft=False,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["new_balance"] == "-50"
         assert action == ForbiddenStateAction.REJECT
 
@@ -530,7 +527,7 @@ class TestForbiddenStateDetector:
             allow_overdraft=True,
             overdraft_limit=Decimal("50"),
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -541,7 +538,7 @@ class TestForbiddenStateDetector:
             allow_overdraft=True,
             overdraft_limit=Decimal("50"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["new_balance"] == "-100"
         assert details["excess"] == "50"
         assert action == ForbiddenStateAction.REJECT
@@ -552,7 +549,7 @@ class TestForbiddenStateDetector:
             proposed_change=Decimal("-5"),
             allow_backorder=False,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -562,7 +559,7 @@ class TestForbiddenStateDetector:
             proposed_change=Decimal("-15"),
             allow_backorder=False,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["new_quantity"] == "-5"
         assert action == ForbiddenStateAction.REJECT
 
@@ -572,7 +569,7 @@ class TestForbiddenStateDetector:
             proposed_change=Decimal("-15"),
             allow_backorder=True,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["new_quantity"] == "-5"
         assert action == ForbiddenStateAction.WARN
 
@@ -581,7 +578,7 @@ class TestForbiddenStateDetector:
             current_balance=Decimal("1000"),
             proposed_payment=Decimal("500"),
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -590,7 +587,7 @@ class TestForbiddenStateDetector:
             current_balance=Decimal("1000"),
             proposed_payment=Decimal("1500"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["overpayment"] == "500"
         assert action == ForbiddenStateAction.REJECT
 
@@ -600,7 +597,7 @@ class TestForbiddenStateDetector:
             total_credit=Decimal("100"),
             tolerance=Decimal("0.01"),
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -610,7 +607,7 @@ class TestForbiddenStateDetector:
             total_credit=Decimal("100.1"),
             tolerance=Decimal("0.01"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert float(details["difference"]) == -0.1
         assert action == ForbiddenStateAction.REJECT
 
@@ -622,7 +619,7 @@ class TestForbiddenStateDetector:
             current_period_start=period_start,
             max_backdate_days=30,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -634,7 +631,7 @@ class TestForbiddenStateDetector:
             current_period_start=period_start,
             max_backdate_days=30,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["days_back"] == 30  # 40 - 10 = 30
         assert action == ForbiddenStateAction.REJECT
 
@@ -646,7 +643,7 @@ class TestForbiddenStateDetector:
             current_period_end=period_end,
             max_forward_days=7,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -658,7 +655,7 @@ class TestForbiddenStateDetector:
             current_period_end=period_end,
             max_forward_days=7,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["days_forward"] == 5  # 10 - 5 = 5
         assert action == ForbiddenStateAction.REJECT
 
@@ -671,7 +668,7 @@ class TestForbiddenStateDetector:
             journal_line_legal_entity_ids=[other_entity],
             authorized_inter_entities=authorized,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -685,7 +682,7 @@ class TestForbiddenStateDetector:
             journal_line_legal_entity_ids=[other_entity, unauthorized_entity],
             authorized_inter_entities=authorized,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert str(unauthorized_entity) in str(details["unauthorized_pair"])
         assert action == ForbiddenStateAction.REJECT
 
@@ -694,7 +691,7 @@ class TestForbiddenStateDetector:
             expected_previous_hash="abc",
             actual_previous_hash="abc",
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -703,7 +700,7 @@ class TestForbiddenStateDetector:
             expected_previous_hash="abc",
             actual_previous_hash="def",
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["expected_hash"] == "abc..."
         assert action == ForbiddenStateAction.FREEZE_SYSTEM
 
@@ -712,7 +709,7 @@ class TestForbiddenStateDetector:
             expected_sequence=5,
             actual_sequence=6,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -721,7 +718,7 @@ class TestForbiddenStateDetector:
             expected_sequence=5,
             actual_sequence=10,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["missing_count"] == 4
         assert action == ForbiddenStateAction.CRITICAL
 
@@ -731,7 +728,7 @@ class TestForbiddenStateDetector:
             reported_tax=Decimal("100"),
             tolerance=Decimal("0.01"),
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -741,7 +738,7 @@ class TestForbiddenStateDetector:
             reported_tax=Decimal("100.5"),
             tolerance=Decimal("0.01"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert float(details["difference"]) == -0.5
         assert action == ForbiddenStateAction.REJECT
 
@@ -755,7 +752,7 @@ class TestForbiddenStateDetector:
             period_start=period_start,
             period_end=period_end,
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -769,7 +766,7 @@ class TestForbiddenStateDetector:
             period_start=period_start,
             period_end=period_end,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["period_status"] == "CLOSED"
         assert action == ForbiddenStateAction.REJECT
 
@@ -778,7 +775,7 @@ class TestForbiddenStateDetector:
             total_equity=Decimal("1000"),
             minimum_equity=Decimal("0"),
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -787,7 +784,7 @@ class TestForbiddenStateDetector:
             total_equity=Decimal("-100"),
             minimum_equity=Decimal("0"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["total_equity"] == "-100"
         assert action == ForbiddenStateAction.FREEZE_SYSTEM
 
@@ -800,7 +797,7 @@ class TestForbiddenStateDetector:
             transaction_dates=dates,
             period_boundaries=[period1, period2],
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -813,7 +810,7 @@ class TestForbiddenStateDetector:
             transaction_dates=dates,
             period_boundaries=[period1, period2],
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert len(details["periods_found"]) == 2
         assert action == ForbiddenStateAction.REJECT
 
@@ -824,7 +821,7 @@ class TestForbiddenStateDetector:
             user_permissions={"read", "write"},
             required_permissions={"read", "write"},
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert details == {}
         assert action is None
 
@@ -835,7 +832,7 @@ class TestForbiddenStateDetector:
             user_permissions={"read"},
             required_permissions={"read", "write"},
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert details["missing_permissions"] == ["write"]
         assert action == ForbiddenStateAction.REJECT
 
@@ -872,7 +869,7 @@ class TestForbiddenStatesRegistry:
         state = create_test_state()
         registry.save_state(state)
         result = registry.delete_state(state.state_id)
-        assert result is True
+        assert result
         assert registry.get_state(state.state_id) is None
 
     def test_save_and_get_detections(self):
@@ -940,7 +937,7 @@ class TestForbiddenStatesRegistry:
         registry.save_detection(detection)
         resolved = registry.resolve_detection(detection.detection_id, "admin", "Fixed")
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_by == "admin"
 
     def test_resolve_detection_not_found(self):
@@ -950,47 +947,36 @@ class TestForbiddenStatesRegistry:
 
     def test_check_no_state_defined(self):
         registry = ForbiddenStatesRegistry()
-        # Remove all states first? But that's internal. We'll create a fresh registry without defaults? Not easily.
-        # We'll just test that check returns False if no active state for category.
-        # Actually if no active state, it returns False, None, None.
-        # Let's deactivate the default states? Or we can pass a category that is not in defaults.
-        # But default states have many categories, so we need a category not in defaults.
-        # Let's test with a category not in default: e.g., UNAUTHORIZED_ACCESS is in defaults? Actually default has many.
-        # We'll just test with a category that is active (we can find one) and see if it returns detection.
-        # Actually we want to test the case where detector returns no detection.
-        # Let's test with a category where context won't trigger detection.
         is_forbidden, detection, action = registry.check(
             category=ForbiddenStateCategory.NEGATIVE_CASH,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-50")},
         )
-        assert is_forbidden is False
+        assert not is_forbidden
         assert detection is None
         assert action is None
 
     def test_check_detects_forbidden(self):
         registry = ForbiddenStatesRegistry()
-        # Use a known active state that detects negative cash
         is_forbidden, detection, action = registry.check(
             category=ForbiddenStateCategory.NEGATIVE_CASH,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-150")},
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
         assert detection.category == ForbiddenStateCategory.NEGATIVE_CASH
         assert action == ForbiddenStateAction.REJECT
 
     def test_check_with_override_allowed(self):
         registry = ForbiddenStatesRegistry()
-        # Need a state with override_allowed=True and override_roles includes "admin"
         is_forbidden, detection, action = registry.check(
             category=ForbiddenStateCategory.NEGATIVE_CASH,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-150")},
             override=True,
             override_authorized_by="admin",
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
-        assert detection.override_used is True
+        assert detection.override_used
         assert detection.action_taken == ForbiddenStateAction.WARN  # Override changes action
 
     def test_check_with_override_unauthorized(self):
@@ -1001,17 +987,13 @@ class TestForbiddenStatesRegistry:
             override=True,
             override_authorized_by="unauthorized",
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
-        assert detection.override_used is False  # Not authorized
+        assert not detection.override_used  # Not authorized
 
     def test_check_with_catastrophic_severity_calls_handler(self):
         registry = ForbiddenStatesRegistry()
         with patch.object(registry, "_handle_catastrophic_detection") as mock_handle:
-            # Use a catastrophic category from defaults: BROKEN_HASH_CHAIN or NEGATIVE_EQUITY
-            # But we need to trigger detection for that category.
-            # We can test with a state that has catastrophic severity.
-            # For simplicity, we'll create a custom state with catastrophic severity.
             state = ForbiddenStateDefinition(
                 state_id=uuid.uuid4(),
                 category=ForbiddenStateCategory.BROKEN_HASH_CHAIN,
@@ -1031,12 +1013,11 @@ class TestForbiddenStatesRegistry:
                 override_roles=[],
             )
             registry.save_state(state)
-            # Trigger detection for broken hash chain
             is_forbidden, detection, action = registry.check(
                 category=ForbiddenStateCategory.BROKEN_HASH_CHAIN,
                 context={"expected_previous_hash": "abc", "actual_previous_hash": "def"},
             )
-            assert is_forbidden is True
+            assert is_forbidden
             assert detection is not None
             mock_handle.assert_called_once_with(detection)
 
@@ -1046,13 +1027,13 @@ class TestForbiddenStatesRegistry:
             category=ForbiddenStateCategory.NEGATIVE_CASH,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-150")},
         )
-        assert result is True
+        assert result
 
         result = registry.is_action_forbidden(
             category=ForbiddenStateCategory.NEGATIVE_CASH,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-50")},
         )
-        assert result is False
+        assert not result
 
     def test_get_unresolved_detections(self):
         registry = ForbiddenStatesRegistry()
@@ -1066,7 +1047,6 @@ class TestForbiddenStatesRegistry:
 
     def test_get_statistics(self):
         registry = ForbiddenStatesRegistry()
-        # Add some detections
         d1 = create_test_detection(prevented=True)
         d2 = create_test_detection(prevented=False)
         d3 = create_test_detection(resolved=True)
@@ -1089,7 +1069,6 @@ class TestForbiddenStatesRegistry:
         detection = create_test_detection()
         registry.save_detection(detection)
         registry.reset()
-        # Should have default states again
         assert len(registry.states) > 0
         assert len(registry.detections) == 0
 
@@ -1126,7 +1105,7 @@ class TestForbiddenStatesService:
         state = create_test_state()
         svc.save_state(state)
         result = svc.delete_state(state.state_id)
-        assert result is True
+        assert result
 
     def test_save_and_get_detections(self):
         svc = ForbiddenStatesService()
@@ -1141,7 +1120,7 @@ class TestForbiddenStatesService:
         svc.save_detection(detection)
         resolved = svc.resolve_detection(detection.detection_id, "admin", "Fixed")
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
 
     def test_check_negative_cash(self):
         svc = ForbiddenStatesService()
@@ -1149,7 +1128,7 @@ class TestForbiddenStatesService:
             current_balance=Decimal("100"),
             proposed_change=Decimal("-150"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
         assert action == ForbiddenStateAction.REJECT
 
@@ -1159,7 +1138,7 @@ class TestForbiddenStatesService:
             current_quantity=Decimal("10"),
             proposed_change=Decimal("-15"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
         assert action == ForbiddenStateAction.REJECT
 
@@ -1169,7 +1148,7 @@ class TestForbiddenStatesService:
             current_balance=Decimal("1000"),
             proposed_payment=Decimal("1500"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
 
     def test_check_imbalanced_journal(self):
@@ -1178,7 +1157,7 @@ class TestForbiddenStatesService:
             total_debit=Decimal("100"),
             total_credit=Decimal("100.1"),
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
 
     def test_check_backdated_transaction(self):
@@ -1190,7 +1169,7 @@ class TestForbiddenStatesService:
             current_period_start=period_start,
             max_backdate_days=30,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
 
     def test_check_cross_entity_posting(self):
@@ -1204,7 +1183,7 @@ class TestForbiddenStatesService:
             journal_line_legal_entity_ids=[other_entity, unauthorized_entity],
             authorized_inter_entities=authorized,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
 
     def test_check_period_closure(self):
@@ -1218,7 +1197,7 @@ class TestForbiddenStatesService:
             period_start=period_start,
             period_end=period_end,
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
 
     def test_check_broken_hash_chain(self):
@@ -1227,7 +1206,7 @@ class TestForbiddenStatesService:
             expected_previous_hash="abc",
             actual_previous_hash="def",
         )
-        assert is_forbidden is True
+        assert is_forbidden
         assert detection is not None
         assert action == ForbiddenStateAction.FREEZE_SYSTEM
 
@@ -1260,10 +1239,6 @@ class TestHelperFunctions:
         assert callable(detector)
 
     def test_get_detector_for_state_not_exists(self):
-        # Use a non-existent category? But all categories have detectors.
-        # We can test with a category that is not in the map, but the map has all.
-        # Actually the map has all categories from the enum.
-        # We'll just test that it returns callable for a known category.
         detector = get_detector_for_state(ForbiddenStateCategory.IMBALANCED_JOURNAL)
         assert detector is not None
 

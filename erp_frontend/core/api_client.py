@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any, Optional
 
 import requests
@@ -118,30 +119,52 @@ class ApiClient:
         json_body: Optional[Any] = None,
         retry_on_401: bool = True,
         raw: bool = False,
+        max_retries: int = 2,
     ) -> Any:
         """
         Melakukan satu request HTTP. `path` boleh berupa path relatif
         (mis. "/journals/") atau path absolut yang sudah diawali '/api/v1'.
+
+        Request idempotent (GET/PUT/DELETE) di-retry otomatis (dengan
+        backoff singkat) jika terjadi error koneksi transient (timeout,
+        connection reset) — bukan error dari server (4xx/5xx tidak
+        di-retry karena mengulang tidak akan mengubah hasil).
         """
         if session.access_token:
             self._ensure_fresh_token()
 
         url = path if path.startswith("http") else f"{self.base_url}{path}"
-        try:
-            resp = self._http.request(
-                method=method.upper(),
-                url=url,
-                params=params,
-                json=json_body,
-                headers=self._headers(),
-                timeout=settings.request_timeout,
-                verify=settings.verify_ssl,
-            )
-        except requests.exceptions.RequestException as exc:
-            logger.error("Connection failed: %s %s -> %s", method, url, exc)
-            raise ConnectionFailedError(
-                f"Tidak dapat terhubung ke server ({self.base_url}).\nDetail: {exc}"
-            ) from exc
+        is_idempotent = method.upper() in ("GET", "PUT", "DELETE", "HEAD")
+
+        last_exc: Optional[Exception] = None
+        attempts = max_retries + 1 if is_idempotent else 1
+        for attempt in range(attempts):
+            try:
+                resp = self._http.request(
+                    method=method.upper(),
+                    url=url,
+                    params=params,
+                    json=json_body,
+                    headers=self._headers(),
+                    timeout=settings.request_timeout,
+                    verify=settings.verify_ssl,
+                )
+                break
+            except requests.exceptions.RequestException as exc:
+                last_exc = exc
+                if attempt < attempts - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                logger.warning(
+                    "Connection failed setelah %d percobaan: %s %s -> %s",
+                    attempts, method, url, exc,
+                )
+                raise ConnectionFailedError(
+                    f"Tidak dapat terhubung ke server ({self.base_url}) setelah {attempts} percobaan.\n"
+                    f"Detail: {exc}"
+                ) from exc
+        else:
+            raise ConnectionFailedError(f"Tidak dapat terhubung ke server. Detail: {last_exc}")
 
         if resp.status_code == 401 and retry_on_401 and session.refresh_token:
             try:
@@ -150,6 +173,8 @@ class ApiClient:
                 raise
             return self.request(method, path, params, json_body, retry_on_401=False, raw=raw)
 
+        if resp.status_code >= 500:
+            logger.error("Server error %d pada %s %s", resp.status_code, method, url)
         if resp.status_code >= 400:
             try:
                 detail = resp.json().get("detail", resp.text)
@@ -215,9 +240,9 @@ class ApiClient:
             raise ApiError(resp.status_code, detail, url=url)
         return resp.json() if resp.content else None
 
-    def download_file(self, path: str, save_path: str) -> str:
+    def download_file(self, path: str, save_path: str, params: Optional[dict[str, Any]] = None) -> str:
         """Download binary response (mis. GET /documents/{id}/download) ke file lokal."""
-        resp = self.request("GET", path, raw=True)
+        resp = self.request("GET", path, params=params, raw=True)
         with open(save_path, "wb") as fh:
             fh.write(resp.content)
         return save_path

@@ -90,6 +90,10 @@ class GenericListPage(QWidget):
             self.delete_btn.clicked.connect(self._delete_selected)
             toolbar.addWidget(self.delete_btn)
 
+        self.export_btn = QPushButton("⬇ Export")
+        self.export_btn.clicked.connect(self._export)
+        toolbar.addWidget(self.export_btn)
+
         if self.config.can_edit:
             self.edit_btn = QPushButton("✎ Ubah")
             self.edit_btn.clicked.connect(self._edit_selected)
@@ -272,3 +276,27 @@ class GenericListPage(QWidget):
     def _on_write_error(self, message: str) -> None:
         QMessageBox.warning(self, "Gagal", message)
         self.status_label.setText("Gagal menyimpan.")
+
+    def _export(self) -> None:
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        fmt, ok = QInputDialog.getItem(self, "Export Data", "Format:", ["csv", "excel", "json"], 0, False)
+        if not ok:
+            return
+        ext = {"csv": "csv", "excel": "xlsx", "json": "json"}.get(fmt, "csv")
+        save_path, _ = QFileDialog.getSaveFileName(self, "Simpan Export", f"{self.config.key}_export.{ext}")
+        if not save_path:
+            return
+        export_path = f"{self.config.base_path}/export"
+        params: dict[str, Any] = {"format": fmt}
+        search = self.search_edit.text().strip()
+        if search:
+            params[self.config.search_param] = search
+        self.status_label.setText("Mengekspor data...")
+        run_task(
+            api_client.download_file,
+            on_success=lambda p: self._after_write(f"Data diekspor ke {p}"),
+            on_error=self._on_write_error,
+            path=export_path,
+            save_path=save_path,
+            params=params,
+        )

@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import sys
 
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMessageBox
+
 from core.config import APP_NAME, APP_ORG
-from PySide6.QtWidgets import QApplication
+from core.logging_setup import install_qt_message_handler, setup_logging
 from ui.login_window import LoginWindow
 from ui.main_window import MainWindow
 from ui.theme import QSS
+
+setup_logging()
+install_qt_message_handler()
 
 
 class Application:
@@ -60,8 +66,24 @@ class Application:
 
 
 def main() -> int:
-    application = Application()
-    return application.run()
+    import logging
+    logger = logging.getLogger("erp_frontend.main")
+    try:
+        application = Application()
+        return application.run()
+    except Exception:
+        logger.exception("Aplikasi berhenti karena error fatal saat startup.")
+        try:
+            app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.critical(
+                None, "Error Fatal",
+                "Aplikasi mengalami error dan harus ditutup.\n\n"
+                f"Detail sudah dicatat di log: {sys.exc_info()[1]}\n\n"
+                "Silakan cek file log di ~/.sovereign_erp/logs/app.log untuk detail lengkap."
+            )
+        except Exception:
+            pass
+        return 1
 
 
 if __name__ == "__main__":

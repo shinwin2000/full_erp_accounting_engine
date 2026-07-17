@@ -72,47 +72,23 @@ from adapters.primary_api.v1.fastapi_inventory_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestItemType:
-    """Tests for the ItemType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ItemType, 'RAW_MATERIAL')
         assert hasattr(ItemType, 'WORK_IN_PROCESS')
         assert hasattr(ItemType, 'FINISHED_GOOD')
@@ -122,14 +98,11 @@ class TestItemType:
         assert hasattr(ItemType, 'ASSET')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ItemType.RAW_MATERIAL, ItemType)
 
 
 class TestMovementType:
-    """Tests for the MovementType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(MovementType, 'IN')
         assert hasattr(MovementType, 'OUT')
         assert hasattr(MovementType, 'ADJUSTMENT')
@@ -141,14 +114,11 @@ class TestMovementType:
         assert hasattr(MovementType, 'SAMPLE')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(MovementType.IN, MovementType)
 
 
 class TestMovementStatus:
-    """Tests for the MovementStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(MovementStatus, 'DRAFT')
         assert hasattr(MovementStatus, 'PENDING')
         assert hasattr(MovementStatus, 'CONFIRMED')
@@ -157,14 +127,11 @@ class TestMovementStatus:
         assert hasattr(MovementStatus, 'CANCELLED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(MovementStatus.DRAFT, MovementStatus)
 
 
 class TestStockOpnameStatus:
-    """Tests for the StockOpnameStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(StockOpnameStatus, 'DRAFT')
         assert hasattr(StockOpnameStatus, 'IN_PROGRESS')
         assert hasattr(StockOpnameStatus, 'SUBMITTED')
@@ -174,14 +141,11 @@ class TestStockOpnameStatus:
         assert hasattr(StockOpnameStatus, 'CANCELLED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(StockOpnameStatus.DRAFT, StockOpnameStatus)
 
 
 class TestTransferStatus:
-    """Tests for the TransferStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(TransferStatus, 'DRAFT')
         assert hasattr(TransferStatus, 'SUBMITTED')
         assert hasattr(TransferStatus, 'APPROVED')
@@ -191,947 +155,842 @@ class TestTransferStatus:
         assert hasattr(TransferStatus, 'CANCELLED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(TransferStatus.DRAFT, TransferStatus)
 
 
 class TestValuationMethod:
-    """Tests for the ValuationMethod enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ValuationMethod, 'FIFO')
         assert hasattr(ValuationMethod, 'LIFO')
         assert hasattr(ValuationMethod, 'AVERAGE')
         assert hasattr(ValuationMethod, 'STANDARD')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ValuationMethod.FIFO, ValuationMethod)
 
 
 class TestItemCreateSchema:
-    """Tests for the ItemCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_code="test_value",
-            item_name="test_value",
-            item_type=ItemType.RAW_MATERIAL,
-            unit_of_measure="test_value",
-            category="test_value",
-            brand="test_value",
-            reorder_point=Decimal("100.00"),
-            reorder_quantity=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            valuation_method=ValuationMethod.FIFO,
-            warehouse_id=uuid4(),
-            min_stock=Decimal("100.00"),
-            max_stock=Decimal("100.00"),
-            description="test_value",
-            tax_rate_purchase=Decimal("100.00"),
-            tax_rate_sales=Decimal("100.00"),
-            weight_kg=Decimal("100.00"),
-            volume_m3=Decimal("100.00"),
-            is_active=True,
-            is_lot_tracked=True,
-            is_serial_tracked=True,
-            is_expiry_tracked=True,
-        )
-
     def test_construction_success(self):
-        """ItemCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ItemCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "item_type": ItemType.RAW_MATERIAL,
+            "unit_of_measure": "PCS",
+            "category": "Materials",
+            "brand": "BrandX",
+            "reorder_point": Decimal("10"),
+            "reorder_quantity": Decimal("50"),
+            "standard_cost": Decimal("1000"),
+            "selling_price": Decimal("1200"),
+            "valuation_method": ValuationMethod.FIFO,
+            "warehouse_id": uuid4(),
+            "min_stock": Decimal("5"),
+            "max_stock": Decimal("100"),
+            "description": "Test item",
+            "tax_rate_purchase": Decimal("0.11"),
+            "tax_rate_sales": Decimal("0.11"),
+            "weight_kg": Decimal("1.5"),
+            "volume_m3": Decimal("0.5"),
+            "is_active": True,
+            "is_lot_tracked": False,
+            "is_serial_tracked": False,
+            "is_expiry_tracked": False,
+        }
+        instance = ItemCreateSchema(**kwargs)
         assert isinstance(instance, ItemCreateSchema)
-        assert instance.item_code == kwargs['item_code']
+        assert instance.item_code == kwargs["item_code"]
 
 
 class TestItemUpdateSchema:
-    """Tests for the ItemUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_name="test_value",
-            item_type=ItemType.RAW_MATERIAL,
-            unit_of_measure="test_value",
-            category="test_value",
-            reorder_point=Decimal("100.00"),
-            reorder_quantity=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            valuation_method=ValuationMethod.FIFO,
-            warehouse_id=uuid4(),
-            min_stock=Decimal("100.00"),
-            max_stock=Decimal("100.00"),
-            description="test_value",
-            is_active=True,
-        )
-
     def test_construction_success(self):
-        """ItemUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ItemUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_name": "Updated Raw Material A",
+            "item_type": ItemType.RAW_MATERIAL,
+            "unit_of_measure": "PCS",
+            "category": "Materials",
+            "reorder_point": Decimal("15"),
+            "reorder_quantity": Decimal("60"),
+            "standard_cost": Decimal("1100"),
+            "selling_price": Decimal("1300"),
+            "valuation_method": ValuationMethod.FIFO,
+            "warehouse_id": uuid4(),
+            "min_stock": Decimal("5"),
+            "max_stock": Decimal("120"),
+            "description": "Updated description",
+            "is_active": True,
+        }
+        instance = ItemUpdateSchema(**kwargs)
         assert isinstance(instance, ItemUpdateSchema)
-        assert instance.item_name == kwargs['item_name']
+        assert instance.item_name == kwargs["item_name"]
 
 
 class TestItemResponseSchema:
-    """Tests for the ItemResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            item_type=ItemType.RAW_MATERIAL,
-            unit_of_measure="test_value",
-            category="test_value",
-            brand="test_value",
-            reorder_point=Decimal("100.00"),
-            reorder_quantity=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            valuation_method=ValuationMethod.FIFO,
-            is_active=True,
-            is_locked=True,
-            current_stock=Decimal("100.00"),
-            average_cost=Decimal("100.00"),
-            total_value=Decimal("100.00"),
-            last_purchase_price=Decimal("100.00"),
-            last_purchase_date=date.today(),
-            min_stock=Decimal("100.00"),
-            max_stock=Decimal("100.00"),
-            weight_kg=Decimal("100.00"),
-            volume_m3=Decimal("100.00"),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """ItemResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ItemResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        item_id = uuid4()
+        kwargs = {
+            "id": item_id,
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "item_type": ItemType.RAW_MATERIAL,
+            "unit_of_measure": "PCS",
+            "category": "Materials",
+            "brand": "BrandX",
+            "reorder_point": Decimal("10"),
+            "reorder_quantity": Decimal("50"),
+            "standard_cost": Decimal("1000"),
+            "selling_price": Decimal("1200"),
+            "valuation_method": ValuationMethod.FIFO,
+            "is_active": True,
+            "is_locked": False,
+            "current_stock": Decimal("75"),
+            "average_cost": Decimal("1050"),
+            "total_value": Decimal("78750"),
+            "last_purchase_price": Decimal("1000"),
+            "last_purchase_date": date.today(),
+            "min_stock": Decimal("5"),
+            "max_stock": Decimal("100"),
+            "weight_kg": Decimal("1.5"),
+            "volume_m3": Decimal("0.5"),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = ItemResponseSchema(**kwargs)
         assert isinstance(instance, ItemResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == item_id
 
 
 class TestStockMovementCreateSchema:
-    """Tests for the StockMovementCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            movement_type=MovementType.IN,
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            movement_date=date.today(),
-            reference_type="test_value",
-            reference_id=uuid4(),
-            warehouse_id=uuid4(),
-            to_warehouse_id=uuid4(),
-            batch_number="test_value",
-            serial_number="test_value",
-            expiry_date=date.today(),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """StockMovementCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockMovementCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_id": uuid4(),
+            "movement_type": MovementType.IN,
+            "quantity": Decimal("100"),
+            "unit_cost": Decimal("1000"),
+            "movement_date": date.today(),
+            "reference_type": "PURCHASE_ORDER",
+            "reference_id": uuid4(),
+            "warehouse_id": uuid4(),
+            "to_warehouse_id": None,
+            "batch_number": None,
+            "serial_number": None,
+            "expiry_date": None,
+            "notes": "Initial stock",
+        }
+        instance = StockMovementCreateSchema(**kwargs)
         assert isinstance(instance, StockMovementCreateSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == kwargs["item_id"]
 
 
 class TestStockMovementResponseSchema:
-    """Tests for the StockMovementResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            movement_number="test_value",
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            movement_type=MovementType.IN,
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            movement_date=date.today(),
-            reference_type="test_value",
-            reference_id=uuid4(),
-            warehouse_id=uuid4(),
-            warehouse_name="test_value",
-            to_warehouse_id=uuid4(),
-            batch_number="test_value",
-            serial_number="test_value",
-            expiry_date=date.today(),
-            notes="test_value",
-            status=MovementStatus.DRAFT,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            reversed_at=datetime.now(UTC),
-            reversed_by=uuid4(),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """StockMovementResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockMovementResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        mov_id = uuid4()
+        kwargs = {
+            "id": mov_id,
+            "movement_number": "MOV-001",
+            "item_id": uuid4(),
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "movement_type": MovementType.IN,
+            "quantity": Decimal("100"),
+            "unit_cost": Decimal("1000"),
+            "total_cost": Decimal("100000"),
+            "movement_date": date.today(),
+            "reference_type": "PURCHASE_ORDER",
+            "reference_id": uuid4(),
+            "warehouse_id": uuid4(),
+            "warehouse_name": "Main Warehouse",
+            "to_warehouse_id": None,
+            "batch_number": None,
+            "serial_number": None,
+            "expiry_date": None,
+            "notes": "Initial stock",
+            "status": MovementStatus.DRAFT,
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "reversed_at": None,
+            "reversed_by": None,
+            "version": 1,
+        }
+        instance = StockMovementResponseSchema(**kwargs)
         assert isinstance(instance, StockMovementResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == mov_id
 
 
 class TestStockCardLineSchema:
-    """Tests for the StockCardLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            date=date.today(),
-            reference="test_value",
-            reference_id=uuid4(),
-            in_quantity=Decimal("100.00"),
-            out_quantity=Decimal("100.00"),
-            balance_quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            in_value=Decimal("100.00"),
-            out_value=Decimal("100.00"),
-            balance_value=Decimal("100.00"),
-        )
-
     def test_construction_success(self):
-        """StockCardLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockCardLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "date": date.today(),
+            "reference": "PO-001",
+            "reference_id": uuid4(),
+            "in_quantity": Decimal("100"),
+            "out_quantity": Decimal("0"),
+            "balance_quantity": Decimal("100"),
+            "unit_cost": Decimal("1000"),
+            "in_value": Decimal("100000"),
+            "out_value": Decimal("0"),
+            "balance_value": Decimal("100000"),
+        }
+        instance = StockCardLineSchema(**kwargs)
         assert isinstance(instance, StockCardLineSchema)
-        assert instance.date == kwargs['date']
+        assert instance.date == kwargs["date"]
 
 
 class TestStockCardResponseSchema:
-    """Tests for the StockCardResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            warehouse_id=uuid4(),
-            warehouse_name="test_value",
-            start_date=date.today(),
-            end_date=date.today(),
-            opening_quantity=Decimal("100.00"),
-            opening_value=Decimal("100.00"),
-            opening_unit_cost=Decimal("100.00"),
-            lines=[MagicMock()],
-            closing_quantity=Decimal("100.00"),
-            closing_value=Decimal("100.00"),
-            closing_unit_cost=Decimal("100.00"),
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """StockCardResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockCardResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        item_id = uuid4()
+        kwargs = {
+            "item_id": item_id,
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "warehouse_id": uuid4(),
+            "warehouse_name": "Main Warehouse",
+            "start_date": date.today(),
+            "end_date": date.today(),
+            "opening_quantity": Decimal("0"),
+            "opening_value": Decimal("0"),
+            "opening_unit_cost": Decimal("0"),
+            "lines": [],
+            "closing_quantity": Decimal("100"),
+            "closing_value": Decimal("100000"),
+            "closing_unit_cost": Decimal("1000"),
+            "generated_at": datetime.now(UTC),
+        }
+        instance = StockCardResponseSchema(**kwargs)
         assert isinstance(instance, StockCardResponseSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == item_id
 
 
 class TestStockOpnameLineSchema:
-    """Tests for the StockOpnameLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            system_quantity=Decimal("100.00"),
-            physical_quantity=Decimal("100.00"),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """StockOpnameLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockOpnameLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_id": uuid4(),
+            "system_quantity": Decimal("100"),
+            "physical_quantity": Decimal("95"),
+            "notes": "Some discrepancy",
+        }
+        instance = StockOpnameLineSchema(**kwargs)
         assert isinstance(instance, StockOpnameLineSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == kwargs["item_id"]
 
 
 class TestStockOpnameCreateSchema:
-    """Tests for the StockOpnameCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            warehouse_id=uuid4(),
-            opname_date=date.today(),
-            lines=[MagicMock()],
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """StockOpnameCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockOpnameCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "warehouse_id": uuid4(),
+            "opname_date": date.today(),
+            "lines": [MagicMock()],
+            "notes": "Monthly opname",
+        }
+        instance = StockOpnameCreateSchema(**kwargs)
         assert isinstance(instance, StockOpnameCreateSchema)
-        assert instance.warehouse_id == kwargs['warehouse_id']
+        assert instance.warehouse_id == kwargs["warehouse_id"]
 
 
 class TestStockOpnameResponseSchema:
-    """Tests for the StockOpnameResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            opname_number="test_value",
-            warehouse_id=uuid4(),
-            warehouse_name="test_value",
-            opname_date=date.today(),
-            status=StockOpnameStatus.DRAFT,
-            total_adjustments=1,
-            adjustment_value=Decimal("100.00"),
-            lines=[{}],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            applied_at=datetime.now(UTC),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """StockOpnameResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = StockOpnameResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        opname_id = uuid4()
+        kwargs = {
+            "id": opname_id,
+            "opname_number": "OPN-001",
+            "warehouse_id": uuid4(),
+            "warehouse_name": "Main Warehouse",
+            "opname_date": date.today(),
+            "status": StockOpnameStatus.DRAFT,
+            "total_adjustments": 2,
+            "adjustment_value": Decimal("5000"),
+            "lines": [],
+            "notes": "Monthly opname",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "applied_at": None,
+            "version": 1,
+        }
+        instance = StockOpnameResponseSchema(**kwargs)
         assert isinstance(instance, StockOpnameResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == opname_id
 
 
 class TestInterWarehouseTransferLineSchema:
-    """Tests for the InterWarehouseTransferLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            quantity=Decimal("100.00"),
-            batch_number="test_value",
-            serial_numbers=["test_value"],
-        )
-
     def test_construction_success(self):
-        """InterWarehouseTransferLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = InterWarehouseTransferLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_id": uuid4(),
+            "quantity": Decimal("50"),
+            "batch_number": "BATCH-001",
+            "serial_numbers": ["SN001", "SN002"],
+        }
+        instance = InterWarehouseTransferLineSchema(**kwargs)
         assert isinstance(instance, InterWarehouseTransferLineSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == kwargs["item_id"]
 
 
 class TestInterWarehouseTransferCreateSchema:
-    """Tests for the InterWarehouseTransferCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            from_warehouse_id=uuid4(),
-            to_warehouse_id=uuid4(),
-            transfer_date=date.today(),
-            items=[MagicMock()],
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """InterWarehouseTransferCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = InterWarehouseTransferCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "from_warehouse_id": uuid4(),
+            "to_warehouse_id": uuid4(),
+            "transfer_date": date.today(),
+            "items": [MagicMock()],
+            "notes": "Transfer to second warehouse",
+        }
+        instance = InterWarehouseTransferCreateSchema(**kwargs)
         assert isinstance(instance, InterWarehouseTransferCreateSchema)
-        assert instance.from_warehouse_id == kwargs['from_warehouse_id']
+        assert instance.from_warehouse_id == kwargs["from_warehouse_id"]
 
 
 class TestInterWarehouseTransferResponseSchema:
-    """Tests for the InterWarehouseTransferResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            transfer_number="test_value",
-            from_warehouse_id=uuid4(),
-            from_warehouse_name="test_value",
-            to_warehouse_id=uuid4(),
-            to_warehouse_name="test_value",
-            transfer_date=date.today(),
-            status=TransferStatus.DRAFT,
-            items=[{}],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            completed_at=datetime.now(UTC),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """InterWarehouseTransferResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = InterWarehouseTransferResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        transfer_id = uuid4()
+        kwargs = {
+            "id": transfer_id,
+            "transfer_number": "TRF-001",
+            "from_warehouse_id": uuid4(),
+            "from_warehouse_name": "Warehouse A",
+            "to_warehouse_id": uuid4(),
+            "to_warehouse_name": "Warehouse B",
+            "transfer_date": date.today(),
+            "status": TransferStatus.DRAFT,
+            "items": [],
+            "notes": "Transfer to second warehouse",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "completed_at": None,
+            "version": 1,
+        }
+        instance = InterWarehouseTransferResponseSchema(**kwargs)
         assert isinstance(instance, InterWarehouseTransferResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == transfer_id
 
 
 class TestInventoryValuationLayerSchema:
-    """Tests for the InventoryValuationLayerSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            layer_id=uuid4(),
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            total_value=Decimal("100.00"),
-            remaining_quantity=Decimal("100.00"),
-            remaining_value=Decimal("100.00"),
-            created_at=datetime.now(UTC),
-            expiry_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """InventoryValuationLayerSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = InventoryValuationLayerSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "layer_id": uuid4(),
+            "quantity": Decimal("50"),
+            "unit_cost": Decimal("1000"),
+            "total_value": Decimal("50000"),
+            "remaining_quantity": Decimal("50"),
+            "remaining_value": Decimal("50000"),
+            "created_at": datetime.now(UTC),
+            "expiry_date": date.today(),
+        }
+        instance = InventoryValuationLayerSchema(**kwargs)
         assert isinstance(instance, InventoryValuationLayerSchema)
-        assert instance.layer_id == kwargs['layer_id']
+        assert instance.layer_id == kwargs["layer_id"]
 
 
 class TestInventoryValuationResponseSchema:
-    """Tests for the InventoryValuationResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            valuation_method=ValuationMethod.FIFO,
-            as_of_date=date.today(),
-            total_quantity=Decimal("100.00"),
-            total_value=Decimal("100.00"),
-            weighted_average_cost=Decimal("100.00"),
-            layers=[MagicMock()],
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """InventoryValuationResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = InventoryValuationResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        item_id = uuid4()
+        kwargs = {
+            "item_id": item_id,
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "valuation_method": ValuationMethod.FIFO,
+            "as_of_date": date.today(),
+            "total_quantity": Decimal("100"),
+            "total_value": Decimal("100000"),
+            "weighted_average_cost": Decimal("1000"),
+            "layers": [],
+            "generated_at": datetime.now(UTC),
+        }
+        instance = InventoryValuationResponseSchema(**kwargs)
         assert isinstance(instance, InventoryValuationResponseSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == item_id
 
 
 class TestNRVTestResponseSchema:
-    """Tests for the NRVTestResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            test_date=date.today(),
-            carrying_value=Decimal("100.00"),
-            net_realizable_value=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            nrv_less_than_cost=True,
-            recommended_adjustment=Decimal("100.00"),
-            journal_id=uuid4(),
-            status="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
-
     def test_construction_success(self):
-        """NRVTestResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = NRVTestResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        item_id = uuid4()
+        kwargs = {
+            "item_id": item_id,
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "test_date": date.today(),
+            "carrying_value": Decimal("100000"),
+            "net_realizable_value": Decimal("90000"),
+            "impairment_loss": Decimal("10000"),
+            "nrv_less_than_cost": True,
+            "recommended_adjustment": Decimal("10000"),
+            "journal_id": uuid4(),
+            "status": "completed",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+        }
+        instance = NRVTestResponseSchema(**kwargs)
         assert isinstance(instance, NRVTestResponseSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == item_id
 
 
 class TestLowStockAlertSchema:
-    """Tests for the LowStockAlertSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            current_stock=Decimal("100.00"),
-            reorder_point=Decimal("100.00"),
-            reorder_quantity=Decimal("100.00"),
-            shortage=Decimal("100.00"),
-            warehouse_id=uuid4(),
-            warehouse_name="test_value",
-            days_until_out=1,
-        )
-
     def test_construction_success(self):
-        """LowStockAlertSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LowStockAlertSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        item_id = uuid4()
+        kwargs = {
+            "item_id": item_id,
+            "item_code": "ITEM001",
+            "item_name": "Raw Material A",
+            "current_stock": Decimal("8"),
+            "reorder_point": Decimal("10"),
+            "reorder_quantity": Decimal("50"),
+            "shortage": Decimal("2"),
+            "warehouse_id": uuid4(),
+            "warehouse_name": "Main Warehouse",
+            "days_until_out": 3,
+        }
+        instance = LowStockAlertSchema(**kwargs)
         assert isinstance(instance, LowStockAlertSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == item_id
 
 
 class TestWarehouseCreateSchema:
-    """Tests for the WarehouseCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            warehouse_code="test_value",
-            warehouse_name="test_value",
-            location="test_value",
-            is_active=True,
-            is_default=True,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """WarehouseCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = WarehouseCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "warehouse_code": "WH001",
+            "warehouse_name": "Main Warehouse",
+            "location": "Jakarta",
+            "is_active": True,
+            "is_default": True,
+            "notes": "Primary warehouse",
+        }
+        instance = WarehouseCreateSchema(**kwargs)
         assert isinstance(instance, WarehouseCreateSchema)
-        assert instance.warehouse_code == kwargs['warehouse_code']
+        assert instance.warehouse_code == kwargs["warehouse_code"]
 
 
 class TestWarehouseResponseSchema:
-    """Tests for the WarehouseResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            warehouse_code="test_value",
-            warehouse_name="test_value",
-            location="test_value",
-            is_active=True,
-            is_default=True,
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """WarehouseResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = WarehouseResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        wh_id = uuid4()
+        kwargs = {
+            "id": wh_id,
+            "warehouse_code": "WH001",
+            "warehouse_name": "Main Warehouse",
+            "location": "Jakarta",
+            "is_active": True,
+            "is_default": True,
+            "notes": "Primary warehouse",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "version": 1,
+        }
+        instance = WarehouseResponseSchema(**kwargs)
         assert isinstance(instance, WarehouseResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == wh_id
 
 
 class TestInventoryValuationRepositoryAdapter:
-    """Tests for InventoryValuationRepositoryAdapter."""
-
-    def _build_instance(self):
-        return InventoryValuationRepositoryAdapter()
-
     def test_construction(self):
-        """InventoryValuationRepositoryAdapter can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = InventoryValuationRepositoryAdapter()
         assert isinstance(instance, InventoryValuationRepositoryAdapter)
 
-    async def test_get_inventory_valuation_smoke(self):
-        """Smoke test for InventoryValuationRepositoryAdapter.get_inventory_valuation using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_inventory_valuation(legal_entity_id=uuid4(), item_id=uuid4(), as_of_date=date.today(), valuation_method="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_inventory_valuation needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_get_inventory_valuation_raises_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_inventory_valuation(
+                legal_entity_id=uuid4(),
+                item_id=uuid4(),
+                as_of_date=date.today(),
+                valuation_method="FIFO"
+            )
 
-    async def test_calculate_valuation_by_product_smoke(self):
-        """Smoke test for InventoryValuationRepositoryAdapter.calculate_valuation_by_product using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.calculate_valuation_by_product(legal_entity_id=uuid4(), product_id=uuid4(), as_of_date=date.today(), valuation_method="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"calculate_valuation_by_product needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_calculate_valuation_by_product_raises_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.calculate_valuation_by_product(
+                legal_entity_id=uuid4(),
+                product_id=uuid4(),
+                as_of_date=date.today(),
+                valuation_method="FIFO"
+            )
 
-    async def test_get_movement_summary_smoke(self):
-        """Smoke test for InventoryValuationRepositoryAdapter.get_movement_summary using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_movement_summary(legal_entity_id=uuid4(), item_id=uuid4(), warehouse_id=uuid4(), start_date=date.today(), end_date=date.today())
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_movement_summary needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_get_movement_summary_raises_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_movement_summary(
+                legal_entity_id=uuid4(),
+                item_id=uuid4(),
+                warehouse_id=uuid4(),
+                start_date=date.today(),
+                end_date=date.today()
+            )
 
-    async def test_get_reorder_report_smoke(self):
-        """Smoke test for InventoryValuationRepositoryAdapter.get_reorder_report using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_reorder_report(legal_entity_id=uuid4(), warehouse_id=uuid4(), include_zero_stock=True)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_reorder_report needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_get_reorder_report_raises_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_reorder_report(
+                legal_entity_id=uuid4(),
+                warehouse_id=uuid4(),
+                include_zero_stock=True
+            )
 
 
-async def test_get_inventory_service_smoke():
-    """Smoke test for module-level function get_inventory_service."""
-    try:
-        result = await get_inventory_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_inventory_service needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_inventory_service_returns_service():
+    request = MagicMock()
+    result = await get_inventory_service(request=request)
+    assert result is not None
 
 
-def test_ping_smoke():
-    """Smoke test for module-level function ping."""
-    try:
-        result = ping()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ping needs specific input data: {e}")
-        return
-    assert True
+def test_ping_returns_dict():
+    result = ping()
+    assert isinstance(result, dict)
+    assert "status" in result or "pong" in str(result)
 
 
-def test_health_smoke():
-    """Smoke test for module-level function health."""
-    try:
-        result = health()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"health needs specific input data: {e}")
-        return
-    assert True
+def test_health_returns_dict():
+    result = health()
+    assert isinstance(result, dict)
+    assert "status" in result
 
 
-def test_info_smoke():
-    """Smoke test for module-level function info."""
-    try:
-        result = info()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"info needs specific input data: {e}")
-        return
-    assert True
+def test_info_returns_dict():
+    result = info()
+    assert isinstance(result, dict)
+    assert "version" in result or "name" in result
 
 
-async def test_create_item_smoke():
-    """Smoke test for module-level function create_item."""
-    try:
-        result = await create_item(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_item needs specific input data: {e}")
-        return
-    assert True
+async def test_create_item_returns_item():
+    inventory_service = MagicMock()
+    inventory_service.create_item = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_item(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_item_smoke():
-    """Smoke test for module-level function get_item."""
-    try:
-        result = await get_item(item_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_item needs specific input data: {e}")
-        return
-    assert True
+async def test_get_item_returns_item():
+    inventory_service = MagicMock()
+    inventory_service.get_item = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_item(
+        item_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_item_by_code_smoke():
-    """Smoke test for module-level function get_item_by_code."""
-    try:
-        result = await get_item_by_code(item_code="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_item_by_code needs specific input data: {e}")
-        return
-    assert True
+async def test_get_item_by_code_returns_item():
+    inventory_service = MagicMock()
+    inventory_service.get_item_by_code = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_item_by_code(
+        item_code="ITEM001",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_item_smoke():
-    """Smoke test for module-level function update_item."""
-    try:
-        result = await update_item(item_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_item needs specific input data: {e}")
-        return
-    assert True
+async def test_update_item_returns_updated():
+    inventory_service = MagicMock()
+    inventory_service.update_item = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_item(
+        item_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_deactivate_item_smoke():
-    """Smoke test for module-level function deactivate_item."""
-    try:
-        result = await deactivate_item(item_id=uuid4(), permanent=True, reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"deactivate_item needs specific input data: {e}")
-        return
-    assert True
+async def test_deactivate_item_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.deactivate_item = MagicMock(return_value={"success": True})
+    result = await deactivate_item(
+        item_id=uuid4(),
+        permanent=True,
+        reason="test",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_activate_item_smoke():
-    """Smoke test for module-level function activate_item."""
-    try:
-        result = await activate_item(item_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"activate_item needs specific input data: {e}")
-        return
-    assert True
+async def test_activate_item_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.activate_item = MagicMock(return_value={"success": True})
+    result = await activate_item(
+        item_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_list_items_smoke():
-    """Smoke test for module-level function list_items."""
-    try:
-        result = await list_items(item_type=ItemType.RAW_MATERIAL, category="test_value", is_active=True, low_stock_only=True, search="test_value", warehouse_id=uuid4(), page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_items needs specific input data: {e}")
-        return
-    assert True
+async def test_list_items_returns_list():
+    inventory_service = MagicMock()
+    inventory_service.list_items = MagicMock(return_value=[])
+    result = await list_items(
+        item_type=ItemType.RAW_MATERIAL,
+        category="Materials",
+        is_active=True,
+        low_stock_only=False,
+        search="",
+        warehouse_id=uuid4(),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_record_stock_movement_smoke():
-    """Smoke test for module-level function record_stock_movement."""
-    try:
-        result = await record_stock_movement(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"record_stock_movement needs specific input data: {e}")
-        return
-    assert True
+async def test_record_stock_movement_returns_movement():
+    inventory_service = MagicMock()
+    inventory_service.record_movement = MagicMock(return_value={"id": str(uuid4())})
+    result = await record_stock_movement(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_movement_smoke():
-    """Smoke test for module-level function get_movement."""
-    try:
-        result = await get_movement(movement_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_movement needs specific input data: {e}")
-        return
-    assert True
+async def test_get_movement_returns_movement():
+    inventory_service = MagicMock()
+    inventory_service.get_movement = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_movement(
+        movement_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_reverse_movement_smoke():
-    """Smoke test for module-level function reverse_movement."""
-    try:
-        result = await reverse_movement(movement_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reverse_movement needs specific input data: {e}")
-        return
-    assert True
+async def test_reverse_movement_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.reverse_movement = MagicMock(return_value={"success": True})
+    result = await reverse_movement(
+        movement_id=uuid4(),
+        reason="test",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_get_stock_card_smoke():
-    """Smoke test for module-level function get_stock_card."""
-    try:
-        result = await get_stock_card(item_id=uuid4(), warehouse_id=uuid4(), start_date=date.today(), end_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_stock_card needs specific input data: {e}")
-        return
-    assert True
+async def test_get_stock_card_returns_card():
+    inventory_service = MagicMock()
+    inventory_service.get_stock_card = MagicMock(return_value={"item_id": str(uuid4())})
+    result = await get_stock_card(
+        item_id=uuid4(),
+        warehouse_id=uuid4(),
+        start_date=date.today(),
+        end_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "item_id" in result
 
 
-async def test_create_stock_opname_smoke():
-    """Smoke test for module-level function create_stock_opname."""
-    try:
-        result = await create_stock_opname(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_stock_opname needs specific input data: {e}")
-        return
-    assert True
+async def test_create_stock_opname_returns_opname():
+    inventory_service = MagicMock()
+    inventory_service.create_stock_opname = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_stock_opname(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_approve_stock_opname_smoke():
-    """Smoke test for module-level function approve_stock_opname."""
-    try:
-        result = await approve_stock_opname(opname_id=uuid4(), apply_adjustments=True, _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_stock_opname needs specific input data: {e}")
-        return
-    assert True
+async def test_approve_stock_opname_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.approve_stock_opname = MagicMock(return_value={"success": True})
+    result = await approve_stock_opname(
+        opname_id=uuid4(),
+        apply_adjustments=True,
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_cancel_stock_opname_smoke():
-    """Smoke test for module-level function cancel_stock_opname."""
-    try:
-        result = await cancel_stock_opname(opname_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_stock_opname needs specific input data: {e}")
-        return
-    assert True
+async def test_cancel_stock_opname_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.cancel_stock_opname = MagicMock(return_value={"success": True})
+    result = await cancel_stock_opname(
+        opname_id=uuid4(),
+        reason="test",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_create_warehouse_transfer_smoke():
-    """Smoke test for module-level function create_warehouse_transfer."""
-    try:
-        result = await create_warehouse_transfer(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_warehouse_transfer needs specific input data: {e}")
-        return
-    assert True
+async def test_create_warehouse_transfer_returns_transfer():
+    inventory_service = MagicMock()
+    inventory_service.create_warehouse_transfer = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_warehouse_transfer(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_approve_warehouse_transfer_smoke():
-    """Smoke test for module-level function approve_warehouse_transfer."""
-    try:
-        result = await approve_warehouse_transfer(transfer_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_warehouse_transfer needs specific input data: {e}")
-        return
-    assert True
+async def test_approve_warehouse_transfer_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.approve_warehouse_transfer = MagicMock(return_value={"success": True})
+    result = await approve_warehouse_transfer(
+        transfer_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_complete_warehouse_transfer_smoke():
-    """Smoke test for module-level function complete_warehouse_transfer."""
-    try:
-        result = await complete_warehouse_transfer(transfer_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"complete_warehouse_transfer needs specific input data: {e}")
-        return
-    assert True
+async def test_complete_warehouse_transfer_returns_success():
+    inventory_service = MagicMock()
+    inventory_service.complete_warehouse_transfer = MagicMock(return_value={"success": True})
+    result = await complete_warehouse_transfer(
+        transfer_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_get_inventory_valuation_by_path_smoke():
-    """Smoke test for module-level function get_inventory_valuation_by_path."""
-    try:
-        result = await get_inventory_valuation_by_path(item_id=uuid4(), as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_inventory_valuation_by_path needs specific input data: {e}")
-        return
-    assert True
+async def test_get_inventory_valuation_by_path_returns_valuation():
+    inventory_service = MagicMock()
+    inventory_service.get_inventory_valuation_by_path = MagicMock(return_value={"item_id": str(uuid4())})
+    result = await get_inventory_valuation_by_path(
+        item_id=uuid4(),
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "item_id" in result
 
 
-async def test_get_inventory_valuation_smoke():
-    """Smoke test for module-level function get_inventory_valuation."""
-    try:
-        result = await get_inventory_valuation(item_id=uuid4(), as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_inventory_valuation needs specific input data: {e}")
-        return
-    assert True
+async def test_get_inventory_valuation_returns_valuation():
+    inventory_service = MagicMock()
+    inventory_service.get_inventory_valuation = MagicMock(return_value={"item_id": str(uuid4())})
+    result = await get_inventory_valuation(
+        item_id=uuid4(),
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "item_id" in result
 
 
-async def test_test_nrv_smoke():
-    """Smoke test for module-level function test_nrv."""
-    try:
-        result = await test_nrv(item_id=uuid4(), test_date=date.today(), nrv=Decimal("100.00"), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"test_nrv needs specific input data: {e}")
-        return
-    assert True
+async def test_test_nrv_returns_result():
+    inventory_service = MagicMock()
+    inventory_service.test_nrv = MagicMock(return_value={"item_id": str(uuid4())})
+    result = await test_nrv(
+        item_id=uuid4(),
+        test_date=date.today(),
+        nrv=Decimal("90000"),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "item_id" in result
 
 
-async def test_get_low_stock_alerts_smoke():
-    """Smoke test for module-level function get_low_stock_alerts."""
-    try:
-        result = await get_low_stock_alerts(warehouse_id=uuid4(), include_zero_stock=True, _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_low_stock_alerts needs specific input data: {e}")
-        return
-    assert True
+async def test_get_low_stock_alerts_returns_list():
+    inventory_service = MagicMock()
+    inventory_service.get_low_stock_alerts = MagicMock(return_value=[])
+    result = await get_low_stock_alerts(
+        warehouse_id=uuid4(),
+        include_zero_stock=True,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_list_warehouses_smoke():
-    """Smoke test for module-level function list_warehouses."""
-    try:
-        result = await list_warehouses(is_active=True, _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_warehouses needs specific input data: {e}")
-        return
-    assert True
+async def test_list_warehouses_returns_list():
+    inventory_service = MagicMock()
+    inventory_service.list_warehouses = MagicMock(return_value=[])
+    result = await list_warehouses(
+        is_active=True,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_export_items_smoke():
-    """Smoke test for module-level function export_items."""
-    try:
-        result = await export_items(format="test_value", item_type=ItemType.RAW_MATERIAL, category="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), inventory_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_items needs specific input data: {e}")
-        return
-    assert True
+async def test_export_items_returns_export():
+    inventory_service = MagicMock()
+    inventory_service.export_items = MagicMock(return_value={"file": "base64data"})
+    result = await export_items(
+        format="csv",
+        item_type=ItemType.RAW_MATERIAL,
+        category="Materials",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        inventory_service=inventory_service,
+    )
+    assert result is not None
+    assert "file" in result

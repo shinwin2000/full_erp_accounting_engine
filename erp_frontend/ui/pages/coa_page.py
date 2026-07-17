@@ -2,16 +2,22 @@
 ui/pages/coa_page.py
 =====================
 Bagan Akun (Chart of Accounts). Menampilkan struktur akun sebagai
-QTreeWidget (dari endpoint /coa/chart-of-accounts/tree bila tersedia,
-fallback ke /accounts + susun manual berdasarkan parent_account_code),
-plus form tambah/ubah akun.
+QTreeWidget, dengan warna per tipe akun, ringkasan saldo per kategori,
+tambah/ubah/hapus akun, dan pembuatan sub-akun cepat.
+
+PERBAIKAN PENTING: endpoint update/delete backend pakai `{account_id}`
+(UUID kolom `id`), BUKAN `account_code` — versi sebelumnya salah pakai
+account_code sebagai path param yang akan selalu gagal (404) di backend
+sungguhan. Sudah diperbaiki di sini.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,10 +35,12 @@ from core.formatting import extract_list, format_money
 from core.workers import run_task
 from registry.module_registry import FieldSpec, FieldType
 from ui.widgets.form_dialog import FormDialog
+from ui.widgets.kpi_card import KpiCard
 
 BASE = "/coa/chart-of-accounts"
 
-ACCOUNT_FIELDS = [
+# Field untuk BUAT akun baru (semua field, termasuk yang tidak bisa diubah lagi setelah dibuat)
+CREATE_FIELDS = [
     FieldSpec("account_code", "Kode Akun", required=True),
     FieldSpec("account_name", "Nama Akun", required=True),
     FieldSpec("account_type", "Tipe Akun", FieldType.SELECT,
@@ -44,6 +52,32 @@ ACCOUNT_FIELDS = [
     FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL, default=0),
     FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
 ]
+
+# Field untuk UBAH akun (account_code/account_type/normal_balance TIDAK bisa
+# diubah lagi setelah akun dibuat — sesuai AccountUpdateSchema backend, ini
+# masuk akal secara akuntansi karena mengubah sifat dasar akun yang sudah
+# dipakai transaksi akan merusak integritas laporan).
+EDIT_FIELDS = [
+    FieldSpec("account_name", "Nama Akun", required=True),
+    FieldSpec("status", "Status", FieldType.SELECT,
+              choices=("active", "inactive", "suspended", "locked", "archived")),
+    FieldSpec("parent_account_code", "Kode Induk (opsional)"),
+    FieldSpec("category", "Kategori"),
+    FieldSpec("currency_code", "Mata Uang"),
+    FieldSpec("is_bank_account", "Akun Bank", FieldType.BOOL, default=False),
+    FieldSpec("is_cash_account", "Akun Kas", FieldType.BOOL, default=False),
+    FieldSpec("is_intercompany", "Akun Intercompany", FieldType.BOOL, default=False),
+    FieldSpec("budget_control", "Kontrol Budget", FieldType.BOOL, default=False),
+    FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
+]
+
+TYPE_COLORS = {
+    "asset": "#2563EB",
+    "liability": "#DC2626",
+    "equity": "#7C3AED",
+    "revenue": "#059669",
+    "expense": "#D97706",
+}
 
 
 class CoaPage(QWidget):
@@ -75,14 +109,26 @@ class CoaPage(QWidget):
 
         new_btn = QPushButton("+ Akun Baru")
         new_btn.setObjectName("primaryButton")
-        new_btn.clicked.connect(self._create_account)
+        new_btn.clicked.connect(lambda: self._create_account(parent_code=None))
         header.addWidget(new_btn)
         outer.addLayout(header)
+
+        # Ringkasan saldo per tipe akun
+        self.summary_row = QHBoxLayout()
+        self.summary_cards: dict[str, KpiCard] = {}
+        for acc_type, label in [
+            ("asset", "Total Aset"), ("liability", "Total Kewajiban"),
+            ("equity", "Total Ekuitas"), ("revenue", "Total Pendapatan"), ("expense", "Total Beban"),
+        ]:
+            card = KpiCard(label, color=TYPE_COLORS[acc_type])
+            self.summary_cards[acc_type] = card
+            self.summary_row.addWidget(card)
+        outer.addLayout(self.summary_row)
 
         splitter = QSplitter(Qt.Horizontal)
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Kode / Nama Akun", "Tipe", "Saldo Normal", "Saldo"])
+        self.tree.setHeaderLabels(["Kode / Nama Akun", "Tipe", "Saldo Normal", "Status", "Saldo"])
         self.tree.setColumnWidth(0, 320)
         self.tree.itemDoubleClicked.connect(self._on_edit_current)
         splitter.addWidget(self.tree)
@@ -97,11 +143,21 @@ class CoaPage(QWidget):
         self.detail_label.setAlignment(Qt.AlignTop)
         detail_layout.addWidget(self.detail_label, stretch=1)
 
+        add_child_btn = QPushButton("+ Tambah Sub-Akun")
+        add_child_btn.clicked.connect(self._create_child_account)
+        detail_layout.addWidget(add_child_btn)
+
         edit_btn = QPushButton("✎ Ubah Akun Terpilih")
         edit_btn.clicked.connect(self._on_edit_current)
         detail_layout.addWidget(edit_btn)
+
+        delete_btn = QPushButton("🗑 Hapus/Nonaktifkan Akun")
+        delete_btn.setProperty("class", "danger")
+        delete_btn.clicked.connect(self._delete_current)
+        detail_layout.addWidget(delete_btn)
+
         splitter.addWidget(detail_panel)
-        splitter.setSizes([600, 260])
+        splitter.setSizes([620, 260])
         self.tree.itemSelectionChanged.connect(self._on_selection_changed)
 
         outer.addWidget(splitter, stretch=1)
@@ -119,10 +175,25 @@ class CoaPage(QWidget):
     def _on_loaded(self, payload: Any) -> None:
         self._accounts = extract_list(payload)
         self._render_tree(self._accounts)
+        self._render_summary(self._accounts)
         self.status_label.setText(f"{len(self._accounts)} akun dimuat.")
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Gagal memuat: {message}")
+
+    def _render_summary(self, accounts: list[dict[str, Any]]) -> None:
+        totals: dict[str, float] = {}
+        for acc in accounts:
+            acc_type = str(acc.get("account_type", "")).lower()
+            balance = acc.get("balance")
+            if balance is None:
+                balance = acc.get("opening_balance") or 0
+            try:
+                totals[acc_type] = totals.get(acc_type, 0) + float(balance)
+            except (TypeError, ValueError):
+                pass
+        for acc_type, card in self.summary_cards.items():
+            card.set_value(format_money(totals.get(acc_type, 0)))
 
     def _render_tree(self, accounts: list[dict[str, Any]]) -> None:
         self.tree.clear()
@@ -159,12 +230,24 @@ class CoaPage(QWidget):
 
     def _make_item(self, acc: dict[str, Any]) -> QTreeWidgetItem:
         label = f"{acc.get('account_code', '')} — {acc.get('account_name', '')}"
+        acc_type = str(acc.get("account_type", "") or "")
+        status = str(acc.get("status", "") or "")
         item = QTreeWidgetItem([
             label,
-            str(acc.get("account_type", "") or ""),
+            acc_type,
             str(acc.get("normal_balance", "") or ""),
+            status,
             format_money(acc.get("balance") or acc.get("opening_balance") or 0, acc.get("currency_code", "IDR")),
         ])
+        color = TYPE_COLORS.get(acc_type.lower())
+        if color:
+            for col in range(item.columnCount()):
+                item.setForeground(col, QColor(color))
+        if status.lower() in ("inactive", "suspended", "locked", "archived"):
+            font = item.font(0)
+            font.setItalic(True)
+            for col in range(item.columnCount()):
+                item.setFont(col, font)
         item.setData(0, Qt.UserRole, acc)
         return item
 
@@ -187,31 +270,43 @@ class CoaPage(QWidget):
             return
         acc = items[0].data(0, Qt.UserRole) or {}
         lines = [f"<b>{acc.get('account_code')} — {acc.get('account_name')}</b>", ""]
-        for key in ("account_type", "normal_balance", "category", "currency_code", "description"):
+        for key in ("account_type", "normal_balance", "status", "category", "currency_code", "description"):
             if acc.get(key):
                 lines.append(f"<b>{key.replace('_', ' ').title()}:</b> {acc.get(key)}")
+        flags = [f for f in ("is_bank_account", "is_cash_account", "is_intercompany", "budget_control") if acc.get(f)]
+        if flags:
+            lines.append(f"<b>Flag:</b> {', '.join(f.replace('is_', '').replace('_', ' ') for f in flags)}")
         self.detail_label.setText("<br>".join(lines))
 
-    def _on_edit_current(self, *_args) -> None:
+    def _selected_account(self) -> Optional[dict[str, Any]]:
         items = self.tree.selectedItems()
         if not items:
+            return None
+        return items[0].data(0, Qt.UserRole) or {}
+
+    def _on_edit_current(self, *_args) -> None:
+        acc = self._selected_account()
+        if not acc:
             QMessageBox.information(self, "Info", "Pilih akun terlebih dahulu.")
             return
-        acc = items[0].data(0, Qt.UserRole) or {}
-        dlg = FormDialog("Ubah Akun", ACCOUNT_FIELDS, initial=acc, parent=self)
+        dlg = FormDialog(f"Ubah Akun — {acc.get('account_code')}", EDIT_FIELDS, initial=acc, parent=self)
         if dlg.exec():
             payload = dlg.result_payload()
-            code = acc.get("account_code")
+            account_id = acc.get("id")
+            if not account_id:
+                QMessageBox.warning(self, "Gagal", "Akun ini tidak punya ID internal (data tidak lengkap dari server).")
+                return
             run_task(
                 api_client.put,
                 on_success=lambda _r: self._after_write("Akun diperbarui."),
                 on_error=self._on_write_error,
-                path=f"{BASE}/accounts/{code}",
+                path=f"{BASE}/accounts/{account_id}",
                 json_body=payload,
             )
 
-    def _create_account(self) -> None:
-        dlg = FormDialog("Akun Baru", ACCOUNT_FIELDS, parent=self)
+    def _create_account(self, parent_code: Optional[str] = None) -> None:
+        initial = {"parent_account_code": parent_code} if parent_code else None
+        dlg = FormDialog("Akun Baru", CREATE_FIELDS, initial=initial, parent=self)
         if dlg.exec():
             payload = dlg.result_payload()
             run_task(
@@ -221,6 +316,37 @@ class CoaPage(QWidget):
                 path=f"{BASE}/accounts",
                 json_body=payload,
             )
+
+    def _create_child_account(self) -> None:
+        acc = self._selected_account()
+        if not acc:
+            QMessageBox.information(self, "Info", "Pilih akun induk terlebih dahulu.")
+            return
+        self._create_account(parent_code=acc.get("account_code"))
+
+    def _delete_current(self) -> None:
+        acc = self._selected_account()
+        if not acc:
+            QMessageBox.information(self, "Info", "Pilih akun terlebih dahulu.")
+            return
+        account_id = acc.get("id")
+        if not account_id:
+            QMessageBox.warning(self, "Gagal", "Akun ini tidak punya ID internal (data tidak lengkap dari server).")
+            return
+        confirm = QMessageBox.question(
+            self, "Konfirmasi Hapus",
+            f"Hapus/nonaktifkan akun {acc.get('account_code')} — {acc.get('account_name')}?\n\n"
+            "Jika akun ini sudah pernah dipakai transaksi, backend biasanya akan menonaktifkannya "
+            "(bukan menghapus permanen) demi menjaga integritas laporan historis.",
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        run_task(
+            api_client.delete,
+            on_success=lambda _r: self._after_write("Akun dihapus/dinonaktifkan."),
+            on_error=self._on_write_error,
+            path=f"{BASE}/accounts/{account_id}",
+        )
 
     def _after_write(self, message: str) -> None:
         self.status_label.setText(message)

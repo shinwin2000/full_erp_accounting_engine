@@ -60,47 +60,23 @@ from adapters.primary_api.v1.fastapi_legal_entity_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestLegalEntityType:
-    """Tests for the LegalEntityType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(LegalEntityType, 'CORPORATION')
         assert hasattr(LegalEntityType, 'BRANCH')
         assert hasattr(LegalEntityType, 'REPRESENTATIVE_OFFICE')
@@ -111,14 +87,11 @@ class TestLegalEntityType:
         assert hasattr(LegalEntityType, 'CONSOLIDATION_GROUP')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(LegalEntityType.CORPORATION, LegalEntityType)
 
 
 class TestLegalEntityStatus:
-    """Tests for the LegalEntityStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(LegalEntityStatus, 'ACTIVE')
         assert hasattr(LegalEntityStatus, 'INACTIVE')
         assert hasattr(LegalEntityStatus, 'SUSPENDED')
@@ -129,654 +102,651 @@ class TestLegalEntityStatus:
         assert hasattr(LegalEntityStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(LegalEntityStatus.ACTIVE, LegalEntityStatus)
 
 
 class TestBranchStatus:
-    """Tests for the BranchStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(BranchStatus, 'ACTIVE')
         assert hasattr(BranchStatus, 'INACTIVE')
         assert hasattr(BranchStatus, 'CLOSED')
         assert hasattr(BranchStatus, 'SUSPENDED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(BranchStatus.ACTIVE, BranchStatus)
 
 
 class TestTaxStatus:
-    """Tests for the TaxStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(TaxStatus, 'ACTIVE')
         assert hasattr(TaxStatus, 'INACTIVE')
         assert hasattr(TaxStatus, 'SUSPENDED')
         assert hasattr(TaxStatus, 'REVOKED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(TaxStatus.ACTIVE, TaxStatus)
 
 
 class TestLegalEntityCreateSchema:
-    """Tests for the LegalEntityCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            legal_name="test_value",
-            trade_name="test_value",
-            entity_type=LegalEntityType.CORPORATION,
-            registration_number="test_value",
-            npwp="test_value",
-            nppp="test_value",
-            address="test_value",
-            city="test_value",
-            postal_code="test_value",
-            province="test_value",
-            country="test_value",
-            phone="test_value",
-            fax="test_value",
-            email="test_value",
-            website="test_value",
-            established_date=date.today(),
-            fiscal_year_start=1,
-            fiscal_year_end=1,
-            base_currency="test_value",
-            functional_currency="test_value",
-            is_taxable=True,
-            is_withholding_agent=True,
-            parent_company_id=uuid4(),
-            consolidation_group_id=uuid4(),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """LegalEntityCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LegalEntityCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "legal_name": "PT Maju Jaya",
+            "trade_name": "Maju Jaya",
+            "entity_type": LegalEntityType.CORPORATION,
+            "registration_number": "REG-001",
+            "npwp": "123456789012345",
+            "nppp": "NPPP-001",
+            "address": "Jl. Merdeka No. 1",
+            "city": "Jakarta",
+            "postal_code": "10110",
+            "province": "DKI Jakarta",
+            "country": "Indonesia",
+            "phone": "021-1234567",
+            "fax": "021-1234568",
+            "email": "info@majujaya.com",
+            "website": "www.majujaya.com",
+            "established_date": date.today(),
+            "fiscal_year_start": 1,
+            "fiscal_year_end": 12,
+            "base_currency": "IDR",
+            "functional_currency": "IDR",
+            "is_taxable": True,
+            "is_withholding_agent": True,
+            "parent_company_id": uuid4(),
+            "consolidation_group_id": uuid4(),
+            "notes": "Test",
+        }
+        instance = LegalEntityCreateSchema(**kwargs)
         assert isinstance(instance, LegalEntityCreateSchema)
-        assert instance.legal_name == kwargs['legal_name']
+        assert instance.legal_name == kwargs["legal_name"]
 
 
 class TestLegalEntityUpdateSchema:
-    """Tests for the LegalEntityUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            legal_name="test_value",
-            trade_name="test_value",
-            address="test_value",
-            city="test_value",
-            postal_code="test_value",
-            province="test_value",
-            phone="test_value",
-            fax="test_value",
-            email="test_value",
-            website="test_value",
-            status=LegalEntityStatus.ACTIVE,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """LegalEntityUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LegalEntityUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "legal_name": "PT Maju Jaya Updated",
+            "trade_name": "Maju Jaya",
+            "address": "Jl. Merdeka No. 2",
+            "city": "Jakarta",
+            "postal_code": "10120",
+            "province": "DKI Jakarta",
+            "phone": "021-1234567",
+            "fax": "021-1234568",
+            "email": "info@majujaya.com",
+            "website": "www.majujaya.com",
+            "status": LegalEntityStatus.ACTIVE,
+            "notes": "Updated",
+        }
+        instance = LegalEntityUpdateSchema(**kwargs)
         assert isinstance(instance, LegalEntityUpdateSchema)
-        assert instance.legal_name == kwargs['legal_name']
+        assert instance.legal_name == kwargs["legal_name"]
 
 
 class TestLegalEntityResponseSchema:
-    """Tests for the LegalEntityResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_name="test_value",
-            trade_name="test_value",
-            entity_type=LegalEntityType.CORPORATION,
-            registration_number="test_value",
-            npwp="test_value",
-            nppp="test_value",
-            address="test_value",
-            city="test_value",
-            postal_code="test_value",
-            province="test_value",
-            country="test_value",
-            phone="test_value",
-            fax="test_value",
-            email="test_value",
-            website="test_value",
-            established_date=date.today(),
-            fiscal_year_start=1,
-            fiscal_year_end=1,
-            base_currency="test_value",
-            functional_currency="test_value",
-            is_taxable=True,
-            is_withholding_agent=True,
-            status=LegalEntityStatus.ACTIVE,
-            is_active=True,
-            is_locked=True,
-            parent_company_id=uuid4(),
-            parent_company_name="test_value",
-            consolidation_group_id=uuid4(),
-            consolidation_group_name="test_value",
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """LegalEntityResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LegalEntityResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        le_id = uuid4()
+        kwargs = {
+            "id": le_id,
+            "legal_name": "PT Maju Jaya",
+            "trade_name": "Maju Jaya",
+            "entity_type": LegalEntityType.CORPORATION,
+            "registration_number": "REG-001",
+            "npwp": "123456789012345",
+            "nppp": "NPPP-001",
+            "address": "Jl. Merdeka No. 1",
+            "city": "Jakarta",
+            "postal_code": "10110",
+            "province": "DKI Jakarta",
+            "country": "Indonesia",
+            "phone": "021-1234567",
+            "fax": "021-1234568",
+            "email": "info@majujaya.com",
+            "website": "www.majujaya.com",
+            "established_date": date.today(),
+            "fiscal_year_start": 1,
+            "fiscal_year_end": 12,
+            "base_currency": "IDR",
+            "functional_currency": "IDR",
+            "is_taxable": True,
+            "is_withholding_agent": True,
+            "status": LegalEntityStatus.ACTIVE,
+            "is_active": True,
+            "is_locked": False,
+            "parent_company_id": uuid4(),
+            "parent_company_name": "Parent Co",
+            "consolidation_group_id": uuid4(),
+            "consolidation_group_name": "Group A",
+            "notes": "Test",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = LegalEntityResponseSchema(**kwargs)
         assert isinstance(instance, LegalEntityResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == le_id
 
 
 class TestTaxProfileSchema:
-    """Tests for the TaxProfileSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            tax_office="test_value",
-            tax_office_code="test_value",
-            tax_classification="test_value",
-            taxable_date=date.today(),
-            vat_collector_number="test_value",
-            annual_tax_return_due_date=1,
-            monthly_tax_due_date=1,
-            corporate_tax_rate=Decimal("100.00"),
-            vat_rate=Decimal("100.00"),
-            is_using_final_tax=True,
-            final_tax_rate=Decimal("100.00"),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """TaxProfileSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = TaxProfileSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "tax_office": "KPP Jakarta",
+            "tax_office_code": "001",
+            "tax_classification": "Besar",
+            "taxable_date": date.today(),
+            "vat_collector_number": "VAT-001",
+            "annual_tax_return_due_date": 30,
+            "monthly_tax_due_date": 15,
+            "corporate_tax_rate": Decimal("0.22"),
+            "vat_rate": Decimal("0.11"),
+            "is_using_final_tax": False,
+            "final_tax_rate": Decimal("0"),
+            "notes": "Test",
+        }
+        instance = TaxProfileSchema(**kwargs)
         assert isinstance(instance, TaxProfileSchema)
-        assert instance.tax_office == kwargs['tax_office']
+        assert instance.tax_office == kwargs["tax_office"]
 
 
 class TestTaxProfileResponseSchema:
-    """Tests for the TaxProfileResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            tax_office="test_value",
-            tax_office_code="test_value",
-            tax_classification="test_value",
-            taxable_date=date.today(),
-            vat_collector_number="test_value",
-            annual_tax_return_due_date=1,
-            monthly_tax_due_date=1,
-            corporate_tax_rate=Decimal("100.00"),
-            vat_rate=Decimal("100.00"),
-            is_using_final_tax=True,
-            final_tax_rate=Decimal("100.00"),
-            notes="test_value",
-            status=TaxStatus.ACTIVE,
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """TaxProfileResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = TaxProfileResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        le_id = uuid4()
+        kwargs = {
+            "legal_entity_id": le_id,
+            "tax_office": "KPP Jakarta",
+            "tax_office_code": "001",
+            "tax_classification": "Besar",
+            "taxable_date": date.today(),
+            "vat_collector_number": "VAT-001",
+            "annual_tax_return_due_date": 30,
+            "monthly_tax_due_date": 15,
+            "corporate_tax_rate": Decimal("0.22"),
+            "vat_rate": Decimal("0.11"),
+            "is_using_final_tax": False,
+            "final_tax_rate": Decimal("0"),
+            "notes": "Test",
+            "status": TaxStatus.ACTIVE,
+            "updated_at": datetime.now(UTC),
+            "updated_by": uuid4(),
+            "version": 1,
+        }
+        instance = TaxProfileResponseSchema(**kwargs)
         assert isinstance(instance, TaxProfileResponseSchema)
-        assert instance.legal_entity_id == kwargs['legal_entity_id']
+        assert instance.legal_entity_id == le_id
 
 
 class TestBranchCreateSchema:
-    """Tests for the BranchCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            branch_code="test_value",
-            branch_name="test_value",
-            address="test_value",
-            city="test_value",
-            postal_code="test_value",
-            phone="test_value",
-            email="test_value",
-            manager_name="test_value",
-            is_active=True,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """BranchCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BranchCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "branch_code": "BR001",
+            "branch_name": "Branch Jakarta",
+            "address": "Jl. Sudirman No. 1",
+            "city": "Jakarta",
+            "postal_code": "10220",
+            "phone": "021-7654321",
+            "email": "branch@majujaya.com",
+            "manager_name": "Budi",
+            "is_active": True,
+            "notes": "Main branch",
+        }
+        instance = BranchCreateSchema(**kwargs)
         assert isinstance(instance, BranchCreateSchema)
-        assert instance.branch_code == kwargs['branch_code']
+        assert instance.branch_code == kwargs["branch_code"]
 
 
 class TestBranchUpdateSchema:
-    """Tests for the BranchUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            branch_name="test_value",
-            address="test_value",
-            city="test_value",
-            phone="test_value",
-            email="test_value",
-            manager_name="test_value",
-            is_active=True,
-            status=BranchStatus.ACTIVE,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """BranchUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BranchUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "branch_name": "Branch Jakarta Updated",
+            "address": "Jl. Sudirman No. 2",
+            "city": "Jakarta",
+            "phone": "021-7654321",
+            "email": "branch@majujaya.com",
+            "manager_name": "Budi",
+            "is_active": True,
+            "status": BranchStatus.ACTIVE,
+            "notes": "Updated",
+        }
+        instance = BranchUpdateSchema(**kwargs)
         assert isinstance(instance, BranchUpdateSchema)
-        assert instance.branch_name == kwargs['branch_name']
+        assert instance.branch_name == kwargs["branch_name"]
 
 
 class TestBranchResponseSchema:
-    """Tests for the BranchResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            branch_code="test_value",
-            branch_name="test_value",
-            address="test_value",
-            city="test_value",
-            postal_code="test_value",
-            phone="test_value",
-            email="test_value",
-            manager_name="test_value",
-            status=BranchStatus.ACTIVE,
-            is_active=True,
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """BranchResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BranchResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        branch_id = uuid4()
+        le_id = uuid4()
+        kwargs = {
+            "id": branch_id,
+            "legal_entity_id": le_id,
+            "branch_code": "BR001",
+            "branch_name": "Branch Jakarta",
+            "address": "Jl. Sudirman No. 1",
+            "city": "Jakarta",
+            "postal_code": "10220",
+            "phone": "021-7654321",
+            "email": "branch@majujaya.com",
+            "manager_name": "Budi",
+            "status": BranchStatus.ACTIVE,
+            "is_active": True,
+            "notes": "Main branch",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = BranchResponseSchema(**kwargs)
         assert isinstance(instance, BranchResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == branch_id
 
 
 class TestConsolidationGroupCreateSchema:
-    """Tests for the ConsolidationGroupCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            group_code="test_value",
-            group_name="test_value",
-            description="test_value",
-            base_currency="test_value",
-            fiscal_year_start=1,
-            fiscal_year_end=1,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """ConsolidationGroupCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ConsolidationGroupCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "group_code": "GRP001",
+            "group_name": "Group A",
+            "description": "Main consolidation group",
+            "base_currency": "IDR",
+            "fiscal_year_start": 1,
+            "fiscal_year_end": 12,
+            "notes": "Test",
+        }
+        instance = ConsolidationGroupCreateSchema(**kwargs)
         assert isinstance(instance, ConsolidationGroupCreateSchema)
-        assert instance.group_code == kwargs['group_code']
+        assert instance.group_code == kwargs["group_code"]
 
 
 class TestConsolidationGroupResponseSchema:
-    """Tests for the ConsolidationGroupResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            group_code="test_value",
-            group_name="test_value",
-            description="test_value",
-            base_currency="test_value",
-            fiscal_year_start=1,
-            fiscal_year_end=1,
-            member_count=1,
-            is_active=True,
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """ConsolidationGroupResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ConsolidationGroupResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        group_id = uuid4()
+        kwargs = {
+            "id": group_id,
+            "group_code": "GRP001",
+            "group_name": "Group A",
+            "description": "Main consolidation group",
+            "base_currency": "IDR",
+            "fiscal_year_start": 1,
+            "fiscal_year_end": 12,
+            "member_count": 3,
+            "is_active": True,
+            "notes": "Test",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = ConsolidationGroupResponseSchema(**kwargs)
         assert isinstance(instance, ConsolidationGroupResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == group_id
 
 
-async def test_get_legal_entity_service_smoke():
-    """Smoke test for module-level function get_legal_entity_service."""
-    try:
-        result = await get_legal_entity_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_legal_entity_service needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_legal_entity_service_returns_service():
+    request = MagicMock()
+    result = await get_legal_entity_service(request=request)
+    assert result is not None
 
 
-async def test_create_legal_entity_smoke():
-    """Smoke test for module-level function create_legal_entity."""
-    try:
-        result = await create_legal_entity(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_create_legal_entity_returns_legal_entity():
+    service = MagicMock()
+    service.create_legal_entity = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_legal_entity(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_list_legal_entities_smoke():
-    """Smoke test for module-level function list_legal_entities."""
-    try:
-        result = await list_legal_entities(entity_type=LegalEntityType.CORPORATION, status=LegalEntityStatus.ACTIVE, is_active=True, parent_company_id=uuid4(), search="test_value", page=1, page_size=1, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_legal_entities needs specific input data: {e}")
-        return
-    assert True
+async def test_list_legal_entities_returns_list():
+    service = MagicMock()
+    service.list_legal_entities = MagicMock(return_value=[])
+    result = await list_legal_entities(
+        entity_type=LegalEntityType.CORPORATION,
+        status=LegalEntityStatus.ACTIVE,
+        is_active=True,
+        parent_company_id=uuid4(),
+        search="test",
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_legal_entity_smoke():
-    """Smoke test for module-level function get_legal_entity."""
-    try:
-        result = await get_legal_entity(legal_entity_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_get_legal_entity_returns_legal_entity():
+    service = MagicMock()
+    service.get_legal_entity = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_legal_entity(
+        legal_entity_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_legal_entity_by_npwp_smoke():
-    """Smoke test for module-level function get_legal_entity_by_npwp."""
-    try:
-        result = await get_legal_entity_by_npwp(npwp="test_value", _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_legal_entity_by_npwp needs specific input data: {e}")
-        return
-    assert True
+async def test_get_legal_entity_by_npwp_returns_legal_entity():
+    service = MagicMock()
+    service.get_legal_entity_by_npwp = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_legal_entity_by_npwp(
+        npwp="123456789012345",
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_legal_entity_by_registration_smoke():
-    """Smoke test for module-level function get_legal_entity_by_registration."""
-    try:
-        result = await get_legal_entity_by_registration(registration_number="test_value", _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_legal_entity_by_registration needs specific input data: {e}")
-        return
-    assert True
+async def test_get_legal_entity_by_registration_returns_legal_entity():
+    service = MagicMock()
+    service.get_legal_entity_by_registration = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_legal_entity_by_registration(
+        registration_number="REG-001",
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_legal_entity_smoke():
-    """Smoke test for module-level function update_legal_entity."""
-    try:
-        result = await update_legal_entity(legal_entity_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_update_legal_entity_returns_updated():
+    service = MagicMock()
+    service.update_legal_entity = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_legal_entity(
+        legal_entity_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_deactivate_legal_entity_smoke():
-    """Smoke test for module-level function deactivate_legal_entity."""
-    try:
-        result = await deactivate_legal_entity(legal_entity_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"deactivate_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_deactivate_legal_entity_returns_success():
+    service = MagicMock()
+    service.deactivate_legal_entity = MagicMock(return_value={"success": True})
+    result = await deactivate_legal_entity(
+        legal_entity_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_activate_legal_entity_smoke():
-    """Smoke test for module-level function activate_legal_entity."""
-    try:
-        result = await activate_legal_entity(legal_entity_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"activate_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_activate_legal_entity_returns_success():
+    service = MagicMock()
+    service.activate_legal_entity = MagicMock(return_value={"success": True})
+    result = await activate_legal_entity(
+        legal_entity_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_lock_legal_entity_smoke():
-    """Smoke test for module-level function lock_legal_entity."""
-    try:
-        result = await lock_legal_entity(legal_entity_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_lock_legal_entity_returns_success():
+    service = MagicMock()
+    service.lock_legal_entity = MagicMock(return_value={"success": True})
+    result = await lock_legal_entity(
+        legal_entity_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_unlock_legal_entity_smoke():
-    """Smoke test for module-level function unlock_legal_entity."""
-    try:
-        result = await unlock_legal_entity(legal_entity_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_legal_entity needs specific input data: {e}")
-        return
-    assert True
+async def test_unlock_legal_entity_returns_success():
+    service = MagicMock()
+    service.unlock_legal_entity = MagicMock(return_value={"success": True})
+    result = await unlock_legal_entity(
+        legal_entity_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_get_tax_profile_smoke():
-    """Smoke test for module-level function get_tax_profile."""
-    try:
-        result = await get_tax_profile(legal_entity_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_tax_profile needs specific input data: {e}")
-        return
-    assert True
+async def test_get_tax_profile_returns_profile():
+    service = MagicMock()
+    service.get_tax_profile = MagicMock(return_value={"legal_entity_id": str(uuid4())})
+    result = await get_tax_profile(
+        legal_entity_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "legal_entity_id" in result
 
 
-async def test_update_tax_profile_smoke():
-    """Smoke test for module-level function update_tax_profile."""
-    try:
-        result = await update_tax_profile(legal_entity_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_tax_profile needs specific input data: {e}")
-        return
-    assert True
+async def test_update_tax_profile_returns_updated():
+    service = MagicMock()
+    service.update_tax_profile = MagicMock(return_value={"legal_entity_id": str(uuid4())})
+    result = await update_tax_profile(
+        legal_entity_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "legal_entity_id" in result
 
 
-async def test_create_branch_smoke():
-    """Smoke test for module-level function create_branch."""
-    try:
-        result = await create_branch(legal_entity_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_branch needs specific input data: {e}")
-        return
-    assert True
+async def test_create_branch_returns_branch():
+    service = MagicMock()
+    service.create_branch = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_branch(
+        legal_entity_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_list_branches_smoke():
-    """Smoke test for module-level function list_branches."""
-    try:
-        result = await list_branches(legal_entity_id=uuid4(), status=BranchStatus.ACTIVE, is_active=True, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_branches needs specific input data: {e}")
-        return
-    assert True
+async def test_list_branches_returns_list():
+    service = MagicMock()
+    service.list_branches = MagicMock(return_value=[])
+    result = await list_branches(
+        legal_entity_id=uuid4(),
+        status=BranchStatus.ACTIVE,
+        is_active=True,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_branch_smoke():
-    """Smoke test for module-level function get_branch."""
-    try:
-        result = await get_branch(legal_entity_id=uuid4(), branch_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_branch needs specific input data: {e}")
-        return
-    assert True
+async def test_get_branch_returns_branch():
+    service = MagicMock()
+    service.get_branch = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_branch(
+        legal_entity_id=uuid4(),
+        branch_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_branch_smoke():
-    """Smoke test for module-level function update_branch."""
-    try:
-        result = await update_branch(legal_entity_id=uuid4(), branch_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_branch needs specific input data: {e}")
-        return
-    assert True
+async def test_update_branch_returns_updated():
+    service = MagicMock()
+    service.update_branch = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_branch(
+        legal_entity_id=uuid4(),
+        branch_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_close_branch_smoke():
-    """Smoke test for module-level function close_branch."""
-    try:
-        result = await close_branch(legal_entity_id=uuid4(), branch_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"close_branch needs specific input data: {e}")
-        return
-    assert True
+async def test_close_branch_returns_success():
+    service = MagicMock()
+    service.close_branch = MagicMock(return_value={"success": True})
+    result = await close_branch(
+        legal_entity_id=uuid4(),
+        branch_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_create_consolidation_group_smoke():
-    """Smoke test for module-level function create_consolidation_group."""
-    try:
-        result = await create_consolidation_group(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_consolidation_group needs specific input data: {e}")
-        return
-    assert True
+async def test_create_consolidation_group_returns_group():
+    service = MagicMock()
+    service.create_consolidation_group = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_consolidation_group(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_list_consolidation_groups_smoke():
-    """Smoke test for module-level function list_consolidation_groups."""
-    try:
-        result = await list_consolidation_groups(is_active=True, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_consolidation_groups needs specific input data: {e}")
-        return
-    assert True
+async def test_list_consolidation_groups_returns_list():
+    service = MagicMock()
+    service.list_consolidation_groups = MagicMock(return_value=[])
+    result = await list_consolidation_groups(
+        is_active=True,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_consolidation_group_smoke():
-    """Smoke test for module-level function get_consolidation_group."""
-    try:
-        result = await get_consolidation_group(group_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_consolidation_group needs specific input data: {e}")
-        return
-    assert True
+async def test_get_consolidation_group_returns_group():
+    service = MagicMock()
+    service.get_consolidation_group = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_consolidation_group(
+        group_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_consolidation_group_smoke():
-    """Smoke test for module-level function update_consolidation_group."""
-    try:
-        result = await update_consolidation_group(group_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_consolidation_group needs specific input data: {e}")
-        return
-    assert True
+async def test_update_consolidation_group_returns_updated():
+    service = MagicMock()
+    service.update_consolidation_group = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_consolidation_group(
+        group_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_deactivate_consolidation_group_smoke():
-    """Smoke test for module-level function deactivate_consolidation_group."""
-    try:
-        result = await deactivate_consolidation_group(group_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"deactivate_consolidation_group needs specific input data: {e}")
-        return
-    assert True
+async def test_deactivate_consolidation_group_returns_success():
+    service = MagicMock()
+    service.deactivate_consolidation_group = MagicMock(return_value={"success": True})
+    result = await deactivate_consolidation_group(
+        group_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_add_group_member_smoke():
-    """Smoke test for module-level function add_group_member."""
-    try:
-        result = await add_group_member(group_id=uuid4(), legal_entity_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"add_group_member needs specific input data: {e}")
-        return
-    assert True
+async def test_add_group_member_returns_success():
+    service = MagicMock()
+    service.add_group_member = MagicMock(return_value={"success": True})
+    result = await add_group_member(
+        group_id=uuid4(),
+        legal_entity_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_remove_group_member_smoke():
-    """Smoke test for module-level function remove_group_member."""
-    try:
-        result = await remove_group_member(group_id=uuid4(), legal_entity_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"remove_group_member needs specific input data: {e}")
-        return
-    assert True
+async def test_remove_group_member_returns_success():
+    service = MagicMock()
+    service.remove_group_member = MagicMock(return_value={"success": True})
+    result = await remove_group_member(
+        group_id=uuid4(),
+        legal_entity_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_get_legal_entity_history_smoke():
-    """Smoke test for module-level function get_legal_entity_history."""
-    try:
-        result = await get_legal_entity_history(legal_entity_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_legal_entity_history needs specific input data: {e}")
-        return
-    assert True
+async def test_get_legal_entity_history_returns_list():
+    service = MagicMock()
+    service.get_legal_entity_history = MagicMock(return_value=[])
+    result = await get_legal_entity_history(
+        legal_entity_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_legal_entity_status_smoke():
-    """Smoke test for module-level function get_legal_entity_status."""
-    try:
-        result = await get_legal_entity_status(legal_entity_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_legal_entity_status needs specific input data: {e}")
-        return
-    assert True
+async def test_get_legal_entity_status_returns_status():
+    service = MagicMock()
+    service.get_legal_entity_status = MagicMock(return_value={"status": "active"})
+    result = await get_legal_entity_status(
+        legal_entity_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "status" in result

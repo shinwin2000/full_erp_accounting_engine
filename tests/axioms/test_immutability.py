@@ -8,6 +8,7 @@ ImmutabilityValidator, ImmutabilityAxiom, helper functions
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -40,7 +41,7 @@ from axioms.immutability import (
 
 def create_test_record(
     record_type: ImmutableRecordType = ImmutableRecordType.JOURNAL,
-    aggregate_id: UUID | None = None,
+    aggregate_id: uuid.UUID | None = None,
     version: int = 1,
     is_active: bool = True,
 ) -> ImmutableRecord:
@@ -104,7 +105,7 @@ class TestImmutableRecord:
         assert record.record_type == ImmutableRecordType.JOURNAL
         assert record.aggregate_id is not None
         assert record.version == 1
-        assert record.is_active is True
+        assert record.is_active
         assert record.data_hash != ""
         assert record.cryptographic_hash != ""
         assert record._version == 1
@@ -193,7 +194,7 @@ class TestImmutableRecord:
     def test_activate_activates_inactive(self):
         record = create_test_record(is_active=False)
         activated = record.activate("admin")
-        assert activated.is_active is True
+        assert activated.is_active
         assert activated._version == record._version + 1
 
     def test_deactivate_does_nothing_if_inactive(self):
@@ -204,13 +205,13 @@ class TestImmutableRecord:
     def test_deactivate_deactivates_active(self):
         record = create_test_record()
         deactivated = record.deactivate("admin", "test")
-        assert deactivated.is_active is False
+        assert not deactivated.is_active
         assert deactivated._version == record._version + 1
 
     def test_deactivate_default_alias(self):
         record = create_test_record()
         deactivated = record.deactivate_default()
-        assert deactivated.is_active is False
+        assert not deactivated.is_active
         assert deactivated._version == record._version + 1
 
     def test_lock_returns_self(self):
@@ -226,14 +227,14 @@ class TestImmutableRecord:
     def test_validate_returns_valid(self):
         record = create_test_record()
         result = record.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["record_id"] == str(record.record_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         record = create_test_record()
         object.__setattr__(record, "cryptographic_hash", "fake")
         result = record.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -241,13 +242,12 @@ class TestImmutableRecord:
         d = record.to_dict()
         assert d["record_type"] == "JOURNAL"
         assert d["aggregate_id"] == str(record.aggregate_id)
-        assert d["is_active"] is True
+        assert d["is_active"]
         assert "record_id" in d
 
     def test_from_dict_reconstructs(self):
         record = create_test_record()
         d = record.to_dict()
-        # Need to add full data_hash for reconstruction
         d["data_hash"] = record.data_hash
         d["signature"] = record.signature
         reconstructed = ImmutableRecord.from_dict(d)
@@ -264,7 +264,7 @@ class TestImmutableRecord:
         assert cloned.record_type == record.record_type
         assert cloned.version == record.version
         assert cloned._version == 1
-        assert cloned.is_active is True
+        assert cloned.is_active
 
     def test_snapshot_returns_summary(self):
         record = create_test_record()
@@ -368,14 +368,14 @@ class TestCorrectionRecord:
     def test_validate_returns_valid(self):
         correction = create_test_correction()
         result = correction.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["correction_id"] == str(correction.correction_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         correction = create_test_correction()
         object.__setattr__(correction, "cryptographic_hash", "fake")
         result = correction.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -438,7 +438,7 @@ class TestImmutabilityViolation:
         assert violation.target_record_id is not None
         assert violation.target_aggregate_id is not None
         assert violation.severity == ImmutabilityViolationSeverity.HIGH
-        assert violation.was_blocked is True
+        assert violation.was_blocked
         assert violation.forensic_evidence_hash != ""
         assert violation.cryptographic_hash != ""
         assert violation.version == 1
@@ -446,21 +446,21 @@ class TestImmutabilityViolation:
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["violation_id"] == str(violation.violation_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_validate_returns_errors_on_forensic_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "forensic_evidence_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Forensic hash mismatch" in result["errors"]
 
     def test_update_raises(self):
@@ -503,7 +503,7 @@ class TestImmutabilityViolation:
         d = violation.to_dict()
         assert d["severity"] == "HIGH"
         assert d["message"] == "Test violation"
-        assert d["was_blocked"] is True
+        assert d["was_blocked"]
         assert "violation_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -556,7 +556,7 @@ class TestImmutabilityValidator:
             user_id="user",
             module="test",
         )
-        assert is_allowed is True
+        assert is_allowed
         assert violation is None
 
     def test_validate_operation_on_draft_delete_allows(self):
@@ -568,7 +568,7 @@ class TestImmutabilityValidator:
             user_id="user",
             module="test",
         )
-        assert is_allowed is True
+        assert is_allowed
         assert violation is None
 
     def test_validate_operation_on_posted_allows_read(self):
@@ -580,7 +580,7 @@ class TestImmutabilityValidator:
             user_id="user",
             module="test",
         )
-        assert is_allowed is True
+        assert is_allowed
         assert violation is None
 
     def test_validate_operation_on_posted_blocks_update(self):
@@ -593,7 +593,7 @@ class TestImmutabilityValidator:
                 user_id="user",
                 module="test",
             )
-        assert is_allowed is False
+        assert not is_allowed
         assert violation is not None
         assert violation.severity == ImmutabilityViolationSeverity.CRITICAL
 
@@ -609,7 +609,7 @@ class TestImmutabilityValidator:
             correction_method=CorrectionMethod.REVERSAL_JOURNAL,
             bypass_authorization=["approver"],
         )
-        assert is_allowed is True
+        assert is_allowed
         assert violation is None
 
     def test_validate_operation_on_posted_blocks_correction_without_bypass(self):
@@ -625,7 +625,7 @@ class TestImmutabilityValidator:
                 correction_method=CorrectionMethod.REVERSAL_JOURNAL,
                 bypass_authorization=None,
             )
-        assert is_allowed is False
+        assert not is_allowed
         assert violation is not None
 
     def test_validate_operation_on_submitted_modify_without_bypass_blocks(self):
@@ -639,7 +639,7 @@ class TestImmutabilityValidator:
                 module="test",
                 bypass_authorization=None,
             )
-        assert is_allowed is False
+        assert not is_allowed
         assert violation is not None
         assert violation.severity == ImmutabilityViolationSeverity.MEDIUM
 
@@ -653,7 +653,7 @@ class TestImmutabilityValidator:
             module="test",
             bypass_authorization=["approver"],
         )
-        assert is_allowed is True
+        assert is_allowed
         assert violation is None
 
     def test_validate_operation_on_deleted_blocks(self):
@@ -666,7 +666,7 @@ class TestImmutabilityValidator:
                 user_id="user",
                 module="test",
             )
-        assert is_allowed is False
+        assert not is_allowed
         assert violation is not None
 
     def test_validate_state_transition_valid_posting(self):
@@ -678,7 +678,7 @@ class TestImmutabilityValidator:
             user_id="user",
             module="test",
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_state_transition_invalid_posting_from_draft(self):
@@ -691,7 +691,7 @@ class TestImmutabilityValidator:
                 user_id="user",
                 module="test",
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == ImmutabilityViolationSeverity.CRITICAL
 
@@ -704,7 +704,7 @@ class TestImmutabilityValidator:
             user_id="user",
             module="test",
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_state_transition_from_posted_to_draft_blocks(self):
@@ -717,7 +717,7 @@ class TestImmutabilityValidator:
                 user_id="user",
                 module="test",
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == ImmutabilityViolationSeverity.CATASTROPHIC
 
@@ -727,11 +727,11 @@ class TestImmutabilityValidator:
             to_state=DataState.REVERSED,
             aggregate_id=uuid.uuid4(),
             record_id=uuid.uuid4(),
-            user_id=None,  # No user, so require_approval triggers
+            user_id=None,
             module="test",
             require_approval=True,
         )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == ImmutabilityViolationSeverity.HIGH
 
@@ -772,7 +772,7 @@ class TestImmutabilityAxiom:
         record = create_test_record()
         axiom.save_immutable_record(record)
         result = axiom.delete_immutable_record(record.record_id)
-        assert result is True
+        assert result
         assert axiom.get_immutable_record(record.record_id) is None
 
     def test_save_and_get_corrections(self):
@@ -803,7 +803,7 @@ class TestImmutabilityAxiom:
         correction = create_test_correction()
         axiom.save_correction(correction)
         result = axiom.delete_correction(correction.correction_id)
-        assert result is True
+        assert result
         corrections = axiom.get_corrections()
         assert all(c.correction_id != correction.correction_id for c in corrections)
 
@@ -872,7 +872,7 @@ class TestImmutabilityAxiom:
             user_id="user",
             raise_on_violation=False,
         )
-        assert is_allowed is True
+        assert is_allowed
         assert violation is None
 
     def test_enforce_operation_blocks_posted_update(self):
@@ -887,7 +887,7 @@ class TestImmutabilityAxiom:
             user_id="user",
             raise_on_violation=False,
         )
-        assert is_allowed is False
+        assert not is_allowed
         assert violation is not None
 
     def test_enforce_operation_raises_on_critical(self):
@@ -916,7 +916,7 @@ class TestImmutabilityAxiom:
             user_id="user",
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
         assert axiom.get_aggregate_state(agg_id) == DataState.POSTED
 
@@ -932,7 +932,7 @@ class TestImmutabilityAxiom:
             user_id="user",
             raise_on_violation=False,
         )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
 
     def test_enforce_state_transition_raises(self):
@@ -995,33 +995,29 @@ class TestImmutabilityAxiom:
         assert correction is not None
         updated_original = axiom.get_immutable_record(original.record_id)
         assert updated_original is not None
-        assert updated_original.is_active is False
+        assert not updated_original.is_active
 
     def test_is_immutable(self):
         axiom = ImmutabilityAxiom()
-        assert axiom.is_immutable(DataState.POSTED) is True
-        assert axiom.is_immutable(DataState.REVERSED) is True
-        assert axiom.is_immutable(DataState.ARCHIVED) is True
-        assert axiom.is_immutable(DataState.DELETED) is True
-        assert axiom.is_immutable(DataState.DRAFT) is False
-        assert axiom.is_immutable(DataState.SUBMITTED) is False
-        assert axiom.is_immutable(DataState.APPROVED) is False
+        assert axiom.is_immutable(DataState.POSTED)
+        assert axiom.is_immutable(DataState.REVERSED)
+        assert axiom.is_immutable(DataState.ARCHIVED)
+        assert axiom.is_immutable(DataState.DELETED)
+        assert not axiom.is_immutable(DataState.DRAFT)
+        assert not axiom.is_immutable(DataState.SUBMITTED)
+        assert not axiom.is_immutable(DataState.APPROVED)
 
     def test_get_allowed_states_for_operation(self):
         axiom = ImmutabilityAxiom()
-        # READ allows all states
         assert len(axiom.get_allowed_states_for_operation("READ")) == 7
-        # UPDATE allows DRAFT, SUBMITTED, APPROVED
         update_states = axiom.get_allowed_states_for_operation("UPDATE")
         assert DataState.DRAFT in update_states
         assert DataState.SUBMITTED in update_states
         assert DataState.APPROVED in update_states
         assert DataState.POSTED not in update_states
-        # DELETE only DRAFT
         delete_states = axiom.get_allowed_states_for_operation("DELETE")
         assert DataState.DRAFT in delete_states
         assert len(delete_states) == 1
-        # REVERSE allows POSTED, REVERSED, ARCHIVED
         reverse_states = axiom.get_allowed_states_for_operation("REVERSE")
         assert DataState.POSTED in reverse_states
         assert DataState.REVERSED in reverse_states
@@ -1075,7 +1071,7 @@ class TestHelperFunctions:
         assert record.aggregate_id == aggregate_id
         assert record.version == 1
         assert record.data_hash != ""
-        assert record.is_active is True
+        assert record.is_active
 
     def test_state_from_string(self):
         assert state_from_string("DRAFT") == DataState.DRAFT

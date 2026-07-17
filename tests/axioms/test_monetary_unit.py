@@ -123,7 +123,7 @@ class TestCurrencyDefinition:
         assert curr.symbol == "T$"
         assert curr.decimal_places == 2
         assert curr.stability == MonetaryUnitStability.STABLE
-        assert curr.is_active is True
+        assert curr.is_active
         assert curr.country_code == "XX"
         assert curr.version == 1
         assert curr.cryptographic_hash != ""
@@ -168,7 +168,7 @@ class TestCurrencyDefinition:
     def test_private_validate_called(self):
         curr = create_test_currency()
         result = curr.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_private_ensure_hash_called(self):
         curr = create_test_currency()
@@ -220,7 +220,7 @@ class TestCurrencyDefinition:
         deleted = curr.delete("admin", "test")
         assert deleted.deleted_at is not None
         assert deleted.deleted_by == "admin"
-        assert deleted.is_active is False
+        assert not deleted.is_active
         assert deleted.version == curr.version + 1
 
     def test_restore_recovers_deleted_currency(self):
@@ -229,7 +229,7 @@ class TestCurrencyDefinition:
         restored = deleted.restore("admin")
         assert restored.deleted_at is None
         assert restored.deleted_by is None
-        assert restored.is_active is True
+        assert restored.is_active
 
     def test_restore_not_deleted_raises(self):
         curr = create_test_currency()
@@ -245,7 +245,7 @@ class TestCurrencyDefinition:
         curr = create_test_currency()
         deactivated = curr.deactivate("admin", "test")
         activated = deactivated.activate("admin")
-        assert activated.is_active is True
+        assert activated.is_active
         assert activated.version == deactivated.version + 1
 
     def test_deactivate_does_nothing_if_inactive(self):
@@ -272,14 +272,14 @@ class TestCurrencyDefinition:
     def test_validate_returns_valid(self):
         curr = create_test_currency()
         result = curr.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["currency_code"] == curr.currency_code
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         curr = create_test_currency()
         object.__setattr__(curr, "cryptographic_hash", "fake")
         result = curr.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_all_fields(self):
@@ -289,7 +289,7 @@ class TestCurrencyDefinition:
         assert d["currency_name"] == "Test Currency"
         assert d["symbol"] == "T$"
         assert d["stability"] == "STABLE"
-        assert d["is_active"] is True
+        assert d["is_active"]
         assert "created_at" in d
         assert d["version"] == 1
 
@@ -308,7 +308,7 @@ class TestCurrencyDefinition:
         cloned = curr.clone()
         assert cloned.currency_code == curr.currency_code + "_COPY"
         assert cloned.currency_name == curr.currency_name + " (COPY)"
-        assert cloned.is_active is False
+        assert not cloned.is_active
         assert cloned.version == 1
         assert cloned.stability == curr.stability
 
@@ -390,7 +390,7 @@ class TestExchangeRate:
     def test_private_validate_called(self):
         rate = create_test_exchange_rate()
         result = rate.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_private_ensure_hash_called(self):
         rate = create_test_exchange_rate()
@@ -486,14 +486,14 @@ class TestExchangeRate:
     def test_validate_returns_valid(self):
         rate = create_test_exchange_rate()
         result = rate.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["rate_id"] == str(rate.rate_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         rate = create_test_exchange_rate()
         object.__setattr__(rate, "cryptographic_hash", "fake")
         result = rate.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -567,9 +567,9 @@ class TestExchangeRate:
             created_at=now,
             expires_at=now + timedelta(days=1),
         )
-        assert rate.is_valid_on(now) is True
-        assert rate.is_valid_on(now - timedelta(days=2)) is False
-        assert rate.is_valid_on(now + timedelta(days=2)) is False
+        assert rate.is_valid_on(now)
+        assert not rate.is_valid_on(now - timedelta(days=2))
+        assert not rate.is_valid_on(now + timedelta(days=2))
 
     def test_convert_rounds_correctly(self):
         rate = ExchangeRate(
@@ -611,7 +611,7 @@ class TestMonetaryAmount:
     def test_private_validate_called(self):
         amount = create_test_amount()
         result = amount.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_private_ensure_hash_called(self):
         amount = create_test_amount()
@@ -673,14 +673,14 @@ class TestMonetaryAmount:
     def test_validate_returns_valid(self):
         amount = create_test_amount()
         result = amount.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["currency"] == "IDR"
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         amount = create_test_amount()
         object.__setattr__(amount, "cryptographic_hash", "fake")
         result = amount.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -783,14 +783,14 @@ class TestMonetaryUnitViolation:
         assert violation.currency_used == "USD"
         assert violation.functional_currency == "IDR"
         assert violation.severity == MonetaryUnitViolationSeverity.MEDIUM
-        assert violation.resolved is False
+        assert not violation.resolved
         assert violation.version == 1
         assert violation.cryptographic_hash != ""
 
     def test_private_validate_called(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_private_ensure_hash_called(self):
         violation = create_test_violation()
@@ -807,18 +807,18 @@ class TestMonetaryUnitViolation:
     def test_private_copy_called(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin")
-        assert resolved.resolved is True
+        assert resolved.resolved
 
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_update_raises(self):
@@ -867,7 +867,7 @@ class TestMonetaryUnitViolation:
         assert d["currency_used"] == "USD"
         assert d["functional_currency"] == "IDR"
         assert d["severity"] == "MEDIUM"
-        assert d["resolved"] is False
+        assert not d["resolved"]
 
     def test_from_dict_reconstructs(self):
         violation = create_test_violation()
@@ -883,7 +883,7 @@ class TestMonetaryUnitViolation:
         cloned = violation.clone()
         assert cloned.violation_id != violation.violation_id
         assert cloned.transaction_id == violation.transaction_id
-        assert cloned.resolved is False
+        assert not cloned.resolved
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -907,7 +907,7 @@ class TestMonetaryUnitViolation:
     def test_resolve_marks_resolved(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin")
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_at is not None
         assert resolved.resolved_by == "admin"
         assert resolved.version == violation.version + 1
@@ -931,7 +931,7 @@ class TestMonetaryUnitValidator:
             functional_currency="IDR",
             require_exchange_rate=False,
         )
-        assert result is True
+        assert result
         assert violation is None
         assert hint is None
 
@@ -943,7 +943,7 @@ class TestMonetaryUnitValidator:
             require_exchange_rate=True,
             exchange_rate_as_of=datetime.now(UTC),
         )
-        assert result is True
+        assert result
         assert violation is None
 
     def test_validate_currency_unsupported(self):
@@ -954,7 +954,7 @@ class TestMonetaryUnitValidator:
                 functional_currency="IDR",
                 require_exchange_rate=False,
             )
-        assert result is False
+        assert not result
         assert violation is not None
         assert violation.severity == MonetaryUnitViolationSeverity.CRITICAL
         assert "not supported" in violation.message
@@ -968,8 +968,7 @@ class TestMonetaryUnitValidator:
                 require_exchange_rate=True,
                 exchange_rate_as_of=datetime(2000, 1, 1, tzinfo=UTC),
             )
-        # If no rate found for that date, it should fail
-        assert result is False
+        assert not result
         assert violation is not None
         assert violation.severity == MonetaryUnitViolationSeverity.HIGH
 
@@ -1016,10 +1015,10 @@ class TestCurrencyRegistry:
 
     def test_default_currencies_loaded(self):
         reg = CurrencyRegistry()
-        assert reg.is_supported("IDR") is True
-        assert reg.is_supported("USD") is True
-        assert reg.is_supported("EUR") is True
-        assert reg.is_supported("XXX") is False
+        assert reg.is_supported("IDR")
+        assert reg.is_supported("USD")
+        assert reg.is_supported("EUR")
+        assert not reg.is_supported("XXX")
 
     def test_get_currency_returns_definition(self):
         reg = CurrencyRegistry()
@@ -1116,8 +1115,8 @@ class TestMonetaryUnitAxiom:
 
     def test_is_supported(self):
         axiom = MonetaryUnitAxiom()
-        assert axiom.is_supported("IDR") is True
-        assert axiom.is_supported("XXX") is False
+        assert axiom.is_supported("IDR")
+        assert not axiom.is_supported("XXX")
 
     def test_get_currency_definition(self):
         axiom = MonetaryUnitAxiom()
@@ -1181,7 +1180,7 @@ class TestMonetaryUnitAxiom:
             transaction_id=uuid.uuid4(),
             raise_on_violation=False,
         )
-        assert result is True
+        assert result
         assert violation is None
 
     def test_enforce_currency_unsupported(self):
@@ -1194,7 +1193,7 @@ class TestMonetaryUnitAxiom:
                 transaction_id=uuid.uuid4(),
                 raise_on_violation=False,
             )
-        assert result is False
+        assert not result
         assert violation is not None
 
     def test_enforce_currency_raises_on_violation(self):
@@ -1246,7 +1245,7 @@ class TestMonetaryUnitAxiom:
         axiom.save_violation(violation)
         resolved = axiom.resolve_violation(violation.violation_id, "admin")
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_by == "admin"
 
     def test_resolve_violation_already_resolved_returns_none(self):
@@ -1349,7 +1348,7 @@ class TestHelpers:
             country_code="SG",
         )
         assert curr.currency_code == "SGD"
-        assert curr.is_active is True
+        assert curr.is_active
 
     def test_register_currency_already_exists(self):
         with pytest.raises(CurrencyNotSupportedError, match="already registered"):

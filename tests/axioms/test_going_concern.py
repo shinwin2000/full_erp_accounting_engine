@@ -37,7 +37,7 @@ from axioms.going_concern import (
 # ============================================================================
 
 def create_test_assessment(
-    legal_entity_id: UUID | None = None,
+    legal_entity_id: uuid.UUID | None = None,
     status: GoingConcernStatus = GoingConcernStatus.HEALTHY,
     indicators: list[GoingConcernIndicator] | None = None,
 ) -> GoingConcernAssessment:
@@ -64,7 +64,7 @@ def create_test_assessment(
 
 
 def create_test_event(
-    legal_entity_id: UUID | None = None,
+    legal_entity_id: uuid.UUID | None = None,
     previous_status: GoingConcernStatus = GoingConcernStatus.HEALTHY,
     new_status: GoingConcernStatus = GoingConcernStatus.CAUTION,
 ) -> GoingConcernEvent:
@@ -111,7 +111,7 @@ class TestGoingConcernAssessment:
         assert assessment.legal_entity_id is not None
         assert assessment.status == GoingConcernStatus.HEALTHY
         assert assessment.financial_horizon_months == 12
-        assert assessment.is_mandatory_disclosure is False
+        assert not assessment.is_mandatory_disclosure
         assert assessment.version == 1
         assert assessment.cryptographic_hash != ""
 
@@ -121,22 +121,22 @@ class TestGoingConcernAssessment:
 
     def test_requires_disclosure_for_uncertain_or_negative(self):
         healthy = create_test_assessment(status=GoingConcernStatus.HEALTHY)
-        assert healthy.requires_disclosure() is False
+        assert not healthy.requires_disclosure()
 
         uncertain = create_test_assessment(status=GoingConcernStatus.UNCERTAIN)
-        assert uncertain.requires_disclosure() is True
+        assert uncertain.requires_disclosure()
 
         negative = create_test_assessment(status=GoingConcernStatus.NEGATIVE)
-        assert negative.requires_disclosure() is True
+        assert negative.requires_disclosure()
 
     def test_is_expired_handles_next_assessment_due(self):
         now = datetime.now(UTC)
         assessment = create_test_assessment()
         assessment.next_assessment_due = now - timedelta(days=1)
-        assert assessment.is_expired(now) is True
+        assert assessment.is_expired(now)
 
         assessment.next_assessment_due = now + timedelta(days=1)
-        assert assessment.is_expired(now) is False
+        assert not assessment.is_expired(now)
 
     def test_update_creates_new_version(self):
         assessment = create_test_assessment()
@@ -187,14 +187,14 @@ class TestGoingConcernAssessment:
     def test_validate_returns_valid(self):
         assessment = create_test_assessment()
         result = assessment.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["assessment_id"] == str(assessment.assessment_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         assessment = create_test_assessment()
         object.__setattr__(assessment, "cryptographic_hash", "fake")
         result = assessment.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -202,7 +202,7 @@ class TestGoingConcernAssessment:
         d = assessment.to_dict()
         assert d["status"] == "HEALTHY"
         assert d["financial_horizon_months"] == 12
-        assert d["is_mandatory_disclosure"] is False
+        assert not d["is_mandatory_disclosure"]
         assert "assessment_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -298,14 +298,14 @@ class TestGoingConcernEvent:
     def test_validate_returns_valid(self):
         event = create_test_event()
         result = event.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["event_id"] == str(event.event_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         event = create_test_event()
         object.__setattr__(event, "cryptographic_hash", "fake")
         result = event.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -363,20 +363,20 @@ class TestGoingConcernViolation:
         assert violation.legal_entity_id is not None
         assert violation.violation_type == "MISSING_ASSESSMENT"
         assert violation.severity == GoingConcernSeverity.HIGH
-        assert violation.resolved is False
+        assert not violation.resolved
         assert violation.version == 1
         assert violation.cryptographic_hash != ""
 
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_update_raises(self):
@@ -419,7 +419,7 @@ class TestGoingConcernViolation:
         d = violation.to_dict()
         assert d["violation_type"] == "MISSING_ASSESSMENT"
         assert d["severity"] == "HIGH"
-        assert d["resolved"] is False
+        assert not d["resolved"]
         assert "violation_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -436,7 +436,7 @@ class TestGoingConcernViolation:
         cloned = violation.clone()
         assert cloned.violation_id != violation.violation_id
         assert cloned.legal_entity_id == violation.legal_entity_id
-        assert cloned.resolved is False
+        assert not cloned.resolved
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -459,7 +459,7 @@ class TestGoingConcernViolation:
     def test_resolve_marks_resolved(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin", "Performed assessment")
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_at is not None
         assert resolved.resolved_by == "admin"
         assert resolved.resolution_action == "Performed assessment"
@@ -484,7 +484,7 @@ class TestGoingConcernValidator:
                 legal_entity_id=legal_entity_id,
                 last_assessment=None,
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.violation_type == "MISSING_ASSESSMENT"
         assert violation.severity == GoingConcernSeverity.HIGH
@@ -501,7 +501,7 @@ class TestGoingConcernValidator:
                 last_assessment=assessment,
                 current_date=now,
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.violation_type == "EXPIRED_ASSESSMENT"
         assert "overdue" in violation.message
@@ -516,7 +516,7 @@ class TestGoingConcernValidator:
             last_assessment=assessment,
             current_date=now,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
         assert hint is None
 
@@ -524,14 +524,14 @@ class TestGoingConcernValidator:
         legal_entity_id = uuid.uuid4()
         now = datetime.now(UTC)
         assessment = create_test_assessment(legal_entity_id=legal_entity_id)
-        assessment.next_assessment_due = now + timedelta(days=15)  # Within warning threshold
+        assessment.next_assessment_due = now + timedelta(days=15)
         with caplog.at_level("WARNING"):
             is_valid, violation, hint = GoingConcernValidator.validate_assessment_timeliness(
                 legal_entity_id=legal_entity_id,
                 last_assessment=assessment,
                 current_date=now,
             )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
         assert "expires in" in caplog.text
 
@@ -569,7 +569,7 @@ class TestGoingConcernAxiom:
         assessment = create_test_assessment()
         axiom.save_assessment(assessment)
         result = axiom.delete_assessment(assessment.legal_entity_id)
-        assert result is True
+        assert result
         assert axiom.get_assessment(assessment.legal_entity_id) is None
 
     def test_save_and_get_events(self):
@@ -610,7 +610,7 @@ class TestGoingConcernAxiom:
         event = create_test_event()
         axiom.save_event(event)
         result = axiom.delete_event(event.event_id)
-        assert result is True
+        assert result
         events = axiom.get_events()
         assert all(e.event_id != event.event_id for e in events)
 
@@ -654,7 +654,7 @@ class TestGoingConcernAxiom:
         axiom.save_violation(violation)
         resolved = axiom.resolve_violation(violation.violation_id, "admin", "Fixed")
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_by == "admin"
 
     def test_resolve_violation_not_found(self):
@@ -675,7 +675,7 @@ class TestGoingConcernAxiom:
         )
         assert assessment is not None
         assert assessment.status == GoingConcernStatus.HEALTHY
-        assert assessment.is_mandatory_disclosure is False
+        assert not assessment.is_mandatory_disclosure
         retrieved = axiom.get_assessment(entity_id)
         assert retrieved is not None
 
@@ -692,7 +692,7 @@ class TestGoingConcernAxiom:
                 ],
                 mitigating_factors=["Parent company support"],
                 assessment_notes="Uncertain assessment",
-                approved_by=["only_one"],  # Only 1 approver
+                approved_by=["only_one"],
             )
 
     def test_perform_assessment_uncertain_with_approvers(self):
@@ -715,7 +715,6 @@ class TestGoingConcernAxiom:
     def test_perform_assessment_creates_event_on_status_change(self):
         axiom = GoingConcernAxiom()
         entity_id = uuid.uuid4()
-        # First assessment - healthy
         a1 = axiom.perform_assessment(
             legal_entity_id=entity_id,
             assessed_by="tester",
@@ -725,7 +724,6 @@ class TestGoingConcernAxiom:
         )
         assert a1.status == GoingConcernStatus.HEALTHY
 
-        # Second assessment - caution (status change)
         a2 = axiom.perform_assessment(
             legal_entity_id=entity_id,
             assessed_by="tester",
@@ -789,7 +787,7 @@ class TestGoingConcernAxiom:
             context={"period_end": datetime.now(UTC)},
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_enforce_fails_for_entity_without_assessment(self):
@@ -802,7 +800,7 @@ class TestGoingConcernAxiom:
                 context={},
                 raise_on_violation=False,
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
 
     def test_enforce_raises_for_major_transaction_without_assessment(self):

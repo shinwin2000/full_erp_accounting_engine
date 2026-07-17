@@ -188,8 +188,8 @@ class TestSubstanceOverFormAssessment:
             assessed_at=now,
             approved_by=["approver1", "approver2"],
         )
-        assert assessment.is_different is True
-        assert assessment.requires_adjustment() is True
+        assert assessment.is_different
+        assert assessment.requires_adjustment()
         assert assessment.cryptographic_hash != ""
 
 
@@ -214,7 +214,7 @@ class TestSubstanceViolation:
             correction_journal_id=None,
         )
         assert violation.severity == SubstanceAssessmentSeverity.HIGH
-        assert violation.resolved is False
+        assert not violation.resolved
         assert violation.cryptographic_hash != ""
 
     def test_resolve_marks_resolved(self):
@@ -237,7 +237,7 @@ class TestSubstanceViolation:
             correction_journal_id=None,
         )
         resolved = violation.resolve("admin", uuid.uuid4())
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_by == "admin"
         assert resolved.correction_journal_id is not None
 
@@ -271,7 +271,7 @@ class TestSubstanceOverFormValidator:
             legal, economic, uuid.uuid4()
         )
         # Should pass because substance matches type
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_lease_operating_lease_misclassification(self):
@@ -301,7 +301,7 @@ class TestSubstanceOverFormValidator:
         is_valid, violation, hint = SubstanceOverFormValidator.validate_lease(
             legal, economic, uuid.uuid4()
         )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == SubstanceAssessmentSeverity.HIGH
 
@@ -333,7 +333,7 @@ class TestSubstanceOverFormValidator:
             legal, economic, uuid.uuid4()
         )
         # Should pass because type matches
-        assert is_valid is True
+        assert is_valid
 
     def test_validate_factoring_without_recourse(self):
         """Test validate_factoring passes for sale without recourse."""
@@ -362,7 +362,7 @@ class TestSubstanceOverFormValidator:
         is_valid, violation = SubstanceOverFormValidator.validate_factoring(
             legal, economic, uuid.uuid4()
         )
-        assert is_valid is True
+        assert is_valid
 
     def test_validate_related_party_fair_value(self):
         """Test validate_related_party detects fair value discrepancy."""
@@ -391,7 +391,7 @@ class TestSubstanceOverFormValidator:
         is_valid, violation = SubstanceOverFormValidator.validate_related_party(
             legal, economic, uuid.uuid4(), tolerance_percent=Decimal("5")
         )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert "fair value" in violation.message
 
@@ -432,7 +432,7 @@ class TestSubstanceOverFormAxiom:
             assessed_by="admin",
             approved_by=["approver1", "approver2"],
         )
-        assert assessment.is_different is True
+        assert assessment.is_different
         assessments = axiom.get_assessments()
         assert len(assessments) >= 1
 
@@ -466,7 +466,7 @@ class TestSubstanceOverFormAxiom:
             raise_on_violation=False,
         )
         # Short-term lease, should pass
-        assert is_valid is True
+        assert is_valid
 
     def test_enforce_lease_fails_for_finance_lease(self):
         """Test enforce_lease fails for finance lease misclassification."""
@@ -585,7 +585,7 @@ class TestSubstanceOverFormAxiom:
         axiom.save_violation(violation)
         resolved = axiom.resolve_violation(violation.violation_id, "admin", uuid.uuid4())
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
 
     def test_get_substance_over_form_axiom_singleton(self):
         """Test get_substance_over_form_axiom returns singleton."""
@@ -634,6 +634,7 @@ class TestHelperFunctions:
         assert get_substance_type_from_string("FACTORING") == SubstanceOverrideType.FACTORING
         assert get_substance_type_from_string("unknown") == SubstanceOverrideType.LEASE
 
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -681,7 +682,7 @@ class TestLegalFormLifecycle:
     def test_validate_returns_valid(self):
         form = create_test_legal_form()
         result = form.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestEconomicSubstanceLifecycle:
@@ -779,7 +780,7 @@ class TestEconomicSubstanceLifecycle:
             supporting_evidence=[],
         )
         result = substance.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestSubstanceOverFormAssessmentLifecycle:
@@ -961,7 +962,7 @@ class TestSubstanceOverFormAssessmentLifecycle:
             approved_by=[],
         )
         result = assessment.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestSubstanceViolationLifecycle:
@@ -1089,4 +1090,4 @@ class TestSubstanceViolationLifecycle:
             correction_journal_id=None,
         )
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]

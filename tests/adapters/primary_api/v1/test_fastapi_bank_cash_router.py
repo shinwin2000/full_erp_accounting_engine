@@ -106,27 +106,15 @@ class TestIdempotencyManager:
             return
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestBankAccountType:
@@ -266,13 +254,8 @@ class TestBankAccountCreateSchema:
         )
 
     def test_construction_success(self):
-        """BankAccountCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankAccountCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankAccountCreateSchema(**kwargs)
         assert isinstance(instance, BankAccountCreateSchema)
         assert instance.account_number == kwargs['account_number']
 
@@ -293,13 +276,8 @@ class TestBankAccountUpdateSchema:
         )
 
     def test_construction_success(self):
-        """BankAccountUpdateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankAccountUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankAccountUpdateSchema(**kwargs)
         assert isinstance(instance, BankAccountUpdateSchema)
         assert instance.account_name == kwargs['account_name']
 
@@ -340,13 +318,8 @@ class TestBankAccountResponseSchema:
         )
 
     def test_construction_success(self):
-        """BankAccountResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankAccountResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankAccountResponseSchema(**kwargs)
         assert isinstance(instance, BankAccountResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -370,13 +343,8 @@ class TestBankTransactionCreateSchema:
         )
 
     def test_construction_success(self):
-        """BankTransactionCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransactionCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransactionCreateSchema(**kwargs)
         assert isinstance(instance, BankTransactionCreateSchema)
         assert instance.bank_account_id == kwargs['bank_account_id']
 
@@ -393,13 +361,8 @@ class TestBankTransactionUpdateSchema:
         )
 
     def test_construction_success(self):
-        """BankTransactionUpdateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransactionUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransactionUpdateSchema(**kwargs)
         assert isinstance(instance, BankTransactionUpdateSchema)
         assert instance.description == kwargs['description']
 
@@ -434,13 +397,8 @@ class TestBankTransactionResponseSchema:
         )
 
     def test_construction_success(self):
-        """BankTransactionResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransactionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransactionResponseSchema(**kwargs)
         assert isinstance(instance, BankTransactionResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -455,13 +413,8 @@ class TestBankTransactionReverseSchema:
         )
 
     def test_construction_success(self):
-        """BankTransactionReverseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransactionReverseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransactionReverseSchema(**kwargs)
         assert isinstance(instance, BankTransactionReverseSchema)
         assert instance.reason == kwargs['reason']
 
@@ -480,13 +433,8 @@ class TestBankReconciliationCreateSchema:
         )
 
     def test_construction_success(self):
-        """BankReconciliationCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankReconciliationCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankReconciliationCreateSchema(**kwargs)
         assert isinstance(instance, BankReconciliationCreateSchema)
         assert instance.bank_account_id == kwargs['bank_account_id']
 
@@ -520,13 +468,8 @@ class TestBankReconciliationResponseSchema:
         )
 
     def test_construction_success(self):
-        """BankReconciliationResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankReconciliationResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankReconciliationResponseSchema(**kwargs)
         assert isinstance(instance, BankReconciliationResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -549,13 +492,8 @@ class TestCashBookCreateSchema:
         )
 
     def test_construction_success(self):
-        """CashBookCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = CashBookCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = CashBookCreateSchema(**kwargs)
         assert isinstance(instance, CashBookCreateSchema)
         assert instance.name == kwargs['name']
 
@@ -588,13 +526,8 @@ class TestCashBookResponseSchema:
         )
 
     def test_construction_success(self):
-        """CashBookResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = CashBookResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = CashBookResponseSchema(**kwargs)
         assert isinstance(instance, CashBookResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -614,13 +547,8 @@ class TestCashBookUpdateSchema:
         )
 
     def test_construction_success(self):
-        """CashBookUpdateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = CashBookUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = CashBookUpdateSchema(**kwargs)
         assert isinstance(instance, CashBookUpdateSchema)
         assert instance.name == kwargs['name']
 
@@ -642,13 +570,8 @@ class TestCashTransactionCreateSchema:
         )
 
     def test_construction_success(self):
-        """CashTransactionCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = CashTransactionCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = CashTransactionCreateSchema(**kwargs)
         assert isinstance(instance, CashTransactionCreateSchema)
         assert instance.cash_book_id == kwargs['cash_book_id']
 
@@ -678,13 +601,8 @@ class TestCashTransactionResponseSchema:
         )
 
     def test_construction_success(self):
-        """CashTransactionResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = CashTransactionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = CashTransactionResponseSchema(**kwargs)
         assert isinstance(instance, CashTransactionResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -705,13 +623,8 @@ class TestPettyCashCreateSchema:
         )
 
     def test_construction_success(self):
-        """PettyCashCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = PettyCashCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = PettyCashCreateSchema(**kwargs)
         assert isinstance(instance, PettyCashCreateSchema)
         assert instance.fund_name == kwargs['fund_name']
 
@@ -740,13 +653,8 @@ class TestPettyCashResponseSchema:
         )
 
     def test_construction_success(self):
-        """PettyCashResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = PettyCashResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = PettyCashResponseSchema(**kwargs)
         assert isinstance(instance, PettyCashResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -764,13 +672,8 @@ class TestPettyCashReimbursementSchema:
         )
 
     def test_construction_success(self):
-        """PettyCashReimbursementSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = PettyCashReimbursementSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = PettyCashReimbursementSchema(**kwargs)
         assert isinstance(instance, PettyCashReimbursementSchema)
         assert instance.reimbursement_date == kwargs['reimbursement_date']
 
@@ -790,13 +693,8 @@ class TestBankTransferCreateSchema:
         )
 
     def test_construction_success(self):
-        """BankTransferCreateSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransferCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransferCreateSchema(**kwargs)
         assert isinstance(instance, BankTransferCreateSchema)
         assert instance.from_bank_account_id == kwargs['from_bank_account_id']
 
@@ -830,13 +728,8 @@ class TestBankTransferResponseSchema:
         )
 
     def test_construction_success(self):
-        """BankTransferResponseSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransferResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransferResponseSchema(**kwargs)
         assert isinstance(instance, BankTransferResponseSchema)
         assert instance.id == kwargs['id']
 
@@ -851,13 +744,8 @@ class TestBankTransferApproveSchema:
         )
 
     def test_construction_success(self):
-        """BankTransferApproveSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = BankTransferApproveSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = BankTransferApproveSchema(**kwargs)
         assert isinstance(instance, BankTransferApproveSchema)
         assert instance.approved == kwargs['approved']
 
@@ -880,13 +768,8 @@ class TestCashFlowReportSchema:
         )
 
     def test_construction_success(self):
-        """CashFlowReportSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = CashFlowReportSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = CashFlowReportSchema(**kwargs)
         assert isinstance(instance, CashFlowReportSchema)
         assert instance.legal_entity_id == kwargs['legal_entity_id']
 
@@ -905,13 +788,8 @@ class TestDailyCashPositionSchema:
         )
 
     def test_construction_success(self):
-        """DailyCashPositionSchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = DailyCashPositionSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = DailyCashPositionSchema(**kwargs)
         assert isinstance(instance, DailyCashPositionSchema)
         assert instance.as_of_date == kwargs['as_of_date']
 
@@ -928,13 +806,8 @@ class TestAccountBalanceHistorySchema:
         )
 
     def test_construction_success(self):
-        """AccountBalanceHistorySchema can be constructed with valid field values."""
         kwargs = self._build_kwargs()
-        try:
-            instance = AccountBalanceHistorySchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        instance = AccountBalanceHistorySchema(**kwargs)
         assert isinstance(instance, AccountBalanceHistorySchema)
         assert instance.as_of_date == kwargs['as_of_date']
 
@@ -946,57 +819,28 @@ class TestCashBookRepositoryAdapter:
         return CashBookRepositoryAdapter()
 
     def test_construction(self):
-        """CashBookRepositoryAdapter can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = self._build_instance()
         assert isinstance(instance, CashBookRepositoryAdapter)
 
-    async def test_add_smoke(self):
-        """Smoke test for CashBookRepositoryAdapter.add using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.add(cash_book=MagicMock())
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"add needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_add_returns_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.add(cash_book=MagicMock())
 
-    async def test_get_balance_smoke(self):
-        """Smoke test for CashBookRepositoryAdapter.get_balance using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_balance(cash_book_id=uuid4(), as_of_date=date.today())
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_balance needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_get_balance_returns_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_balance(cash_book_id=uuid4(), as_of_date=date.today())
 
-    async def test_get_by_id_smoke(self):
-        """Smoke test for CashBookRepositoryAdapter.get_by_id using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_by_id(cash_book_id=uuid4())
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_get_by_id_returns_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_by_id(cash_book_id=uuid4())
 
-    async def test_get_by_legal_entity_and_currency_smoke(self):
-        """Smoke test for CashBookRepositoryAdapter.get_by_legal_entity_and_currency using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_by_legal_entity_and_currency(legal_entity_id=uuid4(), currency_code="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_by_legal_entity_and_currency needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    async def test_get_by_legal_entity_and_currency_returns_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_by_legal_entity_and_currency(legal_entity_id=uuid4(), currency_code="test_value")
 
 
 class TestCashFlowRepositoryAdapter:
@@ -1006,431 +850,576 @@ class TestCashFlowRepositoryAdapter:
         return CashFlowRepositoryAdapter()
 
     def test_construction(self):
-        """CashFlowRepositoryAdapter can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = self._build_instance()
         assert isinstance(instance, CashFlowRepositoryAdapter)
 
-    async def test_get_cash_flow_smoke(self):
-        """Smoke test for CashFlowRepositoryAdapter.get_cash_flow using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = await instance.get_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today(), account_type="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cash_flow needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
-
-
-async def test_get_bank_cash_service_smoke():
-    """Smoke test for module-level function get_bank_cash_service."""
-    try:
-        result = await get_bank_cash_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_bank_cash_service needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_bank_reconciliation_use_case_smoke():
-    """Smoke test for module-level function get_bank_reconciliation_use_case."""
-    try:
-        result = await get_bank_reconciliation_use_case(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_bank_reconciliation_use_case needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_ping_smoke():
-    """Smoke test for module-level function ping."""
-    try:
-        result = ping()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ping needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_health_smoke():
-    """Smoke test for module-level function health."""
-    try:
-        result = health()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"health needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_info_smoke():
-    """Smoke test for module-level function info."""
-    try:
-        result = info()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"info needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_bank_account_smoke():
-    """Smoke test for module-level function create_bank_account."""
-    try:
-        result = await create_bank_account(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_bank_accounts_smoke():
-    """Smoke test for module-level function list_bank_accounts."""
-    try:
-        result = await list_bank_accounts(account_type=BankAccountType.CHECKING, currency="test_value", is_active=True, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_bank_accounts needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_bank_account_smoke():
-    """Smoke test for module-level function get_bank_account."""
-    try:
-        result = await get_bank_account(account_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_bank_account_smoke():
-    """Smoke test for module-level function update_bank_account."""
-    try:
-        result = await update_bank_account(account_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_deactivate_bank_account_smoke():
-    """Smoke test for module-level function deactivate_bank_account."""
-    try:
-        result = await deactivate_bank_account(account_id=uuid4(), permanent=True, reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"deactivate_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_activate_bank_account_smoke():
-    """Smoke test for module-level function activate_bank_account."""
-    try:
-        result = await activate_bank_account(account_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"activate_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_lock_bank_account_smoke():
-    """Smoke test for module-level function lock_bank_account."""
-    try:
-        result = await lock_bank_account(account_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_unlock_bank_account_smoke():
-    """Smoke test for module-level function unlock_bank_account."""
-    try:
-        result = await unlock_bank_account(account_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_bank_account needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_bank_transaction_smoke():
-    """Smoke test for module-level function create_bank_transaction."""
-    try:
-        result = await create_bank_transaction(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_bank_transaction needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_bank_transaction_smoke():
-    """Smoke test for module-level function get_bank_transaction."""
-    try:
-        result = await get_bank_transaction(transaction_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_bank_transaction needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_bank_transaction_smoke():
-    """Smoke test for module-level function update_bank_transaction."""
-    try:
-        result = await update_bank_transaction(transaction_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_bank_transaction needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reverse_bank_transaction_smoke():
-    """Smoke test for module-level function reverse_bank_transaction."""
-    try:
-        result = await reverse_bank_transaction(transaction_id=uuid4(), request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reverse_bank_transaction needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_bank_transactions_smoke():
-    """Smoke test for module-level function list_bank_transactions."""
-    try:
-        result = await list_bank_transactions(bank_account_id=uuid4(), start_date=date.today(), end_date=date.today(), transaction_type=MagicMock(), status=TransactionStatus.DRAFT, page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_bank_transactions needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_import_bank_statement_smoke():
-    """Smoke test for module-level function import_bank_statement."""
-    try:
-        result = await import_bank_statement(file=MagicMock(), bank_account_id=uuid4(), statement_date=date.today(), file_format="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"import_bank_statement needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reconcile_bank_smoke():
-    """Smoke test for module-level function reconcile_bank."""
-    try:
-        result = await reconcile_bank(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), use_case=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reconcile_bank needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_reconciliation_history_smoke():
-    """Smoke test for module-level function get_reconciliation_history."""
-    try:
-        result = await get_reconciliation_history(bank_account_id=uuid4(), limit=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_reconciliation_history needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_close_reconciliation_smoke():
-    """Smoke test for module-level function close_reconciliation."""
-    try:
-        result = await close_reconciliation(reconciliation_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"close_reconciliation needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_cash_book_smoke():
-    """Smoke test for module-level function create_cash_book."""
-    try:
-        result = await create_cash_book(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_cash_book needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_cash_books_smoke():
-    """Smoke test for module-level function list_cash_books."""
-    try:
-        result = await list_cash_books(status=CashBookStatus.ACTIVE, custodian_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_cash_books needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_cash_book_by_id_smoke():
-    """Smoke test for module-level function get_cash_book_by_id."""
-    try:
-        result = await get_cash_book_by_id(cash_book_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_cash_book_by_id needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_cash_books_by_currency_smoke():
-    """Smoke test for module-level function get_cash_books_by_currency."""
-    try:
-        result = await get_cash_books_by_currency(currency_code="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_cash_books_by_currency needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_cash_book_transactions_smoke():
-    """Smoke test for module-level function get_cash_book_transactions."""
-    try:
-        result = await get_cash_book_transactions(cash_book_id=uuid4(), start_date=date.today(), end_date=date.today(), limit=1, offset=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_cash_book_transactions needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_cash_book_smoke():
-    """Smoke test for module-level function update_cash_book."""
-    try:
-        result = await update_cash_book(cash_book_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_cash_book needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_cash_book_balance_smoke():
-    """Smoke test for module-level function get_cash_book_balance."""
-    try:
-        result = await get_cash_book_balance(cash_book_id=uuid4(), as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_cash_book_balance needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_record_cash_transaction_smoke():
-    """Smoke test for module-level function record_cash_transaction."""
-    try:
-        result = await record_cash_transaction(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"record_cash_transaction needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_petty_cash_fund_smoke():
-    """Smoke test for module-level function create_petty_cash_fund."""
-    try:
-        result = await create_petty_cash_fund(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_petty_cash_fund needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reimburse_petty_cash_smoke():
-    """Smoke test for module-level function reimburse_petty_cash."""
-    try:
-        result = await reimburse_petty_cash(fund_id=uuid4(), request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reimburse_petty_cash needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_bank_transfer_smoke():
-    """Smoke test for module-level function create_bank_transfer."""
-    try:
-        result = await create_bank_transfer(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_bank_transfer needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_approve_bank_transfer_smoke():
-    """Smoke test for module-level function approve_bank_transfer."""
-    try:
-        result = await approve_bank_transfer(transfer_id=uuid4(), request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_bank_transfer needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_process_bank_transfer_smoke():
-    """Smoke test for module-level function process_bank_transfer."""
-    try:
-        result = await process_bank_transfer(transfer_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"process_bank_transfer needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_cancel_bank_transfer_smoke():
-    """Smoke test for module-level function cancel_bank_transfer."""
-    try:
-        result = await cancel_bank_transfer(transfer_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_bank_transfer needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_bank_balance_smoke():
-    """Smoke test for module-level function get_bank_balance."""
-    try:
-        result = await get_bank_balance(account_id=uuid4(), as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_bank_balance needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_bank_balance_history_smoke():
-    """Smoke test for module-level function get_bank_balance_history."""
-    try:
-        result = await get_bank_balance_history(account_id=uuid4(), start_date=date.today(), end_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_bank_balance_history needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_cash_flow_report_smoke():
-    """Smoke test for module-level function get_cash_flow_report."""
-    try:
-        result = await get_cash_flow_report(start_date=date.today(), end_date=date.today(), account_type=BankAccountType.CHECKING, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_cash_flow_report needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_daily_cash_position_smoke():
-    """Smoke test for module-level function get_daily_cash_position."""
-    try:
-        result = await get_daily_cash_position(as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_daily_cash_position needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_export_bank_transactions_smoke():
-    """Smoke test for module-level function export_bank_transactions."""
-    try:
-        result = await export_bank_transactions(bank_account_id=uuid4(), start_date=date.today(), end_date=date.today(), format="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_bank_transactions needs specific input data: {e}")
-        return
-    assert True
+    async def test_get_cash_flow_returns_not_implemented(self):
+        instance = self._build_instance()
+        with pytest.raises(NotImplementedError):
+            await instance.get_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today(), account_type="test_value")
+
+
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_bank_cash_service():
+    """Test get_bank_cash_service returns a service instance."""
+    request = MagicMock()
+    result = await get_bank_cash_service(request=request)
+    assert result is not None
+
+
+async def test_get_bank_reconciliation_use_case():
+    """Test get_bank_reconciliation_use_case returns a use case instance."""
+    request = MagicMock()
+    result = await get_bank_reconciliation_use_case(request=request)
+    assert result is not None
+
+
+def test_ping_returns_pong():
+    """Test ping endpoint returns expected response."""
+    result = ping()
+    assert isinstance(result, dict)
+    assert result.get("status") == "ok" or "pong" in str(result)
+
+
+def test_health_returns_status():
+    """Test health endpoint returns health status."""
+    result = health()
+    assert isinstance(result, dict)
+    assert "status" in result
+
+
+def test_info_returns_info():
+    """Test info endpoint returns service information."""
+    result = info()
+    assert isinstance(result, dict)
+    assert "version" in result or "name" in result
+
+
+async def test_create_bank_account_returns_response():
+    request = MagicMock()
+    service = MagicMock()
+    service.create_bank_account = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_bank_account(
+        request=request,
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert isinstance(result, dict)
+    assert "id" in result
+
+
+async def test_list_bank_accounts_returns_list():
+    service = MagicMock()
+    service.list_bank_accounts = MagicMock(return_value=[])
+    result = await list_bank_accounts(
+        account_type=BankAccountType.CHECKING,
+        currency="IDR",
+        is_active=True,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_bank_account_returns_account():
+    service = MagicMock()
+    service.get_bank_account = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_bank_account(
+        account_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_update_bank_account_returns_updated():
+    service = MagicMock()
+    service.update_bank_account = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_bank_account(
+        account_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_deactivate_bank_account_returns_success():
+    service = MagicMock()
+    service.deactivate_bank_account = MagicMock(return_value={"success": True})
+    result = await deactivate_bank_account(
+        account_id=uuid4(),
+        permanent=True,
+        reason="test",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_activate_bank_account_returns_success():
+    service = MagicMock()
+    service.activate_bank_account = MagicMock(return_value={"success": True})
+    result = await activate_bank_account(
+        account_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_lock_bank_account_returns_success():
+    service = MagicMock()
+    service.lock_bank_account = MagicMock(return_value={"success": True})
+    result = await lock_bank_account(
+        account_id=uuid4(),
+        reason="test",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_unlock_bank_account_returns_success():
+    service = MagicMock()
+    service.unlock_bank_account = MagicMock(return_value={"success": True})
+    result = await unlock_bank_account(
+        account_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_bank_transaction_returns_transaction():
+    service = MagicMock()
+    service.create_bank_transaction = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_bank_transaction(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_bank_transaction_returns_transaction():
+    service = MagicMock()
+    service.get_bank_transaction = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_bank_transaction(
+        transaction_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_update_bank_transaction_returns_updated():
+    service = MagicMock()
+    service.update_bank_transaction = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_bank_transaction(
+        transaction_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_reverse_bank_transaction_returns_reversed():
+    service = MagicMock()
+    service.reverse_bank_transaction = MagicMock(return_value={"id": str(uuid4())})
+    result = await reverse_bank_transaction(
+        transaction_id=uuid4(),
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_bank_transactions_returns_list():
+    service = MagicMock()
+    service.list_bank_transactions = MagicMock(return_value=[])
+    result = await list_bank_transactions(
+        bank_account_id=uuid4(),
+        start_date=date.today(),
+        end_date=date.today(),
+        transaction_type=MagicMock(),
+        status=TransactionStatus.DRAFT,
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_import_bank_statement_returns_success():
+    service = MagicMock()
+    service.import_bank_statement = MagicMock(return_value={"success": True})
+    result = await import_bank_statement(
+        file=MagicMock(),
+        bank_account_id=uuid4(),
+        statement_date=date.today(),
+        file_format="csv",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_reconcile_bank_returns_reconciliation():
+    use_case = MagicMock()
+    use_case.execute = MagicMock(return_value={"id": str(uuid4())})
+    result = await reconcile_bank(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        use_case=use_case
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_reconciliation_history_returns_list():
+    service = MagicMock()
+    service.get_reconciliation_history = MagicMock(return_value=[])
+    result = await get_reconciliation_history(
+        bank_account_id=uuid4(),
+        limit=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_close_reconciliation_returns_success():
+    service = MagicMock()
+    service.close_reconciliation = MagicMock(return_value={"success": True})
+    result = await close_reconciliation(
+        reconciliation_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_cash_book_returns_cash_book():
+    service = MagicMock()
+    service.create_cash_book = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_cash_book(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_cash_books_returns_list():
+    service = MagicMock()
+    service.list_cash_books = MagicMock(return_value=[])
+    result = await list_cash_books(
+        status=CashBookStatus.ACTIVE,
+        custodian_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_cash_book_by_id_returns_cash_book():
+    service = MagicMock()
+    service.get_cash_book_by_id = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_cash_book_by_id(
+        cash_book_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_cash_books_by_currency_returns_list():
+    service = MagicMock()
+    service.get_cash_books_by_currency = MagicMock(return_value=[])
+    result = await get_cash_books_by_currency(
+        currency_code="IDR",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_cash_book_transactions_returns_list():
+    service = MagicMock()
+    service.get_cash_book_transactions = MagicMock(return_value=[])
+    result = await get_cash_book_transactions(
+        cash_book_id=uuid4(),
+        start_date=date.today(),
+        end_date=date.today(),
+        limit=10,
+        offset=0,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_update_cash_book_returns_updated():
+    service = MagicMock()
+    service.update_cash_book = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_cash_book(
+        cash_book_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_cash_book_balance_returns_balance():
+    service = MagicMock()
+    service.get_cash_book_balance = MagicMock(return_value={"balance": 100.0})
+    result = await get_cash_book_balance(
+        cash_book_id=uuid4(),
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "balance" in result
+
+
+async def test_record_cash_transaction_returns_transaction():
+    service = MagicMock()
+    service.record_cash_transaction = MagicMock(return_value={"id": str(uuid4())})
+    result = await record_cash_transaction(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_create_petty_cash_fund_returns_fund():
+    service = MagicMock()
+    service.create_petty_cash_fund = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_petty_cash_fund(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_reimburse_petty_cash_returns_success():
+    service = MagicMock()
+    service.reimburse_petty_cash = MagicMock(return_value={"success": True})
+    result = await reimburse_petty_cash(
+        fund_id=uuid4(),
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_bank_transfer_returns_transfer():
+    service = MagicMock()
+    service.create_bank_transfer = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_bank_transfer(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_approve_bank_transfer_returns_approved():
+    service = MagicMock()
+    service.approve_bank_transfer = MagicMock(return_value={"id": str(uuid4())})
+    result = await approve_bank_transfer(
+        transfer_id=uuid4(),
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_process_bank_transfer_returns_processed():
+    service = MagicMock()
+    service.process_bank_transfer = MagicMock(return_value={"id": str(uuid4())})
+    result = await process_bank_transfer(
+        transfer_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_cancel_bank_transfer_returns_success():
+    service = MagicMock()
+    service.cancel_bank_transfer = MagicMock(return_value={"success": True})
+    result = await cancel_bank_transfer(
+        transfer_id=uuid4(),
+        reason="test",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_bank_balance_returns_balance():
+    service = MagicMock()
+    service.get_bank_balance = MagicMock(return_value={"balance": 100.0})
+    result = await get_bank_balance(
+        account_id=uuid4(),
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "balance" in result
+
+
+async def test_get_bank_balance_history_returns_list():
+    service = MagicMock()
+    service.get_bank_balance_history = MagicMock(return_value=[])
+    result = await get_bank_balance_history(
+        account_id=uuid4(),
+        start_date=date.today(),
+        end_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_cash_flow_report_returns_report():
+    service = MagicMock()
+    service.get_cash_flow_report = MagicMock(return_value={"cash_flow": []})
+    result = await get_cash_flow_report(
+        start_date=date.today(),
+        end_date=date.today(),
+        account_type=BankAccountType.CHECKING,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "cash_flow" in result
+
+
+async def test_get_daily_cash_position_returns_list():
+    service = MagicMock()
+    service.get_daily_cash_position = MagicMock(return_value=[])
+    result = await get_daily_cash_position(
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert isinstance(result, list)
+
+
+async def test_export_bank_transactions_returns_export():
+    service = MagicMock()
+    service.export_bank_transactions = MagicMock(return_value={"file": "base64data"})
+    result = await export_bank_transactions(
+        bank_account_id=uuid4(),
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service
+    )
+    assert result is not None
+    assert "file" in result

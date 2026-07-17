@@ -58,8 +58,8 @@ class TestAmendmentProposal:
         assert proposal.amendment_type == AmendmentType.ADD_RULE
         assert proposal.proposed_by == "admin"
         assert proposal.status == AmendmentStatus.DRAFT
-        assert proposal.is_expired() is False
-        assert proposal.can_be_processed() is True
+        assert not proposal.is_expired()
+        assert proposal.can_be_processed()
         assert proposal.version() == 1
 
     def test_validate_requires_target_rule_for_modify(self):
@@ -219,8 +219,8 @@ class TestAmendmentProposal:
             version="1.0",
             expires_at=now - timedelta(days=1),
         )
-        assert proposal.is_expired() is True
-        assert proposal.can_be_processed() is False
+        assert proposal.is_expired()
+        assert not proposal.can_be_processed()
 
 
 class TestAmendmentVoteRecord:
@@ -238,7 +238,7 @@ class TestAmendmentVoteRecord:
         )
         assert vote.voter_id == "committee_member"
         assert vote.vote == AmendmentVote.APPROVE
-        assert vote.is_approval() is True
+        assert vote.is_approval()
         assert vote.comment == "Looks good"
 
     def test_is_approval(self):
@@ -259,8 +259,8 @@ class TestAmendmentVoteRecord:
             voted_at=datetime.now(UTC),
             cryptographic_signature="s",
         )
-        assert approve.is_approval() is True
-        assert reject.is_approval() is False
+        assert approve.is_approval()
+        assert not reject.is_approval()
 
 
 class TestAmendmentExecutionRecord:
@@ -278,7 +278,7 @@ class TestAmendmentExecutionRecord:
             success=True,
             rollback_executed=False,
         )
-        assert execution.success is True
+        assert execution.success
         assert len(execution.migration_log) == 2
         assert execution.version == 1
 
@@ -296,7 +296,7 @@ class TestAmendmentReviewComment:
             is_required_change=True,
         )
         assert comment.reviewer_id == "reviewer1"
-        assert comment.is_required_change is True
+        assert comment.is_required_change
 
 
 class TestAmendmentProtocol:
@@ -559,7 +559,7 @@ class TestAmendmentProtocol:
             "admin",
             state_hasher=state_hasher,
         )
-        assert execution.success is True
+        assert execution.success
 
     def test_execute_amendment_not_approved(self):
         """Test execute_amendment rejects non-approved proposal."""
@@ -781,7 +781,7 @@ class TestAmendmentProposalLifecycle:
     def test_validate_returns_valid(self):
         proposal = create_test_proposal()
         result = proposal.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestAmendmentVoteRecordLifecycle:
@@ -855,7 +855,7 @@ class TestAmendmentVoteRecordLifecycle:
             cryptographic_signature="sig",
         )
         result = vote.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestAmendmentExecutionRecordLifecycle:
@@ -947,7 +947,7 @@ class TestAmendmentExecutionRecordLifecycle:
             rollback_executed=False,
         )
         result = execution.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestAmendmentReviewCommentLifecycle:
@@ -1021,4 +1021,4 @@ class TestAmendmentReviewCommentLifecycle:
             is_required_change=False,
         )
         result = comment.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]

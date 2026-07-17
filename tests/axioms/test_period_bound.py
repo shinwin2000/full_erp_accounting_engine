@@ -96,9 +96,9 @@ class TestAccountingPeriod:
             end_date=end,
             status=PeriodStatus.OPEN,
         )
-        assert period.contains(datetime(2026, 1, 15, tzinfo=UTC)) is True
-        assert period.contains(datetime(2026, 2, 1, tzinfo=UTC)) is False
-        assert period.contains(datetime(2025, 12, 31, tzinfo=UTC)) is False
+        assert period.contains(datetime(2026, 1, 15, tzinfo=UTC))
+        assert not period.contains(datetime(2026, 2, 1, tzinfo=UTC))
+        assert not period.contains(datetime(2025, 12, 31, tzinfo=UTC))
 
     def test_is_open_for_posting(self):
         """Test is_open_for_posting checks status."""
@@ -113,10 +113,10 @@ class TestAccountingPeriod:
             end_date=end,
             status=PeriodStatus.OPEN,
         )
-        assert period.is_open_for_posting() is True
+        assert period.is_open_for_posting()
 
         closed = period.close("admin")
-        assert closed.is_open_for_posting() is False
+        assert not closed.is_open_for_posting()
 
     def test_close_period(self):
         """Test close changes status to CLOSED."""
@@ -318,7 +318,7 @@ class TestPeriodBoundViolation:
             override_by=None,
         )
         assert violation.severity == PeriodBoundViolationSeverity.CRITICAL
-        assert violation.was_blocked is True
+        assert violation.was_blocked
         assert violation.cryptographic_hash != ""
 
     def test_grant_override(self):
@@ -341,7 +341,7 @@ class TestPeriodBoundViolation:
             override_by=None,
         )
         granted = violation.grant_override("admin")
-        assert granted.override_granted is True
+        assert granted.override_granted
         assert granted.override_by == "admin"
 
 
@@ -365,7 +365,7 @@ class TestPeriodBoundValidator:
             target_period=period,
             transaction_id=uuid.uuid4(),
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_transaction_period_future(self):
@@ -390,7 +390,7 @@ class TestPeriodBoundValidator:
             allow_future_posting=False,
             max_future_days=7,
         )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert "days ahead" in violation.message
 
@@ -413,7 +413,7 @@ class TestPeriodBoundValidator:
             target_period=period,
             transaction_id=uuid.uuid4(),
         )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == PeriodBoundViolationSeverity.CRITICAL
 
@@ -581,7 +581,7 @@ class TestPeriodBoundAxiom:
             transaction_id=uuid.uuid4(),
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
         assert target is not None
 
@@ -623,7 +623,6 @@ class TestPeriodBoundAxiom:
             year_name="FY2026",
             start_month=1,
         )
-        # Add 2 periods: one open, one closed
         start1 = datetime(2026, 1, 1, tzinfo=UTC)
         end1 = datetime(2026, 1, 31, tzinfo=UTC)
         period1 = create_accounting_period(
@@ -678,6 +677,7 @@ class TestPeriodBoundAxiom:
         axiom2 = get_period_bound_axiom()
         assert axiom1 is axiom2
 
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -725,7 +725,7 @@ class TestAccountingPeriodLifecycle:
     def test_validate_returns_valid(self):
         period = create_test_period()
         result = period.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_close_period_changes_status(self):
         period = create_test_period()
@@ -809,7 +809,7 @@ class TestFiscalYearDefinitionLifecycle:
             start_day=1,
         )
         result = fy.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
 
 class TestPeriodBoundViolationLifecycle:
@@ -937,4 +937,4 @@ class TestPeriodBoundViolationLifecycle:
             override_by=None,
         )
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]

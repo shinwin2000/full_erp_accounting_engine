@@ -85,47 +85,23 @@ from adapters.primary_api.v1.fastapi_iam_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestUserStatus:
-    """Tests for the UserStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(UserStatus, 'ACTIVE')
         assert hasattr(UserStatus, 'INACTIVE')
         assert hasattr(UserStatus, 'LOCKED')
@@ -135,1000 +111,856 @@ class TestUserStatus:
         assert hasattr(UserStatus, 'DELETED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(UserStatus.ACTIVE, UserStatus)
 
 
 class TestRoleStatus:
-    """Tests for the RoleStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(RoleStatus, 'ACTIVE')
         assert hasattr(RoleStatus, 'INACTIVE')
         assert hasattr(RoleStatus, 'DEPRECATED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(RoleStatus.ACTIVE, RoleStatus)
 
 
 class TestMFAType:
-    """Tests for the MFAType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(MFAType, 'TOTP')
         assert hasattr(MFAType, 'SMS')
         assert hasattr(MFAType, 'EMAIL')
         assert hasattr(MFAType, 'BACKUP_CODE')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(MFAType.TOTP, MFAType)
 
 
 class TestSessionStatus:
-    """Tests for the SessionStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(SessionStatus, 'ACTIVE')
         assert hasattr(SessionStatus, 'EXPIRED')
         assert hasattr(SessionStatus, 'REVOKED')
         assert hasattr(SessionStatus, 'LOGGED_OUT')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(SessionStatus.ACTIVE, SessionStatus)
 
 
 class TestUserCreateSchema:
-    """Tests for the UserCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            username="test_value",
-            email="test_value",
-            full_name="test_value",
-            password="test_value",
-            must_change_password=True,
-            legal_entity_ids=[uuid4()],
-            role_ids=[uuid4()],
-            department="test_value",
-            job_title="test_value",
-            phone_number="test_value",
-            is_superuser=True,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """UserCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = UserCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "full_name": "Test User",
+            "password": "SecurePass123!",
+            "must_change_password": True,
+            "legal_entity_ids": [uuid4()],
+            "role_ids": [uuid4()],
+            "department": "IT",
+            "job_title": "Developer",
+            "phone_number": "08123456789",
+            "is_superuser": False,
+            "notes": "Test note",
+        }
+        instance = UserCreateSchema(**kwargs)
         assert isinstance(instance, UserCreateSchema)
-        assert instance.username == kwargs['username']
+        assert instance.username == kwargs["username"]
 
 
 class TestUserUpdateSchema:
-    """Tests for the UserUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            full_name="test_value",
-            email="test_value",
-            department="test_value",
-            job_title="test_value",
-            phone_number="test_value",
-            status=UserStatus.ACTIVE,
-            notes="test_value",
-            legal_entity_ids=[uuid4()],
-            is_superuser=True,
-        )
-
     def test_construction_success(self):
-        """UserUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = UserUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "full_name": "Updated Name",
+            "email": "new@example.com",
+            "department": "Finance",
+            "job_title": "Manager",
+            "phone_number": "08123456788",
+            "status": UserStatus.ACTIVE,
+            "notes": "Updated notes",
+            "legal_entity_ids": [uuid4()],
+            "is_superuser": True,
+        }
+        instance = UserUpdateSchema(**kwargs)
         assert isinstance(instance, UserUpdateSchema)
-        assert instance.full_name == kwargs['full_name']
+        assert instance.full_name == kwargs["full_name"]
 
 
 class TestUserResponseSchema:
-    """Tests for the UserResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            username="test_value",
-            email="test_value",
-            full_name="test_value",
-            department="test_value",
-            job_title="test_value",
-            phone_number="test_value",
-            status=UserStatus.ACTIVE,
-            is_active=True,
-            is_locked=True,
-            is_superuser=True,
-            must_change_password=True,
-            mfa_enabled=True,
-            last_login_at=datetime.now(UTC),
-            last_password_change=datetime.now(UTC),
-            legal_entity_ids=[uuid4()],
-            role_ids=[uuid4()],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """UserResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = UserResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        user_id = uuid4()
+        kwargs = {
+            "id": user_id,
+            "username": "testuser",
+            "email": "test@example.com",
+            "full_name": "Test User",
+            "department": "IT",
+            "job_title": "Developer",
+            "phone_number": "08123456789",
+            "status": UserStatus.ACTIVE,
+            "is_active": True,
+            "is_locked": False,
+            "is_superuser": False,
+            "must_change_password": False,
+            "mfa_enabled": False,
+            "last_login_at": datetime.now(UTC),
+            "last_password_change": datetime.now(UTC),
+            "legal_entity_ids": [uuid4()],
+            "role_ids": [uuid4()],
+            "notes": "Test note",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = UserResponseSchema(**kwargs)
         assert isinstance(instance, UserResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == user_id
 
 
 class TestRoleCreateSchema:
-    """Tests for the RoleCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            name="test_value",
-            description="test_value",
-            parent_role_id=uuid4(),
-            is_system_role=True,
-        )
-
     def test_construction_success(self):
-        """RoleCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RoleCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "name": "admin",
+            "description": "Administrator role",
+            "parent_role_id": uuid4(),
+            "is_system_role": True,
+        }
+        instance = RoleCreateSchema(**kwargs)
         assert isinstance(instance, RoleCreateSchema)
-        assert instance.name == kwargs['name']
+        assert instance.name == kwargs["name"]
 
 
 class TestRoleUpdateSchema:
-    """Tests for the RoleUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            description="test_value",
-            status=RoleStatus.ACTIVE,
-            parent_role_id=uuid4(),
-        )
-
     def test_construction_success(self):
-        """RoleUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RoleUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "description": "Updated description",
+            "status": RoleStatus.ACTIVE,
+            "parent_role_id": uuid4(),
+        }
+        instance = RoleUpdateSchema(**kwargs)
         assert isinstance(instance, RoleUpdateSchema)
-        assert instance.description == kwargs['description']
+        assert instance.description == kwargs["description"]
 
 
 class TestRoleResponseSchema:
-    """Tests for the RoleResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            name="test_value",
-            description="test_value",
-            parent_role_id=uuid4(),
-            parent_role_name="test_value",
-            is_system_role=True,
-            status=RoleStatus.ACTIVE,
-            is_active=True,
-            permission_ids=[uuid4()],
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """RoleResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RoleResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        role_id = uuid4()
+        kwargs = {
+            "id": role_id,
+            "name": "admin",
+            "description": "Admin role",
+            "parent_role_id": uuid4(),
+            "parent_role_name": "parent",
+            "is_system_role": True,
+            "status": RoleStatus.ACTIVE,
+            "is_active": True,
+            "permission_ids": [uuid4()],
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = RoleResponseSchema(**kwargs)
         assert isinstance(instance, RoleResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == role_id
 
 
 class TestPermissionResponseSchema:
-    """Tests for the PermissionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            name="test_value",
-            resource="test_value",
-            action="test_value",
-            description="test_value",
-            is_system=True,
-            created_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """PermissionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = PermissionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        perm_id = uuid4()
+        kwargs = {
+            "id": perm_id,
+            "name": "read_users",
+            "resource": "users",
+            "action": "read",
+            "description": "Read users",
+            "is_system": True,
+            "created_at": datetime.now(UTC),
+        }
+        instance = PermissionResponseSchema(**kwargs)
         assert isinstance(instance, PermissionResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == perm_id
 
 
 class TestUserRoleAssignSchema:
-    """Tests for the UserRoleAssignSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            role_ids=[uuid4()],
-        )
-
     def test_construction_success(self):
-        """UserRoleAssignSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = UserRoleAssignSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"role_ids": [uuid4(), uuid4()]}
+        instance = UserRoleAssignSchema(**kwargs)
         assert isinstance(instance, UserRoleAssignSchema)
-        assert instance.role_ids == kwargs['role_ids']
+        assert len(instance.role_ids) == 2
 
 
 class TestRolePermissionAssignSchema:
-    """Tests for the RolePermissionAssignSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            permission_ids=[uuid4()],
-        )
-
     def test_construction_success(self):
-        """RolePermissionAssignSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RolePermissionAssignSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"permission_ids": [uuid4(), uuid4()]}
+        instance = RolePermissionAssignSchema(**kwargs)
         assert isinstance(instance, RolePermissionAssignSchema)
-        assert instance.permission_ids == kwargs['permission_ids']
+        assert len(instance.permission_ids) == 2
 
 
 class TestLoginRequestSchema:
-    """Tests for the LoginRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            username="test_value",
-            password="test_value",
-            mfa_code="test_value",
-            legal_entity_id=uuid4(),
-        )
-
     def test_construction_success(self):
-        """LoginRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LoginRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "username": "testuser",
+            "password": "password123",
+            "mfa_code": "123456",
+            "legal_entity_id": uuid4(),
+        }
+        instance = LoginRequestSchema(**kwargs)
         assert isinstance(instance, LoginRequestSchema)
-        assert instance.username == kwargs['username']
+        assert instance.username == kwargs["username"]
 
 
 class TestLoginResponseSchema:
-    """Tests for the LoginResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            access_token="test_value",
-            refresh_token="test_value",
-            token_type="test_value",
-            expires_in=1,
-            user=MagicMock(),
-        )
-
     def test_construction_success(self):
-        """LoginResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LoginResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "access_token": "access_token_123",
+            "refresh_token": "refresh_token_456",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "user": MagicMock(),
+        }
+        instance = LoginResponseSchema(**kwargs)
         assert isinstance(instance, LoginResponseSchema)
-        assert instance.access_token == kwargs['access_token']
+        assert instance.access_token == kwargs["access_token"]
 
 
 class TestRefreshTokenRequestSchema:
-    """Tests for the RefreshTokenRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            refresh_token="test_value",
-        )
-
     def test_construction_success(self):
-        """RefreshTokenRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RefreshTokenRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"refresh_token": "refresh_token_456"}
+        instance = RefreshTokenRequestSchema(**kwargs)
         assert isinstance(instance, RefreshTokenRequestSchema)
-        assert instance.refresh_token == kwargs['refresh_token']
+        assert instance.refresh_token == kwargs["refresh_token"]
 
 
 class TestChangePasswordSchema:
-    """Tests for the ChangePasswordSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            old_password="test_value",
-            new_password="test_value",
-        )
-
     def test_construction_success(self):
-        """ChangePasswordSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ChangePasswordSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"old_password": "old123", "new_password": "new456"}
+        instance = ChangePasswordSchema(**kwargs)
         assert isinstance(instance, ChangePasswordSchema)
-        assert instance.old_password == kwargs['old_password']
+        assert instance.old_password == kwargs["old_password"]
 
 
 class TestResetPasswordRequestSchema:
-    """Tests for the ResetPasswordRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            email="test_value",
-        )
-
     def test_construction_success(self):
-        """ResetPasswordRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ResetPasswordRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"email": "test@example.com"}
+        instance = ResetPasswordRequestSchema(**kwargs)
         assert isinstance(instance, ResetPasswordRequestSchema)
-        assert instance.email == kwargs['email']
+        assert instance.email == kwargs["email"]
 
 
 class TestResetPasswordConfirmSchema:
-    """Tests for the ResetPasswordConfirmSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            token="test_value",
-            new_password="test_value",
-        )
-
     def test_construction_success(self):
-        """ResetPasswordConfirmSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ResetPasswordConfirmSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"token": "reset_token_123", "new_password": "new456"}
+        instance = ResetPasswordConfirmSchema(**kwargs)
         assert isinstance(instance, ResetPasswordConfirmSchema)
-        assert instance.token == kwargs['token']
+        assert instance.token == kwargs["token"]
 
 
 class TestForgotPasswordResponseSchema:
-    """Tests for the ForgotPasswordResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            message="test_value",
-            reset_token="test_value",
-            reset_url="test_value",
-        )
-
     def test_construction_success(self):
-        """ForgotPasswordResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ForgotPasswordResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "message": "Reset link sent",
+            "reset_token": "token_123",
+            "reset_url": "https://example.com/reset/token_123",
+        }
+        instance = ForgotPasswordResponseSchema(**kwargs)
         assert isinstance(instance, ForgotPasswordResponseSchema)
-        assert instance.message == kwargs['message']
+        assert instance.message == kwargs["message"]
 
 
 class TestMFASetupResponseSchema:
-    """Tests for the MFASetupResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            secret_key="test_value",
-            qr_code_url="test_value",
-            backup_codes=["test_value"],
-            issuer="test_value",
-        )
-
     def test_construction_success(self):
-        """MFASetupResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = MFASetupResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "secret_key": "SECRET123",
+            "qr_code_url": "https://example.com/qr",
+            "backup_codes": ["code1", "code2"],
+            "issuer": "MyApp",
+        }
+        instance = MFASetupResponseSchema(**kwargs)
         assert isinstance(instance, MFASetupResponseSchema)
-        assert instance.secret_key == kwargs['secret_key']
+        assert instance.secret_key == kwargs["secret_key"]
 
 
 class TestMFAVerifySchema:
-    """Tests for the MFAVerifySchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            code="test_value",
-        )
-
     def test_construction_success(self):
-        """MFAVerifySchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = MFAVerifySchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"code": "123456"}
+        instance = MFAVerifySchema(**kwargs)
         assert isinstance(instance, MFAVerifySchema)
-        assert instance.code == kwargs['code']
+        assert instance.code == kwargs["code"]
 
 
 class TestMFADisableSchema:
-    """Tests for the MFADisableSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            password="test_value",
-            mfa_code="test_value",
-        )
-
     def test_construction_success(self):
-        """MFADisableSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = MFADisableSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"password": "mypassword", "mfa_code": "123456"}
+        instance = MFADisableSchema(**kwargs)
         assert isinstance(instance, MFADisableSchema)
-        assert instance.password == kwargs['password']
+        assert instance.password == kwargs["password"]
 
 
 class TestSessionResponseSchema:
-    """Tests for the SessionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            session_token="test_value",
-            user_id=uuid4(),
-            user_name="test_value",
-            ip_address="test_value",
-            user_agent="test_value",
-            device_id="test_value",
-            expires_at=datetime.now(UTC),
-            last_accessed_at=datetime.now(UTC),
-            is_active=True,
-            is_revoked=True,
-            created_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """SessionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SessionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        session_id = uuid4()
+        kwargs = {
+            "id": session_id,
+            "session_token": "token_123",
+            "user_id": uuid4(),
+            "user_name": "testuser",
+            "ip_address": "192.168.1.1",
+            "user_agent": "Mozilla/5.0",
+            "device_id": "device_123",
+            "expires_at": datetime.now(UTC),
+            "last_accessed_at": datetime.now(UTC),
+            "is_active": True,
+            "is_revoked": False,
+            "created_at": datetime.now(UTC),
+        }
+        instance = SessionResponseSchema(**kwargs)
         assert isinstance(instance, SessionResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == session_id
 
 
 class TestLoginAttemptResponseSchema:
-    """Tests for the LoginAttemptResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            username="test_value",
-            user_id=uuid4(),
-            ip_address="test_value",
-            user_agent="test_value",
-            success=True,
-            failure_reason="test_value",
-            attempted_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """LoginAttemptResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = LoginAttemptResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        attempt_id = uuid4()
+        kwargs = {
+            "id": attempt_id,
+            "username": "testuser",
+            "user_id": uuid4(),
+            "ip_address": "192.168.1.1",
+            "user_agent": "Mozilla/5.0",
+            "success": True,
+            "failure_reason": None,
+            "attempted_at": datetime.now(UTC),
+        }
+        instance = LoginAttemptResponseSchema(**kwargs)
         assert isinstance(instance, LoginAttemptResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == attempt_id
 
 
 class TestUserAuditLogSchema:
-    """Tests for the UserAuditLogSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            user_id=uuid4(),
-            action="test_value",
-            ip_address="test_value",
-            user_agent="test_value",
-            details={},
-            created_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """UserAuditLogSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = UserAuditLogSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        log_id = uuid4()
+        kwargs = {
+            "id": log_id,
+            "user_id": uuid4(),
+            "action": "LOGIN",
+            "ip_address": "192.168.1.1",
+            "user_agent": "Mozilla/5.0",
+            "details": {"source": "web"},
+            "created_at": datetime.now(UTC),
+        }
+        instance = UserAuditLogSchema(**kwargs)
         assert isinstance(instance, UserAuditLogSchema)
-        assert instance.id == kwargs['id']
-
-
-async def test_get_iam_service_smoke():
-    """Smoke test for module-level function get_iam_service."""
-    try:
-        result = await get_iam_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_iam_service needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_ping_smoke():
-    """Smoke test for module-level function ping."""
-    try:
-        result = ping()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ping needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_health_smoke():
-    """Smoke test for module-level function health."""
-    try:
-        result = health()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"health needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_info_smoke():
-    """Smoke test for module-level function info."""
-    try:
-        result = info()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"info needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_user_smoke():
-    """Smoke test for module-level function create_user."""
-    try:
-        result = await create_user(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_users_smoke():
-    """Smoke test for module-level function list_users."""
-    try:
-        result = await list_users(status=UserStatus.ACTIVE, is_active=True, search="test_value", role_id=uuid4(), legal_entity_id_filter=uuid4(), page=1, page_size=1, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_users needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_smoke():
-    """Smoke test for module-level function get_user."""
-    try:
-        result = await get_user(user_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_by_username_smoke():
-    """Smoke test for module-level function get_user_by_username."""
-    try:
-        result = await get_user_by_username(username="test_value", _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user_by_username needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_user_smoke():
-    """Smoke test for module-level function update_user."""
-    try:
-        result = await update_user(user_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_deactivate_user_smoke():
-    """Smoke test for module-level function deactivate_user."""
-    try:
-        result = await deactivate_user(user_id=uuid4(), permanent=True, reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"deactivate_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_activate_user_smoke():
-    """Smoke test for module-level function activate_user."""
-    try:
-        result = await activate_user(user_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"activate_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_lock_user_smoke():
-    """Smoke test for module-level function lock_user."""
-    try:
-        result = await lock_user(user_id=uuid4(), reason="test_value", duration_minutes=1, idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_unlock_user_smoke():
-    """Smoke test for module-level function unlock_user."""
-    try:
-        result = await unlock_user(user_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_role_smoke():
-    """Smoke test for module-level function create_role."""
-    try:
-        result = await create_role(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_role needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_roles_smoke():
-    """Smoke test for module-level function list_roles."""
-    try:
-        result = await list_roles(status=RoleStatus.ACTIVE, is_active=True, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_roles needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_role_smoke():
-    """Smoke test for module-level function get_role."""
-    try:
-        result = await get_role(role_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_role needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_role_smoke():
-    """Smoke test for module-level function update_role."""
-    try:
-        result = await update_role(role_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_role needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_delete_role_smoke():
-    """Smoke test for module-level function delete_role."""
-    try:
-        result = await delete_role(role_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"delete_role needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_assign_roles_to_user_smoke():
-    """Smoke test for module-level function assign_roles_to_user."""
-    try:
-        result = await assign_roles_to_user(user_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"assign_roles_to_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_roles_smoke():
-    """Smoke test for module-level function get_user_roles."""
-    try:
-        result = await get_user_roles(user_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user_roles needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_remove_role_from_user_smoke():
-    """Smoke test for module-level function remove_role_from_user."""
-    try:
-        result = await remove_role_from_user(user_id=uuid4(), role_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"remove_role_from_user needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_permissions_smoke():
-    """Smoke test for module-level function list_permissions."""
-    try:
-        result = await list_permissions(resource="test_value", _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_permissions needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_assign_permissions_to_role_smoke():
-    """Smoke test for module-level function assign_permissions_to_role."""
-    try:
-        result = await assign_permissions_to_role(role_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"assign_permissions_to_role needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_role_permissions_smoke():
-    """Smoke test for module-level function get_role_permissions."""
-    try:
-        result = await get_role_permissions(role_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_role_permissions needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_remove_permission_from_role_smoke():
-    """Smoke test for module-level function remove_permission_from_role."""
-    try:
-        result = await remove_permission_from_role(role_id=uuid4(), permission_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"remove_permission_from_role needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_login_smoke():
-    """Smoke test for module-level function login."""
-    try:
-        result = await login(request=MagicMock(), ip_address="test_value", user_agent="test_value", service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"login needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_logout_smoke():
-    """Smoke test for module-level function logout."""
-    try:
-        result = await logout(current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"logout needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_refresh_token_smoke():
-    """Smoke test for module-level function refresh_token."""
-    try:
-        result = await refresh_token(request=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"refresh_token needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_change_password_smoke():
-    """Smoke test for module-level function change_password."""
-    try:
-        result = await change_password(request=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"change_password needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_forgot_password_smoke():
-    """Smoke test for module-level function forgot_password."""
-    try:
-        result = await forgot_password(request=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"forgot_password needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reset_password_smoke():
-    """Smoke test for module-level function reset_password."""
-    try:
-        result = await reset_password(request=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reset_password needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_setup_mfa_smoke():
-    """Smoke test for module-level function setup_mfa."""
-    try:
-        result = await setup_mfa(current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"setup_mfa needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_verify_mfa_smoke():
-    """Smoke test for module-level function verify_mfa."""
-    try:
-        result = await verify_mfa(request=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"verify_mfa needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_disable_mfa_smoke():
-    """Smoke test for module-level function disable_mfa."""
-    try:
-        result = await disable_mfa(request=MagicMock(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"disable_mfa needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_sessions_smoke():
-    """Smoke test for module-level function get_user_sessions."""
-    try:
-        result = await get_user_sessions(current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user_sessions needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_revoke_session_smoke():
-    """Smoke test for module-level function revoke_session."""
-    try:
-        result = await revoke_session(session_id=uuid4(), current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"revoke_session needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_revoke_all_other_sessions_smoke():
-    """Smoke test for module-level function revoke_all_other_sessions."""
-    try:
-        result = await revoke_all_other_sessions(current_user=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"revoke_all_other_sessions needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_login_attempts_smoke():
-    """Smoke test for module-level function get_login_attempts."""
-    try:
-        result = await get_login_attempts(username="test_value", success=True, start_date=datetime.now(UTC), end_date=datetime.now(UTC), page=1, page_size=1, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_login_attempts needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_audit_log_smoke():
-    """Smoke test for module-level function get_user_audit_log."""
-    try:
-        result = await get_user_audit_log(user_id=uuid4(), limit=1, _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user_audit_log needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_status_smoke():
-    """Smoke test for module-level function get_user_status."""
-    try:
-        result = await get_user_status(user_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user_status needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_user_history_smoke():
-    """Smoke test for module-level function get_user_history."""
-    try:
-        result = await get_user_history(user_id=uuid4(), _permission=MagicMock(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_user_history needs specific input data: {e}")
-        return
-    assert True
+        assert instance.id == log_id
+
+
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_iam_service_returns_service():
+    request = MagicMock()
+    result = await get_iam_service(request=request)
+    assert result is not None
+
+
+def test_ping_returns_dict():
+    result = ping()
+    assert isinstance(result, dict)
+    # Typically returns {"status": "ok"} or similar
+    assert "status" in result or "pong" in str(result)
+
+
+def test_health_returns_dict():
+    result = health()
+    assert isinstance(result, dict)
+    assert "status" in result
+
+
+def test_info_returns_dict():
+    result = info()
+    assert isinstance(result, dict)
+    # Usually contains version/name
+    assert "version" in result or "name" in result
+
+
+async def test_create_user_returns_user():
+    service = MagicMock()
+    service.create_user = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_user(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_users_returns_list():
+    service = MagicMock()
+    service.list_users = MagicMock(return_value=[])
+    result = await list_users(
+        status=UserStatus.ACTIVE,
+        is_active=True,
+        search="test",
+        role_id=uuid4(),
+        legal_entity_id_filter=uuid4(),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_user_returns_user():
+    service = MagicMock()
+    service.get_user = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_user(
+        user_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_user_by_username_returns_user():
+    service = MagicMock()
+    service.get_user_by_username = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_user_by_username(
+        username="testuser",
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_update_user_returns_updated():
+    service = MagicMock()
+    service.update_user = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_user(
+        user_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_deactivate_user_returns_success():
+    service = MagicMock()
+    service.deactivate_user = MagicMock(return_value={"success": True})
+    result = await deactivate_user(
+        user_id=uuid4(),
+        permanent=True,
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_activate_user_returns_success():
+    service = MagicMock()
+    service.activate_user = MagicMock(return_value={"success": True})
+    result = await activate_user(
+        user_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_lock_user_returns_success():
+    service = MagicMock()
+    service.lock_user = MagicMock(return_value={"success": True})
+    result = await lock_user(
+        user_id=uuid4(),
+        reason="test",
+        duration_minutes=30,
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_unlock_user_returns_success():
+    service = MagicMock()
+    service.unlock_user = MagicMock(return_value={"success": True})
+    result = await unlock_user(
+        user_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_role_returns_role():
+    service = MagicMock()
+    service.create_role = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_role(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_roles_returns_list():
+    service = MagicMock()
+    service.list_roles = MagicMock(return_value=[])
+    result = await list_roles(
+        status=RoleStatus.ACTIVE,
+        is_active=True,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_role_returns_role():
+    service = MagicMock()
+    service.get_role = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_role(
+        role_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_update_role_returns_updated():
+    service = MagicMock()
+    service.update_role = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_role(
+        role_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_delete_role_returns_success():
+    service = MagicMock()
+    service.delete_role = MagicMock(return_value={"success": True})
+    result = await delete_role(
+        role_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_assign_roles_to_user_returns_success():
+    service = MagicMock()
+    service.assign_roles_to_user = MagicMock(return_value={"success": True})
+    result = await assign_roles_to_user(
+        user_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_user_roles_returns_list():
+    service = MagicMock()
+    service.get_user_roles = MagicMock(return_value=[])
+    result = await get_user_roles(
+        user_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_remove_role_from_user_returns_success():
+    service = MagicMock()
+    service.remove_role_from_user = MagicMock(return_value={"success": True})
+    result = await remove_role_from_user(
+        user_id=uuid4(),
+        role_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_list_permissions_returns_list():
+    service = MagicMock()
+    service.list_permissions = MagicMock(return_value=[])
+    result = await list_permissions(
+        resource="users",
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_assign_permissions_to_role_returns_success():
+    service = MagicMock()
+    service.assign_permissions_to_role = MagicMock(return_value={"success": True})
+    result = await assign_permissions_to_role(
+        role_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_role_permissions_returns_list():
+    service = MagicMock()
+    service.get_role_permissions = MagicMock(return_value=[])
+    result = await get_role_permissions(
+        role_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_remove_permission_from_role_returns_success():
+    service = MagicMock()
+    service.remove_permission_from_role = MagicMock(return_value={"success": True})
+    result = await remove_permission_from_role(
+        role_id=uuid4(),
+        permission_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_login_returns_login_response():
+    service = MagicMock()
+    service.login = MagicMock(return_value={"access_token": "token"})
+    result = await login(
+        request=MagicMock(),
+        ip_address="192.168.1.1",
+        user_agent="Mozilla/5.0",
+        service=service,
+    )
+    assert result is not None
+    assert "access_token" in result
+
+
+async def test_logout_returns_success():
+    service = MagicMock()
+    service.logout = MagicMock(return_value={"success": True})
+    result = await logout(
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_refresh_token_returns_new_token():
+    service = MagicMock()
+    service.refresh_token = MagicMock(return_value={"access_token": "new_token"})
+    result = await refresh_token(
+        request=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "access_token" in result
+
+
+async def test_change_password_returns_success():
+    service = MagicMock()
+    service.change_password = MagicMock(return_value={"success": True})
+    result = await change_password(
+        request=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_forgot_password_returns_response():
+    service = MagicMock()
+    service.forgot_password = MagicMock(return_value={"message": "Email sent"})
+    result = await forgot_password(
+        request=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "message" in result
+
+
+async def test_reset_password_returns_success():
+    service = MagicMock()
+    service.reset_password = MagicMock(return_value={"success": True})
+    result = await reset_password(
+        request=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_setup_mfa_returns_mfa_setup():
+    service = MagicMock()
+    service.setup_mfa = MagicMock(return_value={"secret_key": "SECRET"})
+    result = await setup_mfa(
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "secret_key" in result
+
+
+async def test_verify_mfa_returns_success():
+    service = MagicMock()
+    service.verify_mfa = MagicMock(return_value={"success": True})
+    result = await verify_mfa(
+        request=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_disable_mfa_returns_success():
+    service = MagicMock()
+    service.disable_mfa = MagicMock(return_value={"success": True})
+    result = await disable_mfa(
+        request=MagicMock(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_user_sessions_returns_list():
+    service = MagicMock()
+    service.get_user_sessions = MagicMock(return_value=[])
+    result = await get_user_sessions(
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_revoke_session_returns_success():
+    service = MagicMock()
+    service.revoke_session = MagicMock(return_value={"success": True})
+    result = await revoke_session(
+        session_id=uuid4(),
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_revoke_all_other_sessions_returns_success():
+    service = MagicMock()
+    service.revoke_all_other_sessions = MagicMock(return_value={"success": True})
+    result = await revoke_all_other_sessions(
+        current_user=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_login_attempts_returns_list():
+    service = MagicMock()
+    service.get_login_attempts = MagicMock(return_value=[])
+    result = await get_login_attempts(
+        username="testuser",
+        success=True,
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_user_audit_log_returns_list():
+    service = MagicMock()
+    service.get_user_audit_log = MagicMock(return_value=[])
+    result = await get_user_audit_log(
+        user_id=uuid4(),
+        limit=10,
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_user_status_returns_status():
+    service = MagicMock()
+    service.get_user_status = MagicMock(return_value={"status": "active"})
+    result = await get_user_status(
+        user_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert result is not None
+    assert "status" in result
+
+
+async def test_get_user_history_returns_list():
+    service = MagicMock()
+    service.get_user_history = MagicMock(return_value=[])
+    result = await get_user_history(
+        user_id=uuid4(),
+        _permission=MagicMock(),
+        service=service,
+    )
+    assert isinstance(result, list)

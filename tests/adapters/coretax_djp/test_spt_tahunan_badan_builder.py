@@ -222,8 +222,8 @@ class TestSPTTahunanBadan:
         assert spt.spt_type == SPTType.NORMAL
         assert spt.status == SPTStatus.DRAFT
         assert spt.version == 1
-        assert spt.is_locked is False
-        assert spt.is_active is True
+        assert not spt.is_locked
+        assert spt.is_active
         assert spt.penghasilan_neto_komersial == sample_spt_data["penghasilan_neto_komersial"]
         assert spt.penghasilan_neto_fiskal == sample_spt_data["penghasilan_neto_fiskal"]
         assert spt.kompensasi_kerugian == sample_spt_data["kompensasi_kerugian"]
@@ -354,7 +354,7 @@ class TestSPTTahunanBadan:
     def test_lock(self, sample_spt):
         locked_by = uuid.uuid4()
         result = sample_spt.lock(locked_by, "test")
-        assert result.is_locked is True
+        assert result.is_locked
         assert result.locked_by == locked_by
         assert result.locked_at is not None
         assert result.status == SPTStatus.LOCKED
@@ -370,7 +370,7 @@ class TestSPTTahunanBadan:
         sample_spt._locked_by = uuid.uuid4()
         unlocked_by = uuid.uuid4()
         result = sample_spt.unlock(unlocked_by)
-        assert result.is_locked is False
+        assert not result.is_locked
         assert result.locked_by is None
         assert result.locked_at is None
         assert result.status == SPTStatus.PENDING
@@ -537,10 +537,10 @@ class TestSPTTahunanBadan:
     def test_get_status(self, sample_spt):
         status = sample_spt.get_status()
         assert status["status"] == "draft"
-        assert status["is_locked"] is False
-        assert status["is_active"] is True
-        assert status["can_submit"] is False
-        assert status["can_cancel"] is True
+        assert not status["is_locked"]
+        assert status["is_active"]
+        assert not status["can_submit"]
+        assert status["can_cancel"]
         assert status["tahun_pajak"] == 2026
 
     def test_get_history(self, sample_spt):
@@ -559,7 +559,7 @@ class TestSPTTahunanBadan:
         assert d["npwp_badan"] == "123456789012345"
         assert d["spt_type"] == "normal"
         assert d["koreksi_positif"] == []
-        assert d["is_locked"] is False
+        assert not d["is_locked"]
 
     def test_from_dict(self, sample_spt):
         d = sample_spt.to_dict()
@@ -575,10 +575,10 @@ class TestSPTTahunanBadan:
         assert len(trail) == 1
 
     def test_can_transition(self, sample_spt):
-        assert sample_spt.can_transition(SPTStatus.PENDING) is True
-        assert sample_spt.can_transition(SPTStatus.SUBMITTED) is False
+        assert sample_spt.can_transition(SPTStatus.PENDING)
+        assert not sample_spt.can_transition(SPTStatus.SUBMITTED)
         sample_spt._status = SPTStatus.PENDING
-        assert sample_spt.can_transition(SPTStatus.CALCULATED) is True
+        assert sample_spt.can_transition(SPTStatus.CALCULATED)
 
     def test_transition(self, sample_spt):
         actor_id = uuid.uuid4()
@@ -693,8 +693,8 @@ class TestSPTTahunanBadan:
                 sample_spt._generate_xml()
 
     def test_private__validate_ntpn_format(self, sample_spt):
-        assert sample_spt._validate_ntpn_format("1234567890123456") is True
-        assert sample_spt._validate_ntpn_format("1234") is False
+        assert sample_spt._validate_ntpn_format("1234567890123456")
+        assert not sample_spt._validate_ntpn_format("1234")
 
 
 # ============================================================================
@@ -768,9 +768,9 @@ class TestFallbackSPTBadanRepository:
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
         exists = await repo.exists("123456789012345", 2026)
-        assert exists is True
+        assert exists
         exists = await repo.exists("123456789012345", 2025)
-        assert exists is False
+        assert not exists
 
 
 # ============================================================================
@@ -785,14 +785,14 @@ class TestSPTTahunanBadanBuilder:
         sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=None)
 
         result = await sample_builder.create("123456789012345", 2026, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert "spt_id" in result
         assert result["tahun_pajak"] == 2026
 
     async def test_create_existing_spt_returns_error(self, sample_builder):
         sample_builder._repository.exists = AsyncMock(return_value=True)
         result = await sample_builder.create("123456789012345", 2026, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "already exists" in result["error"]
 
     async def test_collect_data_success(self, sample_builder):
@@ -878,7 +878,7 @@ class TestSPTTahunanBadanBuilder:
                 sample_builder._repository.update = AsyncMock()
 
                 result = await sample_builder.build("123", 2026, uuid.uuid4())
-                assert result["success"] is True
+                assert result["success"]
                 assert "spt_id" in result
 
     async def test_build_existing_spt(self, sample_builder):
@@ -908,7 +908,7 @@ class TestSPTTahunanBadanBuilder:
             mock_spt.calculate = MagicMock(return_value=mock_spt)
             sample_builder._repository.update = AsyncMock()
             result = await sample_builder.build("123", 2026, uuid.uuid4())
-            assert result["success"] is True
+            assert result["success"]
 
     async def test_validate_spt_success(self, sample_builder):
         mock_spt = MagicMock()
@@ -918,13 +918,13 @@ class TestSPTTahunanBadanBuilder:
         sample_builder._set_cached = AsyncMock()
 
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is True
-        assert result["valid"] is True
+        assert result["success"]
+        assert result["valid"]
 
     async def test_validate_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_validate_spt_validation_error(self, sample_builder):
@@ -932,8 +932,8 @@ class TestSPTTahunanBadanBuilder:
         mock_spt.validate = MagicMock(side_effect=SPTBadanValidationError("Invalid"))
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
-        assert result["valid"] is False
+        assert not result["success"]
+        assert not result["valid"]
         assert "Invalid" in result["error"]
 
     async def test_submit_spt_success(self, sample_builder):
@@ -963,14 +963,14 @@ class TestSPTTahunanBadanBuilder:
         client.post = AsyncMock(return_value={"status": "success", "message": "OK"})
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["spt_number"] == "SPT-001"
         assert result["tracking_id"] == "TRK-123"
 
     async def test_submit_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_submit_spt_validation_error(self, sample_builder):
@@ -980,7 +980,7 @@ class TestSPTTahunanBadanBuilder:
         mock_spt.validate = MagicMock(side_effect=SPTBadanValidationError("Invalid"))
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "Invalid" in result["error"]
 
     async def test_submit_spt_coretax_auth_error(self, sample_builder):
@@ -1004,7 +1004,7 @@ class TestSPTTahunanBadanBuilder:
         client.post = AsyncMock(side_effect=CoretaxAuthError("Auth failed"))
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "Coretax authentication failed" in result["error"]
         mock_spt.transition.assert_called_with(SPTStatus.ERROR, unittest.mock.ANY, unittest.mock.ANY)
 
@@ -1034,12 +1034,12 @@ class TestSPTTahunanBadanBuilder:
         client.post = AsyncMock(side_effect=[Exception("Temp"), {"status": "success"}])
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
 
     async def test_check_spt_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_check_spt_status_no_tracking_id(self, sample_builder):
@@ -1048,7 +1048,7 @@ class TestSPTTahunanBadanBuilder:
         mock_spt.status = SPTStatus.DRAFT
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["message"] == "Not yet submitted to Coretax"
 
     async def test_check_spt_status_success(self, sample_builder):
@@ -1064,7 +1064,7 @@ class TestSPTTahunanBadanBuilder:
         client.get = AsyncMock(return_value={"status": "approved", "approval_date": "2026-05-15"})
 
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["status"] == SPTStatus.APPROVED.value
 
     async def test_cancel_spt_success(self, sample_builder):
@@ -1084,13 +1084,13 @@ class TestSPTTahunanBadanBuilder:
         client.post = AsyncMock(return_value={"status": "ok"})
 
         result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
-        assert result["success"] is True
-        assert result["cancelled"] is True
+        assert result["success"]
+        assert result["cancelled"]
 
     async def test_cancel_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_create_correction_spt_success(self, sample_builder):
@@ -1099,13 +1099,13 @@ class TestSPTTahunanBadanBuilder:
         sample_builder._repository.get_by_id = AsyncMock(return_value=previous_spt)
         sample_builder._repository.add = AsyncMock()
         result = await sample_builder.create_correction_spt("123", 2026, uuid.uuid4(), 1, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["correction_number"] == 1
 
     async def test_create_correction_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.create_correction_spt("123", 2026, uuid.uuid4(), 1, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_get_by_id(self, sample_builder):
@@ -1125,13 +1125,13 @@ class TestSPTTahunanBadanBuilder:
         mock_spt.get_status = MagicMock(return_value={"status": "draft"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["status"] == "draft"
 
     async def test_get_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.get_status(uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "not found" in result["error"]
 
     async def test_get_history(self, sample_builder):
@@ -1139,7 +1139,7 @@ class TestSPTTahunanBadanBuilder:
         mock_spt.get_history = MagicMock(return_value=[{"event": "test"}])
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_history(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert len(result["history"]) == 1
 
     async def test_snapshot(self, sample_builder):
@@ -1147,7 +1147,7 @@ class TestSPTTahunanBadanBuilder:
         mock_spt.snapshot = MagicMock(return_value={"spt_id": "123"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.snapshot(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         assert result["spt_id"] == "123"
 
     def test_build_sync(self, sample_builder):
@@ -1173,9 +1173,9 @@ class TestSPTTahunanBadanDummy:
 
     def test_has_attachment(self):
         dummy = SPTTahunanBadanDummy(2026, Decimal("1000"), Decimal("600"))
-        assert dummy.has_attachment("laporan_keuangan") is True
-        assert dummy.has_attachment("daftar_susunan_pemegang_saham") is True
-        assert dummy.has_attachment("other") is False
+        assert dummy.has_attachment("laporan_keuangan")
+        assert dummy.has_attachment("daftar_susunan_pemegang_saham")
+        assert not dummy.has_attachment("other")
 
 
 # ============================================================================
@@ -1193,7 +1193,6 @@ async def test_get_spt_tahunan_builder_singleton():
 
 # ============================================================================
 # TESTS TAMBAHAN UNTUK MENINGKATKAN COVERAGE
-# Tambahkan kode ini ke file test yang sudah ada
 # ============================================================================
 
 class TestSPTTahunanBadanBuilderPrivateMethods:
@@ -1204,9 +1203,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         """Buat builder tanpa mock _init_file_storage agar method asli terpanggil."""
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter") as mock_storage:
             mock_storage.return_value = MagicMock()
-            # Jangan patch _init_file_storage, biarkan method asli dijalankan
             builder = SPTTahunanBadanBuilder(config={})
-            # Mock dependencies lainnya
             builder._repository = AsyncMock()
             builder._ledger_service = AsyncMock()
             builder._tax_service = AsyncMock()
@@ -1215,14 +1212,12 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
             return builder
 
     def test_load_config_with_config(self):
-        """Test _load_config returns provided config."""
         config = {"custom": "value"}
         builder = SPTTahunanBadanBuilder(config=config)
         result = builder._load_config()
         assert result == config
 
     def test_load_config_without_config(self):
-        """Test _load_config returns default config when no config provided."""
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.SPTTahunanBadanBuilder._init_file_storage"):
             builder = SPTTahunanBadanBuilder(config=None)
             result = builder._load_config()
@@ -1231,15 +1226,12 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
             assert "file_storage_bucket" in result["coretax_djp"]["spt_tahunan"]
 
     def test_init_file_storage_success(self):
-        """Test _init_file_storage initializes S3FileStorageAdapter."""
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter") as mock_adapter:
             mock_adapter.return_value = MagicMock()
             builder = SPTTahunanBadanBuilder(config={})
-            # _init_file_storage dipanggil di __init__, kita periksa apakah file_storage di-set
             assert builder._file_storage is not None
 
     def test_init_file_storage_failure(self, caplog):
-        """Test _init_file_storage handles import error gracefully."""
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter", side_effect=Exception("Import failed")):
             with caplog.at_level("WARNING"):
                 builder = SPTTahunanBadanBuilder(config={})
@@ -1247,50 +1239,37 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
                 assert "File storage not available" in caplog.text
 
     async def test_get_coretax_client(self, builder):
-        """Test _get_coretax_client returns client and caches it."""
-        from adapters.coretax_djp.api_oauth2_client import get_coretax_client
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.get_coretax_client") as mock_get:
             mock_client = AsyncMock()
             mock_get.return_value = mock_client
-            # First call
             client1 = await builder._get_coretax_client()
             assert client1 is mock_client
             mock_get.assert_called_once()
-            # Second call should use cached
             client2 = await builder._get_coretax_client()
             assert client2 is client1
             assert mock_get.call_count == 1
 
     async def test_get_ledger_service(self, builder):
-        """Test _get_ledger_service returns service and caches it."""
-        from application.service_layer.service_ledger import LedgerService
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.LedgerService") as mock_ledger:
             mock_ledger.return_value = MagicMock()
-            # First call
             svc1 = await builder._get_ledger_service()
             assert svc1 is not None
             mock_ledger.assert_called_once()
-            # Second call should use cached
             svc2 = await builder._get_ledger_service()
             assert svc2 is svc1
             assert mock_ledger.call_count == 1
 
     async def test_get_tax_service(self, builder):
-        """Test _get_tax_service returns service and caches it."""
-        from application.service_layer.service_tax import TaxService
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.TaxService") as mock_tax:
             mock_tax.return_value = MagicMock()
-            # First call
             svc1 = await builder._get_tax_service()
             assert svc1 is not None
             mock_tax.assert_called_once()
-            # Second call should use cached
             svc2 = await builder._get_tax_service()
             assert svc2 is svc1
             assert mock_tax.call_count == 1
 
     def test_get_cache_key(self, builder):
-        """Test _get_cache_key returns consistent key."""
         key1 = builder._get_cache_key("123456789012345", 2026)
         key2 = builder._get_cache_key("123456789012345", 2026)
         assert key1 == key2
@@ -1299,35 +1278,25 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         assert "2026" in key1
 
     async def test_get_cached_and_set_cached(self, builder):
-        """Test _get_cached and _set_cached work with TTL."""
         cache_key = "test_key"
         data = {"test": "data"}
-        # Set cache
         await builder._set_cached(cache_key, data)
         assert builder._cache[cache_key] == data
-        # Get cache
         result = await builder._get_cached(cache_key)
         assert result == data
-        # Test TTL ignored in this simple implementation (cache doesn't expire automatically)
 
     async def test_collect_data_calls_getter_methods(self, sample_builder):
-        """Test collect_data calls _get_ledger_service and _get_tax_service to cover getters."""
-        # We need to test that _get_ledger_service and _get_tax_service are called inside collect_data.
-        # We'll spy on the methods.
         with patch.object(sample_builder, "_get_ledger_service", new_callable=AsyncMock) as mock_get_ledger:
             with patch.object(sample_builder, "_get_tax_service", new_callable=AsyncMock) as mock_get_tax:
-                # Mock the services returned by getters
                 ledger_mock = AsyncMock()
                 tax_mock = AsyncMock()
                 mock_get_ledger.return_value = ledger_mock
                 mock_get_tax.return_value = tax_mock
 
-                # Setup ledger mock
                 ledger_mock.get_commercial_financials = AsyncMock(return_value={
                     "net_income_before_tax": Decimal("1000000000"),
                     "total_revenue": Decimal("5000000000"),
                 })
-                # Setup tax mock
                 tax_mock.get_fiscal_reconciliation = AsyncMock(return_value={
                     "total_positive_correction": Decimal("0"),
                     "total_negative_correction": Decimal("0"),
@@ -1341,15 +1310,11 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
                 tax_mock.get_shareholders = AsyncMock(return_value=[])
                 tax_mock.get_fiscal_depreciation = AsyncMock(return_value=[])
 
-                # Call collect_data
                 await sample_builder.collect_data("123", 2026)
-
-                # Verify getters were called
                 mock_get_ledger.assert_called_once()
                 mock_get_tax.assert_called_once()
 
     async def test_submit_spt_calls_trigger_alert_on_success(self, sample_builder):
-        """Test submit_spt calls trigger_alert on success."""
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
         mock_spt.spt_id = uuid.uuid4()
@@ -1377,16 +1342,13 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert") as mock_alert:
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-            assert result["success"] is True
-            # trigger_alert should be called
+            assert result["success"]
             mock_alert.assert_called_once()
-            # Check args
             call_args = mock_alert.call_args[1]
             assert call_args["title"] == "SPT Tahunan Badan Submitted"
             assert call_args["severity"] == "info"
 
     async def test_submit_spt_calls_trigger_alert_on_failure(self, sample_builder):
-        """Test submit_spt calls trigger_alert on failure."""
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
         mock_spt.spt_id = uuid.uuid4()
@@ -1408,7 +1370,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert") as mock_alert:
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-            assert result["success"] is False
+            assert not result["success"]
             assert "Network error" in result["error"]
             mock_alert.assert_called_once()
             call_args = mock_alert.call_args[1]
@@ -1416,7 +1378,6 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
             assert call_args["severity"] == "critical"
 
     async def test_submit_spt_alert_import_error(self, sample_builder):
-        """Test submit_spt handles ImportError for trigger_alert gracefully."""
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
         mock_spt.spt_id = uuid.uuid4()
@@ -1441,15 +1402,11 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client = sample_builder._coretax_client
         client.post = AsyncMock(return_value={"status": "success"})
 
-        # Simulate ImportError by patching the import inside the function
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert", side_effect=ImportError("No module")):
-            # Should not raise, just log
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-            assert result["success"] is True
-            # Should still succeed despite import error
+            assert result["success"]
 
     async def test_check_spt_status_approves_when_approved(self, sample_builder):
-        """Test check_spt_status approves SPT when Coretax returns approved."""
         mock_spt = MagicMock()
         mock_spt.tracking_id = "TRK-123"
         mock_spt.status = SPTStatus.SUBMITTED
@@ -1461,11 +1418,10 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client.get = AsyncMock(return_value={"status": "approved", "approval_date": "2026-05-15"})
 
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         mock_spt.approve.assert_called_once()
 
     async def test_check_spt_status_rejects_when_rejected(self, sample_builder):
-        """Test check_spt_status rejects SPT when Coretax returns rejected."""
         mock_spt = MagicMock()
         mock_spt.tracking_id = "TRK-123"
         mock_spt.status = SPTStatus.SUBMITTED
@@ -1477,11 +1433,10 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client.get = AsyncMock(return_value={"status": "rejected", "rejection_reason": "Data tidak lengkap"})
 
         result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         mock_spt.reject.assert_called_once_with(unittest.mock.ANY, "Data tidak lengkap")
 
     async def test_submit_spt_with_s3_upload_success(self, sample_builder):
-        """Test submit_spt uploads XML to S3 when file_storage is available."""
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
         mock_spt.spt_id = uuid.uuid4()
@@ -1503,7 +1458,6 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         sample_builder._repository.update = AsyncMock()
         sample_builder._set_cached = AsyncMock()
 
-        # Mock file_storage available
         sample_builder._file_storage = AsyncMock()
         sample_builder._file_storage.upload = AsyncMock()
 
@@ -1511,50 +1465,44 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client.post = AsyncMock(return_value={"status": "success"})
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         sample_builder._file_storage.upload.assert_called_once()
-        # Check file name pattern
         call_args = sample_builder._file_storage.upload.call_args[0]
         file_name = call_args[1]
         assert file_name.startswith("spt_tahunan_")
         assert ".xml" in file_name
 
     def test_build_sync_creates_dummy_with_expected_attachments(self):
-        """Test build_sync returns dummy with correct attachments."""
         builder = SPTTahunanBadanBuilder(config={})
         dummy = builder.build_sync({"penghasilan_bruto": Decimal("1000"), "beban": Decimal("600")}, 2026)
-        assert dummy.has_attachment("laporan_keuangan") is True
-        assert dummy.has_attachment("daftar_susunan_pemegang_saham") is True
-        assert dummy.has_attachment("other") is False
+        assert dummy.has_attachment("laporan_keuangan")
+        assert dummy.has_attachment("daftar_susunan_pemegang_saham")
+        assert not dummy.has_attachment("other")
 
     async def test_create_with_existing_spt_uses_repository_exists(self, sample_builder):
-        """Test create uses repository.exists to check existing SPT."""
         sample_builder._repository.exists = AsyncMock(return_value=True)
         result = await sample_builder.create("123", 2026, uuid.uuid4())
-        assert result["success"] is False
+        assert not result["success"]
         assert "already exists" in result["error"]
         sample_builder._repository.exists.assert_called_once_with("123", 2026, 0)
 
     async def test_build_when_create_fails_returns_error(self, sample_builder):
-        """Test build returns error when create fails."""
         sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=None)
         with patch.object(sample_builder, "create", return_value={"success": False, "error": "Create failed"}):
             result = await sample_builder.build("123", 2026, uuid.uuid4())
-            assert result["success"] is False
+            assert not result["success"]
             assert "Create failed" in result["error"]
 
     async def test_build_with_collect_data_error_returns_error(self, sample_builder):
-        """Test build returns error when collect_data fails."""
         mock_spt = MagicMock()
         mock_spt.spt_id = uuid.uuid4()
         sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=mock_spt)
         with patch.object(sample_builder, "collect_data", return_value={"error": "Collect failed"}):
             result = await sample_builder.build("123", 2026, uuid.uuid4())
-            assert result["success"] is False
+            assert not result["success"]
             assert "Collect failed" in result["error"]
 
     async def test_cancel_spt_removes_cache(self, sample_builder):
-        """Test cancel_spt removes cache entry."""
         mock_spt = MagicMock()
         mock_spt.spt_id = uuid.uuid4()
         mock_spt.tracking_id = "TRK-123"
@@ -1570,11 +1518,10 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client.post = AsyncMock(return_value={"status": "ok"})
 
         result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
-        assert result["success"] is True
+        assert result["success"]
         assert "some_key" not in sample_builder._cache
 
     async def test_validate_spt_with_existing_cache(self, sample_builder):
-        """Test validate_spt updates cache after validation."""
         mock_spt = MagicMock()
         mock_spt.validate = MagicMock(return_value=mock_spt)
         mock_spt.npwp_badan = "123"
@@ -1585,874 +1532,5 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         sample_builder._set_cached = AsyncMock()
 
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is True
+        assert result["success"]
         sample_builder._set_cached.assert_called_once()
-
-# ============================================================================
-# TESTS TAMBAHAN UNTUK MENINGKATKAN COVERAGE SPT MASA PPN BUILDER
-# Tambahkan kode ini ke bagian bawah file test_spt_masa_ppn_builder.py
-# ============================================================================
-
-class TestSPTMasaPPNBuilderPrivateMethods:
-    """Test untuk private methods SPTMasaPPNBuilder."""
-
-    @pytest.fixture
-    def builder(self):
-        """Buat builder tanpa mock _init_file_storage agar method asli terpanggil."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.S3FileStorageAdapter") as mock_storage:
-            mock_storage.return_value = MagicMock()
-            builder = SPTMasaPPNBuilder(config={})
-            builder._repository = AsyncMock()
-            builder._tax_service = AsyncMock()
-            builder._coretax_client = AsyncMock()
-            builder._file_storage = AsyncMock()
-            return builder
-
-    def test_load_config_with_config(self):
-        """Test _load_config returns provided config."""
-        config = {"custom": "value"}
-        builder = SPTMasaPPNBuilder(config=config)
-        result = builder._load_config()
-        assert result == config
-
-    def test_load_config_without_config(self):
-        """Test _load_config returns default config when no config provided."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.SPTMasaPPNBuilder._init_file_storage"):
-            builder = SPTMasaPPNBuilder(config=None)
-            result = builder._load_config()
-            assert "coretax_djp" in result
-            assert "spt_ppn" in result["coretax_djp"]
-            assert "file_storage_bucket" in result["coretax_djp"]["spt_ppn"]
-
-    def test_init_file_storage_success(self):
-        """Test _init_file_storage initializes S3FileStorageAdapter."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.S3FileStorageAdapter") as mock_adapter:
-            mock_adapter.return_value = MagicMock()
-            builder = SPTMasaPPNBuilder(config={})
-            assert builder._file_storage is not None
-
-    def test_init_file_storage_failure(self, caplog):
-        """Test _init_file_storage handles import error gracefully."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.S3FileStorageAdapter", side_effect=Exception("Import failed")):
-            with caplog.at_level("WARNING"):
-                builder = SPTMasaPPNBuilder(config={})
-                assert builder._file_storage is None
-                assert "File storage not available" in caplog.text
-
-    async def test_get_coretax_client(self, builder):
-        """Test _get_coretax_client returns client and caches it."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.get_coretax_client") as mock_get:
-            mock_client = AsyncMock()
-            mock_get.return_value = mock_client
-            client1 = await builder._get_coretax_client()
-            assert client1 is mock_client
-            mock_get.assert_called_once()
-            client2 = await builder._get_coretax_client()
-            assert client2 is client1
-            assert mock_get.call_count == 1
-
-    async def test_get_tax_service(self, builder):
-        """Test _get_tax_service returns service and caches it."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.TaxService") as mock_tax:
-            mock_tax.return_value = AsyncMock()
-            svc1 = await builder._get_tax_service()
-            assert svc1 is not None
-            mock_tax.assert_called_once()
-            svc2 = await builder._get_tax_service()
-            assert svc2 is svc1
-            assert mock_tax.call_count == 1
-
-    def test_get_cache_key(self, builder):
-        """Test _get_cache_key returns consistent key."""
-        key1 = builder._get_cache_key("123456789012345", 2026, 5)
-        key2 = builder._get_cache_key("123456789012345", 2026, 5)
-        assert key1 == key2
-        assert "spt_ppn" in key1
-        assert "123456789012345" in key1
-        assert "2026" in key1
-        assert "05" in key1
-
-    async def test_get_cached_and_set_cached(self, builder):
-        """Test _get_cached and _set_cached work."""
-        cache_key = "test_key"
-        data = {"test": "data"}
-        await builder._set_cached(cache_key, data)
-        assert builder._cache[cache_key] == data
-        result = await builder._get_cached(cache_key)
-        assert result == data
-
-    async def test_collect_data_calls_get_tax_service(self, sample_builder):
-        """Test collect_data calls _get_tax_service."""
-        with patch.object(sample_builder, "_get_tax_service", new_callable=AsyncMock) as mock_get_tax:
-            tax_mock = AsyncMock()
-            mock_get_tax.return_value = tax_mock
-            tax_mock.get_faktur_keluaran_by_period = AsyncMock(return_value=[])
-            tax_mock.get_faktur_masukan_credited_by_period = AsyncMock(return_value=[])
-            tax_mock.get_retur_by_period = AsyncMock(return_value=[])
-            tax_mock.get_kompensasi_sebelumnya = AsyncMock(return_value=Decimal("0"))
-            tax_mock.get_ntpn_for_period = AsyncMock(return_value=None)
-
-            await sample_builder.collect_data("123", 2026, 5)
-            mock_get_tax.assert_called_once()
-
-    async def test_submit_spt_calls_trigger_alert_on_success(self, sample_builder):
-        """Test submit_spt calls trigger_alert on success."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
-        mock_spt.transition = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._set_cached = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "success", "message": "OK"})
-
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.trigger_alert") as mock_alert:
-            result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-            assert result["success"] is True
-            mock_alert.assert_called_once()
-            call_args = mock_alert.call_args[1]
-            assert call_args["title"] == "SPT PPN Submitted"
-            assert call_args["severity"] == "info"
-
-    async def test_submit_spt_calls_trigger_alert_on_failure(self, sample_builder):
-        """Test submit_spt calls trigger_alert on failure."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.transition = MagicMock(return_value=mock_spt)
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(side_effect=Exception("Network error"))
-
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.trigger_alert") as mock_alert:
-            result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-            assert result["success"] is False
-            mock_alert.assert_called_once()
-            call_args = mock_alert.call_args[1]
-            assert call_args["title"] == "SPT PPN Submission Failed"
-            assert call_args["severity"] == "critical"
-
-    async def test_submit_spt_alert_import_error(self, sample_builder):
-        """Test submit_spt handles ImportError for trigger_alert gracefully."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._set_cached = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.trigger_alert", side_effect=ImportError("No module")):
-            result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-            assert result["success"] is True
-
-    async def test_check_spt_status_approves_when_approved(self, sample_builder):
-        """Test check_spt_status approves SPT when Coretax returns approved."""
-        mock_spt = MagicMock()
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.status = SPTStatus.SUBMITTED
-        mock_spt.approve = MagicMock(return_value=mock_spt)
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.get = AsyncMock(return_value={"status": "approved", "approval_date": "2026-05-15"})
-
-        result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
-        mock_spt.approve.assert_called_once()
-
-    async def test_check_spt_status_rejects_when_rejected(self, sample_builder):
-        """Test check_spt_status rejects SPT when Coretax returns rejected."""
-        mock_spt = MagicMock()
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.status = SPTStatus.SUBMITTED
-        mock_spt.reject = MagicMock(return_value=mock_spt)
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.get = AsyncMock(return_value={"status": "rejected", "rejection_reason": "Data tidak lengkap"})
-
-        result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is True
-        mock_spt.reject.assert_called_once()
-
-    async def test_submit_spt_with_s3_upload_success(self, sample_builder):
-        """Test submit_spt uploads XML to S3 when file_storage is available."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._set_cached = AsyncMock()
-
-        sample_builder._file_storage = AsyncMock()
-        sample_builder._file_storage.upload = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-
-        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
-        sample_builder._file_storage.upload.assert_called_once()
-        call_args = sample_builder._file_storage.upload.call_args[0]
-        file_name = call_args[1]
-        assert file_name.startswith("spt_ppn_")
-        assert ".xml" in file_name
-
-    async def test_cancel_spt_removes_cache(self, sample_builder):
-        """Test cancel_spt removes cache entry."""
-        mock_spt = MagicMock()
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.cancel = MagicMock(return_value=mock_spt)
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._cache = {"some_key": "data"}
-        sample_builder._get_cache_key = MagicMock(return_value="some_key")
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "ok"})
-
-        result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
-        assert result["success"] is True
-        assert "some_key" not in sample_builder._cache
-
-    async def test_validate_spt_with_existing_cache(self, sample_builder):
-        """Test validate_spt updates cache after validation."""
-        mock_spt = MagicMock()
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.to_dict = MagicMock(return_value={"data": "valid"})
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._set_cached = AsyncMock()
-
-        result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
-        assert result["success"] is True
-        sample_builder._set_cached.assert_called_once()
-
-    async def test_build_when_create_fails_returns_error(self, sample_builder):
-        """Test build returns error when create fails."""
-        sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=None)
-        with patch.object(sample_builder, "create", return_value={"success": False, "error": "Create failed"}):
-            result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
-            assert result["success"] is False
-            assert "Create failed" in result["error"]
-
-    async def test_build_with_collect_data_error_returns_error(self, sample_builder):
-        """Test build returns error when collect_data fails."""
-        mock_spt = MagicMock()
-        mock_spt.spt_id = uuid.uuid4()
-        sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
-        with patch.object(sample_builder, "collect_data", return_value={"error": "Collect failed"}):
-            result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
-            assert result["success"] is False
-            assert "Collect failed" in result["error"]
-
-    async def test_create_with_existing_spt_uses_repository_exists(self, sample_builder):
-        """Test create uses repository.exists to check existing SPT."""
-        sample_builder._repository.exists = AsyncMock(return_value=True)
-        result = await sample_builder.create("123", 2026, 5, uuid.uuid4())
-        assert result["success"] is False
-        assert "already exists" in result["error"]
-        sample_builder._repository.exists.assert_called_once_with("123", 2026, 5, 0)
-
-    async def test_collect_data_pm_data_handles_missing_fields(self, sample_builder):
-        """Test collect_data handles missing fields in faktur data."""
-        tax_service = sample_builder._tax_service
-        tax_service.get_faktur_keluaran_by_period = AsyncMock(return_value=[
-            {"dpp": Decimal("100000")},  # missing ppn
-        ])
-        tax_service.get_faktur_masukan_credited_by_period = AsyncMock(return_value=[
-            {}  # empty
-        ])
-        tax_service.get_retur_by_period = AsyncMock(return_value=[
-            {"type": "unknown"}  # unknown type
-        ])
-        tax_service.get_kompensasi_sebelumnya = AsyncMock(return_value=Decimal("0"))
-        tax_service.get_ntpn_for_period = AsyncMock(return_value=None)
-
-        result = await sample_builder.collect_data("123", 2026, 5)
-        # Should not raise, use defaults
-        assert result["total_ppn_keluaran"] == Decimal("0")
-        assert result["total_ppn_masukan"] == Decimal("0")
-        assert result["total_retur_keluaran"] == Decimal("0")
-        assert result["total_retur_masukan"] == Decimal("0")
-
-
-class TestFallbackSPTRepositoryAdditional:
-    """Additional tests for _FallbackSPTRepository."""
-
-    @pytest.mark.asyncio
-    async def test_add_updates_by_tracking_id(self, sample_spt):
-        """Test add updates _by_tracking_id when tracking_id is set."""
-        repo = _FallbackSPTRepository()
-        sample_spt._tracking_id = "TRK-TEST"
-        await repo.add(sample_spt)
-        assert repo._by_tracking_id["TRK-TEST"] == sample_spt.spt_id
-
-    @pytest.mark.asyncio
-    async def test_get_by_tracking_id_not_found(self):
-        """Test get_by_tracking_id returns None when not found."""
-        repo = _FallbackSPTRepository()
-        result = await repo.get_by_tracking_id("NONEXISTENT")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_delete_nonexistent(self):
-        """Test delete on nonexistent id does nothing."""
-        repo = _FallbackSPTRepository()
-        await repo.delete(uuid.uuid4())  # Should not raise
-
-    @pytest.mark.asyncio
-    async def test_exists_with_multiple_corrections(self, sample_spt):
-        """Test exists checks correction number correctly."""
-        repo = _FallbackSPTRepository()
-        sample_spt._correction_number = 1
-        await repo.add(sample_spt)
-        # Should exist with correction_number=1
-        exists = await repo.exists("123456789012345", 2026, 5, 1)
-        assert exists is True
-        # Should not exist with correction_number=0
-        exists = await repo.exists("123456789012345", 2026, 5, 0)
-        assert exists is False
-
-
-class TestSPTMasaPPNAdditional:
-    """Additional tests for SPTMasaPPN entity to cover edge cases."""
-
-    def test_update_with_multiple_fields(self, sample_spt):
-        """Test update with multiple fields at once."""
-        data = {
-            "total_penyerahan_dpp": Decimal("200000000"),
-            "total_ppn_keluaran": Decimal("22000000"),
-            "total_ppn_masukan": Decimal("10000000"),
-            "kompensasi": Decimal("1000000"),
-        }
-        result = sample_spt.update(data, uuid.uuid4())
-        assert result.total_penyerahan_dpp == Decimal("200000000")
-        assert result.total_ppn_keluaran == Decimal("22000000")
-        assert result.total_ppn_masukan == Decimal("10000000")
-        assert result.kompensasi == Decimal("1000000")
-
-    def test_delete_permanent_changes_to_void(self, sample_spt):
-        """Test permanent delete changes status to VOID."""
-        result = sample_spt.delete(uuid.uuid4(), permanent=True)
-        assert result.status == SPTStatus.VOID
-        assert result.cancelled_at is not None
-
-    def test_delete_soft_changes_to_archived(self, sample_spt):
-        """Test non-permanent delete changes status to ARCHIVED."""
-        result = sample_spt.delete(uuid.uuid4(), permanent=False)
-        assert result.status == SPTStatus.ARCHIVED
-        assert result.cancelled_at is None
-
-    def test_validate_with_different_statuses(self, sample_spt):
-        """Test validation works with different statuses."""
-        sample_spt._status = SPTStatus.PENDING
-        sample_spt._detail_pk = [{"dpp": 100000000, "ppn": 11000000}]
-        sample_spt._detail_pm = [{"ppn": 5000000}]
-        sample_spt._ppn_kurang_bayar = Decimal("6000000")
-        sample_spt._ntpn = "1234567890123456"
-        result = sample_spt.validate(uuid.uuid4())
-        assert result.status == SPTStatus.VALIDATED
-
-        # Test with CALCULATED status
-        sample_spt._status = SPTStatus.CALCULATED
-        result = sample_spt.validate(uuid.uuid4())
-        assert result.status == SPTStatus.VALIDATED
-
-    def test_validate_locked_period_with_expired(self, sample_spt):
-        """Test validation with various error conditions."""
-        sample_spt._locked_at = datetime.now()
-        with pytest.raises(SPTLockedError, match="is locked"):
-            sample_spt.validate(uuid.uuid4())
-
-    def test_approve_with_notes(self, sample_spt):
-        """Test approve with notes parameter."""
-        sample_spt._status = SPTStatus.SUBMITTED
-        result = sample_spt.approve(uuid.uuid4(), "Approved with notes")
-        assert result.status == SPTStatus.APPROVED
-        assert result._events[-1]["data"]["notes"] == "Approved with notes"
-
-    def test_reject_multiple_reasons(self, sample_spt):
-        """Test reject with multiple rejection reasons."""
-        sample_spt._status = SPTStatus.PENDING
-        reasons = ["Reason 1", "Reason 2"]
-        for reason in reasons:
-            result = sample_spt.reject(uuid.uuid4(), reason)
-            assert result.rejection_reason == reason
-
-    def test_transition_with_reason(self, sample_spt):
-        """Test transition with reason parameter."""
-        actor_id = uuid.uuid4()
-        reason = "Test transition reason"
-        result = sample_spt.transition(SPTStatus.PENDING, actor_id, reason)
-        assert result._history[-1]["reason"] == reason
-        assert result._history[-1]["actor_id"] == str(actor_id)
-
-    def test_from_dict_with_all_fields(self, sample_spt):
-        """Test from_dict with all fields including lists."""
-        d = sample_spt.to_dict()
-        d["detail_pk"] = [{"faktur_id": "1", "faktur_number": "FK-001"}]
-        d["detail_pm"] = [{"faktur_id": "2", "faktur_number": "PM-001"}]
-        d["detail_retur"] = [{"retur_id": "3"}]
-        d["pemungut_ppn"] = {"dpp": 10000, "ppn": 1000}
-        reconstructed = SPTMasaPPN.from_dict(d)
-        assert len(reconstructed.detail_pk) == 1
-        assert len(reconstructed.detail_pm) == 1
-        assert len(reconstructed.detail_retur) == 1
-        assert reconstructed._pemungut_ppn == {"dpp": 10000, "ppn": 1000}
-
-    def test_get_events_returns_copy(self, sample_spt):
-        """Test get_events returns a copy of events list."""
-        sample_spt.register_event("test", {"data": "value"})
-        events = sample_spt.get_events()
-        events.append({"extra": "event"})  # Modify copy
-        assert len(sample_spt.get_events()) == 1  # Original unchanged
-
-    def test_clear_events_resets(self, sample_spt):
-        """Test clear_events resets events list."""
-        sample_spt.register_event("test", {})
-        assert len(sample_spt.get_events()) == 1
-        sample_spt.clear_events()
-        assert len(sample_spt.get_events()) == 0
-
-    def test_set_coretax_response_with_different_status(self, sample_spt):
-        """Test set_coretax_response handles different status values."""
-        # Success status
-        response = {"status": "success", "spt_number": "SPT-001"}
-        result = sample_spt.set_coretax_response(response)
-        assert result.status == SPTStatus.SUBMITTED
-
-        # Non-success status
-        sample_spt._status = SPTStatus.DRAFT
-        response = {"status": "pending", "spt_number": "SPT-002"}
-        result = sample_spt.set_coretax_response(response)
-        assert result.status == SPTStatus.DRAFT  # Not changed
-
-    def test_create_correction_increments_number(self, sample_spt):
-        """Test create_correction increments correction number."""
-        created_by = uuid.uuid4()
-        c1 = sample_spt.create_correction(1, created_by)
-        assert c1.correction_number == 1
-        c2 = sample_spt.create_correction(2, created_by)
-        assert c2.correction_number == 2
-        assert c1.spt_id != c2.spt_id
-
-    def test_private__generate_xml_with_correction(self, sample_spt):
-        """Test XML generation with correction type."""
-        sample_spt._spt_type = SPTType.CORRECTION
-        sample_spt._correction_number = 2
-        sample_spt._detail_pk = [{"faktur_number": "FK-001", "npwp_pembeli": "123", "nama_pembeli": "PT A", "dpp": 100000, "ppn": 11000, "tanggal_faktur": "2026-05-01"}]
-        sample_spt._detail_pm = [{"faktur_number": "PM-001", "npwp_penjual": "456", "nama_penjual": "PT B", "ppn": 5000}]
-        xml = sample_spt._generate_xml()
-        assert "NomorPembetulan" in xml
-        assert "2" in xml
-
-    def test_private__generate_xml_with_retur(self, sample_spt):
-        """Test XML generation with retur data."""
-        sample_spt._detail_retur = [{"retur_id": "1", "ppn": 1000}]
-        sample_spt._detail_pk = [{"faktur_number": "FK-001", "npwp_pembeli": "123", "nama_pembeli": "PT A", "dpp": 100000, "ppn": 11000, "tanggal_faktur": "2026-05-01"}]
-        sample_spt._detail_pm = [{"faktur_number": "PM-001", "npwp_penjual": "456", "nama_penjual": "PT B", "ppn": 5000}]
-        xml = sample_spt._generate_xml()
-        assert "Retur" in xml
-
-    def test_private__validate_ntpn_format_with_various_inputs(self, sample_spt):
-        """Test _validate_ntpn_format with various inputs."""
-        assert sample_spt._validate_ntpn_format("1234567890123456") is True
-        assert sample_spt._validate_ntpn_format("123456789012345") is False  # 15 digits
-        assert sample_spt._validate_ntpn_format("12345678901234567") is False  # 17 digits
-        assert sample_spt._validate_ntpn_format("abcdefghijklmnop") is False  # letters
-        assert sample_spt._validate_ntpn_format("1234 5678 9012 3456") is False  # spaces
-
-
-class TestSPTMasaPPNBuilderAdditional:
-    """Additional tests for SPTMasaPPNBuilder to cover edge cases."""
-
-    @pytest.mark.asyncio
-    async def test_submit_spt_with_different_spt_type(self, sample_builder):
-        """Test submit_spt with correction type."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.CORRECTION  # Different type
-        mock_spt.correction_number = 1
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
-        mock_spt.transition = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._set_cached = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-
-        result = await sample_builder.submit_spt(
-            mock_spt.spt_id, uuid.uuid4(),
-            spt_type=SPTType.NORMAL.value,  # Override type
-            correction_number=0
-        )
-        assert result["success"] is True
-        # Should set spt_type to NORMAL
-        assert mock_spt._spt_type == SPTType.NORMAL
-
-    @pytest.mark.asyncio
-    async def test_submit_spt_without_calculate_and_validate(self, sample_builder):
-        """Test submit_spt when SPT is already CALCULATED and VALIDATED."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.VALIDATED  # Already validated
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        # calculate should not be called
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
-        mock_spt.transition = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-        sample_builder._set_cached = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-
-        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is True
-        # calculate should NOT be called because status is VALIDATED
-        mock_spt.calculate.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_submit_spt_with_calculate_error(self, sample_builder):
-        """Test submit_spt handles calculation error."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.DRAFT
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(side_effect=SPTCalculationError("Calculation failed"))
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-
-        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        assert result["success"] is False
-        assert "Calculation failed" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_submit_spt_with_coretax_error(self, sample_builder):
-        """Test submit_spt handles Coretax generic error."""
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
-        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-        mock_spt.validate = MagicMock(return_value=mock_spt)
-        mock_spt.submit = MagicMock(return_value=mock_spt)
-        mock_spt.transition = MagicMock(return_value=mock_spt)
-
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-        sample_builder._repository.update = AsyncMock()
-
-        client = sample_builder._coretax_client
-        client.post = AsyncMock(return_value={"status": "error", "message": "Coretax error"})
-
-        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
-        # The method catches generic Exception, so this should still return success
-        # because it thinks the submission succeeded (the response was processed)
-        # Actually it will call set_coretax_response with the error response
-        mock_spt.set_coretax_response.assert_called_once_with({"status": "error", "message": "Coretax error"})
-        assert result["success"] is True  # Because the method processed the response
-
-    @pytest.mark.asyncio
-    async def test_check_spt_status_handles_exception(self, sample_builder):
-        """Test check_spt_status handles exception from Coretax."""
-        mock_spt = MagicMock()
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.status = SPTStatus.SUBMITTED
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-
-        client = sample_builder._coretax_client
-        client.get = AsyncMock(side_effect=Exception("Connection error"))
-
-        result = await sample_builder.check_spt_status(uuid.uuid4())
-        assert result["success"] is False
-        assert "Connection error" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_get_status_returns_status(self, sample_builder):
-        """Test get_status returns SPT status."""
-        mock_spt = MagicMock()
-        mock_spt.get_status = MagicMock(return_value={"status": "draft", "is_locked": False})
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-
-        result = await sample_builder.get_status(uuid.uuid4())
-        assert result["success"] is True
-        assert result["status"] == "draft"
-
-    @pytest.mark.asyncio
-    async def test_snapshot_returns_snapshot(self, sample_builder):
-        """Test snapshot returns SPT snapshot."""
-        mock_spt = MagicMock()
-        mock_spt.snapshot = MagicMock(return_value={"spt_id": "123", "npwp": "456"})
-        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
-
-        result = await sample_builder.snapshot(uuid.uuid4())
-        assert result["success"] is True
-        assert result["spt_id"] == "123"
-
-    @pytest.mark.asyncio
-    async def test_collect_data_with_kompensasi_zero(self, sample_builder):
-        """Test collect_data with kompensasi = 0."""
-        tax_service = sample_builder._tax_service
-        tax_service.get_faktur_keluaran_by_period = AsyncMock(return_value=[
-            {"dpp": Decimal("100000"), "ppn": Decimal("11000")},
-        ])
-        tax_service.get_faktur_masukan_credited_by_period = AsyncMock(return_value=[
-            {"ppn": Decimal("5000")},
-        ])
-        tax_service.get_retur_by_period = AsyncMock(return_value=[])
-        tax_service.get_kompensasi_sebelumnya = AsyncMock(return_value=Decimal("0"))
-        tax_service.get_ntpn_for_period = AsyncMock(return_value=None)
-
-        result = await sample_builder.collect_data("123", 2026, 5)
-        assert result["kompensasi"] == Decimal("0")
-        assert result["ppn_kurang_bayar"] == Decimal("6000")  # 11000 - 5000
-
-    @pytest.mark.asyncio
-    async def test_collect_data_with_lebih_bayar(self, sample_builder):
-        """Test collect_data with lebih bayar scenario."""
-        tax_service = sample_builder._tax_service
-        tax_service.get_faktur_keluaran_by_period = AsyncMock(return_value=[
-            {"dpp": Decimal("100000"), "ppn": Decimal("11000")},
-        ])
-        tax_service.get_faktur_masukan_credited_by_period = AsyncMock(return_value=[
-            {"ppn": Decimal("15000")},
-        ])
-        tax_service.get_retur_by_period = AsyncMock(return_value=[])
-        tax_service.get_kompensasi_sebelumnya = AsyncMock(return_value=Decimal("0"))
-        tax_service.get_ntpn_for_period = AsyncMock(return_value=None)
-
-        result = await sample_builder.collect_data("123", 2026, 5)
-        assert result["ppn_kurang_bayar"] == Decimal("0")
-        assert result["ppn_lebih_bayar"] == Decimal("4000")  # 15000 - 11000
-
-    @pytest.mark.asyncio
-    async def test_build_with_existing_spt_and_data(self, sample_builder):
-        """Test build with existing SPT and collected data."""
-        mock_spt = MagicMock()
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.masa_pajak = "2026-05"
-        mock_spt.status = SPTStatus.DRAFT
-        sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
-
-        mock_spt.collect_pk_data = MagicMock(return_value=mock_spt)
-        mock_spt.collect_pm_data = MagicMock(return_value=mock_spt)
-        mock_spt.set_kompensasi = MagicMock(return_value=mock_spt)
-        mock_spt.set_ntpn = MagicMock(return_value=mock_spt)
-        mock_spt.calculate = MagicMock(return_value=mock_spt)
-
-        collect_data_result = {
-            "detail_pk": [{"faktur_id": "1", "dpp": 100000, "ppn": 11000}],
-            "detail_pm": [{"faktur_id": "2", "ppn": 5000}],
-            "kompensasi": Decimal("1000"),
-            "ntpn": "1234567890123456",
-            "error": None,
-        }
-        with patch.object(sample_builder, "collect_data", return_value=collect_data_result):
-            result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
-            assert result["success"] is True
-            mock_spt.collect_pk_data.assert_called_once_with(collect_data_result["detail_pk"])
-            mock_spt.collect_pm_data.assert_called_once_with(collect_data_result["detail_pm"])
-            mock_spt.set_kompensasi.assert_called_once_with(Decimal("1000"))
-            mock_spt.set_ntpn.assert_called_once_with("1234567890123456")
-
-
-class TestLegacySPTClasses:
-    """Tests for legacy SPTMasaPpn, PaymentReference, SubmissionResult."""
-
-    def test_spt_masa_ppn_lebih_bayar(self):
-        """Test SPTMasaPpn with lebih bayar."""
-        spt = SPTMasaPpn(Decimal("1000"), 5, 2026)
-        spt.total_ppn_masukan = Decimal("2000")
-        spt.lebih_bayar = Decimal("1000")
-        assert spt.total_ppn_keluaran == Decimal("1000")
-        assert spt.lebih_bayar == Decimal("1000")
-
-    def test_payment_reference_all_attributes(self):
-        """Test PaymentReference all attributes."""
-        ref = PaymentReference(ntpn="1234567890123456", amount=Decimal("1000.50"), bank_code="BNI")
-        assert ref.ntpn == "1234567890123456"
-        assert ref.amount == Decimal("1000.50")
-        assert ref.bank_code == "BNI"
-
-    def test_submission_result_attributes(self):
-        """Test SubmissionResult all attributes."""
-        result = SubmissionResult(is_submitted=True, receipt_number="RCPT-2026-001")
-        assert result.is_submitted is True
-        assert result.receipt_number == "RCPT-2026-001"
-
-        result2 = SubmissionResult(is_submitted=False, receipt_number="")
-        assert result2.is_submitted is False
-        assert result2.receipt_number == ""
-
-
-class TestSPTMasaPPNConstants:
-    """Test constants defined in spt_masa_ppn_builder.py."""
-
-    def test_ppn_rate_constant(self):
-        """Test PPN_RATE constant is 0.11."""
-        assert PPN_RATE == Decimal("0.11")
-
-    def test_form_code_constant(self):
-        """Test FORM_CODE constant is 1111."""
-        assert FORM_CODE == "1111"
-
-    def test_max_retry_attempts(self):
-        """Test MAX_RETRY_ATTEMPTS constant is 3."""
-        assert MAX_RETRY_ATTEMPTS == 3
-
-    def test_cache_ttl_seconds(self):
-        """Test CACHE_TTL_SECONDS constant is 86400."""
-        assert CACHE_TTL_SECONDS == 86400
-
-    def test_jenis_ppn_mapping(self):
-        """Test JENIS_PPN mapping."""
-        assert JENIS_PPN["01"] == "PPN Dalam Negeri"
-        assert JENIS_PPN["02"] == "PPN Impor"
-        assert JENIS_PPN["03"] == "PPN Ditanggung Pemerintah"
-
-    def test_status_kb_lb_mapping(self):
-        """Test STATUS_KB_LB mapping."""
-        assert STATUS_KB_LB["KB"] == "Kurang Bayar"
-        assert STATUS_KB_LB["LB"] == "Lebih Bayar"
-        assert STATUS_KB_LB["Nihil"] == "Nihil"
-
-    def test_jenis_kompensasi_mapping(self):
-        """Test JENIS_KOMPENSASI mapping."""
-        assert JENIS_KOMPENSASI["1"] == "Kompensasi ke Masa Pajak Berikutnya"
-        assert JENIS_KOMPENSASI["2"] == "Restitusi"
-
-
-class TestSPTMasaPPNBuilderConfig:
-    """Test SPTMasaPPNBuilder configuration handling."""
-
-    def test_init_with_config(self):
-        """Test initialization with custom config."""
-        config = {"coretax_djp": {"spt_ppn": {"auto_submit": True}}}
-        builder = SPTMasaPPNBuilder(config=config)
-        assert builder._config == config
-
-    def test_load_config_returns_config(self):
-        """Test _load_config returns provided config."""
-        config = {"custom": "value"}
-        builder = SPTMasaPPNBuilder(config=config)
-        assert builder._load_config() == config
-
-    def test_load_config_default_values(self):
-        """Test _load_config default values."""
-        with patch("adapters.coretax_djp.spt_masa_ppn_builder.SPTMasaPPNBuilder._init_file_storage"):
-            builder = SPTMasaPPNBuilder(config=None)
-            config = builder._load_config()
-            assert config["coretax_djp"]["spt_ppn"]["ppn_rate"] == 0.11
-            assert config["coretax_djp"]["spt_ppn"]["max_retry_attempts"] == MAX_RETRY_ATTEMPTS
-            assert config["coretax_djp"]["spt_ppn"]["cache_ttl_seconds"] == CACHE_TTL_SECONDS

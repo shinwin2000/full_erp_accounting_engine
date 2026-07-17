@@ -73,47 +73,23 @@ from adapters.primary_api.v1.fastapi_tax_coretax_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestTaxType:
-    """Tests for the TaxType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(TaxType, 'PPN')
         assert hasattr(TaxType, 'PPH_21')
         assert hasattr(TaxType, 'PPH_22')
@@ -126,14 +102,11 @@ class TestTaxType:
         assert hasattr(TaxType, 'PPH_FINAL')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(TaxType.PPN, TaxType)
 
 
 class TestFakturStatus:
-    """Tests for the FakturStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(FakturStatus, 'DRAFT')
         assert hasattr(FakturStatus, 'PENDING')
         assert hasattr(FakturStatus, 'SUBMITTED')
@@ -146,14 +119,11 @@ class TestFakturStatus:
         assert hasattr(FakturStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(FakturStatus.DRAFT, FakturStatus)
 
 
 class TestSPTType:
-    """Tests for the SPTType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(SPTType, 'MASA_PPN')
         assert hasattr(SPTType, 'MASA_PPH_21')
         assert hasattr(SPTType, 'MASA_PPH_23')
@@ -161,14 +131,11 @@ class TestSPTType:
         assert hasattr(SPTType, 'TAHUNAN_OP')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(SPTType.MASA_PPN, SPTType)
 
 
 class TestSPTStatus:
-    """Tests for the SPTStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(SPTStatus, 'DRAFT')
         assert hasattr(SPTStatus, 'SUBMITTED')
         assert hasattr(SPTStatus, 'APPROVED')
@@ -178,14 +145,11 @@ class TestSPTStatus:
         assert hasattr(SPTStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(SPTStatus.DRAFT, SPTStatus)
 
 
 class TestEBupotStatus:
-    """Tests for the EBupotStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(EBupotStatus, 'DRAFT')
         assert hasattr(EBupotStatus, 'SUBMITTED')
         assert hasattr(EBupotStatus, 'APPROVED')
@@ -193,14 +157,11 @@ class TestEBupotStatus:
         assert hasattr(EBupotStatus, 'CANCELLED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(EBupotStatus.DRAFT, EBupotStatus)
 
 
 class TestEMeteraiStatus:
-    """Tests for the EMeteraiStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(EMeteraiStatus, 'ACTIVE')
         assert hasattr(EMeteraiStatus, 'USED')
         assert hasattr(EMeteraiStatus, 'EXPIRED')
@@ -208,823 +169,718 @@ class TestEMeteraiStatus:
         assert hasattr(EMeteraiStatus, 'PURCHASED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(EMeteraiStatus.ACTIVE, EMeteraiStatus)
 
 
 class TestTaxCalculationRequestSchema:
-    """Tests for the TaxCalculationRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            transaction_date=date.today(),
-            transaction_type=MagicMock(),
-            amount=Decimal("100.00"),
-            tax_type=TaxType.PPN,
-            npwp="test_value",
-            counterparty_npwp="test_value",
-            is_import=True,
-            has_tax_invoice=True,
-            has_npwp=True,
-            is_public_company=True,
-            annual_revenue=Decimal("100.00"),
-            special_rate=Decimal("100.00"),
-        )
-
     def test_construction_success(self):
-        """TaxCalculationRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = TaxCalculationRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "transaction_date": date.today(),
+            "transaction_type": MagicMock(),
+            "amount": Decimal("1000"),
+            "tax_type": TaxType.PPN,
+            "npwp": "123456789012345",
+            "counterparty_npwp": "987654321098765",
+            "is_import": False,
+            "has_tax_invoice": True,
+            "has_npwp": True,
+            "is_public_company": False,
+            "annual_revenue": Decimal("1000000000"),
+            "special_rate": Decimal("0.1"),
+        }
+        instance = TaxCalculationRequestSchema(**kwargs)
         assert isinstance(instance, TaxCalculationRequestSchema)
-        assert instance.transaction_date == kwargs['transaction_date']
+        assert instance.transaction_date == kwargs["transaction_date"]
 
 
 class TestTaxCalculationResponseSchema:
-    """Tests for the TaxCalculationResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            tax_type=TaxType.PPN,
-            taxable_base=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            tax_rate_percent=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            notes="test_value",
-            calculated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """TaxCalculationResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = TaxCalculationResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "tax_type": TaxType.PPN,
+            "taxable_base": Decimal("1000"),
+            "tax_rate": Decimal("0.11"),
+            "tax_rate_percent": Decimal("11"),
+            "tax_amount": Decimal("110"),
+            "notes": "PPN 11%",
+            "calculated_at": datetime.now(UTC),
+        }
+        instance = TaxCalculationResponseSchema(**kwargs)
         assert isinstance(instance, TaxCalculationResponseSchema)
-        assert instance.tax_type == kwargs['tax_type']
+        assert instance.tax_type == kwargs["tax_type"]
 
 
 class TestFakturPajakCreateSchema:
-    """Tests for the FakturPajakCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            reference_id=uuid4(),
-            faktur_date=date.today(),
-            npwp_pembeli="test_value",
-            nama_pembeli="test_value",
-            alamat_pembeli="test_value",
-            dpp=Decimal("100.00"),
-            ppn_rate=Decimal("100.00"),
-            is_ppn_bm=True,
-            ppn_bm_rate=Decimal("100.00"),
-            note_type="test_value",
-            correction_sequence=1,
-            description="test_value",
-        )
-
     def test_construction_success(self):
-        """FakturPajakCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = FakturPajakCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "reference_id": uuid4(),
+            "faktur_date": date.today(),
+            "npwp_pembeli": "123456789012345",
+            "nama_pembeli": "PT Pembeli",
+            "alamat_pembeli": "Jl. Pembeli",
+            "dpp": Decimal("100000"),
+            "ppn_rate": Decimal("0.11"),
+            "is_ppn_bm": False,
+            "ppn_bm_rate": Decimal("0"),
+            "note_type": "01",
+            "correction_sequence": 0,
+            "description": "Test faktur",
+        }
+        instance = FakturPajakCreateSchema(**kwargs)
         assert isinstance(instance, FakturPajakCreateSchema)
-        assert instance.reference_id == kwargs['reference_id']
+        assert instance.reference_id == kwargs["reference_id"]
 
 
 class TestFakturPajakResponseSchema:
-    """Tests for the FakturPajakResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            faktur_number="test_value",
-            nsfp="test_value",
-            reference_id=uuid4(),
-            faktur_date=date.today(),
-            npwp_penjual="test_value",
-            npwp_pembeli="test_value",
-            nama_pembeli="test_value",
-            dpp=Decimal("100.00"),
-            ppn_rate=Decimal("100.00"),
-            ppn_amount=Decimal("100.00"),
-            ppn_bm_amount=Decimal("100.00"),
-            status=FakturStatus.DRAFT,
-            approval_code="test_value",
-            qr_code="test_value",
-            rejection_reason="test_value",
-            submitted_at=datetime.now(UTC),
-            approved_at=datetime.now(UTC),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """FakturPajakResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = FakturPajakResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        faktur_id = uuid4()
+        kwargs = {
+            "id": faktur_id,
+            "faktur_number": "010-2026-05-00000001",
+            "nsfp": "00000001",
+            "reference_id": uuid4(),
+            "faktur_date": date.today(),
+            "npwp_penjual": "123456789012345",
+            "npwp_pembeli": "987654321098765",
+            "nama_pembeli": "PT Pembeli",
+            "dpp": Decimal("100000"),
+            "ppn_rate": Decimal("0.11"),
+            "ppn_amount": Decimal("11000"),
+            "ppn_bm_amount": Decimal("0"),
+            "status": FakturStatus.DRAFT,
+            "approval_code": None,
+            "qr_code": None,
+            "rejection_reason": None,
+            "submitted_at": None,
+            "approved_at": None,
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "version": 1,
+        }
+        instance = FakturPajakResponseSchema(**kwargs)
         assert isinstance(instance, FakturPajakResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == faktur_id
 
 
 class TestNSFPRequestSchema:
-    """Tests for the NSFPRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            tahun=1,
-            bulan=1,
-            jumlah=1,
-        )
-
     def test_construction_success(self):
-        """NSFPRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = NSFPRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"tahun": 2026, "bulan": 5, "jumlah": 50}
+        instance = NSFPRequestSchema(**kwargs)
         assert isinstance(instance, NSFPRequestSchema)
-        assert instance.tahun == kwargs['tahun']
+        assert instance.tahun == kwargs["tahun"]
 
 
 class TestNSFPResponseSchema:
-    """Tests for the NSFPResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            request_id=uuid4(),
-            tahun=1,
-            bulan=1,
-            nsfp_list=["test_value"],
-            jumlah=1,
-            remaining_quota=1,
-            requested_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """NSFPResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = NSFPResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        request_id = uuid4()
+        kwargs = {
+            "request_id": request_id,
+            "tahun": 2026,
+            "bulan": 5,
+            "nsfp_list": ["00000001", "00000002"],
+            "jumlah": 2,
+            "remaining_quota": 48,
+            "requested_at": datetime.now(UTC),
+        }
+        instance = NSFPResponseSchema(**kwargs)
         assert isinstance(instance, NSFPResponseSchema)
-        assert instance.request_id == kwargs['request_id']
+        assert instance.request_id == request_id
 
 
 class TestNTPNValidationSchema:
-    """Tests for the NTPNValidationSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            ntpn="test_value",
-            amount=Decimal("100.00"),
-            payment_date=date.today(),
-            npwp="test_value",
-            tax_type="test_value",
-        )
-
     def test_construction_success(self):
-        """NTPNValidationSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = NTPNValidationSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "ntpn": "1234567890123456",
+            "amount": Decimal("100000"),
+            "payment_date": date.today(),
+            "npwp": "123456789012345",
+            "tax_type": "PPN",
+        }
+        instance = NTPNValidationSchema(**kwargs)
         assert isinstance(instance, NTPNValidationSchema)
-        assert instance.ntpn == kwargs['ntpn']
+        assert instance.ntpn == kwargs["ntpn"]
 
 
 class TestNTPNValidationResponseSchema:
-    """Tests for the NTPNValidationResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            ntpn="test_value",
-            is_valid=True,
-            validation_message="test_value",
-            taxpayer_id="test_value",
-            taxpayer_name="test_value",
-            tax_type="test_value",
-            amount=Decimal("100.00"),
-            payment_date=date.today(),
-            period="test_value",
-            validated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """NTPNValidationResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = NTPNValidationResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "ntpn": "1234567890123456",
+            "is_valid": True,
+            "validation_message": "Valid",
+            "taxpayer_id": "123456789012345",
+            "taxpayer_name": "PT Maju",
+            "tax_type": "PPN",
+            "amount": Decimal("100000"),
+            "payment_date": date.today(),
+            "period": "2026-05",
+            "validated_at": datetime.now(UTC),
+        }
+        instance = NTPNValidationResponseSchema(**kwargs)
         assert isinstance(instance, NTPNValidationResponseSchema)
-        assert instance.ntpn == kwargs['ntpn']
+        assert instance.ntpn == kwargs["ntpn"]
 
 
 class TestSPTMasaPPNCreateSchema:
-    """Tests for the SPTMasaPPNCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            masa_pajak=1,
-            tahun_pajak=1,
-            total_penyerahan=Decimal("100.00"),
-            total_ppn_keluaran=Decimal("100.00"),
-            total_ppn_masukan=Decimal("100.00"),
-            kompensasi_dari_masa_sebelumnya=Decimal("100.00"),
-            ppn_kurang_bayar=Decimal("100.00"),
-            ppn_lebih_bayar=Decimal("100.00"),
-            ntpn_list=["test_value"],
-        )
-
     def test_construction_success(self):
-        """SPTMasaPPNCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SPTMasaPPNCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "masa_pajak": 5,
+            "tahun_pajak": 2026,
+            "total_penyerahan": Decimal("100000000"),
+            "total_ppn_keluaran": Decimal("11000000"),
+            "total_ppn_masukan": Decimal("5000000"),
+            "kompensasi_dari_masa_sebelumnya": Decimal("0"),
+            "ppn_kurang_bayar": Decimal("6000000"),
+            "ppn_lebih_bayar": Decimal("0"),
+            "ntpn_list": ["1234567890123456"],
+        }
+        instance = SPTMasaPPNCreateSchema(**kwargs)
         assert isinstance(instance, SPTMasaPPNCreateSchema)
-        assert instance.masa_pajak == kwargs['masa_pajak']
+        assert instance.masa_pajak == kwargs["masa_pajak"]
 
 
 class TestSPTMasaPPH21CreateSchema:
-    """Tests for the SPTMasaPPH21CreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            masa_pajak=1,
-            tahun_pajak=1,
-            total_bruto=Decimal("100.00"),
-            total_pph_terutang=Decimal("100.00"),
-            jumlah_bayar=Decimal("100.00"),
-            ntpn="test_value",
-        )
-
     def test_construction_success(self):
-        """SPTMasaPPH21CreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SPTMasaPPH21CreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "masa_pajak": 5,
+            "tahun_pajak": 2026,
+            "total_bruto": Decimal("50000000"),
+            "total_pph_terutang": Decimal("5000000"),
+            "jumlah_bayar": Decimal("5000000"),
+            "ntpn": "1234567890123456",
+        }
+        instance = SPTMasaPPH21CreateSchema(**kwargs)
         assert isinstance(instance, SPTMasaPPH21CreateSchema)
-        assert instance.masa_pajak == kwargs['masa_pajak']
+        assert instance.masa_pajak == kwargs["masa_pajak"]
 
 
 class TestSPTMasaPPH23CreateSchema:
-    """Tests for the SPTMasaPPH23CreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            masa_pajak=1,
-            tahun_pajak=1,
-            jenis_pajak="test_value",
-            total_dpp=Decimal("100.00"),
-            total_pph_dipotong=Decimal("100.00"),
-            total_bayar=Decimal("100.00"),
-            kompensasi=Decimal("100.00"),
-            ntpn="test_value",
-        )
-
     def test_construction_success(self):
-        """SPTMasaPPH23CreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SPTMasaPPH23CreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "masa_pajak": 5,
+            "tahun_pajak": 2026,
+            "jenis_pajak": "23",
+            "total_dpp": Decimal("10000000"),
+            "total_pph_dipotong": Decimal("2000000"),
+            "total_bayar": Decimal("2000000"),
+            "kompensasi": Decimal("0"),
+            "ntpn": "1234567890123456",
+        }
+        instance = SPTMasaPPH23CreateSchema(**kwargs)
         assert isinstance(instance, SPTMasaPPH23CreateSchema)
-        assert instance.masa_pajak == kwargs['masa_pajak']
+        assert instance.masa_pajak == kwargs["masa_pajak"]
 
 
 class TestSPTTahunanBadanCreateSchema:
-    """Tests for the SPTTahunanBadanCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            tahun_pajak=1,
-            penghasilan_neto_komersial=Decimal("100.00"),
-            penghasilan_neto_fiskal=Decimal("100.00"),
-            kompensasi_kerugian=Decimal("100.00"),
-            penghasilan_kena_pajak=Decimal("100.00"),
-            pph_terutang=Decimal("100.00"),
-            total_kredit_pajak=Decimal("100.00"),
-            kurang_bayar=Decimal("100.00"),
-            lebih_bayar=Decimal("100.00"),
-            ntpn="test_value",
-        )
-
     def test_construction_success(self):
-        """SPTTahunanBadanCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SPTTahunanBadanCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "tahun_pajak": 2026,
+            "penghasilan_neto_komersial": Decimal("100000000"),
+            "penghasilan_neto_fiskal": Decimal("100000000"),
+            "kompensasi_kerugian": Decimal("0"),
+            "penghasilan_kena_pajak": Decimal("100000000"),
+            "pph_terutang": Decimal("22000000"),
+            "total_kredit_pajak": Decimal("5000000"),
+            "kurang_bayar": Decimal("17000000"),
+            "lebih_bayar": Decimal("0"),
+            "ntpn": "1234567890123456",
+        }
+        instance = SPTTahunanBadanCreateSchema(**kwargs)
         assert isinstance(instance, SPTTahunanBadanCreateSchema)
-        assert instance.tahun_pajak == kwargs['tahun_pajak']
+        assert instance.tahun_pajak == kwargs["tahun_pajak"]
 
 
 class TestEBupotCreateSchema:
-    """Tests for the EBupotCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            masa_pajak=1,
-            tahun_pajak=1,
-            npwp_pemotong="test_value",
-            npwp_penerima="test_value",
-            nama_penerima="test_value",
-            alamat_penerima="test_value",
-            jenis_pajak="test_value",
-            jenis_penghasilan_code="test_value",
-            dpp=Decimal("100.00"),
-            tarif=Decimal("100.00"),
-            tanggal_pemotongan=date.today(),
-            invoice_reference="test_value",
-            keterangan="test_value",
-        )
-
     def test_construction_success(self):
-        """EBupotCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = EBupotCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "masa_pajak": 5,
+            "tahun_pajak": 2026,
+            "npwp_pemotong": "123456789012345",
+            "npwp_penerima": "987654321098765",
+            "nama_penerima": "PT Penerima",
+            "alamat_penerima": "Jl. Penerima",
+            "jenis_pajak": "23",
+            "jenis_penghasilan_code": "01",
+            "dpp": Decimal("100000"),
+            "tarif": Decimal("0.02"),
+            "tanggal_pemotongan": date.today(),
+            "invoice_reference": "INV-001",
+            "keterangan": "Test",
+        }
+        instance = EBupotCreateSchema(**kwargs)
         assert isinstance(instance, EBupotCreateSchema)
-        assert instance.masa_pajak == kwargs['masa_pajak']
+        assert instance.masa_pajak == kwargs["masa_pajak"]
 
 
 class TestEBupotResponseSchema:
-    """Tests for the EBupotResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            bupot_number="test_value",
-            official_number="test_value",
-            coretax_id="test_value",
-            status=EBupotStatus.DRAFT,
-            created_at=datetime.now(UTC),
-            submitted_at=datetime.now(UTC),
-            approved_at=datetime.now(UTC),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """EBupotResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = EBupotResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        bupot_id = uuid4()
+        kwargs = {
+            "id": bupot_id,
+            "bupot_number": "BUPOT-001",
+            "official_number": "OFF-001",
+            "coretax_id": "COR-001",
+            "status": EBupotStatus.DRAFT,
+            "created_at": datetime.now(UTC),
+            "submitted_at": None,
+            "approved_at": None,
+            "version": 1,
+        }
+        instance = EBupotResponseSchema(**kwargs)
         assert isinstance(instance, EBupotResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == bupot_id
 
 
 class TestEMeteraiValidateSchema:
-    """Tests for the EMeteraiValidateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            meterai_code="test_value",
-            document_id="test_value",
-        )
-
     def test_construction_success(self):
-        """EMeteraiValidateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = EMeteraiValidateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "meterai_code": "MTR-001",
+            "document_id": "DOC-001",
+        }
+        instance = EMeteraiValidateSchema(**kwargs)
         assert isinstance(instance, EMeteraiValidateSchema)
-        assert instance.meterai_code == kwargs['meterai_code']
+        assert instance.meterai_code == kwargs["meterai_code"]
 
 
 class TestEMeteraiPurchaseSchema:
-    """Tests for the EMeteraiPurchaseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            quantity=1,
-            npwp="test_value",
-            purpose="test_value",
-        )
-
     def test_construction_success(self):
-        """EMeteraiPurchaseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = EMeteraiPurchaseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "quantity": 10,
+            "npwp": "123456789012345",
+            "purpose": "Faktur",
+        }
+        instance = EMeteraiPurchaseSchema(**kwargs)
         assert isinstance(instance, EMeteraiPurchaseSchema)
-        assert instance.quantity == kwargs['quantity']
+        assert instance.quantity == kwargs["quantity"]
 
 
 class TestCoretaxDashboardResponseSchema:
-    """Tests for the CoretaxDashboardResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            nsfp_quota_remaining=1,
-            nsfp_quota_used=1,
-            faktur_submitted_today=1,
-            faktur_approved_today=1,
-            faktur_rejected_today=1,
-            spt_submitted_this_month=1,
-            spt_approved_this_month=1,
-            spt_rejected_this_month=1,
-            api_health="test_value",
-            last_sync_at=datetime.now(UTC),
-            pending_faktur=1,
-            pending_spt=1,
-            pending_bupot=1,
-        )
-
     def test_construction_success(self):
-        """CoretaxDashboardResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CoretaxDashboardResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "nsfp_quota_remaining": 100,
+            "nsfp_quota_used": 50,
+            "faktur_submitted_today": 5,
+            "faktur_approved_today": 3,
+            "faktur_rejected_today": 0,
+            "spt_submitted_this_month": 10,
+            "spt_approved_this_month": 7,
+            "spt_rejected_this_month": 2,
+            "api_health": "healthy",
+            "last_sync_at": datetime.now(UTC),
+            "pending_faktur": 2,
+            "pending_spt": 1,
+            "pending_bupot": 0,
+        }
+        instance = CoretaxDashboardResponseSchema(**kwargs)
         assert isinstance(instance, CoretaxDashboardResponseSchema)
-        assert instance.nsfp_quota_remaining == kwargs['nsfp_quota_remaining']
+        assert instance.nsfp_quota_remaining == kwargs["nsfp_quota_remaining"]
 
 
 class TestCoretaxSubmissionResponseSchema:
-    """Tests for the CoretaxSubmissionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            submission_id=uuid4(),
-            submission_type="test_value",
-            reference_number="test_value",
-            status="test_value",
-            coretax_tracking_id="test_value",
-            coretax_response={},
-            error_message="test_value",
-            created_at=datetime.now(UTC),
-            submitted_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """CoretaxSubmissionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CoretaxSubmissionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        sub_id = uuid4()
+        kwargs = {
+            "submission_id": sub_id,
+            "submission_type": "FAKTUR",
+            "reference_number": "REF-001",
+            "status": "success",
+            "coretax_tracking_id": "TRK-001",
+            "coretax_response": {"status": "ok"},
+            "error_message": None,
+            "created_at": datetime.now(UTC),
+            "submitted_at": datetime.now(UTC),
+        }
+        instance = CoretaxSubmissionResponseSchema(**kwargs)
         assert isinstance(instance, CoretaxSubmissionResponseSchema)
-        assert instance.submission_id == kwargs['submission_id']
+        assert instance.submission_id == sub_id
 
 
 class TestTaxFilingStatusSchema:
-    """Tests for the TaxFilingStatusSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            tax_type=TaxType.PPN,
-            period="test_value",
-            due_date=date.today(),
-            status="test_value",
-            submitted_at=datetime.now(UTC),
-            approved_at=datetime.now(UTC),
-            is_late=True,
-            days_overdue=1,
-        )
-
     def test_construction_success(self):
-        """TaxFilingStatusSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = TaxFilingStatusSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "tax_type": TaxType.PPN,
+            "period": "2026-05",
+            "due_date": date.today(),
+            "status": "submitted",
+            "submitted_at": datetime.now(UTC),
+            "approved_at": None,
+            "is_late": False,
+            "days_overdue": 0,
+        }
+        instance = TaxFilingStatusSchema(**kwargs)
         assert isinstance(instance, TaxFilingStatusSchema)
-        assert instance.tax_type == kwargs['tax_type']
+        assert instance.tax_type == kwargs["tax_type"]
 
 
-async def test_get_tax_service_smoke():
-    """Smoke test for module-level function get_tax_service."""
-    try:
-        result = await get_tax_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_tax_service needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_tax_service_returns_service():
+    request = MagicMock()
+    result = await get_tax_service(request=request)
+    assert result is not None
 
 
-async def test_get_coretax_service_smoke():
-    """Smoke test for module-level function get_coretax_service."""
-    try:
-        result = await get_coretax_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_coretax_service needs specific input data: {e}")
-        return
-    assert True
+async def test_get_coretax_service_returns_service():
+    request = MagicMock()
+    result = await get_coretax_service(request=request)
+    assert result is not None
 
 
-async def test_get_coretax_bulk_use_case_smoke():
-    """Smoke test for module-level function get_coretax_bulk_use_case."""
-    try:
-        result = await get_coretax_bulk_use_case(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_coretax_bulk_use_case needs specific input data: {e}")
-        return
-    assert True
+async def test_get_coretax_bulk_use_case_returns_use_case():
+    request = MagicMock()
+    result = await get_coretax_bulk_use_case(request=request)
+    assert result is not None
 
 
-def test_ping_smoke():
-    """Smoke test for module-level function ping."""
-    try:
-        result = ping()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ping needs specific input data: {e}")
-        return
-    assert True
+def test_ping_returns_dict():
+    result = ping()
+    assert isinstance(result, dict)
+    # Usually returns {"status": "ok"} or similar
+    assert "status" in result or "pong" in str(result)
 
 
-def test_health_smoke():
-    """Smoke test for module-level function health."""
-    try:
-        result = health()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"health needs specific input data: {e}")
-        return
-    assert True
+def test_health_returns_dict():
+    result = health()
+    assert isinstance(result, dict)
+    assert "status" in result
 
 
-def test_info_smoke():
-    """Smoke test for module-level function info."""
-    try:
-        result = info()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"info needs specific input data: {e}")
-        return
-    assert True
+def test_info_returns_dict():
+    result = info()
+    assert isinstance(result, dict)
+    assert "version" in result or "name" in result
 
 
-async def test_calculate_tax_smoke():
-    """Smoke test for module-level function calculate_tax."""
-    try:
-        result = await calculate_tax(request=MagicMock(), _permission=MagicMock(), legal_entity_id=uuid4(), tax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"calculate_tax needs specific input data: {e}")
-        return
-    assert True
+async def test_calculate_tax_returns_calculation():
+    tax_service = MagicMock()
+    tax_service.calculate_tax = MagicMock(return_value={"tax_amount": 110})
+    result = await calculate_tax(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        tax_service=tax_service,
+    )
+    assert result is not None
+    assert "tax_amount" in result
 
 
-async def test_create_faktur_pajak_smoke():
-    """Smoke test for module-level function create_faktur_pajak."""
-    try:
-        result = await create_faktur_pajak(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_faktur_pajak needs specific input data: {e}")
-        return
-    assert True
+async def test_create_faktur_pajak_returns_faktur():
+    coretax_service = MagicMock()
+    coretax_service.create_faktur = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_faktur_pajak(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_list_faktur_pajak_smoke():
-    """Smoke test for module-level function list_faktur_pajak."""
-    try:
-        result = await list_faktur_pajak(status=FakturStatus.DRAFT, start_date=date.today(), end_date=date.today(), page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_faktur_pajak needs specific input data: {e}")
-        return
-    assert True
+async def test_list_faktur_pajak_returns_list():
+    coretax_service = MagicMock()
+    coretax_service.list_faktur = MagicMock(return_value=[])
+    result = await list_faktur_pajak(
+        status=FakturStatus.DRAFT,
+        start_date=date.today(),
+        end_date=date.today(),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_faktur_pajak_smoke():
-    """Smoke test for module-level function get_faktur_pajak."""
-    try:
-        result = await get_faktur_pajak(faktur_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_faktur_pajak needs specific input data: {e}")
-        return
-    assert True
+async def test_get_faktur_pajak_returns_faktur():
+    coretax_service = MagicMock()
+    coretax_service.get_faktur = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_faktur_pajak(
+        faktur_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_cancel_faktur_pajak_smoke():
-    """Smoke test for module-level function cancel_faktur_pajak."""
-    try:
-        result = await cancel_faktur_pajak(faktur_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_faktur_pajak needs specific input data: {e}")
-        return
-    assert True
+async def test_cancel_faktur_pajak_returns_success():
+    coretax_service = MagicMock()
+    coretax_service.cancel_faktur = MagicMock(return_value={"success": True})
+    result = await cancel_faktur_pajak(
+        faktur_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_request_nsfp_smoke():
-    """Smoke test for module-level function request_nsfp."""
-    try:
-        result = await request_nsfp(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"request_nsfp needs specific input data: {e}")
-        return
-    assert True
+async def test_request_nsfp_returns_response():
+    coretax_service = MagicMock()
+    coretax_service.request_nsfp = MagicMock(return_value={"request_id": str(uuid4())})
+    result = await request_nsfp(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "request_id" in result
 
 
-async def test_get_nsfp_quota_smoke():
-    """Smoke test for module-level function get_nsfp_quota."""
-    try:
-        result = await get_nsfp_quota(tahun=1, bulan=1, _permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_nsfp_quota needs specific input data: {e}")
-        return
-    assert True
+async def test_get_nsfp_quota_returns_quota():
+    coretax_service = MagicMock()
+    coretax_service.get_nsfp_quota = MagicMock(return_value={"remaining": 100})
+    result = await get_nsfp_quota(
+        tahun=2026,
+        bulan=5,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "remaining" in result
 
 
-async def test_validate_ntpn_smoke():
-    """Smoke test for module-level function validate_ntpn."""
-    try:
-        result = await validate_ntpn(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"validate_ntpn needs specific input data: {e}")
-        return
-    assert True
+async def test_validate_ntpn_returns_validation():
+    coretax_service = MagicMock()
+    coretax_service.validate_ntpn = MagicMock(return_value={"is_valid": True})
+    result = await validate_ntpn(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "is_valid" in result
 
 
-async def test_submit_spt_ppn_smoke():
-    """Smoke test for module-level function submit_spt_ppn."""
-    try:
-        result = await submit_spt_ppn(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_spt_ppn needs specific input data: {e}")
-        return
-    assert True
+async def test_submit_spt_ppn_returns_response():
+    coretax_service = MagicMock()
+    coretax_service.submit_spt_ppn = MagicMock(return_value={"submission_id": str(uuid4())})
+    result = await submit_spt_ppn(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "submission_id" in result
 
 
-async def test_submit_spt_pph21_smoke():
-    """Smoke test for module-level function submit_spt_pph21."""
-    try:
-        result = await submit_spt_pph21(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_spt_pph21 needs specific input data: {e}")
-        return
-    assert True
+async def test_submit_spt_pph21_returns_response():
+    coretax_service = MagicMock()
+    coretax_service.submit_spt_pph21 = MagicMock(return_value={"submission_id": str(uuid4())})
+    result = await submit_spt_pph21(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "submission_id" in result
 
 
-async def test_submit_spt_pph23_smoke():
-    """Smoke test for module-level function submit_spt_pph23."""
-    try:
-        result = await submit_spt_pph23(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_spt_pph23 needs specific input data: {e}")
-        return
-    assert True
+async def test_submit_spt_pph23_returns_response():
+    coretax_service = MagicMock()
+    coretax_service.submit_spt_pph23 = MagicMock(return_value={"submission_id": str(uuid4())})
+    result = await submit_spt_pph23(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "submission_id" in result
 
 
-async def test_submit_spt_tahunan_badan_smoke():
-    """Smoke test for module-level function submit_spt_tahunan_badan."""
-    try:
-        result = await submit_spt_tahunan_badan(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_spt_tahunan_badan needs specific input data: {e}")
-        return
-    assert True
+async def test_submit_spt_tahunan_badan_returns_response():
+    coretax_service = MagicMock()
+    coretax_service.submit_spt_tahunan_badan = MagicMock(return_value={"submission_id": str(uuid4())})
+    result = await submit_spt_tahunan_badan(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "submission_id" in result
 
 
-async def test_create_e_bupot_smoke():
-    """Smoke test for module-level function create_e_bupot."""
-    try:
-        result = await create_e_bupot(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_e_bupot needs specific input data: {e}")
-        return
-    assert True
+async def test_create_e_bupot_returns_bupot():
+    coretax_service = MagicMock()
+    coretax_service.create_e_bupot = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_e_bupot(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_list_e_bupot_smoke():
-    """Smoke test for module-level function list_e_bupot."""
-    try:
-        result = await list_e_bupot(masa_pajak=1, tahun_pajak=1, status=EBupotStatus.DRAFT, page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_e_bupot needs specific input data: {e}")
-        return
-    assert True
+async def test_list_e_bupot_returns_list():
+    coretax_service = MagicMock()
+    coretax_service.list_e_bupot = MagicMock(return_value=[])
+    result = await list_e_bupot(
+        masa_pajak=5,
+        tahun_pajak=2026,
+        status=EBupotStatus.DRAFT,
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_cancel_e_bupot_smoke():
-    """Smoke test for module-level function cancel_e_bupot."""
-    try:
-        result = await cancel_e_bupot(bupot_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_e_bupot needs specific input data: {e}")
-        return
-    assert True
+async def test_cancel_e_bupot_returns_success():
+    coretax_service = MagicMock()
+    coretax_service.cancel_e_bupot = MagicMock(return_value={"success": True})
+    result = await cancel_e_bupot(
+        bupot_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_validate_e_meterai_smoke():
-    """Smoke test for module-level function validate_e_meterai."""
-    try:
-        result = await validate_e_meterai(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"validate_e_meterai needs specific input data: {e}")
-        return
-    assert True
+async def test_validate_e_meterai_returns_validation():
+    coretax_service = MagicMock()
+    coretax_service.validate_e_meterai = MagicMock(return_value={"valid": True})
+    result = await validate_e_meterai(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "valid" in result
 
 
-async def test_purchase_e_meterai_smoke():
-    """Smoke test for module-level function purchase_e_meterai."""
-    try:
-        result = await purchase_e_meterai(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"purchase_e_meterai needs specific input data: {e}")
-        return
-    assert True
+async def test_purchase_e_meterai_returns_response():
+    coretax_service = MagicMock()
+    coretax_service.purchase_e_meterai = MagicMock(return_value={"purchase_id": str(uuid4())})
+    result = await purchase_e_meterai(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "purchase_id" in result
 
 
-async def test_bulk_submit_faktur_smoke():
-    """Smoke test for module-level function bulk_submit_faktur."""
-    try:
-        result = await bulk_submit_faktur(faktur_ids=[uuid4()], idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), bulk_use_case=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"bulk_submit_faktur needs specific input data: {e}")
-        return
-    assert True
+async def test_bulk_submit_faktur_returns_result():
+    bulk_use_case = MagicMock()
+    bulk_use_case.bulk_submit = MagicMock(return_value={"success": True, "submitted": 5})
+    result = await bulk_submit_faktur(
+        faktur_ids=[uuid4(), uuid4()],
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        bulk_use_case=bulk_use_case,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_get_coretax_dashboard_smoke():
-    """Smoke test for module-level function get_coretax_dashboard."""
-    try:
-        result = await get_coretax_dashboard(_permission=MagicMock(), legal_entity_id=uuid4(), coretax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_coretax_dashboard needs specific input data: {e}")
-        return
-    assert True
+async def test_get_coretax_dashboard_returns_dashboard():
+    coretax_service = MagicMock()
+    coretax_service.get_dashboard = MagicMock(return_value={"nsfp_quota_remaining": 100})
+    result = await get_coretax_dashboard(
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        coretax_service=coretax_service,
+    )
+    assert result is not None
+    assert "nsfp_quota_remaining" in result
 
 
-async def test_get_tax_filing_status_smoke():
-    """Smoke test for module-level function get_tax_filing_status."""
-    try:
-        result = await get_tax_filing_status(year=1, tax_type=TaxType.PPN, _permission=MagicMock(), legal_entity_id=uuid4(), tax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_tax_filing_status needs specific input data: {e}")
-        return
-    assert True
+async def test_get_tax_filing_status_returns_status():
+    tax_service = MagicMock()
+    tax_service.get_filing_status = MagicMock(return_value={"status": "submitted"})
+    result = await get_tax_filing_status(
+        year=2026,
+        tax_type=TaxType.PPN,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        tax_service=tax_service,
+    )
+    assert result is not None
+    assert "status" in result
 
 
-async def test_get_tax_due_dates_smoke():
-    """Smoke test for module-level function get_tax_due_dates."""
-    try:
-        result = await get_tax_due_dates(days_ahead=1, _permission=MagicMock(), legal_entity_id=uuid4(), tax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_tax_due_dates needs specific input data: {e}")
-        return
-    assert True
+async def test_get_tax_due_dates_returns_list():
+    tax_service = MagicMock()
+    tax_service.get_due_dates = MagicMock(return_value=[])
+    result = await get_tax_due_dates(
+        days_ahead=30,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        tax_service=tax_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_tax_summary_smoke():
-    """Smoke test for module-level function get_tax_summary."""
-    try:
-        result = await get_tax_summary(start_date=date.today(), end_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), tax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_tax_summary needs specific input data: {e}")
-        return
-    assert True
+async def test_get_tax_summary_returns_summary():
+    tax_service = MagicMock()
+    tax_service.get_summary = MagicMock(return_value={"total": 100000})
+    result = await get_tax_summary(
+        start_date=date.today(),
+        end_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        tax_service=tax_service,
+    )
+    assert result is not None
+    assert "total" in result
 
 
-async def test_export_tax_data_smoke():
-    """Smoke test for module-level function export_tax_data."""
-    try:
-        result = await export_tax_data(start_date=date.today(), end_date=date.today(), format="test_value", tax_type=TaxType.PPN, _permission=MagicMock(), legal_entity_id=uuid4(), tax_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_tax_data needs specific input data: {e}")
-        return
-    assert True
+async def test_export_tax_data_returns_export():
+    tax_service = MagicMock()
+    tax_service.export_data = MagicMock(return_value={"file": "base64data"})
+    result = await export_tax_data(
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        tax_type=TaxType.PPN,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        tax_service=tax_service,
+    )
+    assert result is not None
+    assert "file" in result

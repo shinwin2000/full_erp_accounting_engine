@@ -72,47 +72,23 @@ from adapters.primary_api.v1.fastapi_purchase_sales_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestPurchaseOrderStatus:
-    """Tests for the PurchaseOrderStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(PurchaseOrderStatus, 'DRAFT')
         assert hasattr(PurchaseOrderStatus, 'SUBMITTED')
         assert hasattr(PurchaseOrderStatus, 'PENDING_APPROVAL')
@@ -130,14 +106,11 @@ class TestPurchaseOrderStatus:
         assert hasattr(PurchaseOrderStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(PurchaseOrderStatus.DRAFT, PurchaseOrderStatus)
 
 
 class TestSalesOrderStatus:
-    """Tests for the SalesOrderStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(SalesOrderStatus, 'DRAFT')
         assert hasattr(SalesOrderStatus, 'SUBMITTED')
         assert hasattr(SalesOrderStatus, 'PENDING_APPROVAL')
@@ -155,14 +128,11 @@ class TestSalesOrderStatus:
         assert hasattr(SalesOrderStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(SalesOrderStatus.DRAFT, SalesOrderStatus)
 
 
 class TestGoodsReceiptStatus:
-    """Tests for the GoodsReceiptStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(GoodsReceiptStatus, 'DRAFT')
         assert hasattr(GoodsReceiptStatus, 'CONFIRMED')
         assert hasattr(GoodsReceiptStatus, 'POSTED')
@@ -170,14 +140,11 @@ class TestGoodsReceiptStatus:
         assert hasattr(GoodsReceiptStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(GoodsReceiptStatus.DRAFT, GoodsReceiptStatus)
 
 
 class TestDeliveryOrderStatus:
-    """Tests for the DeliveryOrderStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(DeliveryOrderStatus, 'DRAFT')
         assert hasattr(DeliveryOrderStatus, 'CONFIRMED')
         assert hasattr(DeliveryOrderStatus, 'SHIPPED')
@@ -186,14 +153,11 @@ class TestDeliveryOrderStatus:
         assert hasattr(DeliveryOrderStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(DeliveryOrderStatus.DRAFT, DeliveryOrderStatus)
 
 
 class TestOrderType:
-    """Tests for the OrderType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(OrderType, 'STANDARD')
         assert hasattr(OrderType, 'RUSH')
         assert hasattr(OrderType, 'BACKORDER')
@@ -201,14 +165,11 @@ class TestOrderType:
         assert hasattr(OrderType, 'DROPSHIP')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(OrderType.STANDARD, OrderType)
 
 
 class TestIncoterm:
-    """Tests for the Incoterm enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(Incoterm, 'EXW')
         assert hasattr(Incoterm, 'FCA')
         assert hasattr(Incoterm, 'FAS')
@@ -222,789 +183,798 @@ class TestIncoterm:
         assert hasattr(Incoterm, 'DDP')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(Incoterm.EXW, Incoterm)
 
 
 class TestPOLineSchema:
-    """Tests for the POLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            discount_percent=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            expected_delivery_date=date.today(),
-            description="test_value",
-        )
-
     def test_construction_success(self):
-        """POLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = POLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_id": uuid4(),
+            "quantity": Decimal("2"),
+            "unit_price": Decimal("100000"),
+            "discount_percent": Decimal("0"),
+            "tax_rate": Decimal("0.11"),
+            "expected_delivery_date": date.today(),
+            "description": "Test line",
+        }
+        instance = POLineSchema(**kwargs)
         assert isinstance(instance, POLineSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == kwargs["item_id"]
 
 
 class TestPurchaseOrderCreateSchema:
-    """Tests for the PurchaseOrderCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            po_number="test_value",
-            po_date=date.today(),
-            supplier_id=uuid4(),
-            lines=[MagicMock()],
-            expected_delivery_date=date.today(),
-            delivery_term_days=1,
-            payment_term_days=1,
-            incoterm=Incoterm.EXW,
-            order_type=OrderType.STANDARD,
-            reference_number="test_value",
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """PurchaseOrderCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = PurchaseOrderCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "po_number": "PO-2026-001",
+            "po_date": date.today(),
+            "supplier_id": uuid4(),
+            "lines": [MagicMock()],
+            "expected_delivery_date": date.today(),
+            "delivery_term_days": 30,
+            "payment_term_days": 45,
+            "incoterm": Incoterm.EXW,
+            "order_type": OrderType.STANDARD,
+            "reference_number": "REF-001",
+            "notes": "Test PO",
+        }
+        instance = PurchaseOrderCreateSchema(**kwargs)
         assert isinstance(instance, PurchaseOrderCreateSchema)
-        assert instance.po_number == kwargs['po_number']
+        assert instance.po_number == kwargs["po_number"]
 
 
 class TestPurchaseOrderUpdateSchema:
-    """Tests for the PurchaseOrderUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            expected_delivery_date=date.today(),
-            delivery_term_days=1,
-            payment_term_days=1,
-            notes="test_value",
-            status=PurchaseOrderStatus.DRAFT,
-        )
-
     def test_construction_success(self):
-        """PurchaseOrderUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = PurchaseOrderUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "expected_delivery_date": date.today(),
+            "delivery_term_days": 30,
+            "payment_term_days": 45,
+            "notes": "Updated notes",
+            "status": PurchaseOrderStatus.DRAFT,
+        }
+        instance = PurchaseOrderUpdateSchema(**kwargs)
         assert isinstance(instance, PurchaseOrderUpdateSchema)
-        assert instance.expected_delivery_date == kwargs['expected_delivery_date']
+        assert instance.expected_delivery_date == kwargs["expected_delivery_date"]
 
 
 class TestPurchaseOrderResponseSchema:
-    """Tests for the PurchaseOrderResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            po_number="test_value",
-            po_date=date.today(),
-            supplier_id=uuid4(),
-            supplier_name="test_value",
-            supplier_code="test_value",
-            total_amount=Decimal("100.00"),
-            received_amount=Decimal("100.00"),
-            invoiced_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            outstanding_amount=Decimal("100.00"),
-            status=PurchaseOrderStatus.DRAFT,
-            expected_delivery_date=date.today(),
-            actual_delivery_date=date.today(),
-            delivery_term_days=1,
-            payment_term_days=1,
-            incoterm=Incoterm.EXW,
-            order_type=OrderType.STANDARD,
-            reference_number="test_value",
-            notes="test_value",
-            lines=[{}],
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_by_name="test_value",
-            rejected_at=datetime.now(UTC),
-            rejected_by=uuid4(),
-            rejection_reason="test_value",
-            cancelled_at=datetime.now(UTC),
-            cancelled_by=uuid4(),
-            closed_at=datetime.now(UTC),
-            is_locked=True,
-            version=1,
-        )
-
     def test_construction_success(self):
-        """PurchaseOrderResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = PurchaseOrderResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        po_id = uuid4()
+        kwargs = {
+            "id": po_id,
+            "po_number": "PO-2026-001",
+            "po_date": date.today(),
+            "supplier_id": uuid4(),
+            "supplier_name": "PT Supplier",
+            "supplier_code": "SUP001",
+            "total_amount": Decimal("1000000"),
+            "received_amount": Decimal("0"),
+            "invoiced_amount": Decimal("0"),
+            "paid_amount": Decimal("0"),
+            "outstanding_amount": Decimal("1000000"),
+            "status": PurchaseOrderStatus.DRAFT,
+            "expected_delivery_date": date.today(),
+            "actual_delivery_date": None,
+            "delivery_term_days": 30,
+            "payment_term_days": 45,
+            "incoterm": Incoterm.EXW,
+            "order_type": OrderType.STANDARD,
+            "reference_number": "REF-001",
+            "notes": "",
+            "lines": [],
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "approved_by_name": None,
+            "rejected_at": None,
+            "rejected_by": None,
+            "rejection_reason": None,
+            "cancelled_at": None,
+            "cancelled_by": None,
+            "closed_at": None,
+            "is_locked": False,
+            "version": 1,
+        }
+        instance = PurchaseOrderResponseSchema(**kwargs)
         assert isinstance(instance, PurchaseOrderResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == po_id
 
 
 class TestSOLineSchema:
-    """Tests for the SOLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            discount_percent=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            expected_ship_date=date.today(),
-            description="test_value",
-        )
-
     def test_construction_success(self):
-        """SOLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SOLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "item_id": uuid4(),
+            "quantity": Decimal("2"),
+            "unit_price": Decimal("100000"),
+            "discount_percent": Decimal("0"),
+            "tax_rate": Decimal("0.11"),
+            "expected_ship_date": date.today(),
+            "description": "Test line",
+        }
+        instance = SOLineSchema(**kwargs)
         assert isinstance(instance, SOLineSchema)
-        assert instance.item_id == kwargs['item_id']
+        assert instance.item_id == kwargs["item_id"]
 
 
 class TestSalesOrderCreateSchema:
-    """Tests for the SalesOrderCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            so_number="test_value",
-            so_date=date.today(),
-            customer_id=uuid4(),
-            lines=[MagicMock()],
-            expected_ship_date=date.today(),
-            shipping_term_days=1,
-            payment_term_days=1,
-            incoterm=Incoterm.EXW,
-            order_type=OrderType.STANDARD,
-            reference_number="test_value",
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """SalesOrderCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SalesOrderCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "so_number": "SO-2026-001",
+            "so_date": date.today(),
+            "customer_id": uuid4(),
+            "lines": [MagicMock()],
+            "expected_ship_date": date.today(),
+            "shipping_term_days": 30,
+            "payment_term_days": 45,
+            "incoterm": Incoterm.EXW,
+            "order_type": OrderType.STANDARD,
+            "reference_number": "REF-001",
+            "notes": "Test SO",
+        }
+        instance = SalesOrderCreateSchema(**kwargs)
         assert isinstance(instance, SalesOrderCreateSchema)
-        assert instance.so_number == kwargs['so_number']
+        assert instance.so_number == kwargs["so_number"]
 
 
 class TestSalesOrderUpdateSchema:
-    """Tests for the SalesOrderUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            expected_ship_date=date.today(),
-            shipping_term_days=1,
-            payment_term_days=1,
-            notes="test_value",
-            status=SalesOrderStatus.DRAFT,
-        )
-
     def test_construction_success(self):
-        """SalesOrderUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SalesOrderUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "expected_ship_date": date.today(),
+            "shipping_term_days": 30,
+            "payment_term_days": 45,
+            "notes": "Updated notes",
+            "status": SalesOrderStatus.DRAFT,
+        }
+        instance = SalesOrderUpdateSchema(**kwargs)
         assert isinstance(instance, SalesOrderUpdateSchema)
-        assert instance.expected_ship_date == kwargs['expected_ship_date']
+        assert instance.expected_ship_date == kwargs["expected_ship_date"]
 
 
 class TestSalesOrderResponseSchema:
-    """Tests for the SalesOrderResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            so_number="test_value",
-            so_date=date.today(),
-            customer_id=uuid4(),
-            customer_name="test_value",
-            customer_code="test_value",
-            total_amount=Decimal("100.00"),
-            shipped_amount=Decimal("100.00"),
-            invoiced_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            outstanding_amount=Decimal("100.00"),
-            status=SalesOrderStatus.DRAFT,
-            expected_ship_date=date.today(),
-            actual_ship_date=date.today(),
-            shipping_term_days=1,
-            payment_term_days=1,
-            incoterm=Incoterm.EXW,
-            order_type=OrderType.STANDARD,
-            reference_number="test_value",
-            notes="test_value",
-            lines=[{}],
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_by_name="test_value",
-            rejected_at=datetime.now(UTC),
-            rejected_by=uuid4(),
-            rejection_reason="test_value",
-            cancelled_at=datetime.now(UTC),
-            cancelled_by=uuid4(),
-            closed_at=datetime.now(UTC),
-            is_locked=True,
-            version=1,
-        )
-
     def test_construction_success(self):
-        """SalesOrderResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = SalesOrderResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        so_id = uuid4()
+        kwargs = {
+            "id": so_id,
+            "so_number": "SO-2026-001",
+            "so_date": date.today(),
+            "customer_id": uuid4(),
+            "customer_name": "PT Customer",
+            "customer_code": "CUST001",
+            "total_amount": Decimal("1000000"),
+            "shipped_amount": Decimal("0"),
+            "invoiced_amount": Decimal("0"),
+            "paid_amount": Decimal("0"),
+            "outstanding_amount": Decimal("1000000"),
+            "status": SalesOrderStatus.DRAFT,
+            "expected_ship_date": date.today(),
+            "actual_ship_date": None,
+            "shipping_term_days": 30,
+            "payment_term_days": 45,
+            "incoterm": Incoterm.EXW,
+            "order_type": OrderType.STANDARD,
+            "reference_number": "REF-001",
+            "notes": "",
+            "lines": [],
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "approved_by_name": None,
+            "rejected_at": None,
+            "rejected_by": None,
+            "rejection_reason": None,
+            "cancelled_at": None,
+            "cancelled_by": None,
+            "closed_at": None,
+            "is_locked": False,
+            "version": 1,
+        }
+        instance = SalesOrderResponseSchema(**kwargs)
         assert isinstance(instance, SalesOrderResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == so_id
 
 
 class TestGRNLineSchema:
-    """Tests for the GRNLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            purchase_order_line_id=uuid4(),
-            item_id=uuid4(),
-            quantity_received=Decimal("100.00"),
-            quantity_accepted=Decimal("100.00"),
-            quantity_rejected=Decimal("100.00"),
-            rejection_reason="test_value",
-            batch_number="test_value",
-            expiry_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """GRNLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = GRNLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "purchase_order_line_id": uuid4(),
+            "item_id": uuid4(),
+            "quantity_received": Decimal("10"),
+            "quantity_accepted": Decimal("9"),
+            "quantity_rejected": Decimal("1"),
+            "rejection_reason": "Damaged",
+            "batch_number": "BATCH-001",
+            "expiry_date": date.today(),
+        }
+        instance = GRNLineSchema(**kwargs)
         assert isinstance(instance, GRNLineSchema)
-        assert instance.purchase_order_line_id == kwargs['purchase_order_line_id']
+        assert instance.purchase_order_line_id == kwargs["purchase_order_line_id"]
 
 
 class TestGoodsReceiptCreateSchema:
-    """Tests for the GoodsReceiptCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            grn_number="test_value",
-            grn_date=date.today(),
-            purchase_order_id=uuid4(),
-            lines=[MagicMock()],
-            warehouse_id=uuid4(),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """GoodsReceiptCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = GoodsReceiptCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "grn_number": "GRN-2026-001",
+            "grn_date": date.today(),
+            "purchase_order_id": uuid4(),
+            "lines": [MagicMock()],
+            "warehouse_id": uuid4(),
+            "notes": "Test GRN",
+        }
+        instance = GoodsReceiptCreateSchema(**kwargs)
         assert isinstance(instance, GoodsReceiptCreateSchema)
-        assert instance.grn_number == kwargs['grn_number']
+        assert instance.grn_number == kwargs["grn_number"]
 
 
 class TestGoodsReceiptResponseSchema:
-    """Tests for the GoodsReceiptResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            grn_number="test_value",
-            grn_date=date.today(),
-            purchase_order_id=uuid4(),
-            po_number="test_value",
-            supplier_id=uuid4(),
-            supplier_name="test_value",
-            warehouse_id=uuid4(),
-            warehouse_name="test_value",
-            status=GoodsReceiptStatus.DRAFT,
-            lines=[{}],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            confirmed_at=datetime.now(UTC),
-            confirmed_by=uuid4(),
-            posted_at=datetime.now(UTC),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """GoodsReceiptResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = GoodsReceiptResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        grn_id = uuid4()
+        kwargs = {
+            "id": grn_id,
+            "grn_number": "GRN-2026-001",
+            "grn_date": date.today(),
+            "purchase_order_id": uuid4(),
+            "po_number": "PO-2026-001",
+            "supplier_id": uuid4(),
+            "supplier_name": "PT Supplier",
+            "warehouse_id": uuid4(),
+            "warehouse_name": "Warehouse A",
+            "status": GoodsReceiptStatus.DRAFT,
+            "lines": [],
+            "notes": "",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "confirmed_at": None,
+            "confirmed_by": None,
+            "posted_at": None,
+            "version": 1,
+        }
+        instance = GoodsReceiptResponseSchema(**kwargs)
         assert isinstance(instance, GoodsReceiptResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == grn_id
 
 
 class TestDOLineSchema:
-    """Tests for the DOLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            sales_order_line_id=uuid4(),
-            item_id=uuid4(),
-            quantity_shipped=Decimal("100.00"),
-            batch_number="test_value",
-            serial_numbers=["test_value"],
-        )
-
     def test_construction_success(self):
-        """DOLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DOLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "sales_order_line_id": uuid4(),
+            "item_id": uuid4(),
+            "quantity_shipped": Decimal("10"),
+            "batch_number": "BATCH-001",
+            "serial_numbers": ["SN001", "SN002"],
+        }
+        instance = DOLineSchema(**kwargs)
         assert isinstance(instance, DOLineSchema)
-        assert instance.sales_order_line_id == kwargs['sales_order_line_id']
+        assert instance.sales_order_line_id == kwargs["sales_order_line_id"]
 
 
 class TestDeliveryOrderCreateSchema:
-    """Tests for the DeliveryOrderCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            do_number="test_value",
-            do_date=date.today(),
-            sales_order_id=uuid4(),
-            warehouse_id=uuid4(),
-            shipping_address="test_value",
-            tracking_number="test_value",
-            carrier="test_value",
-            lines=[MagicMock()],
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """DeliveryOrderCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DeliveryOrderCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "do_number": "DO-2026-001",
+            "do_date": date.today(),
+            "sales_order_id": uuid4(),
+            "warehouse_id": uuid4(),
+            "shipping_address": "Jl. Test No. 1",
+            "tracking_number": "TRK-001",
+            "carrier": "JNE",
+            "lines": [MagicMock()],
+            "notes": "Test DO",
+        }
+        instance = DeliveryOrderCreateSchema(**kwargs)
         assert isinstance(instance, DeliveryOrderCreateSchema)
-        assert instance.do_number == kwargs['do_number']
+        assert instance.do_number == kwargs["do_number"]
 
 
 class TestDeliveryOrderResponseSchema:
-    """Tests for the DeliveryOrderResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            do_number="test_value",
-            do_date=date.today(),
-            sales_order_id=uuid4(),
-            so_number="test_value",
-            customer_id=uuid4(),
-            customer_name="test_value",
-            warehouse_id=uuid4(),
-            warehouse_name="test_value",
-            shipping_address="test_value",
-            tracking_number="test_value",
-            carrier="test_value",
-            status=DeliveryOrderStatus.DRAFT,
-            lines=[{}],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            confirmed_at=datetime.now(UTC),
-            confirmed_by=uuid4(),
-            shipped_at=datetime.now(UTC),
-            delivered_at=datetime.now(UTC),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """DeliveryOrderResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DeliveryOrderResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        do_id = uuid4()
+        kwargs = {
+            "id": do_id,
+            "do_number": "DO-2026-001",
+            "do_date": date.today(),
+            "sales_order_id": uuid4(),
+            "so_number": "SO-2026-001",
+            "customer_id": uuid4(),
+            "customer_name": "PT Customer",
+            "warehouse_id": uuid4(),
+            "warehouse_name": "Warehouse A",
+            "shipping_address": "Jl. Test No. 1",
+            "tracking_number": "TRK-001",
+            "carrier": "JNE",
+            "status": DeliveryOrderStatus.DRAFT,
+            "lines": [],
+            "notes": "",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "confirmed_at": None,
+            "confirmed_by": None,
+            "shipped_at": None,
+            "delivered_at": None,
+            "version": 1,
+        }
+        instance = DeliveryOrderResponseSchema(**kwargs)
         assert isinstance(instance, DeliveryOrderResponseSchema)
-        assert instance.id == kwargs['id']
-
-
-async def test_get_purchase_sales_service_smoke():
-    """Smoke test for module-level function get_purchase_sales_service."""
-    try:
-        result = await get_purchase_sales_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_purchase_sales_service needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_purchase_order_smoke():
-    """Smoke test for module-level function create_purchase_order."""
-    try:
-        result = await create_purchase_order(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_purchase_order_smoke():
-    """Smoke test for module-level function get_purchase_order."""
-    try:
-        result = await get_purchase_order(po_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_purchase_order_by_number_smoke():
-    """Smoke test for module-level function get_purchase_order_by_number."""
-    try:
-        result = await get_purchase_order_by_number(po_number="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_purchase_order_by_number needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_purchase_orders_smoke():
-    """Smoke test for module-level function list_purchase_orders."""
-    try:
-        result = await list_purchase_orders(supplier_id=uuid4(), status=PurchaseOrderStatus.DRAFT, start_date=date.today(), end_date=date.today(), page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_purchase_orders needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_purchase_order_smoke():
-    """Smoke test for module-level function update_purchase_order."""
-    try:
-        result = await update_purchase_order(po_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_submit_purchase_order_smoke():
-    """Smoke test for module-level function submit_purchase_order."""
-    try:
-        result = await submit_purchase_order(po_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_approve_purchase_order_smoke():
-    """Smoke test for module-level function approve_purchase_order."""
-    try:
-        result = await approve_purchase_order(po_id=uuid4(), notes="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reject_purchase_order_smoke():
-    """Smoke test for module-level function reject_purchase_order."""
-    try:
-        result = await reject_purchase_order(po_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reject_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_cancel_purchase_order_smoke():
-    """Smoke test for module-level function cancel_purchase_order."""
-    try:
-        result = await cancel_purchase_order(po_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_close_purchase_order_smoke():
-    """Smoke test for module-level function close_purchase_order."""
-    try:
-        result = await close_purchase_order(po_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"close_purchase_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_sales_order_smoke():
-    """Smoke test for module-level function create_sales_order."""
-    try:
-        result = await create_sales_order(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_sales_order_smoke():
-    """Smoke test for module-level function get_sales_order."""
-    try:
-        result = await get_sales_order(so_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_sales_order_by_number_smoke():
-    """Smoke test for module-level function get_sales_order_by_number."""
-    try:
-        result = await get_sales_order_by_number(so_number="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_sales_order_by_number needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_sales_orders_smoke():
-    """Smoke test for module-level function list_sales_orders."""
-    try:
-        result = await list_sales_orders(customer_id=uuid4(), status=SalesOrderStatus.DRAFT, start_date=date.today(), end_date=date.today(), page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_sales_orders needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_sales_order_smoke():
-    """Smoke test for module-level function update_sales_order."""
-    try:
-        result = await update_sales_order(so_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_submit_sales_order_smoke():
-    """Smoke test for module-level function submit_sales_order."""
-    try:
-        result = await submit_sales_order(so_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_approve_sales_order_smoke():
-    """Smoke test for module-level function approve_sales_order."""
-    try:
-        result = await approve_sales_order(so_id=uuid4(), notes="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reject_sales_order_smoke():
-    """Smoke test for module-level function reject_sales_order."""
-    try:
-        result = await reject_sales_order(so_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reject_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_cancel_sales_order_smoke():
-    """Smoke test for module-level function cancel_sales_order."""
-    try:
-        result = await cancel_sales_order(so_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_close_sales_order_smoke():
-    """Smoke test for module-level function close_sales_order."""
-    try:
-        result = await close_sales_order(so_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"close_sales_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_goods_receipt_smoke():
-    """Smoke test for module-level function create_goods_receipt."""
-    try:
-        result = await create_goods_receipt(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_goods_receipt needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_confirm_goods_receipt_smoke():
-    """Smoke test for module-level function confirm_goods_receipt."""
-    try:
-        result = await confirm_goods_receipt(grn_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"confirm_goods_receipt needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_cancel_goods_receipt_smoke():
-    """Smoke test for module-level function cancel_goods_receipt."""
-    try:
-        result = await cancel_goods_receipt(grn_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_goods_receipt needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_delivery_order_smoke():
-    """Smoke test for module-level function create_delivery_order."""
-    try:
-        result = await create_delivery_order(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_delivery_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_confirm_delivery_order_smoke():
-    """Smoke test for module-level function confirm_delivery_order."""
-    try:
-        result = await confirm_delivery_order(do_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"confirm_delivery_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_ship_delivery_order_smoke():
-    """Smoke test for module-level function ship_delivery_order."""
-    try:
-        result = await ship_delivery_order(do_id=uuid4(), tracking_number="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ship_delivery_order needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_purchase_order_status_smoke():
-    """Smoke test for module-level function get_purchase_order_status."""
-    try:
-        result = await get_purchase_order_status(po_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_purchase_order_status needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_sales_order_status_smoke():
-    """Smoke test for module-level function get_sales_order_status."""
-    try:
-        result = await get_sales_order_status(so_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_sales_order_status needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_purchase_order_history_smoke():
-    """Smoke test for module-level function get_purchase_order_history."""
-    try:
-        result = await get_purchase_order_history(po_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_purchase_order_history needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_sales_order_history_smoke():
-    """Smoke test for module-level function get_sales_order_history."""
-    try:
-        result = await get_sales_order_history(so_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_sales_order_history needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_export_purchase_orders_smoke():
-    """Smoke test for module-level function export_purchase_orders."""
-    try:
-        result = await export_purchase_orders(start_date=date.today(), end_date=date.today(), format="test_value", status=PurchaseOrderStatus.DRAFT, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_purchase_orders needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_export_sales_orders_smoke():
-    """Smoke test for module-level function export_sales_orders."""
-    try:
-        result = await export_sales_orders(start_date=date.today(), end_date=date.today(), format="test_value", status=SalesOrderStatus.DRAFT, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_sales_orders needs specific input data: {e}")
-        return
-    assert True
+        assert instance.id == do_id
+
+
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_purchase_sales_service_returns_service():
+    request = MagicMock()
+    result = await get_purchase_sales_service(request=request)
+    assert result is not None
+
+
+async def test_create_purchase_order_returns_order():
+    service = MagicMock()
+    service.create_purchase_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_purchase_order(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_purchase_order_returns_order():
+    service = MagicMock()
+    service.get_purchase_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_purchase_order(
+        po_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_purchase_order_by_number_returns_order():
+    service = MagicMock()
+    service.get_purchase_order_by_number = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_purchase_order_by_number(
+        po_number="PO-001",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_purchase_orders_returns_list():
+    service = MagicMock()
+    service.list_purchase_orders = MagicMock(return_value=[])
+    result = await list_purchase_orders(
+        supplier_id=uuid4(),
+        status=PurchaseOrderStatus.DRAFT,
+        start_date=date.today(),
+        end_date=date.today(),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_update_purchase_order_returns_updated():
+    service = MagicMock()
+    service.update_purchase_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_purchase_order(
+        po_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_submit_purchase_order_returns_success():
+    service = MagicMock()
+    service.submit_purchase_order = MagicMock(return_value={"success": True})
+    result = await submit_purchase_order(
+        po_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_approve_purchase_order_returns_success():
+    service = MagicMock()
+    service.approve_purchase_order = MagicMock(return_value={"success": True})
+    result = await approve_purchase_order(
+        po_id=uuid4(),
+        notes="Approved",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_reject_purchase_order_returns_success():
+    service = MagicMock()
+    service.reject_purchase_order = MagicMock(return_value={"success": True})
+    result = await reject_purchase_order(
+        po_id=uuid4(),
+        reason="Rejected",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_cancel_purchase_order_returns_success():
+    service = MagicMock()
+    service.cancel_purchase_order = MagicMock(return_value={"success": True})
+    result = await cancel_purchase_order(
+        po_id=uuid4(),
+        reason="Cancelled",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_close_purchase_order_returns_success():
+    service = MagicMock()
+    service.close_purchase_order = MagicMock(return_value={"success": True})
+    result = await close_purchase_order(
+        po_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_sales_order_returns_order():
+    service = MagicMock()
+    service.create_sales_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_sales_order(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_sales_order_returns_order():
+    service = MagicMock()
+    service.get_sales_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_sales_order(
+        so_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_sales_order_by_number_returns_order():
+    service = MagicMock()
+    service.get_sales_order_by_number = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_sales_order_by_number(
+        so_number="SO-001",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_sales_orders_returns_list():
+    service = MagicMock()
+    service.list_sales_orders = MagicMock(return_value=[])
+    result = await list_sales_orders(
+        customer_id=uuid4(),
+        status=SalesOrderStatus.DRAFT,
+        start_date=date.today(),
+        end_date=date.today(),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_update_sales_order_returns_updated():
+    service = MagicMock()
+    service.update_sales_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_sales_order(
+        so_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_submit_sales_order_returns_success():
+    service = MagicMock()
+    service.submit_sales_order = MagicMock(return_value={"success": True})
+    result = await submit_sales_order(
+        so_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_approve_sales_order_returns_success():
+    service = MagicMock()
+    service.approve_sales_order = MagicMock(return_value={"success": True})
+    result = await approve_sales_order(
+        so_id=uuid4(),
+        notes="Approved",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_reject_sales_order_returns_success():
+    service = MagicMock()
+    service.reject_sales_order = MagicMock(return_value={"success": True})
+    result = await reject_sales_order(
+        so_id=uuid4(),
+        reason="Rejected",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_cancel_sales_order_returns_success():
+    service = MagicMock()
+    service.cancel_sales_order = MagicMock(return_value={"success": True})
+    result = await cancel_sales_order(
+        so_id=uuid4(),
+        reason="Cancelled",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_close_sales_order_returns_success():
+    service = MagicMock()
+    service.close_sales_order = MagicMock(return_value={"success": True})
+    result = await close_sales_order(
+        so_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_goods_receipt_returns_grn():
+    service = MagicMock()
+    service.create_goods_receipt = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_goods_receipt(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_confirm_goods_receipt_returns_success():
+    service = MagicMock()
+    service.confirm_goods_receipt = MagicMock(return_value={"success": True})
+    result = await confirm_goods_receipt(
+        grn_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_cancel_goods_receipt_returns_success():
+    service = MagicMock()
+    service.cancel_goods_receipt = MagicMock(return_value={"success": True})
+    result = await cancel_goods_receipt(
+        grn_id=uuid4(),
+        reason="Cancelled",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_delivery_order_returns_do():
+    service = MagicMock()
+    service.create_delivery_order = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_delivery_order(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_confirm_delivery_order_returns_success():
+    service = MagicMock()
+    service.confirm_delivery_order = MagicMock(return_value={"success": True})
+    result = await confirm_delivery_order(
+        do_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_ship_delivery_order_returns_success():
+    service = MagicMock()
+    service.ship_delivery_order = MagicMock(return_value={"success": True})
+    result = await ship_delivery_order(
+        do_id=uuid4(),
+        tracking_number="TRK-001",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_purchase_order_status_returns_status():
+    service = MagicMock()
+    service.get_purchase_order_status = MagicMock(return_value={"status": "draft"})
+    result = await get_purchase_order_status(
+        po_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "status" in result
+
+
+async def test_get_sales_order_status_returns_status():
+    service = MagicMock()
+    service.get_sales_order_status = MagicMock(return_value={"status": "draft"})
+    result = await get_sales_order_status(
+        so_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "status" in result
+
+
+async def test_get_purchase_order_history_returns_list():
+    service = MagicMock()
+    service.get_purchase_order_history = MagicMock(return_value=[])
+    result = await get_purchase_order_history(
+        po_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_sales_order_history_returns_list():
+    service = MagicMock()
+    service.get_sales_order_history = MagicMock(return_value=[])
+    result = await get_sales_order_history(
+        so_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
+
+
+async def test_export_purchase_orders_returns_export():
+    service = MagicMock()
+    service.export_purchase_orders = MagicMock(return_value={"file": "base64data"})
+    result = await export_purchase_orders(
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        status=PurchaseOrderStatus.DRAFT,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "file" in result
+
+
+async def test_export_sales_orders_returns_export():
+    service = MagicMock()
+    service.export_sales_orders = MagicMock(return_value={"file": "base64data"})
+    result = await export_sales_orders(
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        status=SalesOrderStatus.DRAFT,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "file" in result

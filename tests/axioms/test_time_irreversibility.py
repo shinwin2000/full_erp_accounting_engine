@@ -111,8 +111,8 @@ class TestTimeBoundary:
         assert boundary.period_name == "Test Period"
         assert boundary.fiscal_year == 2026
         assert boundary.period_number == 1
-        assert boundary.is_closed is False
-        assert boundary.is_locked is False
+        assert not boundary.is_closed
+        assert not boundary.is_locked
         assert boundary.version == 1
         assert boundary.cryptographic_hash != ""
 
@@ -133,19 +133,19 @@ class TestTimeBoundary:
     def test_contains_checks_date(self):
         boundary = create_test_boundary()
         now = datetime.now(UTC)
-        assert boundary.contains(now) is True
-        assert boundary.contains(now - timedelta(days=20)) is False
-        assert boundary.contains(now + timedelta(days=20)) is False
+        assert boundary.contains(now)
+        assert not boundary.contains(now - timedelta(days=20))
+        assert not boundary.contains(now + timedelta(days=20))
 
     def test_is_modifiable(self):
         boundary = create_test_boundary()
-        assert boundary.is_modifiable() is True
+        assert boundary.is_modifiable()
 
         closed = boundary.update("admin", is_closed=True)
-        assert closed.is_modifiable() is False
+        assert not closed.is_modifiable()
 
         locked = boundary.update("admin", is_locked=True)
-        assert locked.is_modifiable() is False
+        assert not locked.is_modifiable()
 
     def test_update_creates_new_version(self):
         boundary = create_test_boundary()
@@ -186,7 +186,7 @@ class TestTimeBoundary:
     def test_lock_sets_locked(self):
         boundary = create_test_boundary()
         locked = boundary.lock("admin", "test")
-        assert locked.is_locked is True
+        assert locked.is_locked
         assert locked.locked_by == "admin"
         assert locked.locked_at is not None
         assert locked.version == boundary.version + 1
@@ -201,7 +201,7 @@ class TestTimeBoundary:
         boundary = create_test_boundary()
         locked = boundary.lock("admin", "test")
         unlocked = locked.unlock("admin")
-        assert unlocked.is_locked is False
+        assert not unlocked.is_locked
         assert unlocked.locked_at is None
         assert unlocked.locked_by is None
         assert unlocked.version == locked.version + 1
@@ -214,14 +214,14 @@ class TestTimeBoundary:
     def test_validate_returns_valid(self):
         boundary = create_test_boundary()
         result = boundary.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["period_id"] == str(boundary.period_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         boundary = create_test_boundary()
         object.__setattr__(boundary, "cryptographic_hash", "fake")
         result = boundary.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -230,7 +230,7 @@ class TestTimeBoundary:
         assert d["period_name"] == "Test Period"
         assert d["fiscal_year"] == 2026
         assert d["period_number"] == 1
-        assert d["is_closed"] is False
+        assert not d["is_closed"]
         assert "period_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -247,8 +247,8 @@ class TestTimeBoundary:
         cloned = boundary.clone()
         assert cloned.period_id != boundary.period_id
         assert cloned.period_name == boundary.period_name + "_COPY"
-        assert cloned.is_closed is False
-        assert cloned.is_locked is False
+        assert not cloned.is_closed
+        assert not cloned.is_locked
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -291,9 +291,7 @@ class TestTransactionTimestamp:
         assert timestamp.cryptographic_hash != ""
 
     def test_validate_requires_timezone(self):
-        # Should not raise if timezone is set
         timestamp = create_test_timestamp()
-        # Timezone is already UTC
 
     def test_update_raises(self):
         timestamp = create_test_timestamp()
@@ -343,14 +341,14 @@ class TestTransactionTimestamp:
     def test_validate_returns_valid(self):
         timestamp = create_test_timestamp()
         result = timestamp.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["transaction_id"] == str(timestamp.transaction_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         timestamp = create_test_timestamp()
         object.__setattr__(timestamp, "cryptographic_hash", "fake")
         result = timestamp.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -432,7 +430,7 @@ class TestTransactionTimestamp:
             created_by="tester",
         )
         is_valid, violations = ts.is_chronological()
-        assert is_valid is True
+        assert is_valid
         assert violations == []
 
     def test_is_chronological_invalid_effective_after_posting(self):
@@ -447,7 +445,7 @@ class TestTransactionTimestamp:
             created_by="tester",
         )
         is_valid, violations = ts.is_chronological()
-        assert is_valid is False
+        assert not is_valid
         assert any("Effective" in v for v in violations)
 
     def test_get_backdate_days(self):
@@ -476,21 +474,21 @@ class TestTimeIrreversibilityViolation:
         assert violation.transaction_id is not None
         assert violation.backdate_days == 10
         assert violation.severity == TimeIrreversibilityViolationSeverity.HIGH
-        assert violation.is_blocked is True
-        assert violation.override_granted is False
+        assert violation.is_blocked
+        assert not violation.override_granted
         assert violation.version == 1
         assert violation.cryptographic_hash != ""
 
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_update_raises(self):
@@ -533,8 +531,8 @@ class TestTimeIrreversibilityViolation:
         d = violation.to_dict()
         assert d["severity"] == "HIGH"
         assert d["backdate_days"] == 10
-        assert d["is_blocked"] is True
-        assert d["override_granted"] is False
+        assert d["is_blocked"]
+        assert not d["override_granted"]
         assert "violation_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -551,7 +549,7 @@ class TestTimeIrreversibilityViolation:
         cloned = violation.clone()
         assert cloned.violation_id != violation.violation_id
         assert cloned.transaction_id == violation.transaction_id
-        assert cloned.override_granted is False
+        assert not cloned.override_granted
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -574,7 +572,7 @@ class TestTimeIrreversibilityViolation:
     def test_resolve_grants_override(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin", "Override reason")
-        assert resolved.override_granted is True
+        assert resolved.override_granted
         assert resolved.override_by == "admin"
         assert resolved.override_reason == "Override reason"
         assert resolved.version == violation.version + 1
@@ -599,7 +597,7 @@ class TestTimeIrreversibilityValidator:
             current_period=boundary,
             transaction_id=uuid.uuid4(),
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_effective_date_closed_period(self):
@@ -611,7 +609,7 @@ class TestTimeIrreversibilityValidator:
                 current_period=boundary,
                 transaction_id=uuid.uuid4(),
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == TimeIrreversibilityViolationSeverity.CATASTROPHIC
 
@@ -624,7 +622,7 @@ class TestTimeIrreversibilityValidator:
                 current_period=boundary,
                 transaction_id=uuid.uuid4(),
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == TimeIrreversibilityViolationSeverity.CRITICAL
 
@@ -638,7 +636,7 @@ class TestTimeIrreversibilityValidator:
                 max_backdate_days=10,
                 transaction_id=uuid.uuid4(),
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.backdate_days == 20
 
@@ -651,7 +649,7 @@ class TestTimeIrreversibilityValidator:
             max_backdate_days=10,
             transaction_id=uuid.uuid4(),
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_effective_date_future_posting_blocked(self):
@@ -663,7 +661,7 @@ class TestTimeIrreversibilityValidator:
             transaction_id=uuid.uuid4(),
             allow_future_posting=False,
         )
-        assert is_valid is True  # Not blocked, just warning
+        assert is_valid  # Not blocked, just warning
         assert violation is not None
         assert violation.severity == TimeIrreversibilityViolationSeverity.MEDIUM
 
@@ -679,7 +677,7 @@ class TestTimeIrreversibilityValidator:
                 max_backdate_days=5,
                 transaction_id=uuid.uuid4(),
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.backdate_days == 8  # 10 - 2
 
@@ -698,7 +696,7 @@ class TestTimeIrreversibilityValidator:
             timestamp=ts,
             transaction_id=uuid.uuid4(),
         )
-        assert is_valid is True
+        assert is_valid
         assert violations == []
 
     def test_validate_chronological_order_invalid(self):
@@ -717,7 +715,7 @@ class TestTimeIrreversibilityValidator:
                 timestamp=ts,
                 transaction_id=uuid.uuid4(),
             )
-        assert is_valid is False
+        assert not is_valid
         assert len(violations) > 0
 
 
@@ -753,7 +751,7 @@ class TestTimeIrreversibilityAxiom:
         boundary = create_test_boundary()
         axiom.save_time_boundary(boundary)
         result = axiom.delete_time_boundary(boundary.period_id)
-        assert result is True
+        assert result
         assert axiom.get_time_boundary(boundary.period_id) is None
 
     def test_save_and_get_transaction_timestamp(self):
@@ -769,7 +767,7 @@ class TestTimeIrreversibilityAxiom:
         timestamp = create_test_timestamp()
         axiom.save_transaction_timestamp(timestamp)
         result = axiom.delete_transaction_timestamp(timestamp.transaction_id)
-        assert result is True
+        assert result
         assert axiom.get_transaction_timestamp(timestamp.transaction_id) is None
 
     def test_save_and_get_violations(self):
@@ -801,7 +799,7 @@ class TestTimeIrreversibilityAxiom:
         axiom.save_violation(v1)
         axiom.save_violation(v2)
         result = axiom.get_violations(only_blocked=True)
-        assert all(v.is_blocked is True for v in result)
+        assert all(v.is_blocked for v in result)
 
     def test_register_time_boundary(self):
         axiom = TimeIrreversibilityAxiom()
@@ -852,7 +850,7 @@ class TestTimeIrreversibilityAxiom:
             transaction_id=uuid.uuid4(),
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_enforce_effective_date_backdate_with_override(self):
@@ -870,10 +868,9 @@ class TestTimeIrreversibilityAxiom:
             override_by="admin",
             override_reason="Need backdate",
         )
-        # Since violation exists and override is allowed, it should be granted
-        assert is_valid is True
+        assert is_valid
         if violation:
-            assert violation.override_granted is True
+            assert violation.override_granted
 
     def test_enforce_effective_date_no_period_raises(self):
         axiom = TimeIrreversibilityAxiom()
@@ -881,7 +878,7 @@ class TestTimeIrreversibilityAxiom:
         with pytest.raises(TimeIrreversibilityViolationError):
             axiom.enforce_effective_date(
                 effective_date=now,
-                period_id=uuid.uuid4(),  # Non-existent period
+                period_id=uuid.uuid4(),
                 transaction_id=uuid.uuid4(),
                 raise_on_violation=True,
             )
@@ -903,7 +900,7 @@ class TestTimeIrreversibilityAxiom:
             transaction_id=uuid.uuid4(),
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violations == []
 
     def test_enforce_chronological_order_invalid_raises(self):
@@ -975,7 +972,7 @@ class TestHelperFunctions:
         )
         assert boundary.period_id == period_id
         assert boundary.period_name == "Test"
-        assert boundary.is_closed is True
+        assert boundary.is_closed
         assert boundary.closed_by == "admin"
         assert boundary.locked_by == "admin"
 

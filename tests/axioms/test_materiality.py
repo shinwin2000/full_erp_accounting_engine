@@ -37,7 +37,7 @@ from axioms.materiality import (
 # ============================================================================
 
 def create_test_threshold(
-    legal_entity_id: UUID | None = None,
+    legal_entity_id: uuid.UUID | None = None,
     fiscal_year: int = 2026,
     threshold_type: MaterialityThresholdType = MaterialityThresholdType.ABSOLUTE,
     value: Decimal = Decimal("1000000"),
@@ -58,7 +58,7 @@ def create_test_threshold(
 
 
 def create_test_judgment(
-    legal_entity_id: UUID | None = None,
+    legal_entity_id: uuid.UUID | None = None,
     fiscal_year: int = 2026,
     is_material: bool = True,
 ) -> MaterialityJudgment:
@@ -208,14 +208,14 @@ class TestMaterialityThreshold:
     def test_validate_returns_valid(self):
         threshold = create_test_threshold()
         result = threshold.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["threshold_id"] == str(threshold.threshold_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         threshold = create_test_threshold()
         object.__setattr__(threshold, "cryptographic_hash", "fake")
         result = threshold.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -286,13 +286,13 @@ class TestMaterialityThreshold:
 
     def test_is_material_absolute(self):
         threshold = create_test_threshold(value=Decimal("1000000"))
-        assert threshold.is_material(Decimal("2000000")) is True
-        assert threshold.is_material(Decimal("500000")) is False
+        assert threshold.is_material(Decimal("2000000"))
+        assert not threshold.is_material(Decimal("500000"))
 
     def test_is_material_handles_negative(self):
         threshold = create_test_threshold(value=Decimal("1000000"))
-        assert threshold.is_material(Decimal("-2000000")) is True
-        assert threshold.is_material(Decimal("-500000")) is False
+        assert threshold.is_material(Decimal("-2000000"))
+        assert not threshold.is_material(Decimal("-500000"))
 
 
 # ============================================================================
@@ -306,7 +306,7 @@ class TestMaterialityJudgment:
         assert judgment.legal_entity_id is not None
         assert judgment.fiscal_year == 2026
         assert judgment.item_amount == Decimal("5000000")
-        assert judgment.is_material is True
+        assert judgment.is_material
         assert judgment.version == 1
         assert judgment.cryptographic_hash != ""
 
@@ -358,14 +358,14 @@ class TestMaterialityJudgment:
     def test_validate_returns_valid(self):
         judgment = create_test_judgment()
         result = judgment.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
         assert result["judgment_id"] == str(judgment.judgment_id)
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         judgment = create_test_judgment()
         object.__setattr__(judgment, "cryptographic_hash", "fake")
         result = judgment.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
@@ -373,7 +373,7 @@ class TestMaterialityJudgment:
         d = judgment.to_dict()
         assert d["item_description"] == "Test item"
         assert d["item_amount"] == "5000000"
-        assert d["is_material"] is True
+        assert d["is_material"]
         assert d["justification"] == "Test justification"
         assert "judgment_id" in d
 
@@ -427,20 +427,20 @@ class TestMaterialityViolation:
         assert violation.fiscal_year == 2026
         assert violation.item_amount == Decimal("5000000")
         assert violation.severity == MaterialitySeverity.HIGH
-        assert violation.resolved is False
+        assert not violation.resolved
         assert violation.version == 1
         assert violation.cryptographic_hash != ""
 
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
-        assert result["is_valid"] is True
+        assert result["is_valid"]
 
     def test_validate_returns_errors_on_hash_mismatch(self):
         violation = create_test_violation()
         object.__setattr__(violation, "cryptographic_hash", "fake")
         result = violation.validate()
-        assert result["is_valid"] is False
+        assert not result["is_valid"]
         assert "Hash mismatch" in result["errors"]
 
     def test_update_raises(self):
@@ -484,7 +484,7 @@ class TestMaterialityViolation:
         assert d["severity"] == "HIGH"
         assert d["failure_type"] == "NON_DISCLOSURE"
         assert d["item_amount"] == "5000000"
-        assert d["resolved"] is False
+        assert not d["resolved"]
         assert "violation_id" in d
 
     def test_from_dict_reconstructs(self):
@@ -504,7 +504,7 @@ class TestMaterialityViolation:
         assert cloned.legal_entity_id == violation.legal_entity_id
         assert cloned.fiscal_year == violation.fiscal_year
         assert cloned.item_amount == violation.item_amount
-        assert cloned.resolved is False
+        assert not cloned.resolved
         assert cloned.version == 1
 
     def test_snapshot_returns_summary(self):
@@ -527,7 +527,7 @@ class TestMaterialityViolation:
     def test_resolve_marks_resolved(self):
         violation = create_test_violation()
         resolved = violation.resolve("admin", "Corrected disclosure")
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_at is not None
         assert resolved.resolved_by == "admin"
         assert resolved.corrective_action == "Corrected disclosure"
@@ -557,7 +557,7 @@ class TestMaterialityValidator:
             qualitative_factors=[],
             was_disclosed_separately=True,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_disclosure_quantitatively_material_not_disclosed(self):
@@ -573,7 +573,7 @@ class TestMaterialityValidator:
                 qualitative_factors=[],
                 was_disclosed_separately=False,
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.failure_type == "NON_DISCLOSURE"
         assert violation.severity == MaterialitySeverity.CRITICAL
@@ -591,7 +591,7 @@ class TestMaterialityValidator:
                 qualitative_factors=[QualitativeMaterialityFactor.FRAUD_OR_ILLEGAL_ACT],
                 was_disclosed_separately=False,
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
         assert violation.severity == MaterialitySeverity.CATASTROPHIC
 
@@ -607,7 +607,7 @@ class TestMaterialityValidator:
             qualitative_factors=[QualitativeMaterialityFactor.RELATED_PARTY],
             was_disclosed_separately=True,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_validate_disclosure_under_threshold_no_factors(self):
@@ -622,7 +622,7 @@ class TestMaterialityValidator:
             qualitative_factors=[],
             was_disclosed_separately=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_determine_severity_catastrophic(self):
@@ -690,7 +690,7 @@ class TestMaterialityAxiom:
         threshold = create_test_threshold()
         axiom.save_threshold(threshold)
         result = axiom.delete_threshold(threshold.legal_entity_id, threshold.fiscal_year)
-        assert result is True
+        assert result
         assert axiom.get_threshold(threshold.legal_entity_id, threshold.fiscal_year) is None
 
     def test_save_and_get_judgments(self):
@@ -730,7 +730,7 @@ class TestMaterialityAxiom:
         judgment = create_test_judgment()
         axiom.save_judgment(judgment)
         result = axiom.delete_judgment(judgment.judgment_id)
-        assert result is True
+        assert result
         judgments = axiom.get_judgments()
         assert all(j.judgment_id != judgment.judgment_id for j in judgments)
 
@@ -774,7 +774,7 @@ class TestMaterialityAxiom:
         axiom.save_violation(violation)
         resolved = axiom.resolve_violation(violation.violation_id, "admin", "Corrected")
         assert resolved is not None
-        assert resolved.resolved is True
+        assert resolved.resolved
         assert resolved.resolved_by == "admin"
 
     def test_resolve_violation_not_found(self):
@@ -837,8 +837,8 @@ class TestMaterialityAxiom:
             threshold_type=MaterialityThresholdType.ABSOLUTE,
             value=Decimal("1000000"),
         )
-        assert axiom.is_material(entity_id, 2026, Decimal("2000000")) is True
-        assert axiom.is_material(entity_id, 2026, Decimal("500000")) is False
+        assert axiom.is_material(entity_id, 2026, Decimal("2000000"))
+        assert not axiom.is_material(entity_id, 2026, Decimal("500000"))
 
     def test_is_material_qualitative(self):
         axiom = MaterialityAxiom()
@@ -854,14 +854,13 @@ class TestMaterialityAxiom:
             2026,
             Decimal("100000"),
             qualitative_factors=[QualitativeMaterialityFactor.FRAUD_OR_ILLEGAL_ACT],
-        ) is True
+        )
 
     def test_is_material_uses_default_threshold(self):
         axiom = MaterialityAxiom()
         entity_id = uuid.uuid4()
-        # No threshold set, should use default
-        assert axiom.is_material(entity_id, 2026, Decimal("200000000")) is True
-        assert axiom.is_material(entity_id, 2026, Decimal("10000000")) is False
+        assert axiom.is_material(entity_id, 2026, Decimal("200000000"))
+        assert not axiom.is_material(entity_id, 2026, Decimal("10000000"))
 
     def test_record_judgment(self):
         axiom = MaterialityAxiom()
@@ -880,7 +879,7 @@ class TestMaterialityAxiom:
         )
         assert judgment is not None
         assert judgment.legal_entity_id == entity_id
-        assert judgment.is_material is True
+        assert judgment.is_material
         retrieved = axiom.get_judgments(legal_entity_id=entity_id)
         assert len(retrieved) >= 1
 
@@ -901,7 +900,7 @@ class TestMaterialityAxiom:
             was_disclosed_separately=True,
             raise_on_violation=False,
         )
-        assert is_valid is True
+        assert is_valid
         assert violation is None
 
     def test_enforce_disclosure_fails(self):
@@ -922,7 +921,7 @@ class TestMaterialityAxiom:
                 was_disclosed_separately=False,
                 raise_on_violation=False,
             )
-        assert is_valid is False
+        assert not is_valid
         assert violation is not None
 
     def test_enforce_disclosure_raises(self):

@@ -69,8 +69,14 @@ class JournalPage(QWidget):
 
         self.status_filter = QComboBox()
         self.status_filter.addItems(STATUS_FILTERS)
-        self.status_filter.currentTextChanged.connect(lambda _t: self.refresh())
+        self.status_filter.currentTextChanged.connect(lambda _t: self._reset_and_refresh())
         header.addWidget(self.status_filter)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Cari no. jurnal / deskripsi...")
+        self.search_edit.setMaximumWidth(220)
+        self.search_edit.returnPressed.connect(self._reset_and_refresh)
+        header.addWidget(self.search_edit)
 
         refresh_btn = QPushButton("⟳ Refresh")
         refresh_btn.clicked.connect(self.refresh)
@@ -118,18 +124,44 @@ class JournalPage(QWidget):
         detail_btn = QPushButton("🔍 Lihat Detail")
         detail_btn.clicked.connect(self._open_detail)
         action_row.addWidget(detail_btn)
+
+        duplicate_btn = QPushButton("📋 Duplikat Jurnal")
+        duplicate_btn.clicked.connect(self._duplicate_journal)
+        action_row.addWidget(duplicate_btn)
         outer.addLayout(action_row)
+
+        pager_row = QHBoxLayout()
+        self.pager_label = QLabel("")
+        self.pager_label.setStyleSheet("color:#6B7280;")
+        pager_row.addWidget(self.pager_label)
+        pager_row.addStretch()
+        self.prev_btn = QPushButton("‹ Sebelumnya")
+        self.prev_btn.clicked.connect(self._prev_page)
+        self.next_btn = QPushButton("Berikutnya ›")
+        self.next_btn.clicked.connect(self._next_page)
+        pager_row.addWidget(self.prev_btn)
+        pager_row.addWidget(self.next_btn)
+        outer.addLayout(pager_row)
 
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
         outer.addWidget(self.status_label)
 
     # ------------------------------------------------------------------
+    PAGE_SIZE = 50
+
+    def _reset_and_refresh(self) -> None:
+        self.page = 1
+        self.refresh()
+
     def refresh(self) -> None:
-        params: dict[str, Any] = {"page": self.page, "page_size": 100}
+        params: dict[str, Any] = {"page": self.page, "page_size": self.PAGE_SIZE}
         status = self.status_filter.currentText()
         if status != "Semua":
             params["status"] = status
+        search = self.search_edit.text().strip()
+        if search:
+            params["search"] = search
         self.status_label.setText("Memuat jurnal...")
         run_task(api_client.get, on_success=self._on_loaded, on_error=self._on_error, path=f"{BASE}/", params=params)
 
@@ -155,7 +187,21 @@ class JournalPage(QWidget):
                     item.setForeground(QColor(status_color(val)))
                 self.table.setItem(row, col, item)
         self.table.resizeColumnsToContents()
+        start = (self.page - 1) * self.PAGE_SIZE + 1 if self._records else 0
+        end = start + len(self._records) - 1 if self._records else 0
+        self.pager_label.setText(f"Menampilkan {start}-{end}")
+        self.prev_btn.setEnabled(self.page > 1)
+        self.next_btn.setEnabled(len(self._records) == self.PAGE_SIZE)
         self.status_label.setText(f"{len(self._records)} jurnal dimuat.")
+
+    def _prev_page(self) -> None:
+        if self.page > 1:
+            self.page -= 1
+            self.refresh()
+
+    def _next_page(self) -> None:
+        self.page += 1
+        self.refresh()
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Gagal memuat: {message}")
@@ -191,6 +237,33 @@ class JournalPage(QWidget):
     def _show_detail_dialog(self, data: dict[str, Any]) -> None:
         dlg = JournalEntryDialog(existing=data, parent=self, read_only=True)
         dlg.exec()
+
+    def _duplicate_journal(self) -> None:
+        record = self._selected_record()
+        if not record:
+            QMessageBox.information(self, "Info", "Pilih jurnal yang mau diduplikat.")
+            return
+        journal_id = record.get("id")
+        run_task(api_client.get, on_success=self._open_duplicate_dialog, on_error=self._on_error,
+                  path=f"{BASE}/{journal_id}")
+
+    def _open_duplicate_dialog(self, data: dict[str, Any]) -> None:
+        # Buka sebagai jurnal BARU (bukan read-only), tanggal direset ke hari ini,
+        # nomor jurnal & status lama tidak dibawa supaya jelas ini draft baru.
+        prefill = dict(data)
+        prefill.pop("journal_number", None)
+        prefill.pop("status", None)
+        prefill["journal_date"] = None
+        dlg = JournalEntryDialog(existing=prefill, parent=self, read_only=False, is_duplicate=True)
+        if dlg.exec():
+            payload = dlg.build_payload()
+            run_task(
+                api_client.post,
+                on_success=lambda _r: self._after_write("Jurnal duplikat berhasil dibuat (draft)."),
+                on_error=self._on_write_error,
+                path=f"{BASE}/",
+                json_body=payload,
+            )
 
     def _run_workflow(self, action_name: str) -> None:
         record = self._selected_record()
@@ -244,15 +317,25 @@ LINE_COLUMNS = ["Kode Akun", "Debit", "Kredit", "Cost Center", "Departemen", "Ke
 
 
 class JournalEntryDialog(QDialog):
-    def __init__(self, existing: Optional[dict[str, Any]] = None, parent=None, read_only: bool = False):
+    def __init__(
+        self,
+        existing: Optional[dict[str, Any]] = None,
+        parent=None,
+        read_only: bool = False,
+        is_duplicate: bool = False,
+    ):
         super().__init__(parent)
         self.existing = existing or {}
         self.read_only = read_only
-        self.setWindowTitle("Detail Jurnal" if read_only else "Jurnal Baru")
+        self.is_duplicate = is_duplicate
+        self._valid_account_codes: set[str] = set()
+        title = "Detail Jurnal" if read_only else ("Duplikat Jurnal" if is_duplicate else "Jurnal Baru")
+        self.setWindowTitle(title)
         self.resize(760, 560)
         self._build_ui()
         if existing:
             self._load_existing()
+        self._load_account_codes()
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -307,10 +390,11 @@ class JournalEntryDialog(QDialog):
         self.notes_edit.setFixedHeight(50)
         outer.addWidget(self.notes_edit)
 
+        self.status_summary = QLabel("")
+        self.status_summary.setWordWrap(True)
+        outer.addWidget(self.status_summary)
+
         if self.read_only:
-            self.status_summary = QLabel("")
-            self.status_summary.setWordWrap(True)
-            outer.addWidget(self.status_summary)
             for w in (self.date_edit, self.desc_edit, self.type_combo, self.ref_edit, self.notes_edit):
                 w.setEnabled(False)
             self.line_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -318,8 +402,14 @@ class JournalEntryDialog(QDialog):
             buttons.rejected.connect(self.reject)
             buttons.accepted.connect(self.accept)
         else:
-            self._add_line()
-            self._add_line()
+            if self.is_duplicate:
+                self.status_summary.setText(
+                    "<span style='color:#2563EB;'>📋 Duplikat dari jurnal lain — tanggal direset ke hari ini, "
+                    "cek kembali sebelum disimpan.</span>"
+                )
+            if not self.existing:
+                self._add_line()
+                self._add_line()
             buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
             buttons.button(QDialogButtonBox.Save).setText("Simpan sebagai Draft")
             buttons.button(QDialogButtonBox.Save).setObjectName("primaryButton")
@@ -400,12 +490,49 @@ class JournalEntryDialog(QDialog):
         if len(desc) < 3:
             QMessageBox.warning(self, "Validasi", "Deskripsi minimal 3 karakter.")
             return
-        lines = [row for row in range(self.line_table.rowCount()) if self._cell(row, 0).strip()]
-        if len(lines) < 2:
+        filled_rows = [row for row in range(self.line_table.rowCount()) if self._cell(row, 0).strip()]
+        if len(filled_rows) < 2:
             QMessageBox.warning(self, "Validasi", "Minimal 2 baris jurnal diperlukan.")
             return
-        total_debit = sum(_to_decimal(self._cell(r, 1)) for r in range(self.line_table.rowCount()))
-        total_credit = sum(_to_decimal(self._cell(r, 2)) for r in range(self.line_table.rowCount()))
+
+        # Validasi per baris: harus ISI SALAH SATU (debit XOR kredit), sesuai
+        # aturan backend "Line cannot have both debit and credit amounts" /
+        # "Line must have either debit or credit amount". Divalidasi di sini
+        # supaya user dapat feedback jelas per baris, bukan cuma error 422
+        # generik dari server setelah submit.
+        unknown_accounts = []
+        for row in filled_rows:
+            debit = _to_decimal(self._cell(row, 1))
+            credit = _to_decimal(self._cell(row, 2))
+            if debit > 0 and credit > 0:
+                QMessageBox.warning(
+                    self, "Validasi",
+                    f"Baris {row + 1}: isi HANYA debit ATAU kredit, tidak boleh keduanya."
+                )
+                return
+            if debit == 0 and credit == 0:
+                QMessageBox.warning(
+                    self, "Validasi",
+                    f"Baris {row + 1}: debit atau kredit wajib diisi (tidak boleh keduanya kosong/nol)."
+                )
+                return
+            code = self._cell(row, 0).strip().upper()
+            if self._valid_account_codes and code not in self._valid_account_codes:
+                unknown_accounts.append((row + 1, code))
+
+        if unknown_accounts:
+            listing = ", ".join(f"baris {r} ('{c}')" for r, c in unknown_accounts)
+            confirm = QMessageBox.question(
+                self, "Kode Akun Tidak Ditemukan",
+                f"Kode akun berikut tidak ada di Bagan Akun: {listing}.\n\n"
+                "Kemungkinan salah ketik atau daftar akun belum ter-refresh. "
+                "Tetap simpan?",
+            )
+            if confirm != QMessageBox.Yes:
+                return
+
+        total_debit = sum(_to_decimal(self._cell(r, 1)) for r in filled_rows)
+        total_credit = sum(_to_decimal(self._cell(r, 2)) for r in filled_rows)
         if abs(total_debit - total_credit) > Decimal("0.01"):
             QMessageBox.warning(self, "Validasi", "Total debit harus sama dengan total kredit.")
             return
@@ -429,6 +556,9 @@ class JournalEntryDialog(QDialog):
         for line in data.get("lines", []):
             self._add_line(line)
 
+        if not self.read_only:
+            return  # mode duplikat: biarkan pesan "duplikat dari..." tetap tampil
+
         summary = (
             f"No. Jurnal: <b>{data.get('journal_number')}</b> &nbsp;|&nbsp; "
             f"Status: <b style='color:{status_color(str(data.get('status')))}'>{data.get('status')}</b><br>"
@@ -442,6 +572,17 @@ class JournalEntryDialog(QDialog):
         if data.get("rejection_reason"):
             summary += f"<span style='color:#DC2626;'>Alasan reject: {data.get('rejection_reason')}</span><br>"
         self.status_summary.setText(summary)
+
+    # ------------------------------------------------------------------
+    def _load_account_codes(self) -> None:
+        """Muat daftar kode akun COA untuk validasi baris jurnal (non-blocking)."""
+        run_task(api_client.get, on_success=self._on_accounts_loaded, on_error=lambda _m: None,
+                  path="/coa/chart-of-accounts/accounts", params={"page_size": 1000, "limit": 1000})
+
+    def _on_accounts_loaded(self, payload: Any) -> None:
+        from core.formatting import extract_list
+        accounts = extract_list(payload)
+        self._valid_account_codes = {str(a.get("account_code", "")).upper() for a in accounts if a.get("account_code")}
 
 
 def _to_decimal(text: str) -> Decimal:

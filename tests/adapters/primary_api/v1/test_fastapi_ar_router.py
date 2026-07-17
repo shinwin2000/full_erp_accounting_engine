@@ -78,47 +78,23 @@ from adapters.primary_api.v1.fastapi_ar_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestARInvoiceStatus:
-    """Tests for the ARInvoiceStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ARInvoiceStatus, 'DRAFT')
         assert hasattr(ARInvoiceStatus, 'PENDING')
         assert hasattr(ARInvoiceStatus, 'SUBMITTED')
@@ -139,14 +115,11 @@ class TestARInvoiceStatus:
         assert hasattr(ARInvoiceStatus, 'ERROR')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ARInvoiceStatus.DRAFT, ARInvoiceStatus)
 
 
 class TestARPaymentStatus:
-    """Tests for the ARPaymentStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ARPaymentStatus, 'DRAFT')
         assert hasattr(ARPaymentStatus, 'PENDING')
         assert hasattr(ARPaymentStatus, 'PROCESSED')
@@ -157,14 +130,11 @@ class TestARPaymentStatus:
         assert hasattr(ARPaymentStatus, 'REVERSED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ARPaymentStatus.DRAFT, ARPaymentStatus)
 
 
 class TestARCreditNoteStatus:
-    """Tests for the ARCreditNoteStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ARCreditNoteStatus, 'DRAFT')
         assert hasattr(ARCreditNoteStatus, 'SUBMITTED')
         assert hasattr(ARCreditNoteStatus, 'APPROVED')
@@ -174,14 +144,11 @@ class TestARCreditNoteStatus:
         assert hasattr(ARCreditNoteStatus, 'VOID')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ARCreditNoteStatus.DRAFT, ARCreditNoteStatus)
 
 
 class TestPaymentMethod:
-    """Tests for the PaymentMethod enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(PaymentMethod, 'TRANSFER')
         assert hasattr(PaymentMethod, 'CASH')
         assert hasattr(PaymentMethod, 'CREDIT_CARD')
@@ -189,14 +156,11 @@ class TestPaymentMethod:
         assert hasattr(PaymentMethod, 'DEBIT_CARD')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(PaymentMethod.TRANSFER, PaymentMethod)
 
 
 class TestCollectionStatus:
-    """Tests for the CollectionStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(CollectionStatus, 'NOT_STARTED')
         assert hasattr(CollectionStatus, 'REMINDER_SENT')
         assert hasattr(CollectionStatus, 'ESCALATED')
@@ -204,890 +168,834 @@ class TestCollectionStatus:
         assert hasattr(CollectionStatus, 'RESOLVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(CollectionStatus.NOT_STARTED, CollectionStatus)
 
 
 class TestARInvoiceLineSchema:
-    """Tests for the ARInvoiceLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            description="test_value",
-            quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            discount_percent=Decimal("100.00"),
-            account_code="test_value",
-            sales_order_line_id=uuid4(),
-        )
-
     def test_construction_success(self):
-        """ARInvoiceLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARInvoiceLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "description": "Test line",
+            "quantity": Decimal("2"),
+            "unit_price": Decimal("100000"),
+            "tax_rate": Decimal("0.11"),
+            "discount_percent": Decimal("0"),
+            "account_code": "1100",
+            "sales_order_line_id": uuid4(),
+        }
+        instance = ARInvoiceLineSchema(**kwargs)
         assert isinstance(instance, ARInvoiceLineSchema)
-        assert instance.description == kwargs['description']
+        assert instance.description == kwargs["description"]
 
 
 class TestARInvoiceCreateSchema:
-    """Tests for the ARInvoiceCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            customer_code="test_value",
-            invoice_date=date.today(),
-            due_date=date.today(),
-            invoice_number="test_value",
-            lines=[MagicMock()],
-            description="test_value",
-            reference_number="test_value",
-            sales_order_id=uuid4(),
-            tax_invoice_number="test_value",
-            use_tax=True,
-            discount_global=Decimal("100.00"),
-            early_payment_discount_percent=Decimal("100.00"),
-            early_payment_discount_days=1,
-        )
-
     def test_construction_success(self):
-        """ARInvoiceCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARInvoiceCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "customer_code": "CUST001",
+            "invoice_date": date.today(),
+            "due_date": date.today(),
+            "invoice_number": "INV-2026-001",
+            "lines": [MagicMock()],
+            "description": "Test invoice",
+            "reference_number": "REF-001",
+            "sales_order_id": uuid4(),
+            "tax_invoice_number": "TAX-001",
+            "use_tax": True,
+            "discount_global": Decimal("0"),
+            "early_payment_discount_percent": Decimal("2"),
+            "early_payment_discount_days": 10,
+        }
+        instance = ARInvoiceCreateSchema(**kwargs)
         assert isinstance(instance, ARInvoiceCreateSchema)
-        assert instance.customer_code == kwargs['customer_code']
+        assert instance.customer_code == kwargs["customer_code"]
 
 
 class TestARInvoiceUpdateSchema:
-    """Tests for the ARInvoiceUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            due_date=date.today(),
-            description="test_value",
-            reference_number="test_value",
-            notes="test_value",
-            status=ARInvoiceStatus.DRAFT,
-            early_payment_discount_percent=Decimal("100.00"),
-            early_payment_discount_days=1,
-        )
-
     def test_construction_success(self):
-        """ARInvoiceUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARInvoiceUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "due_date": date.today(),
+            "description": "Updated description",
+            "reference_number": "REF-002",
+            "notes": "Notes",
+            "status": ARInvoiceStatus.DRAFT,
+            "early_payment_discount_percent": Decimal("1.5"),
+            "early_payment_discount_days": 7,
+        }
+        instance = ARInvoiceUpdateSchema(**kwargs)
         assert isinstance(instance, ARInvoiceUpdateSchema)
-        assert instance.due_date == kwargs['due_date']
+        assert instance.due_date == kwargs["due_date"]
 
 
 class TestARInvoiceResponseSchema:
-    """Tests for the ARInvoiceResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            invoice_number="test_value",
-            customer_id=uuid4(),
-            customer_name="test_value",
-            customer_code="test_value",
-            invoice_date=date.today(),
-            due_date=date.today(),
-            total_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            outstanding_amount=Decimal("100.00"),
-            discount_taken=Decimal("100.00"),
-            early_payment_discount_eligible=True,
-            early_payment_discount_amount=Decimal("100.00"),
-            status=ARInvoiceStatus.DRAFT,
-            description="test_value",
-            lines=[{}],
-            tax_amount=Decimal("100.00"),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_by_name="test_value",
-            posted_at=datetime.now(UTC),
-            posted_by=uuid4(),
-            cancelled_at=datetime.now(UTC),
-            cancelled_by=uuid4(),
-            collection_status=CollectionStatus.NOT_STARTED,
-            last_reminder_sent_at=datetime.now(UTC),
-            days_overdue=1,
-            version=1,
-            is_locked=True,
-            can_approve=True,
-            can_cancel=True,
-            can_post=True,
-        )
-
     def test_construction_success(self):
-        """ARInvoiceResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARInvoiceResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        invoice_id = uuid4()
+        kwargs = {
+            "id": invoice_id,
+            "invoice_number": "INV-001",
+            "customer_id": uuid4(),
+            "customer_name": "PT ABC",
+            "customer_code": "CUST001",
+            "invoice_date": date.today(),
+            "due_date": date.today(),
+            "total_amount": Decimal("1000000"),
+            "paid_amount": Decimal("0"),
+            "outstanding_amount": Decimal("1000000"),
+            "discount_taken": Decimal("0"),
+            "early_payment_discount_eligible": True,
+            "early_payment_discount_amount": Decimal("20000"),
+            "status": ARInvoiceStatus.DRAFT,
+            "description": "Test",
+            "lines": [],
+            "tax_amount": Decimal("110000"),
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "approved_by_name": None,
+            "posted_at": None,
+            "posted_by": None,
+            "cancelled_at": None,
+            "cancelled_by": None,
+            "collection_status": CollectionStatus.NOT_STARTED,
+            "last_reminder_sent_at": None,
+            "days_overdue": 0,
+            "version": 1,
+            "is_locked": False,
+            "can_approve": True,
+            "can_cancel": True,
+            "can_post": True,
+        }
+        instance = ARInvoiceResponseSchema(**kwargs)
         assert isinstance(instance, ARInvoiceResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == invoice_id
 
 
 class TestARPaymentCreateSchema:
-    """Tests for the ARPaymentCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            payment_date=date.today(),
-            amount=Decimal("100.00"),
-            payment_method=PaymentMethod.TRANSFER,
-            bank_account_id=uuid4(),
-            reference_number="test_value",
-            notes="test_value",
-            discount_taken=Decimal("100.00"),
-            apply_early_payment_discount=True,
-        )
-
     def test_construction_success(self):
-        """ARPaymentCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARPaymentCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "invoice_id": uuid4(),
+            "payment_date": date.today(),
+            "amount": Decimal("500000"),
+            "payment_method": PaymentMethod.TRANSFER,
+            "bank_account_id": uuid4(),
+            "reference_number": "PMT-001",
+            "notes": "Partial payment",
+            "discount_taken": Decimal("0"),
+            "apply_early_payment_discount": False,
+        }
+        instance = ARPaymentCreateSchema(**kwargs)
         assert isinstance(instance, ARPaymentCreateSchema)
-        assert instance.invoice_id == kwargs['invoice_id']
+        assert instance.invoice_id == kwargs["invoice_id"]
 
 
 class TestARPaymentResponseSchema:
-    """Tests for the ARPaymentResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            payment_number="test_value",
-            invoice_id=uuid4(),
-            invoice_number="test_value",
-            customer_id=uuid4(),
-            customer_name="test_value",
-            payment_date=date.today(),
-            amount=Decimal("100.00"),
-            discount_taken=Decimal("100.00"),
-            payment_method=PaymentMethod.TRANSFER,
-            status=ARPaymentStatus.DRAFT,
-            reference_number="test_value",
-            notes="test_value",
-            bank_account_id=uuid4(),
-            bank_account_name="test_value",
-            cleared_at=datetime.now(UTC),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-            is_reversed=True,
-            reversed_at=datetime.now(UTC),
-            reversed_by=uuid4(),
-        )
-
     def test_construction_success(self):
-        """ARPaymentResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARPaymentResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        payment_id = uuid4()
+        kwargs = {
+            "id": payment_id,
+            "payment_number": "PMT-001",
+            "invoice_id": uuid4(),
+            "invoice_number": "INV-001",
+            "customer_id": uuid4(),
+            "customer_name": "PT ABC",
+            "payment_date": date.today(),
+            "amount": Decimal("500000"),
+            "discount_taken": Decimal("0"),
+            "payment_method": PaymentMethod.TRANSFER,
+            "status": ARPaymentStatus.PROCESSED,
+            "reference_number": "REF-001",
+            "notes": "",
+            "bank_account_id": uuid4(),
+            "bank_account_name": "BCA",
+            "cleared_at": datetime.now(UTC),
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+            "is_reversed": False,
+            "reversed_at": None,
+            "reversed_by": None,
+        }
+        instance = ARPaymentResponseSchema(**kwargs)
         assert isinstance(instance, ARPaymentResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == payment_id
 
 
 class TestARPaymentReverseSchema:
-    """Tests for the ARPaymentReverseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            reason="test_value",
-            reversal_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """ARPaymentReverseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARPaymentReverseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"reason": "Duplicate payment", "reversal_date": date.today()}
+        instance = ARPaymentReverseSchema(**kwargs)
         assert isinstance(instance, ARPaymentReverseSchema)
-        assert instance.reason == kwargs['reason']
+        assert instance.reason == kwargs["reason"]
 
 
 class TestARCreditNoteCreateSchema:
-    """Tests for the ARCreditNoteCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            credit_note_date=date.today(),
-            amount=Decimal("100.00"),
-            reason="test_value",
-            reference_number="test_value",
-            apply_to_future_invoices=True,
-        )
-
     def test_construction_success(self):
-        """ARCreditNoteCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARCreditNoteCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "invoice_id": uuid4(),
+            "credit_note_date": date.today(),
+            "amount": Decimal("100000"),
+            "reason": "Price adjustment",
+            "reference_number": "CN-001",
+            "apply_to_future_invoices": False,
+        }
+        instance = ARCreditNoteCreateSchema(**kwargs)
         assert isinstance(instance, ARCreditNoteCreateSchema)
-        assert instance.invoice_id == kwargs['invoice_id']
+        assert instance.invoice_id == kwargs["invoice_id"]
 
 
 class TestARCreditNoteResponseSchema:
-    """Tests for the ARCreditNoteResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            credit_note_number="test_value",
-            invoice_id=uuid4(),
-            invoice_number="test_value",
-            customer_id=uuid4(),
-            customer_name="test_value",
-            credit_note_date=date.today(),
-            amount=Decimal("100.00"),
-            applied_amount=Decimal("100.00"),
-            remaining_amount=Decimal("100.00"),
-            reason="test_value",
-            reference_number="test_value",
-            status=ARCreditNoteStatus.DRAFT,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            version=1,
-        )
-
     def test_construction_success(self):
-        """ARCreditNoteResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARCreditNoteResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        cn_id = uuid4()
+        kwargs = {
+            "id": cn_id,
+            "credit_note_number": "CN-001",
+            "invoice_id": uuid4(),
+            "invoice_number": "INV-001",
+            "customer_id": uuid4(),
+            "customer_name": "PT ABC",
+            "credit_note_date": date.today(),
+            "amount": Decimal("100000"),
+            "applied_amount": Decimal("0"),
+            "remaining_amount": Decimal("100000"),
+            "reason": "Adjustment",
+            "reference_number": "REF",
+            "status": ARCreditNoteStatus.DRAFT,
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "version": 1,
+        }
+        instance = ARCreditNoteResponseSchema(**kwargs)
         assert isinstance(instance, ARCreditNoteResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == cn_id
 
 
 class TestARAgingBucketSchema:
-    """Tests for the ARAgingBucketSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            bucket_name="test_value",
-            days_start=1,
-            days_end=1,
-            total_amount=Decimal("100.00"),
-            percentage=1.5,
-            invoices=[{}],
-            allowance_amount=Decimal("100.00"),
-        )
-
     def test_construction_success(self):
-        """ARAgingBucketSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARAgingBucketSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "bucket_name": "0-30 days",
+            "days_start": 0,
+            "days_end": 30,
+            "total_amount": Decimal("1000000"),
+            "percentage": 50.0,
+            "invoices": [],
+            "allowance_amount": Decimal("50000"),
+        }
+        instance = ARAgingBucketSchema(**kwargs)
         assert isinstance(instance, ARAgingBucketSchema)
-        assert instance.bucket_name == kwargs['bucket_name']
+        assert instance.bucket_name == kwargs["bucket_name"]
 
 
 class TestARAgingResponseSchema:
-    """Tests for the ARAgingResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            customer_id=uuid4(),
-            customer_name="test_value",
-            customer_code="test_value",
-            as_of_date=date.today(),
-            total_outstanding=Decimal("100.00"),
-            total_allowance=Decimal("100.00"),
-            buckets=[MagicMock()],
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """ARAgingResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARAgingResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        customer_id = uuid4()
+        kwargs = {
+            "customer_id": customer_id,
+            "customer_name": "PT ABC",
+            "customer_code": "CUST001",
+            "as_of_date": date.today(),
+            "total_outstanding": Decimal("1000000"),
+            "total_allowance": Decimal("50000"),
+            "buckets": [],
+            "generated_at": datetime.now(UTC),
+        }
+        instance = ARAgingResponseSchema(**kwargs)
         assert isinstance(instance, ARAgingResponseSchema)
-        assert instance.customer_id == kwargs['customer_id']
+        assert instance.customer_id == customer_id
 
 
 class TestARDashboardSchema:
-    """Tests for the ARDashboardSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            total_outstanding=Decimal("100.00"),
-            current_outstanding=Decimal("100.00"),
-            overdue_1_30=Decimal("100.00"),
-            overdue_31_60=Decimal("100.00"),
-            overdue_61_90=Decimal("100.00"),
-            overdue_90_plus=Decimal("100.00"),
-            overdue_amount=Decimal("100.00"),
-            overdue_percentage=1.5,
-            dso_days=1.5,
-            collection_efficiency=1.5,
-            aging_buckets=[MagicMock()],
-            as_of_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """ARDashboardSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARDashboardSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "total_outstanding": Decimal("1000000"),
+            "current_outstanding": Decimal("500000"),
+            "overdue_1_30": Decimal("200000"),
+            "overdue_31_60": Decimal("150000"),
+            "overdue_61_90": Decimal("100000"),
+            "overdue_90_plus": Decimal("50000"),
+            "overdue_amount": Decimal("500000"),
+            "overdue_percentage": 50.0,
+            "dso_days": 45.5,
+            "collection_efficiency": 80.0,
+            "aging_buckets": [],
+            "as_of_date": date.today(),
+        }
+        instance = ARDashboardSchema(**kwargs)
         assert isinstance(instance, ARDashboardSchema)
-        assert instance.total_outstanding == kwargs['total_outstanding']
+        assert instance.total_outstanding == kwargs["total_outstanding"]
 
 
 class TestARCollectionReminderSchema:
-    """Tests for the ARCollectionReminderSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            invoice_ids=[uuid4()],
-            reminder_type="test_value",
-            message="test_value",
-            send_email=True,
-            send_sms=True,
-        )
-
     def test_construction_success(self):
-        """ARCollectionReminderSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARCollectionReminderSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "invoice_ids": [uuid4(), uuid4()],
+            "reminder_type": "email",
+            "message": "Please pay your invoice",
+            "send_email": True,
+            "send_sms": False,
+        }
+        instance = ARCollectionReminderSchema(**kwargs)
         assert isinstance(instance, ARCollectionReminderSchema)
-        assert instance.invoice_ids == kwargs['invoice_ids']
+        assert len(instance.invoice_ids) == 2
 
 
 class TestARCollectionReminderResponseSchema:
-    """Tests for the ARCollectionReminderResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            success=True,
-            reminders_sent=1,
-            invoices_processed=[uuid4()],
-            errors=[{}],
-        )
-
     def test_construction_success(self):
-        """ARCollectionReminderResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARCollectionReminderResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "success": True,
+            "reminders_sent": 2,
+            "invoices_processed": [uuid4()],
+            "errors": [],
+        }
+        instance = ARCollectionReminderResponseSchema(**kwargs)
         assert isinstance(instance, ARCollectionReminderResponseSchema)
-        assert instance.success == kwargs['success']
+        assert instance.success is True
 
 
 class TestARInvoiceListResponseSchema:
-    """Tests for the ARInvoiceListResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            items=[MagicMock()],
-            total=1,
-            page=1,
-            page_size=1,
-            total_outstanding=Decimal("100.00"),
-            total_paid=Decimal("100.00"),
-            total_overdue=Decimal("100.00"),
-        )
-
     def test_construction_success(self):
-        """ARInvoiceListResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARInvoiceListResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 10,
+            "total_outstanding": Decimal("0"),
+            "total_paid": Decimal("0"),
+            "total_overdue": Decimal("0"),
+        }
+        instance = ARInvoiceListResponseSchema(**kwargs)
         assert isinstance(instance, ARInvoiceListResponseSchema)
-        assert instance.items == kwargs['items']
+        assert instance.items == kwargs["items"]
 
 
 class TestARInvoiceActionResponseSchema:
-    """Tests for the ARInvoiceActionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            invoice_number="test_value",
-            action="test_value",
-            status=ARInvoiceStatus.DRAFT,
-            message="test_value",
-            timestamp=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """ARInvoiceActionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARInvoiceActionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        invoice_id = uuid4()
+        kwargs = {
+            "invoice_id": invoice_id,
+            "invoice_number": "INV-001",
+            "action": "APPROVE",
+            "status": ARInvoiceStatus.APPROVED,
+            "message": "Invoice approved",
+            "timestamp": datetime.now(UTC),
+        }
+        instance = ARInvoiceActionResponseSchema(**kwargs)
         assert isinstance(instance, ARInvoiceActionResponseSchema)
-        assert instance.invoice_id == kwargs['invoice_id']
+        assert instance.invoice_id == invoice_id
 
 
 class TestARWriteOffSchema:
-    """Tests for the ARWriteOffSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            write_off_amount=Decimal("100.00"),
-            reason="test_value",
-            account_code="test_value",
-        )
-
     def test_construction_success(self):
-        """ARWriteOffSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARWriteOffSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "invoice_id": uuid4(),
+            "write_off_amount": Decimal("100000"),
+            "reason": "Uncollectible",
+            "account_code": "3100",
+        }
+        instance = ARWriteOffSchema(**kwargs)
         assert isinstance(instance, ARWriteOffSchema)
-        assert instance.invoice_id == kwargs['invoice_id']
+        assert instance.invoice_id == kwargs["invoice_id"]
 
 
 class TestARWriteOffResponseSchema:
-    """Tests for the ARWriteOffResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            write_off_id=uuid4(),
-            invoice_id=uuid4(),
-            invoice_number="test_value",
-            write_off_amount=Decimal("100.00"),
-            remaining_outstanding=Decimal("100.00"),
-            journal_id=uuid4(),
-            status="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
-
     def test_construction_success(self):
-        """ARWriteOffResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ARWriteOffResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        write_off_id = uuid4()
+        kwargs = {
+            "write_off_id": write_off_id,
+            "invoice_id": uuid4(),
+            "invoice_number": "INV-001",
+            "write_off_amount": Decimal("100000"),
+            "remaining_outstanding": Decimal("0"),
+            "journal_id": uuid4(),
+            "status": "completed",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+        }
+        instance = ARWriteOffResponseSchema(**kwargs)
         assert isinstance(instance, ARWriteOffResponseSchema)
-        assert instance.write_off_id == kwargs['write_off_id']
-
-
-async def test_get_ar_svc_smoke():
-    """Smoke test for module-level function get_ar_svc."""
-    try:
-        result = await get_ar_svc(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_svc needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_collection_workflow_smoke():
-    """Smoke test for module-level function get_ar_collection_workflow."""
-    try:
-        result = await get_ar_collection_workflow()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_collection_workflow needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_ping_smoke():
-    """Smoke test for module-level function ping."""
-    try:
-        result = ping()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ping needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_health_smoke():
-    """Smoke test for module-level function health."""
-    try:
-        result = health()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"health needs specific input data: {e}")
-        return
-    assert True
-
-
-def test_info_smoke():
-    """Smoke test for module-level function info."""
-    try:
-        result = info()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"info needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_ar_invoice_smoke():
-    """Smoke test for module-level function create_ar_invoice."""
-    try:
-        result = await create_ar_invoice(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_invoice_smoke():
-    """Smoke test for module-level function get_ar_invoice."""
-    try:
-        result = await get_ar_invoice(invoice_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_list_ar_invoices_smoke():
-    """Smoke test for module-level function list_ar_invoices."""
-    try:
-        result = await list_ar_invoices(customer_id=uuid4(), status=ARInvoiceStatus.DRAFT, start_date=date.today(), end_date=date.today(), due_date_up_to=date.today(), overdue_only=True, page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_ar_invoices needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_update_ar_invoice_smoke():
-    """Smoke test for module-level function update_ar_invoice."""
-    try:
-        result = await update_ar_invoice(invoice_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_delete_ar_invoice_smoke():
-    """Smoke test for module-level function delete_ar_invoice."""
-    try:
-        result = await delete_ar_invoice(invoice_id=uuid4(), permanent=True, reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"delete_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_restore_ar_invoice_smoke():
-    """Smoke test for module-level function restore_ar_invoice."""
-    try:
-        result = await restore_ar_invoice(invoice_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"restore_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_submit_ar_invoice_smoke():
-    """Smoke test for module-level function submit_ar_invoice."""
-    try:
-        result = await submit_ar_invoice(invoice_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_approve_ar_invoice_smoke():
-    """Smoke test for module-level function approve_ar_invoice."""
-    try:
-        result = await approve_ar_invoice(invoice_id=uuid4(), notes="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reject_ar_invoice_smoke():
-    """Smoke test for module-level function reject_ar_invoice."""
-    try:
-        result = await reject_ar_invoice(invoice_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reject_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_post_ar_invoice_smoke():
-    """Smoke test for module-level function post_ar_invoice."""
-    try:
-        result = await post_ar_invoice(invoice_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"post_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reverse_ar_invoice_smoke():
-    """Smoke test for module-level function reverse_ar_invoice."""
-    try:
-        result = await reverse_ar_invoice(invoice_id=uuid4(), reason="test_value", reversal_date=date.today(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reverse_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_lock_ar_invoice_smoke():
-    """Smoke test for module-level function lock_ar_invoice."""
-    try:
-        result = await lock_ar_invoice(invoice_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_unlock_ar_invoice_smoke():
-    """Smoke test for module-level function unlock_ar_invoice."""
-    try:
-        result = await unlock_ar_invoice(invoice_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_record_ar_payment_smoke():
-    """Smoke test for module-level function record_ar_payment."""
-    try:
-        result = await record_ar_payment(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"record_ar_payment needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_payment_smoke():
-    """Smoke test for module-level function get_ar_payment."""
-    try:
-        result = await get_ar_payment(payment_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_payment needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_reverse_ar_payment_smoke():
-    """Smoke test for module-level function reverse_ar_payment."""
-    try:
-        result = await reverse_ar_payment(payment_id=uuid4(), request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reverse_ar_payment needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_create_ar_credit_note_smoke():
-    """Smoke test for module-level function create_ar_credit_note."""
-    try:
-        result = await create_ar_credit_note(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_ar_credit_note needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_approve_ar_credit_note_smoke():
-    """Smoke test for module-level function approve_ar_credit_note."""
-    try:
-        result = await approve_ar_credit_note(credit_note_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_ar_credit_note needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_cancel_ar_credit_note_smoke():
-    """Smoke test for module-level function cancel_ar_credit_note."""
-    try:
-        result = await cancel_ar_credit_note(credit_note_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_ar_credit_note needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_write_off_ar_invoice_smoke():
-    """Smoke test for module-level function write_off_ar_invoice."""
-    try:
-        result = await write_off_ar_invoice(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"write_off_ar_invoice needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_aging_by_customer_smoke():
-    """Smoke test for module-level function get_ar_aging_by_customer."""
-    try:
-        result = await get_ar_aging_by_customer(customer_id=uuid4(), as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_aging_by_customer needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_all_ar_aging_smoke():
-    """Smoke test for module-level function get_all_ar_aging."""
-    try:
-        result = await get_all_ar_aging(as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_all_ar_aging needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_dashboard_smoke():
-    """Smoke test for module-level function get_ar_dashboard."""
-    try:
-        result = await get_ar_dashboard(as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_dashboard needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_send_collection_reminders_smoke():
-    """Smoke test for module-level function send_collection_reminders."""
-    try:
-        result = await send_collection_reminders(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"send_collection_reminders needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_start_collection_workflow_smoke():
-    """Smoke test for module-level function start_collection_workflow."""
-    try:
-        result = await start_collection_workflow(_permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), collection_workflow=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"start_collection_workflow needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_escalate_collection_smoke():
-    """Smoke test for module-level function escalate_collection."""
-    try:
-        result = await escalate_collection(invoice_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"escalate_collection needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_invoice_status_smoke():
-    """Smoke test for module-level function get_ar_invoice_status."""
-    try:
-        result = await get_ar_invoice_status(invoice_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_invoice_status needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_get_ar_invoice_history_smoke():
-    """Smoke test for module-level function get_ar_invoice_history."""
-    try:
-        result = await get_ar_invoice_history(invoice_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_ar_invoice_history needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_generate_ar_invoice_pdf_smoke():
-    """Smoke test for module-level function generate_ar_invoice_pdf."""
-    try:
-        result = await generate_ar_invoice_pdf(invoice_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_ar_invoice_pdf needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_bulk_approve_ar_invoices_smoke():
-    """Smoke test for module-level function bulk_approve_ar_invoices."""
-    try:
-        result = await bulk_approve_ar_invoices(invoice_ids=[uuid4()], notes="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"bulk_approve_ar_invoices needs specific input data: {e}")
-        return
-    assert True
-
-
-async def test_bulk_send_payment_reminders_smoke():
-    """Smoke test for module-level function bulk_send_payment_reminders."""
-    try:
-        result = await bulk_send_payment_reminders(invoice_ids=[uuid4()], reminder_type="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), ar_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"bulk_send_payment_reminders needs specific input data: {e}")
-        return
-    assert True
+        assert instance.write_off_id == write_off_id
+
+
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_ar_svc_returns_service():
+    request = MagicMock()
+    result = await get_ar_svc(request=request)
+    assert result is not None
+
+
+async def test_get_ar_collection_workflow_returns_workflow():
+    result = await get_ar_collection_workflow()
+    assert result is not None
+
+
+def test_ping_returns_dict():
+    result = ping()
+    assert isinstance(result, dict)
+    # Usually returns {"status": "ok"} or similar
+    assert "status" in result or "pong" in str(result)
+
+
+def test_health_returns_dict():
+    result = health()
+    assert isinstance(result, dict)
+    assert "status" in result
+
+
+def test_info_returns_dict():
+    result = info()
+    assert isinstance(result, dict)
+    assert "version" in result or "name" in result
+
+
+async def test_create_ar_invoice_returns_invoice():
+    ar_svc = MagicMock()
+    ar_svc.create_invoice = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_ar_invoice(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_ar_invoice_returns_invoice():
+    ar_svc = MagicMock()
+    ar_svc.get_invoice = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_ar_invoice(
+        invoice_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_list_ar_invoices_returns_list():
+    ar_svc = MagicMock()
+    ar_svc.list_invoices = MagicMock(return_value=[])
+    result = await list_ar_invoices(
+        customer_id=uuid4(),
+        status=ARInvoiceStatus.DRAFT,
+        start_date=date.today(),
+        end_date=date.today(),
+        due_date_up_to=date.today(),
+        overdue_only=True,
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert isinstance(result, list)
+
+
+async def test_update_ar_invoice_returns_updated():
+    ar_svc = MagicMock()
+    ar_svc.update_invoice = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_ar_invoice(
+        invoice_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_delete_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.delete_invoice = MagicMock(return_value={"success": True})
+    result = await delete_ar_invoice(
+        invoice_id=uuid4(),
+        permanent=True,
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_restore_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.restore_invoice = MagicMock(return_value={"success": True})
+    result = await restore_ar_invoice(
+        invoice_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_submit_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.submit_invoice = MagicMock(return_value={"success": True})
+    result = await submit_ar_invoice(
+        invoice_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_approve_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.approve_invoice = MagicMock(return_value={"success": True})
+    result = await approve_ar_invoice(
+        invoice_id=uuid4(),
+        notes="Approved",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_reject_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.reject_invoice = MagicMock(return_value={"success": True})
+    result = await reject_ar_invoice(
+        invoice_id=uuid4(),
+        reason="Invalid",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_post_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.post_invoice = MagicMock(return_value={"success": True})
+    result = await post_ar_invoice(
+        invoice_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_reverse_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.reverse_invoice = MagicMock(return_value={"success": True})
+    result = await reverse_ar_invoice(
+        invoice_id=uuid4(),
+        reason="Error",
+        reversal_date=date.today(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_lock_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.lock_invoice = MagicMock(return_value={"success": True})
+    result = await lock_ar_invoice(
+        invoice_id=uuid4(),
+        reason="Review",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_unlock_ar_invoice_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.unlock_invoice = MagicMock(return_value={"success": True})
+    result = await unlock_ar_invoice(
+        invoice_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_record_ar_payment_returns_payment():
+    ar_svc = MagicMock()
+    ar_svc.record_payment = MagicMock(return_value={"id": str(uuid4())})
+    result = await record_ar_payment(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_get_ar_payment_returns_payment():
+    ar_svc = MagicMock()
+    ar_svc.get_payment = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_ar_payment(
+        payment_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_reverse_ar_payment_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.reverse_payment = MagicMock(return_value={"success": True})
+    result = await reverse_ar_payment(
+        payment_id=uuid4(),
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_create_ar_credit_note_returns_credit_note():
+    ar_svc = MagicMock()
+    ar_svc.create_credit_note = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_ar_credit_note(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "id" in result
+
+
+async def test_approve_ar_credit_note_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.approve_credit_note = MagicMock(return_value={"success": True})
+    result = await approve_ar_credit_note(
+        credit_note_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_cancel_ar_credit_note_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.cancel_credit_note = MagicMock(return_value={"success": True})
+    result = await cancel_ar_credit_note(
+        credit_note_id=uuid4(),
+        reason="Cancelled",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_write_off_ar_invoice_returns_write_off():
+    ar_svc = MagicMock()
+    ar_svc.write_off_invoice = MagicMock(return_value={"write_off_id": str(uuid4())})
+    result = await write_off_ar_invoice(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "write_off_id" in result
+
+
+async def test_get_ar_aging_by_customer_returns_aging():
+    ar_svc = MagicMock()
+    ar_svc.get_aging_by_customer = MagicMock(return_value={"customer_id": str(uuid4())})
+    result = await get_ar_aging_by_customer(
+        customer_id=uuid4(),
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "customer_id" in result
+
+
+async def test_get_all_ar_aging_returns_list():
+    ar_svc = MagicMock()
+    ar_svc.get_all_aging = MagicMock(return_value=[])
+    result = await get_all_ar_aging(
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert isinstance(result, list)
+
+
+async def test_get_ar_dashboard_returns_dashboard():
+    ar_svc = MagicMock()
+    ar_svc.get_dashboard = MagicMock(return_value={"total_outstanding": 1000000})
+    result = await get_ar_dashboard(
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "total_outstanding" in result
+
+
+async def test_send_collection_reminders_returns_response():
+    ar_svc = MagicMock()
+    ar_svc.send_reminders = MagicMock(return_value={"success": True, "reminders_sent": 2})
+    result = await send_collection_reminders(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_start_collection_workflow_returns_success():
+    collection_workflow = MagicMock()
+    collection_workflow.start = MagicMock(return_value={"success": True})
+    result = await start_collection_workflow(
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        collection_workflow=collection_workflow,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_escalate_collection_returns_success():
+    ar_svc = MagicMock()
+    ar_svc.escalate = MagicMock(return_value={"success": True})
+    result = await escalate_collection(
+        invoice_id=uuid4(),
+        reason="Escalate",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_get_ar_invoice_status_returns_status():
+    ar_svc = MagicMock()
+    ar_svc.get_invoice_status = MagicMock(return_value={"status": "draft"})
+    result = await get_ar_invoice_status(
+        invoice_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "status" in result
+
+
+async def test_get_ar_invoice_history_returns_list():
+    ar_svc = MagicMock()
+    ar_svc.get_invoice_history = MagicMock(return_value=[])
+    result = await get_ar_invoice_history(
+        invoice_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert isinstance(result, list)
+
+
+async def test_generate_ar_invoice_pdf_returns_pdf():
+    ar_svc = MagicMock()
+    ar_svc.generate_pdf = MagicMock(return_value={"pdf_content": "base64data"})
+    result = await generate_ar_invoice_pdf(
+        invoice_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert "pdf_content" in result
+
+
+async def test_bulk_approve_ar_invoices_returns_result():
+    ar_svc = MagicMock()
+    ar_svc.bulk_approve = MagicMock(return_value={"success": True, "approved_count": 2})
+    result = await bulk_approve_ar_invoices(
+        invoice_ids=[uuid4(), uuid4()],
+        notes="Bulk approve",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
+
+
+async def test_bulk_send_payment_reminders_returns_result():
+    ar_svc = MagicMock()
+    ar_svc.bulk_send_reminders = MagicMock(return_value={"success": True, "sent_count": 2})
+    result = await bulk_send_payment_reminders(
+        invoice_ids=[uuid4(), uuid4()],
+        reminder_type="email",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        ar_svc=ar_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True

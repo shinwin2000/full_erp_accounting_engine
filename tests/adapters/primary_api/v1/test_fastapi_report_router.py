@@ -57,47 +57,23 @@ from adapters.primary_api.v1.fastapi_report_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestReportType:
-    """Tests for the ReportType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ReportType, 'BALANCE_SHEET')
         assert hasattr(ReportType, 'INCOME_STATEMENT')
         assert hasattr(ReportType, 'CASH_FLOW')
@@ -137,14 +113,11 @@ class TestReportType:
         assert hasattr(ReportType, 'CONSISTENCY_CHECK')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ReportType.BALANCE_SHEET, ReportType)
 
 
 class TestReportFormat:
-    """Tests for the ReportFormat enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ReportFormat, 'PDF')
         assert hasattr(ReportFormat, 'EXCEL')
         assert hasattr(ReportFormat, 'CSV')
@@ -153,14 +126,11 @@ class TestReportFormat:
         assert hasattr(ReportFormat, 'XML')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ReportFormat.PDF, ReportFormat)
 
 
 class TestScheduleFrequency:
-    """Tests for the ScheduleFrequency enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ScheduleFrequency, 'DAILY')
         assert hasattr(ScheduleFrequency, 'WEEKLY')
         assert hasattr(ScheduleFrequency, 'MONTHLY')
@@ -170,14 +140,11 @@ class TestScheduleFrequency:
         assert hasattr(ScheduleFrequency, 'CUSTOM')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ScheduleFrequency.DAILY, ScheduleFrequency)
 
 
 class TestDeliveryMethod:
-    """Tests for the DeliveryMethod enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(DeliveryMethod, 'EMAIL')
         assert hasattr(DeliveryMethod, 'WHATSAPP')
         assert hasattr(DeliveryMethod, 'WEBHOOK')
@@ -186,14 +153,11 @@ class TestDeliveryMethod:
         assert hasattr(DeliveryMethod, 'PRINT')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(DeliveryMethod.EMAIL, DeliveryMethod)
 
 
 class TestReportStatus:
-    """Tests for the ReportStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(ReportStatus, 'PENDING')
         assert hasattr(ReportStatus, 'PROCESSING')
         assert hasattr(ReportStatus, 'GENERATED')
@@ -202,489 +166,510 @@ class TestReportStatus:
         assert hasattr(ReportStatus, 'CANCELLED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(ReportStatus.PENDING, ReportStatus)
 
 
 class TestReportRequestSchema:
-    """Tests for the ReportRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            report_type=ReportType.BALANCE_SHEET,
-            report_format=ReportFormat.PDF,
-            start_date=date.today(),
-            end_date=date.today(),
-            as_of_date=date.today(),
-            account_id=uuid4(),
-            account_code="test_value",
-            customer_id=uuid4(),
-            vendor_id=uuid4(),
-            item_id=uuid4(),
-            warehouse_id=uuid4(),
-            project_id=uuid4(),
-            include_details=True,
-            compare_with_previous=True,
-            currency="test_value",
-            parameters={},
-        )
-
     def test_construction_success(self):
-        """ReportRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "report_type": ReportType.BALANCE_SHEET,
+            "report_format": ReportFormat.PDF,
+            "start_date": date.today(),
+            "end_date": date.today(),
+            "as_of_date": date.today(),
+            "account_id": uuid4(),
+            "account_code": "1100",
+            "customer_id": uuid4(),
+            "vendor_id": uuid4(),
+            "item_id": uuid4(),
+            "warehouse_id": uuid4(),
+            "project_id": uuid4(),
+            "include_details": True,
+            "compare_with_previous": False,
+            "currency": "IDR",
+            "parameters": {"year": 2026},
+        }
+        instance = ReportRequestSchema(**kwargs)
         assert isinstance(instance, ReportRequestSchema)
-        assert instance.report_type == kwargs['report_type']
+        assert instance.report_type == kwargs["report_type"]
 
 
 class TestReportResponseSchema:
-    """Tests for the ReportResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            report_id=uuid4(),
-            report_number="test_value",
-            report_type=ReportType.BALANCE_SHEET,
-            report_format=ReportFormat.PDF,
-            status=ReportStatus.PENDING,
-            file_size_bytes=1,
-            file_path="test_value",
-            download_url="test_value",
-            parameters={},
-            generated_at=datetime.now(UTC),
-            generated_by=uuid4(),
-            generated_by_name="test_value",
-            expires_at=datetime.now(UTC),
-            is_deleted=True,
-        )
-
     def test_construction_success(self):
-        """ReportResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        report_id = uuid4()
+        kwargs = {
+            "report_id": report_id,
+            "report_number": "RPT-2026-001",
+            "report_type": ReportType.BALANCE_SHEET,
+            "report_format": ReportFormat.PDF,
+            "status": ReportStatus.PENDING,
+            "file_size_bytes": 1024,
+            "file_path": "/reports/2026/balance_sheet.pdf",
+            "download_url": "https://example.com/download/123",
+            "parameters": {"year": 2026},
+            "generated_at": datetime.now(UTC),
+            "generated_by": uuid4(),
+            "generated_by_name": "admin",
+            "expires_at": datetime.now(UTC),
+            "is_deleted": False,
+        }
+        instance = ReportResponseSchema(**kwargs)
         assert isinstance(instance, ReportResponseSchema)
-        assert instance.report_id == kwargs['report_id']
+        assert instance.report_id == report_id
 
 
 class TestReportListResponseSchema:
-    """Tests for the ReportListResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            items=[MagicMock()],
-            total=1,
-            page=1,
-            page_size=1,
-        )
-
     def test_construction_success(self):
-        """ReportListResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportListResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 10,
+        }
+        instance = ReportListResponseSchema(**kwargs)
         assert isinstance(instance, ReportListResponseSchema)
-        assert instance.items == kwargs['items']
+        assert instance.items == kwargs["items"]
 
 
 class TestReportScheduleCreateSchema:
-    """Tests for the ReportScheduleCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            report_type=ReportType.BALANCE_SHEET,
-            schedule_name="test_value",
-            schedule_frequency=ScheduleFrequency.DAILY,
-            schedule_time="test_value",
-            schedule_day_of_week=1,
-            schedule_day_of_month=1,
-            report_format=ReportFormat.PDF,
-            parameters={},
-            recipient_emails=["test_value"],
-            recipient_whatsapps=["test_value"],
-            delivery_methods=[DeliveryMethod.EMAIL],
-            is_active=True,
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """ReportScheduleCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportScheduleCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "report_type": ReportType.BALANCE_SHEET,
+            "schedule_name": "Monthly Balance Sheet",
+            "schedule_frequency": ScheduleFrequency.MONTHLY,
+            "schedule_time": "09:00",
+            "schedule_day_of_week": 1,
+            "schedule_day_of_month": 1,
+            "report_format": ReportFormat.PDF,
+            "parameters": {"year": 2026},
+            "recipient_emails": ["admin@example.com"],
+            "recipient_whatsapps": ["+628123456789"],
+            "delivery_methods": [DeliveryMethod.EMAIL],
+            "is_active": True,
+            "notes": "Test schedule",
+        }
+        instance = ReportScheduleCreateSchema(**kwargs)
         assert isinstance(instance, ReportScheduleCreateSchema)
-        assert instance.report_type == kwargs['report_type']
+        assert instance.report_type == kwargs["report_type"]
 
 
 class TestReportScheduleResponseSchema:
-    """Tests for the ReportScheduleResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            schedule_id=uuid4(),
-            schedule_name="test_value",
-            report_type=ReportType.BALANCE_SHEET,
-            schedule_frequency=ScheduleFrequency.DAILY,
-            schedule_time="test_value",
-            schedule_day_of_week=1,
-            schedule_day_of_month=1,
-            report_format=ReportFormat.PDF,
-            parameters={},
-            recipient_emails=["test_value"],
-            recipient_whatsapps=["test_value"],
-            delivery_methods=[DeliveryMethod.EMAIL],
-            is_active=True,
-            last_run_at=datetime.now(UTC),
-            next_run_at=datetime.now(UTC),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """ReportScheduleResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportScheduleResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        schedule_id = uuid4()
+        kwargs = {
+            "schedule_id": schedule_id,
+            "schedule_name": "Monthly Balance Sheet",
+            "report_type": ReportType.BALANCE_SHEET,
+            "schedule_frequency": ScheduleFrequency.MONTHLY,
+            "schedule_time": "09:00",
+            "schedule_day_of_week": 1,
+            "schedule_day_of_month": 1,
+            "report_format": ReportFormat.PDF,
+            "parameters": {"year": 2026},
+            "recipient_emails": ["admin@example.com"],
+            "recipient_whatsapps": [],
+            "delivery_methods": [DeliveryMethod.EMAIL],
+            "is_active": True,
+            "last_run_at": datetime.now(UTC),
+            "next_run_at": datetime.now(UTC),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = ReportScheduleResponseSchema(**kwargs)
         assert isinstance(instance, ReportScheduleResponseSchema)
-        assert instance.schedule_id == kwargs['schedule_id']
+        assert instance.schedule_id == schedule_id
 
 
 class TestReportDistributionSchema:
-    """Tests for the ReportDistributionSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            report_id=uuid4(),
-            recipient_emails=["test_value"],
-            recipient_whatsapps=["test_value"],
-            subject="test_value",
-            message="test_value",
-            delivery_methods=[DeliveryMethod.EMAIL],
-        )
-
     def test_construction_success(self):
-        """ReportDistributionSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportDistributionSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "report_id": uuid4(),
+            "recipient_emails": ["admin@example.com"],
+            "recipient_whatsapps": ["+628123456789"],
+            "subject": "Monthly Report",
+            "message": "Please find attached",
+            "delivery_methods": [DeliveryMethod.EMAIL],
+        }
+        instance = ReportDistributionSchema(**kwargs)
         assert isinstance(instance, ReportDistributionSchema)
-        assert instance.report_id == kwargs['report_id']
+        assert instance.report_id == kwargs["report_id"]
 
 
 class TestReportDistributionResponseSchema:
-    """Tests for the ReportDistributionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            distribution_id=uuid4(),
-            report_id=uuid4(),
-            recipient_email="test_value",
-            recipient_whatsapp="test_value",
-            delivery_method=DeliveryMethod.EMAIL,
-            status="test_value",
-            sent_at=datetime.now(UTC),
-            error_message="test_value",
-        )
-
     def test_construction_success(self):
-        """ReportDistributionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ReportDistributionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        dist_id = uuid4()
+        kwargs = {
+            "distribution_id": dist_id,
+            "report_id": uuid4(),
+            "recipient_email": "admin@example.com",
+            "recipient_whatsapp": None,
+            "delivery_method": DeliveryMethod.EMAIL,
+            "status": "sent",
+            "sent_at": datetime.now(UTC),
+            "error_message": None,
+        }
+        instance = ReportDistributionResponseSchema(**kwargs)
         assert isinstance(instance, ReportDistributionResponseSchema)
-        assert instance.distribution_id == kwargs['distribution_id']
+        assert instance.distribution_id == dist_id
 
 
-async def test_get_report_service_smoke():
-    """Smoke test for module-level function get_report_service."""
-    try:
-        result = await get_report_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_report_service needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_report_service_returns_service():
+    request = MagicMock()
+    result = await get_report_service(request=request)
+    assert result is not None
 
 
-async def test_get_report_scheduler_smoke():
-    """Smoke test for module-level function get_report_scheduler."""
-    try:
-        result = await get_report_scheduler(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_report_scheduler needs specific input data: {e}")
-        return
-    assert True
+async def test_get_report_scheduler_returns_scheduler():
+    request = MagicMock()
+    result = await get_report_scheduler(request=request)
+    assert result is not None
 
 
-async def test_get_report_distributor_smoke():
-    """Smoke test for module-level function get_report_distributor."""
-    try:
-        result = await get_report_distributor(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_report_distributor needs specific input data: {e}")
-        return
-    assert True
+async def test_get_report_distributor_returns_distributor():
+    request = MagicMock()
+    result = await get_report_distributor(request=request)
+    assert result is not None
 
 
-async def test_generate_balance_sheet_smoke():
-    """Smoke test for module-level function generate_balance_sheet."""
-    try:
-        result = await generate_balance_sheet(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_balance_sheet needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_balance_sheet_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_balance_sheet(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_income_statement_smoke():
-    """Smoke test for module-level function generate_income_statement."""
-    try:
-        result = await generate_income_statement(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_income_statement needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_income_statement_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_income_statement(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_cash_flow_smoke():
-    """Smoke test for module-level function generate_cash_flow."""
-    try:
-        result = await generate_cash_flow(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_cash_flow needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_cash_flow_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_cash_flow(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_equity_statement_smoke():
-    """Smoke test for module-level function generate_equity_statement."""
-    try:
-        result = await generate_equity_statement(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_equity_statement needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_equity_statement_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_equity_statement(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_trial_balance_smoke():
-    """Smoke test for module-level function generate_trial_balance."""
-    try:
-        result = await generate_trial_balance(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_trial_balance needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_trial_balance_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_trial_balance(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_general_ledger_smoke():
-    """Smoke test for module-level function generate_general_ledger."""
-    try:
-        result = await generate_general_ledger(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_general_ledger needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_general_ledger_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_general_ledger(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_ar_aging_smoke():
-    """Smoke test for module-level function generate_ar_aging."""
-    try:
-        result = await generate_ar_aging(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_ar_aging needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_ar_aging_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_ar_aging(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_ap_aging_smoke():
-    """Smoke test for module-level function generate_ap_aging."""
-    try:
-        result = await generate_ap_aging(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_ap_aging needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_ap_aging_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_ap_aging(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_stock_card_smoke():
-    """Smoke test for module-level function generate_stock_card."""
-    try:
-        result = await generate_stock_card(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_stock_card needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_stock_card_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_stock_card(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_tax_summary_smoke():
-    """Smoke test for module-level function generate_tax_summary."""
-    try:
-        result = await generate_tax_summary(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_tax_summary needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_tax_summary_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_tax_summary(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_financial_ratios_smoke():
-    """Smoke test for module-level function generate_financial_ratios."""
-    try:
-        result = await generate_financial_ratios(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_financial_ratios needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_financial_ratios_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_financial_ratios(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_generate_budget_vs_actual_smoke():
-    """Smoke test for module-level function generate_budget_vs_actual."""
-    try:
-        result = await generate_budget_vs_actual(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_budget_vs_actual needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_budget_vs_actual_returns_report():
+    service = MagicMock()
+    service.generate_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await generate_budget_vs_actual(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_list_reports_smoke():
-    """Smoke test for module-level function list_reports."""
-    try:
-        result = await list_reports(report_type=ReportType.BALANCE_SHEET, status=ReportStatus.PENDING, start_date=datetime.now(UTC), end_date=datetime.now(UTC), page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_reports needs specific input data: {e}")
-        return
-    assert True
+async def test_list_reports_returns_list():
+    service = MagicMock()
+    service.list_reports = MagicMock(return_value=[])
+    result = await list_reports(
+        report_type=ReportType.BALANCE_SHEET,
+        status=ReportStatus.PENDING,
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_report_smoke():
-    """Smoke test for module-level function get_report."""
-    try:
-        result = await get_report(report_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_report needs specific input data: {e}")
-        return
-    assert True
+async def test_get_report_returns_report():
+    service = MagicMock()
+    service.get_report = MagicMock(return_value={"report_id": str(uuid4())})
+    result = await get_report(
+        report_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "report_id" in result
 
 
-async def test_download_report_smoke():
-    """Smoke test for module-level function download_report."""
-    try:
-        result = await download_report(report_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"download_report needs specific input data: {e}")
-        return
-    assert True
+async def test_download_report_returns_file():
+    service = MagicMock()
+    service.download_report = MagicMock(return_value={"file": "base64data", "filename": "report.pdf"})
+    result = await download_report(
+        report_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "file" in result
 
 
-async def test_delete_report_smoke():
-    """Smoke test for module-level function delete_report."""
-    try:
-        result = await delete_report(report_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"delete_report needs specific input data: {e}")
-        return
-    assert True
+async def test_delete_report_returns_success():
+    service = MagicMock()
+    service.delete_report = MagicMock(return_value={"success": True})
+    result = await delete_report(
+        report_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_send_report_smoke():
-    """Smoke test for module-level function send_report."""
-    try:
-        result = await send_report(report_id=uuid4(), request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), distributor=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"send_report needs specific input data: {e}")
-        return
-    assert True
+async def test_send_report_returns_distribution():
+    distributor = MagicMock()
+    distributor.send_report = MagicMock(return_value={"distribution_id": str(uuid4())})
+    result = await send_report(
+        report_id=uuid4(),
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        distributor=distributor,
+    )
+    assert result is not None
+    assert "distribution_id" in result
 
 
-async def test_schedule_report_smoke():
-    """Smoke test for module-level function schedule_report."""
-    try:
-        result = await schedule_report(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), scheduler=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"schedule_report needs specific input data: {e}")
-        return
-    assert True
+async def test_schedule_report_returns_schedule():
+    scheduler = MagicMock()
+    scheduler.schedule_report = MagicMock(return_value={"schedule_id": str(uuid4())})
+    result = await schedule_report(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        scheduler=scheduler,
+    )
+    assert result is not None
+    assert "schedule_id" in result
 
 
-async def test_list_scheduled_reports_smoke():
-    """Smoke test for module-level function list_scheduled_reports."""
-    try:
-        result = await list_scheduled_reports(is_active=True, report_type=ReportType.BALANCE_SHEET, _permission=MagicMock(), legal_entity_id=uuid4(), scheduler=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_scheduled_reports needs specific input data: {e}")
-        return
-    assert True
+async def test_list_scheduled_reports_returns_list():
+    scheduler = MagicMock()
+    scheduler.list_scheduled_reports = MagicMock(return_value=[])
+    result = await list_scheduled_reports(
+        is_active=True,
+        report_type=ReportType.BALANCE_SHEET,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        scheduler=scheduler,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_scheduled_report_smoke():
-    """Smoke test for module-level function get_scheduled_report."""
-    try:
-        result = await get_scheduled_report(schedule_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), scheduler=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_scheduled_report needs specific input data: {e}")
-        return
-    assert True
+async def test_get_scheduled_report_returns_schedule():
+    scheduler = MagicMock()
+    scheduler.get_scheduled_report = MagicMock(return_value={"schedule_id": str(uuid4())})
+    result = await get_scheduled_report(
+        schedule_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        scheduler=scheduler,
+    )
+    assert result is not None
+    assert "schedule_id" in result
 
 
-async def test_update_scheduled_report_smoke():
-    """Smoke test for module-level function update_scheduled_report."""
-    try:
-        result = await update_scheduled_report(schedule_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), scheduler=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_scheduled_report needs specific input data: {e}")
-        return
-    assert True
+async def test_update_scheduled_report_returns_updated():
+    scheduler = MagicMock()
+    scheduler.update_scheduled_report = MagicMock(return_value={"schedule_id": str(uuid4())})
+    result = await update_scheduled_report(
+        schedule_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        scheduler=scheduler,
+    )
+    assert result is not None
+    assert "schedule_id" in result
 
 
-async def test_delete_scheduled_report_smoke():
-    """Smoke test for module-level function delete_scheduled_report."""
-    try:
-        result = await delete_scheduled_report(schedule_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), scheduler=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"delete_scheduled_report needs specific input data: {e}")
-        return
-    assert True
+async def test_delete_scheduled_report_returns_success():
+    scheduler = MagicMock()
+    scheduler.delete_scheduled_report = MagicMock(return_value={"success": True})
+    result = await delete_scheduled_report(
+        schedule_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        scheduler=scheduler,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_get_report_status_smoke():
-    """Smoke test for module-level function get_report_status."""
-    try:
-        result = await get_report_status(report_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_report_status needs specific input data: {e}")
-        return
-    assert True
+async def test_get_report_status_returns_status():
+    service = MagicMock()
+    service.get_report_status = MagicMock(return_value={"status": "generated"})
+    result = await get_report_status(
+        report_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "status" in result
 
 
-async def test_get_report_history_smoke():
-    """Smoke test for module-level function get_report_history."""
-    try:
-        result = await get_report_history(report_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_report_history needs specific input data: {e}")
-        return
-    assert True
+async def test_get_report_history_returns_list():
+    service = MagicMock()
+    service.get_report_history = MagicMock(return_value=[])
+    result = await get_report_history(
+        report_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
