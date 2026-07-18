@@ -434,9 +434,8 @@ class ConsolidationGroupResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_legal_entity_service(request: Request, ) -> Any:
+async def get_legal_entity_service(request: Request) -> Any:
     """Get Legal Entity Service instance."""
-
     from application.service_layer.service_legal_entity import LegalEntityService
 
     container = request.app.state.container
@@ -460,7 +459,7 @@ router = APIRouter(prefix="/legal-entities", tags=["Legal Entity"])
     response_model=LegalEntityResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create legal entity",
-    operation_id="create_legal_entity",
+    operation_id="legal_create_legal_entity",
 )
 async def create_legal_entity(
     request: LegalEntityCreateSchema,
@@ -562,7 +561,7 @@ async def create_legal_entity(
     "/",
     response_model=list[LegalEntityResponseSchema],
     summary="List legal entities",
-    operation_id="list_legal_entities",
+    operation_id="legal_list_legal_entities",
 )
 async def list_legal_entities(
     entity_type: LegalEntityType | None = Query(None, description="Filter by entity type"),
@@ -637,7 +636,7 @@ async def list_legal_entities(
     "/{legal_entity_id}",
     response_model=LegalEntityResponseSchema,
     summary="Get legal entity by ID",
-    operation_id="get_legal_entity",
+    operation_id="legal_get_legal_entity",
 )
 async def get_legal_entity(
     legal_entity_id: UUID,
@@ -700,7 +699,7 @@ async def get_legal_entity(
     "/by-npwp/{npwp}",
     response_model=LegalEntityResponseSchema,
     summary="Get legal entity by NPWP",
-    operation_id="get_legal_entity_by_npwp",
+    operation_id="legal_get_legal_entity_by_npwp",
 )
 async def get_legal_entity_by_npwp(
     npwp: str,
@@ -766,7 +765,7 @@ async def get_legal_entity_by_npwp(
     "/by-registration/{registration_number}",
     response_model=LegalEntityResponseSchema,
     summary="Get legal entity by registration number",
-    operation_id="get_legal_entity_by_registration",
+    operation_id="legal_get_legal_entity_by_registration",
 )
 async def get_legal_entity_by_registration(
     registration_number: str,
@@ -832,7 +831,7 @@ async def get_legal_entity_by_registration(
     "/{legal_entity_id}",
     response_model=LegalEntityResponseSchema,
     summary="Update legal entity",
-    operation_id="update_legal_entity",
+    operation_id="legal_update_legal_entity",
 )
 async def update_legal_entity(
     legal_entity_id: UUID,
@@ -928,7 +927,7 @@ async def update_legal_entity(
     "/{legal_entity_id}",
     response_model=dict[str, Any],
     summary="Deactivate legal entity",
-    operation_id="deactivate_legal_entity",
+    operation_id="legal_deactivate_legal_entity",
 )
 async def deactivate_legal_entity(
     legal_entity_id: UUID,
@@ -977,7 +976,7 @@ async def deactivate_legal_entity(
     "/{legal_entity_id}/activate",
     response_model=LegalEntityResponseSchema,
     summary="Activate legal entity",
-    operation_id="activate_legal_entity",
+    operation_id="legal_activate_legal_entity",
 )
 async def activate_legal_entity(
     legal_entity_id: UUID,
@@ -1055,7 +1054,7 @@ async def activate_legal_entity(
     "/{legal_entity_id}/lock",
     response_model=LegalEntityResponseSchema,
     summary="Lock legal entity",
-    operation_id="lock_legal_entity",
+    operation_id="legal_lock_legal_entity",
 )
 async def lock_legal_entity(
     legal_entity_id: UUID,
@@ -1134,7 +1133,7 @@ async def lock_legal_entity(
     "/{legal_entity_id}/unlock",
     response_model=LegalEntityResponseSchema,
     summary="Unlock legal entity",
-    operation_id="unlock_legal_entity",
+    operation_id="legal_unlock_legal_entity",
 )
 async def unlock_legal_entity(
     legal_entity_id: UUID,
@@ -1217,7 +1216,7 @@ async def unlock_legal_entity(
     "/{legal_entity_id}/tax-profile",
     response_model=TaxProfileResponseSchema,
     summary="Get tax profile",
-    operation_id="get_tax_profile",
+    operation_id="legal_get_tax_profile",
 )
 async def get_tax_profile(
     legal_entity_id: UUID,
@@ -1261,7 +1260,7 @@ async def get_tax_profile(
     "/{legal_entity_id}/tax-profile",
     response_model=TaxProfileResponseSchema,
     summary="Update tax profile",
-    operation_id="update_tax_profile",
+    operation_id="legal_update_tax_profile",
 )
 async def update_tax_profile(
     legal_entity_id: UUID,
@@ -1342,7 +1341,7 @@ async def update_tax_profile(
     response_model=BranchResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create branch",
-    operation_id="create_branch",
+    operation_id="legal_create_branch",
 )
 async def create_branch(
     legal_entity_id: UUID,
@@ -1413,7 +1412,7 @@ async def create_branch(
     "/{legal_entity_id}/branches",
     response_model=list[BranchResponseSchema],
     summary="List branches",
-    operation_id="list_branches",
+    operation_id="legal_list_branches",
 )
 async def list_branches(
     legal_entity_id: UUID,
@@ -1462,7 +1461,7 @@ async def list_branches(
     "/{legal_entity_id}/branches/{branch_id}",
     response_model=BranchResponseSchema,
     summary="Get branch by ID",
-    operation_id="get_branch",
+    operation_id="legal_get_branch",
 )
 async def get_branch(
     legal_entity_id: UUID,
@@ -1508,7 +1507,7 @@ async def get_branch(
     "/{legal_entity_id}/branches/{branch_id}",
     response_model=BranchResponseSchema,
     summary="Update branch",
-    operation_id="update_branch",
+    operation_id="legal_update_branch",
 )
 async def update_branch(
     legal_entity_id: UUID,
@@ -1583,7 +1582,7 @@ async def update_branch(
     "/{legal_entity_id}/branches/{branch_id}",
     response_model=dict[str, Any],
     summary="Close branch",
-    operation_id="close_branch",
+    operation_id="legal_close_branch",
 )
 async def close_branch(
     legal_entity_id: UUID,
@@ -1640,7 +1639,7 @@ async def close_branch(
     response_model=ConsolidationGroupResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create consolidation group",
-    operation_id="create_consolidation_group",
+    operation_id="legal_create_consolidation_group",
 )
 async def create_consolidation_group(
     request: ConsolidationGroupCreateSchema,
@@ -1703,7 +1702,7 @@ async def create_consolidation_group(
     "/consolidation-groups",
     response_model=list[ConsolidationGroupResponseSchema],
     summary="List consolidation groups",
-    operation_id="list_consolidation_groups",
+    operation_id="legal_list_consolidation_groups",
 )
 async def list_consolidation_groups(
     is_active: bool | None = Query(None, description="Filter by active status"),
@@ -1743,7 +1742,7 @@ async def list_consolidation_groups(
     "/consolidation-groups/{group_id}",
     response_model=ConsolidationGroupResponseSchema,
     summary="Get consolidation group by ID",
-    operation_id="get_consolidation_group",
+    operation_id="legal_get_consolidation_group",
 )
 async def get_consolidation_group(
     group_id: UUID,
@@ -1785,7 +1784,7 @@ async def get_consolidation_group(
     "/consolidation-groups/{group_id}",
     response_model=ConsolidationGroupResponseSchema,
     summary="Update consolidation group",
-    operation_id="update_consolidation_group",
+    operation_id="legal_update_consolidation_group",
 )
 async def update_consolidation_group(
     group_id: UUID,
@@ -1852,7 +1851,7 @@ async def update_consolidation_group(
     "/consolidation-groups/{group_id}",
     response_model=dict[str, Any],
     summary="Deactivate consolidation group",
-    operation_id="deactivate_consolidation_group",
+    operation_id="legal_deactivate_consolidation_group",
 )
 async def deactivate_consolidation_group(
     group_id: UUID,
@@ -1898,7 +1897,7 @@ async def deactivate_consolidation_group(
     "/consolidation-groups/{group_id}/members/{legal_entity_id}",
     response_model=dict[str, Any],
     summary="Add member to consolidation group",
-    operation_id="add_group_member",
+    operation_id="legal_add_group_member",
 )
 async def add_group_member(
     group_id: UUID,
@@ -1946,7 +1945,7 @@ async def add_group_member(
     "/consolidation-groups/{group_id}/members/{legal_entity_id}",
     response_model=dict[str, Any],
     summary="Remove member from consolidation group",
-    operation_id="remove_group_member",
+    operation_id="legal_remove_group_member",
 )
 async def remove_group_member(
     group_id: UUID,
@@ -2001,7 +2000,7 @@ async def remove_group_member(
     "/{legal_entity_id}/history",
     response_model=list[dict[str, Any]],
     summary="Get legal entity history",
-    operation_id="get_legal_entity_history",
+    operation_id="legal_get_legal_entity_history",
 )
 async def get_legal_entity_history(
     legal_entity_id: UUID,
@@ -2034,7 +2033,7 @@ async def get_legal_entity_history(
     "/{legal_entity_id}/status",
     response_model=dict[str, Any],
     summary="Get legal entity status",
-    operation_id="get_legal_entity_status",
+    operation_id="legal_get_legal_entity_status",
 )
 async def get_legal_entity_status(
     legal_entity_id: UUID,

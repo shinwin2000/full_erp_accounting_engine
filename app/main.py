@@ -470,12 +470,13 @@ class DummyIAMState:
     def __init__(self):
         self.users = {}
         self.roles = {}
-        # Buat user dummy: admin / admin123
+        # Buat user dummy: admin / Admin123
+        from datetime import UTC, datetime
         from domain.iam.password_hashed_vo import PasswordHashedVO
         from domain.iam.user_entity import UserEntity, UserStatus
         from uuid import uuid4
 
-        admin_password = PasswordHashedVO.from_plain("admin123")
+        admin_password = PasswordHashedVO.create_from_plain("Admin123!")
         admin_user = UserEntity(
             user_id=uuid4(),
             username="admin",

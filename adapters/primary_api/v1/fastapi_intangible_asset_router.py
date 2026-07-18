@@ -508,7 +508,7 @@ async def get_intangible_asset_svc(request: Request) -> Any:
     return container.resolve(IntangibleAssetService)
 
 
-async def get_amortization_run_use_case() -> Any:
+async def get_amortization_run_use_case(request: Request) -> Any:
     """Get Amortization Monthly Run Use Case instance."""
     from application.use_cases.amortization_monthly_run import AmortizationMonthlyRunUseCase
 
@@ -533,7 +533,7 @@ router = APIRouter(prefix="/intangible-assets", tags=["Intangible Assets"])
     response_model=IntangibleAssetResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create intangible asset",
-    operation_id="create_intangible_asset",
+    operation_id="intangible_create_intangible_asset",
 )
 async def create_asset(
     request: IntangibleAssetCreateSchema,
@@ -638,7 +638,7 @@ async def create_asset(
     "/{asset_id}",
     response_model=IntangibleAssetResponseSchema,
     summary="Get intangible asset by ID",
-    operation_id="get_intangible_asset",
+    operation_id="intangible_get_intangible_asset",
 )
 async def get_asset(
     asset_id: UUID,
@@ -694,7 +694,7 @@ async def get_asset(
     "/by-code/{asset_code}",
     response_model=IntangibleAssetResponseSchema,
     summary="Get intangible asset by code",
-    operation_id="get_intangible_asset_by_code",
+    operation_id="intangible_get_intangible_asset_by_code",
 )
 async def get_asset_by_code(
     asset_code: str,
@@ -750,7 +750,7 @@ async def get_asset_by_code(
     "/{asset_id}",
     response_model=IntangibleAssetResponseSchema,
     summary="Update intangible asset",
-    operation_id="update_intangible_asset",
+    operation_id="intangible_update_intangible_asset",
 )
 async def update_asset(
     asset_id: UUID,
@@ -840,7 +840,7 @@ async def update_asset(
     "/{asset_id}",
     response_model=dict[str, Any],
     summary="Archive intangible asset",
-    operation_id="archive_intangible_asset",
+    operation_id="intangible_archive_intangible_asset",
 )
 async def archive_asset(
     asset_id: UUID,
@@ -879,7 +879,7 @@ async def archive_asset(
     "/{asset_id}/activate",
     response_model=IntangibleAssetResponseSchema,
     summary="Activate intangible asset",
-    operation_id="activate_intangible_asset",
+    operation_id="intangible_activate_intangible_asset",
 )
 async def activate_asset(
     asset_id: UUID,
@@ -939,7 +939,7 @@ async def activate_asset(
     "/{asset_id}/lock",
     response_model=IntangibleAssetResponseSchema,
     summary="Lock intangible asset for audit",
-    operation_id="lock_intangible_asset",
+    operation_id="intangible_lock_intangible_asset",
 )
 async def lock_asset(
     asset_id: UUID,
@@ -1000,7 +1000,7 @@ async def lock_asset(
     "/{asset_id}/unlock",
     response_model=IntangibleAssetResponseSchema,
     summary="Unlock intangible asset",
-    operation_id="unlock_intangible_asset",
+    operation_id="intangible_unlock_intangible_asset",
 )
 async def unlock_asset(
     asset_id: UUID,
@@ -1065,7 +1065,7 @@ async def unlock_asset(
     "/",
     response_model=list[IntangibleAssetResponseSchema],
     summary="List intangible assets",
-    operation_id="list_intangible_assets",
+    operation_id="intangible_list_intangible_assets",
 )
 async def list_assets(
     asset_category: IntangibleAssetCategory | None = Query(None, description="Filter by category"),
@@ -1139,7 +1139,7 @@ async def list_assets(
     "/{asset_id}/amortization-schedule",
     response_model=AmortizationScheduleResponseSchema,
     summary="Get amortization schedule",
-    operation_id="get_amortization_schedule",
+    operation_id="intangible_get_amortization_schedule",
 )
 async def get_amortization_schedule(
     asset_id: UUID,
@@ -1198,7 +1198,7 @@ async def get_amortization_schedule(
     response_model=AmortizationRunResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Run monthly amortization",
-    operation_id="run_amortization",
+    operation_id="intangible_run_amortization",
 )
 async def run_amortization(
     request: AmortizationRunRequestSchema,
@@ -1249,7 +1249,7 @@ async def run_amortization(
     "/amortization/{amortization_id}/reverse",
     response_model=dict[str, Any],
     summary="Reverse amortization entry",
-    operation_id="reverse_amortization",
+    operation_id="intangible_reverse_amortization",
 )
 async def reverse_amortization(
     amortization_id: UUID,
@@ -1297,7 +1297,7 @@ async def reverse_amortization(
     response_model=RevaluationResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Revalue intangible asset",
-    operation_id="revalue_intangible_asset",
+    operation_id="intangible_revalue_intangible_asset",
 )
 async def revalue_asset(
     asset_id: UUID,
@@ -1363,7 +1363,7 @@ async def revalue_asset(
     response_model=DisposalResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Dispose intangible asset",
-    operation_id="dispose_intangible_asset",
+    operation_id="intangible_dispose_intangible_asset",
 )
 async def dispose_asset(
     asset_id: UUID,
@@ -1427,7 +1427,7 @@ async def dispose_asset(
     response_model=ImpairmentTestResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Test intangible asset for impairment",
-    operation_id="test_intangible_asset_impairment",
+    operation_id="intangible_test_intangible_asset_impairment",
 )
 async def test_impairment(
     asset_id: UUID,
@@ -1480,7 +1480,7 @@ async def test_impairment(
     "/{asset_id}/impairment-restore",
     response_model=ImpairmentTestResponseSchema,
     summary="Restore previously recognized impairment",
-    operation_id="restore_impairment",
+    operation_id="intangible_restore_impairment",
 )
 async def restore_impairment(
     asset_id: UUID,
@@ -1538,7 +1538,7 @@ async def restore_impairment(
     response_model=AssetTransferResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Transfer intangible asset between legal entities",
-    operation_id="transfer_intangible_asset",
+    operation_id="intangible_transfer_intangible_asset",
 )
 async def transfer_asset(
     asset_id: UUID,
@@ -1594,7 +1594,7 @@ async def transfer_asset(
     "/summary",
     response_model=IntangibleAssetSummaryResponseSchema,
     summary="Get intangible asset summary",
-    operation_id="get_intangible_asset_summary",
+    operation_id="intangible_get_intangible_asset_summary",
 )
 async def get_asset_summary(
     as_of_date: date = Query(..., description="As of date"),
@@ -1631,7 +1631,7 @@ async def get_asset_summary(
 @router.get(
     "/export",
     summary="Export intangible asset register",
-    operation_id="export_intangible_asset_register",
+    operation_id="intangible_export_intangible_asset_register",
 )
 async def export_asset_register(
     format: str = Query("csv", pattern="^(csv|excel)$", description="Export format"),
@@ -1676,7 +1676,7 @@ async def export_asset_register(
     "/{asset_id}/history",
     response_model=list[dict[str, Any]],
     summary="Get asset history",
-    operation_id="get_intangible_asset_history",
+    operation_id="intangible_get_intangible_asset_history",
 )
 async def get_asset_history(
     asset_id: UUID,

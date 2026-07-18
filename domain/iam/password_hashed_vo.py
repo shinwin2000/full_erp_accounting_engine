@@ -223,7 +223,12 @@ class PasswordHashedVO:
         """Validate hash format."""
         if not self.hashed_value or len(self.hashed_value) < 10:
             raise PasswordHashError("Invalid password hash")
-        if self.iterations < 1000:
+        # For bcrypt, iterations represents rounds (valid range: 4-31)
+        # For other algorithms, iterations should be >= 1000
+        if self.algorithm == "bcrypt":
+            if not (4 <= self.iterations <= 31):
+                raise PasswordHashError(f"Invalid bcrypt rounds: {self.iterations} (must be 4-31)")
+        elif self.iterations < 1000:
             raise PasswordHashError(f"Invalid iterations: {self.iterations}")
 
     # ==================== FACTORY METHODS ====================

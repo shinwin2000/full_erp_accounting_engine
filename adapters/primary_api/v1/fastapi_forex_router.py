@@ -430,7 +430,7 @@ async def get_forex_svc(request: Request) -> Any:
     return container.resolve(ForexService)
 
 
-async def get_forex_revaluation_use_case() -> Any:
+async def get_forex_revaluation_use_case(request: Request) -> Any:
     """Get Forex Revaluation Use Case instance."""
     from application.use_cases.forex_revaluation import ForexRevaluationUseCase
 
@@ -455,7 +455,7 @@ router = APIRouter(prefix="/forex", tags=["Foreign Exchange"])
     response_model=ExchangeRateResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create exchange rate",
-    operation_id="create_exchange_rate",
+    operation_id="forex_create_exchange_rate",
 )
 async def create_exchange_rate(
     request: ExchangeRateCreateSchema,
@@ -528,7 +528,7 @@ async def create_exchange_rate(
     "/rates/{rate_id}",
     response_model=ExchangeRateResponseSchema,
     summary="Get exchange rate by ID",
-    operation_id="get_exchange_rate",
+    operation_id="forex_get_exchange_rate",
 )
 async def get_exchange_rate(
     rate_id: UUID,
@@ -575,7 +575,7 @@ async def get_exchange_rate(
     "/rates/current/{from_currency}/{to_currency}",
     response_model=ExchangeRateResponseSchema,
     summary="Get current exchange rate",
-    operation_id="get_current_rate",
+    operation_id="forex_get_current_rate",
 )
 async def get_current_rate(
     from_currency: CurrencyCode,
@@ -634,7 +634,7 @@ async def get_current_rate(
     "/rates",
     response_model=list[ExchangeRateResponseSchema],
     summary="List exchange rates",
-    operation_id="list_exchange_rates",
+    operation_id="forex_list_exchange_rates",
 )
 async def list_exchange_rates(
     from_currency: CurrencyCode | None = Query(None, description="Filter by from currency"),
@@ -694,7 +694,7 @@ async def list_exchange_rates(
     "/rates/{rate_id}",
     response_model=ExchangeRateResponseSchema,
     summary="Update exchange rate",
-    operation_id="update_exchange_rate",
+    operation_id="forex_update_exchange_rate",
 )
 async def update_exchange_rate(
     rate_id: UUID,
@@ -769,7 +769,7 @@ async def update_exchange_rate(
     "/rates/{rate_id}",
     response_model=dict[str, Any],
     summary="Deactivate exchange rate",
-    operation_id="deactivate_exchange_rate",
+    operation_id="forex_deactivate_exchange_rate",
 )
 async def deactivate_exchange_rate(
     rate_id: UUID,
@@ -826,7 +826,7 @@ async def deactivate_exchange_rate(
     "/rates/{rate_id}/lock",
     response_model=ExchangeRateResponseSchema,
     summary="Lock exchange rate",
-    operation_id="lock_exchange_rate",
+    operation_id="forex_lock_exchange_rate",
 )
 async def lock_exchange_rate(
     rate_id: UUID,
@@ -896,7 +896,7 @@ async def lock_exchange_rate(
     "/rates/{rate_id}/unlock",
     response_model=ExchangeRateResponseSchema,
     summary="Unlock exchange rate",
-    operation_id="unlock_exchange_rate",
+    operation_id="forex_unlock_exchange_rate",
 )
 async def unlock_exchange_rate(
     rate_id: UUID,
@@ -971,7 +971,7 @@ async def unlock_exchange_rate(
     "/convert",
     response_model=CurrencyConversionResponseSchema,
     summary="Convert currency",
-    operation_id="convert_currency",
+    operation_id="forex_convert_currency",
 )
 async def convert_currency(
     request: CurrencyConversionRequestSchema,
@@ -1013,7 +1013,7 @@ async def convert_currency(
     "/convert/batch",
     response_model=BatchConversionResponseSchema,
     summary="Batch convert currencies",
-    operation_id="batch_convert_currency",
+    operation_id="forex_batch_convert_currency",
 )
 async def batch_convert_currency(
     request: BatchConversionRequestSchema,
@@ -1077,7 +1077,7 @@ async def batch_convert_currency(
     "/history/{from_currency}/{to_currency}",
     response_model=HistoricalRateResponseSchema,
     summary="Get historical exchange rates",
-    operation_id="get_historical_rates",
+    operation_id="forex_get_historical_rates",
 )
 async def get_historical_rates(
     from_currency: CurrencyCode,
@@ -1128,7 +1128,7 @@ async def get_historical_rates(
     response_model=ForexRevaluationResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Run forex revaluation",
-    operation_id="run_forex_revaluation",
+    operation_id="forex_run_forex_revaluation",
 )
 async def run_forex_revaluation(
     request: ForexRevaluationRequestSchema,
@@ -1200,7 +1200,7 @@ async def run_forex_revaluation(
     "/revaluation",
     response_model=list[ForexRevaluationResponseSchema],
     summary="List forex revaluations",
-    operation_id="list_forex_revaluations",
+    operation_id="forex_list_forex_revaluations",
 )
 async def list_forex_revaluations(
     start_date: date | None = Query(None, description="Start date"),
@@ -1253,7 +1253,7 @@ async def list_forex_revaluations(
     "/revaluation/{revaluation_id}",
     response_model=ForexRevaluationResponseSchema,
     summary="Get forex revaluation by ID",
-    operation_id="get_forex_revaluation",
+    operation_id="forex_get_forex_revaluation",
 )
 async def get_forex_revaluation(
     revaluation_id: UUID,
@@ -1297,7 +1297,7 @@ async def get_forex_revaluation(
     "/revaluation/{revaluation_id}/reverse",
     response_model=ForexRevaluationResponseSchema,
     summary="Reverse forex revaluation",
-    operation_id="reverse_forex_revaluation",
+    operation_id="forex_reverse_forex_revaluation",
 )
 async def reverse_forex_revaluation(
     revaluation_id: UUID,
@@ -1373,7 +1373,7 @@ async def reverse_forex_revaluation(
     "/position",
     response_model=ForexPositionResponseSchema,
     summary="Get forex position",
-    operation_id="get_forex_position",
+    operation_id="forex_get_forex_position",
 )
 async def get_forex_position(
     as_of_date: date = Query(..., description="As of date"),
@@ -1411,7 +1411,7 @@ async def get_forex_position(
     "/dashboard",
     response_model=ForexDashboardResponseSchema,
     summary="Get forex dashboard",
-    operation_id="get_forex_dashboard",
+    operation_id="forex_get_forex_dashboard",
 )
 async def get_forex_dashboard(
     as_of_date: date = Query(..., description="As of date"),
@@ -1457,7 +1457,7 @@ async def get_forex_dashboard(
     "/sync/{provider}",
     response_model=dict[str, Any],
     summary="Sync rates from provider",
-    operation_id="sync_rates_from_provider",
+    operation_id="forex_sync_rates_from_provider",
 )
 async def sync_rates_from_provider(
     provider: RateProvider,
@@ -1518,7 +1518,7 @@ async def sync_rates_from_provider(
     "/rates/{rate_id}/history",
     response_model=list[dict[str, Any]],
     summary="Get rate change history",
-    operation_id="get_rate_history",
+    operation_id="forex_get_rate_history",
 )
 async def get_rate_history(
     rate_id: UUID,
@@ -1552,7 +1552,7 @@ async def get_rate_history(
     "/rates/{rate_id}/status",
     response_model=dict[str, Any],
     summary="Get rate status",
-    operation_id="get_rate_status",
+    operation_id="forex_get_rate_status",
 )
 async def get_rate_status(
     rate_id: UUID,
@@ -1602,7 +1602,7 @@ async def get_rate_status(
 @router.get(
     "/export/rates",
     summary="Export exchange rates",
-    operation_id="export_exchange_rates",
+    operation_id="forex_export_exchange_rates",
 )
 async def export_exchange_rates(
     start_date: date = Query(..., description="Start date"),
@@ -1643,7 +1643,7 @@ async def export_exchange_rates(
 @router.get(
     "/export/revaluations",
     summary="Export revaluation history",
-    operation_id="export_revaluation_history",
+    operation_id="forex_export_revaluation_history",
 )
 async def export_revaluation_history(
     start_date: date = Query(..., description="Start date"),

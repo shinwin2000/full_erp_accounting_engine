@@ -222,8 +222,9 @@ class GenericListPage(QWidget):
             rec_id = record.get(self.config.id_field)
             path = f"{self.config.base_path}{self.config.list_path.rstrip('/')}/{rec_id}"
             self.status_label.setText("Menyimpan perubahan...")
+            edit_fn = api_client.patch if self.config.edit_http_method.upper() == "PATCH" else api_client.put
             run_task(
-                api_client.put,
+                edit_fn,
                 on_success=lambda _r: self._after_write("Perubahan disimpan."),
                 on_error=self._on_write_error,
                 path=path,

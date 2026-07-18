@@ -192,6 +192,8 @@ class LoginResponse:
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    expires_in: int = 3600
+    user: Any = None
 
 
 class IAMServiceError(Exception):
@@ -1253,8 +1255,12 @@ class IAMService:
         })
 
         logger.info("Access issued")
-        return LoginResponse(access_token=access_token, refresh_token=refresh_token)
-
+        return LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=3600,
+            user=user,
+        )
     # --------------------------------------------------------------------------
     # NEW: login() method for API router compatibility
     # --------------------------------------------------------------------------

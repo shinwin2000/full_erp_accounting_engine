@@ -20,7 +20,7 @@ CONFIG_FILE = Path.home() / ".sovereign_erp" / "config.ini"
 
 @dataclass
 class AppConfig:
-    api_base_url: str = "http://127.0.0.1:8080/api/v1"
+    api_base_url: str = "http://127.0.0.1:8000/api/v1"
     request_timeout: int = 30
     verify_ssl: bool = True
     remember_last_username: bool = True

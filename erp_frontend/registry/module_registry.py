@@ -80,6 +80,7 @@ class ModuleConfig:
     can_create: bool = True
     can_edit: bool = True
     can_delete: bool = True
+    edit_http_method: str = "PUT"  # beberapa modul backend pakai PATCH, bukan PUT — lihat penjelasan di bawah
     search_param: str = "search"
     custom_page: bool = False
     description: str = ""
@@ -157,6 +158,7 @@ _reg(ModuleConfig(
         ActionSpec("reopen", "Reopen Period", path_suffix="/reopen", style="primary"),
     ],
     can_delete=False,
+    edit_http_method="PATCH",
 ))
 _reg(ModuleConfig(
     key="capital", label="Modal & Dividen", category="Akuntansi Inti", icon="🏦",
@@ -181,6 +183,7 @@ _reg(ModuleConfig(
         FieldSpec("contact_person", "Contact Person"),
         FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL),
     ],
+    edit_http_method="PATCH",
 ))
 _reg(ModuleConfig(
     key="suppliers", label="Pemasok (Supplier)", category="Master Data", icon="🏭",
@@ -200,6 +203,7 @@ _reg(ModuleConfig(
         FieldSpec("payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER),
         FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL),
     ],
+    edit_http_method="PATCH",
 ))
 _reg(ModuleConfig(
     key="employees", label="Karyawan", category="Master Data", icon="👷",
@@ -214,6 +218,7 @@ _reg(ModuleConfig(
         FieldSpec("dependents", "Jumlah Tanggungan", FieldType.NUMBER, default=0),
         FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, required=True),
     ],
+    edit_http_method="PATCH",
 ))
 _reg(ModuleConfig(
     key="legal_entities", label="Entitas Legal", category="Master Data", icon="🏢",
@@ -843,6 +848,7 @@ _reg(ModuleConfig(
         ActionSpec("approve", "Approve", path_suffix="/approve", style="success"),
         ActionSpec("process", "Process", path_suffix="/process", style="primary"),
     ],
+    edit_http_method="PATCH",
 ))
 
 

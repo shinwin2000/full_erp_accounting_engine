@@ -59,6 +59,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=False,
     search_param="search",
+    edit_http_method="PATCH",
 )
 
 
