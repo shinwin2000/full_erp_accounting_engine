@@ -563,6 +563,77 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.container = get_container()
     logger.info("IoC Container attached to app.state ✓")
 
+    from bootstrap.dependency_container.service_registry import ServiceRegistrar
+    await ServiceRegistrar.register_all(app.state.container)
+
+    # ============================================================
+    # FIX: Inisialisasi IAMService dengan dependency yang benar
+    # ============================================================
+    try:
+        from application.service_layer.service_iam import IAMService
+        from ports.primary.iam_repository_port import IAMRepositoryPort
+        from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+        # Resolve iam_repo dan uow dari container
+        iam_repo = await app.state.container.resolve_async(IAMRepositoryPort)
+        uow = await app.state.container.resolve_async(UnitOfWorkPort)
+
+        # Coba resolve token_issuer dari container
+        token_issuer = None
+        try:
+            from ports.primary.token_issuer_port import TokenIssuerPort
+            token_issuer = await app.state.container.resolve_async(TokenIssuerPort)
+            logger.info("TokenIssuerPort resolved from container")
+        except Exception as e:
+            logger.warning(f"TokenIssuerPort not found in container: {e}. Using dummy.")
+            # Dummy TokenIssuer
+            class DummyTokenIssuer:
+                async def create_access_token(self, user_id, username, legal_entity_id, roles, permissions, expires_delta=None):
+                    return "dummy_access_token"
+                async def create_refresh_token(self, user_id, username, legal_entity_id, roles, permissions, expires_delta=None):
+                    return "dummy_refresh_token"
+                async def verify_token(self, token, token_type="access"):
+                    return {
+                        "sub": str(uuid.uuid4()),
+                        "username": "dummy",
+                        "legal_entity_id": None,
+                        "roles": [],
+                        "permissions": []
+                    }
+            token_issuer = DummyTokenIssuer()
+
+        # Coba resolve event_publisher dan cache (opsional)
+        event_publisher = None
+        try:
+            from ports.primary.event_publisher_port import EventPublisherPort
+            event_publisher = await app.state.container.resolve_async(EventPublisherPort)
+            logger.info("EventPublisherPort resolved from container")
+        except Exception:
+            logger.warning("EventPublisherPort not found; using None")
+
+        cache = None
+        try:
+            from ports.primary.cache_port import CachePort
+            cache = await app.state.container.resolve_async(CachePort)
+            logger.info("CachePort resolved from container")
+        except Exception:
+            logger.warning("CachePort not found; using None")
+
+        # Buat instance IAMService dengan keyword arguments
+        iam_service = IAMService(
+            iam_repo=iam_repo,
+            uow=uow,
+            event_publisher=event_publisher,
+            token_issuer=token_issuer,
+            cache=cache,
+        )
+        app.state.iam_service = iam_service
+        logger.info("IAMService initialized successfully with all dependencies ✓")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize IAMService: {e}")
+        app.state.iam_service = None
+
     docs_url = f"http://localhost:{settings.port}/docs"
     logger.info("=" * 60)
     logger.info("🚀 ERP Accounting Engine READY")

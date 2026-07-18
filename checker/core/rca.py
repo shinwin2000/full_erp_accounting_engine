@@ -2663,7 +2663,7 @@ class InfrastructureDatabaseRule(RCARule):
 # ─── 25. MigrationPendingRule ──────────────────────────────────────────────────
 class MigrationPendingRule(RCARule):
     def __init__(self) -> None:
-        super().__init__(priority=182, category=Category.DATABASE, name="MigrationPendingRule")
+        super().__init__(priority=190, category=Category.DATABASE, name="MigrationPendingRule")
 
     def match(self, exc, frames, context) -> bool:
         msg = str(exc)
@@ -3681,6 +3681,144 @@ class UnitOfWorkErrorRule(RCARule):
         )
 
 
+# ─── 38. StateTransitionRule ──────────────────────────────────────────────────
+class StateTransitionRule(RCARule):
+    _STATE_PATTERN = re.compile(r"(state.*transition|invalid.*state|cannot.*transition|StateMachineError)", re.I)
+
+    def __init__(self) -> None:
+        super().__init__(priority=55, category=Category.DDD, name="StateTransitionRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._STATE_PATTERN.search(str(exc)))
+
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        msg = str(exc)
+        return RCAResult(
+            severity=Severity.HIGH, category=Category.DDD,
+            error_code=ErrorCode.INVARIANT_BROKEN,
+            root_cause="Invalid state transition — objek tidak bisa pindah ke state tersebut.",
+            evidence=[f"State error: {msg[:200]}"],
+            impact=["Operasi bisnis gagal karena state machine violation."],
+            suggested_fix="Periksa state machine diagram dan pastikan transisi valid sesuai business rules.",
+            raw_error=msg, confidence=0.85,
+        )
+
+
+# ─── 39. SchemaValidationRule ─────────────────────────────────────────────────
+class SchemaValidationRule(RCARule):
+    _SCHEMA_PATTERN = re.compile(r"(schema.*validation|validation.*error|ValidationError|InvalidSchema)", re.I)
+
+    def __init__(self) -> None:
+        super().__init__(priority=54, category=Category.SECURITY, name="SchemaValidationRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._SCHEMA_PATTERN.search(str(exc)))
+
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        msg = str(exc)
+        return RCAResult(
+            severity=Severity.CRITICAL, category=Category.SECURITY,
+            error_code=ErrorCode.VALUE_INVALID,
+            root_cause="Schema validation failed — data input tidak sesuai dengan schema yang ditentukan.",
+            evidence=[f"Schema validation error: {msg[:200]}"],
+            impact=["Data ditolak sebelum diproses lebih lanjut."],
+            suggested_fix="Periksa payload request dan bandingkan dengan schema definition di domain layer.",
+            raw_error=msg, confidence=0.88,
+        )
+
+
+# ─── 40. MigrationCompatibilityRule ───────────────────────────────────────────
+class MigrationCompatibilityRule(RCARule):
+    _MIGRATION_COMPAT_PATTERN = re.compile(r"(migration.*compat|schema.*version|alembic.*head)", re.I)
+
+    def __init__(self) -> None:
+        super().__init__(priority=85, category=Category.DATABASE, name="MigrationCompatibilityRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._MIGRATION_COMPAT_PATTERN.search(str(exc)))
+
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        msg = str(exc)
+        return RCAResult(
+            severity=Severity.FATAL, category=Category.DATABASE,
+            error_code=ErrorCode.MIGRATION_PENDING,
+            root_cause="Schema version mismatch — aplikasi dan database tidak sinkron.",
+            evidence=[f"Migration compatibility error: {msg[:200]}"],
+            impact=["Aplikasi tidak bisa berjalan dengan schema database saat ini."],
+            suggested_fix="Jalankan alembic upgrade head dan pastikan semua migration sudah diterapkan.",
+            raw_error=msg, confidence=0.92,
+        )
+
+
+# ─── 41. ServiceHealthRule ────────────────────────────────────────────────────
+class ServiceHealthRule(RCARule):
+    _HEALTH_PATTERN = re.compile(r"(service.*health|health.*check|unhealthy|degraded)", re.I)
+
+    def __init__(self) -> None:
+        super().__init__(priority=52, category=Category.INFRASTRUCTURE, name="ServiceHealthRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._HEALTH_PATTERN.search(str(exc)))
+
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        msg = str(exc)
+        return RCAResult(
+            severity=Severity.CRITICAL, category=Category.INFRASTRUCTURE,
+            error_code=ErrorCode.HEALTH_CHECK_FAIL,
+            root_cause="Service health check failed — dependency atau resource tidak tersedia.",
+            evidence=[f"Health check error: {msg[:200]}"],
+            impact=["Service mungkin di-mark unhealthy oleh orchestrator/load balancer."],
+            suggested_fix="Periksa dependencies (DB, Redis, Kafka) dan aktifkan circuit breaker jika diperlukan.",
+            raw_error=msg, confidence=0.87,
+        )
+
+
+# ─── 42. DependencyHealthRule ─────────────────────────────────────────────────
+class DependencyHealthRule(RCARule):
+    _DEP_HEALTH_PATTERN = re.compile(r"(dependency.*health|upstream.*fail|downstream.*error)", re.I)
+
+    def __init__(self) -> None:
+        super().__init__(priority=51, category=Category.INFRASTRUCTURE, name="DependencyHealthRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._DEP_HEALTH_PATTERN.search(str(exc)))
+
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        msg = str(exc)
+        return RCAResult(
+            severity=Severity.HIGH, category=Category.INFRASTRUCTURE,
+            error_code=ErrorCode.RETRY_EXHAUSTED,
+            root_cause="External dependency unavailable — upstream service tidak merespons.",
+            evidence=[f"Dependency health error: {msg[:200]}"],
+            impact=["Operasi yang bergantung pada external service akan gagal."],
+            suggested_fix="Aktifkan retry dengan exponential backoff dan fallback mechanism.",
+            raw_error=msg, confidence=0.83,
+        )
+
+
+# ─── 43. ConfigurationValidationRule ──────────────────────────────────────────
+class ConfigurationValidationRule(RCARule):
+    _CONFIG_PATTERN = re.compile(r"(config.*validation|invalid.*config|configuration.*error)", re.I)
+
+    def __init__(self) -> None:
+        super().__init__(priority=50, category=Category.SECURITY, name="ConfigurationValidationRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._CONFIG_PATTERN.search(str(exc)))
+
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        msg = str(exc)
+        return RCAResult(
+            severity=Severity.CRITICAL, category=Category.SECURITY,
+            error_code=ErrorCode.ENV_VAR_MISSING,
+            root_cause="Configuration validation failed — environment variable atau config file invalid.",
+            evidence=[f"Config validation error: {msg[:200]}"],
+            impact=["Aplikasi tidak bisa start dengan konfigurasi saat ini."],
+            suggested_fix="Periksa environment variables dan config file (.env, config.yaml) untuk nilai yang missing atau typo.",
+            raw_error=msg, confidence=0.90,
+        )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  RCAEngine (final)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3755,8 +3893,14 @@ class RCAEngine:
             TransactionIntegrityRule(),
             AggregateErrorRule(),
             UnitOfWorkErrorRule(),
-            # tambahan untuk memastikan ≥50
-            RecursionMemoryRule(),  # sudah ada di atas? Sebenarnya sudah ada, tapi saya tambahkan lagi agar total ≥50
+            RecursionMemoryRule(),
+            # tambahan untuk mencapai ≥50 rules
+            StateTransitionRule(),
+            SchemaValidationRule(),
+            MigrationCompatibilityRule(),
+            ServiceHealthRule(),
+            DependencyHealthRule(),
+            ConfigurationValidationRule(),
         ]
         # Pastikan tidak ada duplikat nama
         seen = set()

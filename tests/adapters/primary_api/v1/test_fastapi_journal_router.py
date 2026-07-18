@@ -59,47 +59,23 @@ from adapters.primary_api.v1.fastapi_journal_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestJournalStatus:
-    """Tests for the JournalStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(JournalStatus, 'DRAFT')
         assert hasattr(JournalStatus, 'PENDING')
         assert hasattr(JournalStatus, 'SUBMITTED')
@@ -116,14 +92,11 @@ class TestJournalStatus:
         assert hasattr(JournalStatus, 'ERROR')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(JournalStatus.DRAFT, JournalStatus)
 
 
 class TestJournalType:
-    """Tests for the JournalType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(JournalType, 'GENERAL')
         assert hasattr(JournalType, 'ADJUSTMENT')
         assert hasattr(JournalType, 'CLOSING')
@@ -140,14 +113,11 @@ class TestJournalType:
         assert hasattr(JournalType, 'BUDGET')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(JournalType.GENERAL, JournalType)
 
 
 class TestJournalSource:
-    """Tests for the JournalSource enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(JournalSource, 'MANUAL')
         assert hasattr(JournalSource, 'AP_INVOICE')
         assert hasattr(JournalSource, 'AR_INVOICE')
@@ -164,536 +134,523 @@ class TestJournalSource:
         assert hasattr(JournalSource, 'IMPORT')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(JournalSource.MANUAL, JournalSource)
 
 
 class TestJournalLineSchema:
-    """Tests for the JournalLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            debit_amount=Decimal("100.00"),
-            credit_amount=Decimal("0"),
-            cost_center="test_value",
-            department="test_value",
-            project_id=uuid4(),
-            description="test_value",
-            tax_id=uuid4(),
-        )
-
     def test_construction_success(self):
-        """JournalLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "account_code": "1100",
+            "debit_amount": Decimal("1000"),
+            "credit_amount": Decimal("0"),
+            "cost_center": "CC001",
+            "department": "DEPT01",
+            "project_id": uuid4(),
+            "description": "Test line",
+            "tax_id": uuid4(),
+        }
+        instance = JournalLineSchema(**kwargs)
         assert isinstance(instance, JournalLineSchema)
-        assert instance.account_code == kwargs['account_code']
+        assert instance.account_code == kwargs["account_code"]
 
 
 class TestJournalCreateSchema:
-    """Tests for the JournalCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            journal_date=date.today(),
-            description="test_value",
-            journal_type=JournalType.GENERAL,
-            lines=[MagicMock()],
-            reference_number="test_value",
-            source_type=JournalSource.MANUAL,
-            source_id="test_value",
-            notes="test_value",
-            attachment_ids=[uuid4()],
-        )
-
     def test_construction_success(self):
-        """JournalCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "journal_date": date.today(),
+            "description": "Test journal",
+            "journal_type": JournalType.GENERAL,
+            "lines": [MagicMock()],
+            "reference_number": "REF-001",
+            "source_type": JournalSource.MANUAL,
+            "source_id": "SRC-001",
+            "notes": "Test notes",
+            "attachment_ids": [uuid4()],
+        }
+        instance = JournalCreateSchema(**kwargs)
         assert isinstance(instance, JournalCreateSchema)
-        assert instance.journal_date == kwargs['journal_date']
+        assert instance.journal_date == kwargs["journal_date"]
 
 
 class TestJournalUpdateSchema:
-    """Tests for the JournalUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            journal_date=date.today(),
-            description="test_value",
-            journal_type=JournalType.GENERAL,
-            lines=[MagicMock()],
-            reference_number="test_value",
-            notes="test_value",
-            attachment_ids=[uuid4()],
-        )
-
     def test_construction_success(self):
-        """JournalUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "journal_date": date.today(),
+            "description": "Updated journal",
+            "journal_type": JournalType.ADJUSTMENT,
+            "lines": [MagicMock()],
+            "reference_number": "REF-002",
+            "notes": "Updated notes",
+            "attachment_ids": [uuid4()],
+        }
+        instance = JournalUpdateSchema(**kwargs)
         assert isinstance(instance, JournalUpdateSchema)
-        assert instance.journal_date == kwargs['journal_date']
+        assert instance.journal_date == kwargs["journal_date"]
 
 
 class TestJournalResponseSchema:
-    """Tests for the JournalResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            journal_number="test_value",
-            journal_date=date.today(),
-            description="test_value",
-            journal_type=JournalType.GENERAL,
-            status=JournalStatus.DRAFT,
-            total_debit=Decimal("100.00"),
-            total_credit=Decimal("0"),
-            reference_number="test_value",
-            source_type=JournalSource.MANUAL,
-            source_id="test_value",
-            notes="test_value",
-            attachment_ids=[uuid4()],
-            created_by=uuid4(),
-            created_by_name="test_value",
-            created_at=datetime.now(UTC),
-            submitted_by=uuid4(),
-            submitted_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            rejected_by=uuid4(),
-            rejected_at=datetime.now(UTC),
-            rejection_reason="test_value",
-            posted_by=uuid4(),
-            posted_by_name="test_value",
-            posted_at=datetime.now(UTC),
-            reversed_by=uuid4(),
-            reversed_at=datetime.now(UTC),
-            reversal_reason="test_value",
-            reversal_journal_id=uuid4(),
-            original_journal_id=uuid4(),
-            cancelled_by=uuid4(),
-            cancelled_at=datetime.now(UTC),
-            cancellation_reason="test_value",
-            is_locked=True,
-            is_balanced=True,
-            version=1,
-            lines=[{}],
-        )
-
     def test_construction_success(self):
-        """JournalResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        journal_id = uuid4()
+        kwargs = {
+            "id": journal_id,
+            "journal_number": "JRN-2026-001",
+            "journal_date": date.today(),
+            "description": "Test journal",
+            "journal_type": JournalType.GENERAL,
+            "status": JournalStatus.DRAFT,
+            "total_debit": Decimal("1000"),
+            "total_credit": Decimal("1000"),
+            "reference_number": "REF-001",
+            "source_type": JournalSource.MANUAL,
+            "source_id": "SRC-001",
+            "notes": "Test notes",
+            "attachment_ids": [uuid4()],
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "created_at": datetime.now(UTC),
+            "submitted_by": None,
+            "submitted_at": None,
+            "approved_by": None,
+            "approved_by_name": None,
+            "approved_at": None,
+            "rejected_by": None,
+            "rejected_at": None,
+            "rejection_reason": None,
+            "posted_by": None,
+            "posted_by_name": None,
+            "posted_at": None,
+            "reversed_by": None,
+            "reversed_at": None,
+            "reversal_reason": None,
+            "reversal_journal_id": None,
+            "original_journal_id": None,
+            "cancelled_by": None,
+            "cancelled_at": None,
+            "cancellation_reason": None,
+            "is_locked": False,
+            "is_balanced": True,
+            "version": 1,
+            "lines": [],
+        }
+        instance = JournalResponseSchema(**kwargs)
         assert isinstance(instance, JournalResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == journal_id
 
 
 class TestJournalActionResponseSchema:
-    """Tests for the JournalActionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            journal_number="test_value",
-            action="test_value",
-            status=JournalStatus.DRAFT,
-            message="test_value",
-            timestamp=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """JournalActionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalActionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        journal_id = uuid4()
+        kwargs = {
+            "journal_id": journal_id,
+            "journal_number": "JRN-001",
+            "action": "POST",
+            "status": JournalStatus.POSTED,
+            "message": "Journal posted successfully",
+            "timestamp": datetime.now(UTC),
+        }
+        instance = JournalActionResponseSchema(**kwargs)
         assert isinstance(instance, JournalActionResponseSchema)
-        assert instance.journal_id == kwargs['journal_id']
+        assert instance.journal_id == journal_id
 
 
 class TestJournalListResponseSchema:
-    """Tests for the JournalListResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            items=[MagicMock()],
-            total=1,
-            page=1,
-            page_size=1,
-            total_debit=Decimal("100.00"),
-            total_credit=Decimal("0"),
-        )
-
     def test_construction_success(self):
-        """JournalListResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalListResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 10,
+            "total_debit": Decimal("0"),
+            "total_credit": Decimal("0"),
+        }
+        instance = JournalListResponseSchema(**kwargs)
         assert isinstance(instance, JournalListResponseSchema)
-        assert instance.items == kwargs['items']
+        assert instance.items == kwargs["items"]
 
 
 class TestJournalApproveSchema:
-    """Tests for the JournalApproveSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """JournalApproveSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalApproveSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"notes": "Approved"}
+        instance = JournalApproveSchema(**kwargs)
         assert isinstance(instance, JournalApproveSchema)
-        assert instance.notes == kwargs['notes']
+        assert instance.notes == kwargs["notes"]
 
 
 class TestJournalRejectSchema:
-    """Tests for the JournalRejectSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            reason="test_value",
-        )
-
     def test_construction_success(self):
-        """JournalRejectSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalRejectSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {"reason": "Invalid entries"}
+        instance = JournalRejectSchema(**kwargs)
         assert isinstance(instance, JournalRejectSchema)
-        assert instance.reason == kwargs['reason']
+        assert instance.reason == kwargs["reason"]
 
 
 class TestJournalReverseSchema:
-    """Tests for the JournalReverseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            reversal_date=date.today(),
-            reason="test_value",
-            post_immediately=True,
-        )
-
     def test_construction_success(self):
-        """JournalReverseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = JournalReverseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "reversal_date": date.today(),
+            "reason": "Correction needed",
+            "post_immediately": True,
+        }
+        instance = JournalReverseSchema(**kwargs)
         assert isinstance(instance, JournalReverseSchema)
-        assert instance.reversal_date == kwargs['reversal_date']
+        assert instance.reversal_date == kwargs["reversal_date"]
 
 
-def test_validate_balance_smoke():
-    """Smoke test for module-level function validate_balance."""
-    try:
-        result = validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"validate_balance needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS
+# ============================================================================
+
+def test_validate_balance_returns_boolean():
+    # test balanced case
+    result = validate_balance(debit=Decimal("100"), credit=Decimal("100"))
+    assert result is True
+    
+    # test unbalanced case
+    result = validate_balance(debit=Decimal("100"), credit=Decimal("90"))
+    assert result is False
 
 
-async def test_get_journal_service_smoke():
-    """Smoke test for module-level function get_journal_service."""
-    try:
-        result = await get_journal_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_journal_service needs specific input data: {e}")
-        return
-    assert True
+async def test_get_journal_service_returns_service():
+    request = MagicMock()
+    result = await get_journal_service(request=request)
+    assert result is not None
 
 
-async def test_get_post_journal_use_case_smoke():
-    """Smoke test for module-level function get_post_journal_use_case."""
-    try:
-        result = await get_post_journal_use_case(request=MagicMock(), idempotency_key="test_value")
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_post_journal_use_case needs specific input data: {e}")
-        return
-    assert True
+async def test_get_post_journal_use_case_returns_use_case():
+    request = MagicMock()
+    result = await get_post_journal_use_case(request=request, idempotency_key="key")
+    assert result is not None
 
 
-async def test_get_approve_journal_use_case_smoke():
-    """Smoke test for module-level function get_approve_journal_use_case."""
-    try:
-        result = await get_approve_journal_use_case(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_approve_journal_use_case needs specific input data: {e}")
-        return
-    assert True
+async def test_get_approve_journal_use_case_returns_use_case():
+    request = MagicMock()
+    result = await get_approve_journal_use_case(request=request)
+    assert result is not None
 
 
-async def test_get_reverse_journal_use_case_smoke():
-    """Smoke test for module-level function get_reverse_journal_use_case."""
-    try:
-        result = await get_reverse_journal_use_case(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_reverse_journal_use_case needs specific input data: {e}")
-        return
-    assert True
+async def test_get_reverse_journal_use_case_returns_use_case():
+    request = MagicMock()
+    result = await get_reverse_journal_use_case(request=request)
+    assert result is not None
 
 
-def test_ping_smoke():
-    """Smoke test for module-level function ping."""
-    try:
-        result = ping()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"ping needs specific input data: {e}")
-        return
-    assert True
+def test_ping_returns_dict():
+    result = ping()
+    assert isinstance(result, dict)
+    assert "status" in result or "pong" in str(result)
 
 
-def test_health_smoke():
-    """Smoke test for module-level function health."""
-    try:
-        result = health()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"health needs specific input data: {e}")
-        return
-    assert True
+def test_health_returns_dict():
+    result = health()
+    assert isinstance(result, dict)
+    assert "status" in result
 
 
-def test_info_smoke():
-    """Smoke test for module-level function info."""
-    try:
-        result = info()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"info needs specific input data: {e}")
-        return
-    assert True
+def test_info_returns_dict():
+    result = info()
+    assert isinstance(result, dict)
+    assert "version" in result or "name" in result
 
 
-async def test_create_journal_smoke():
-    """Smoke test for module-level function create_journal."""
-    try:
-        result = await create_journal(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_create_journal_returns_journal():
+    journal_service = MagicMock()
+    journal_service.create_journal = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_journal(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_journal_smoke():
-    """Smoke test for module-level function get_journal."""
-    try:
-        result = await get_journal(journal_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_get_journal_returns_journal():
+    journal_service = MagicMock()
+    journal_service.get_journal = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_journal(
+        journal_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_journal_by_number_smoke():
-    """Smoke test for module-level function get_journal_by_number."""
-    try:
-        result = await get_journal_by_number(journal_number="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_journal_by_number needs specific input data: {e}")
-        return
-    assert True
+async def test_get_journal_by_number_returns_journal():
+    journal_service = MagicMock()
+    journal_service.get_journal_by_number = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_journal_by_number(
+        journal_number="JRN-001",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_journal_smoke():
-    """Smoke test for module-level function update_journal."""
-    try:
-        result = await update_journal(journal_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_update_journal_returns_updated():
+    journal_service = MagicMock()
+    journal_service.update_journal = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_journal(
+        journal_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_cancel_journal_smoke():
-    """Smoke test for module-level function cancel_journal."""
-    try:
-        result = await cancel_journal(journal_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"cancel_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_cancel_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.cancel_journal = MagicMock(return_value={"success": True})
+    result = await cancel_journal(
+        journal_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_restore_journal_smoke():
-    """Smoke test for module-level function restore_journal."""
-    try:
-        result = await restore_journal(journal_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"restore_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_restore_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.restore_journal = MagicMock(return_value={"success": True})
+    result = await restore_journal(
+        journal_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_submit_journal_smoke():
-    """Smoke test for module-level function submit_journal."""
-    try:
-        result = await submit_journal(journal_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_submit_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.submit_journal = MagicMock(return_value={"success": True})
+    result = await submit_journal(
+        journal_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_approve_journal_smoke():
-    """Smoke test for module-level function approve_journal."""
-    try:
-        result = await approve_journal(journal_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), use_case=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_approve_journal_returns_success():
+    use_case = MagicMock()
+    use_case.execute = MagicMock(return_value={"success": True})
+    result = await approve_journal(
+        journal_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        use_case=use_case,
+    )
+    assert result is not None
+    assert result.get("success") is True
+    use_case.execute.assert_called_once()
 
 
-async def test_reject_journal_smoke():
-    """Smoke test for module-level function reject_journal."""
-    try:
-        result = await reject_journal(journal_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reject_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_reject_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.reject_journal = MagicMock(return_value={"success": True})
+    result = await reject_journal(
+        journal_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_post_journal_smoke():
-    """Smoke test for module-level function post_journal."""
-    try:
-        result = await post_journal(journal_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), post_use_case=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"post_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_post_journal_returns_success():
+    post_use_case = MagicMock()
+    post_use_case.execute = MagicMock(return_value={"success": True})
+    result = await post_journal(
+        journal_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        post_use_case=post_use_case,
+    )
+    assert result is not None
+    assert result.get("success") is True
+    post_use_case.execute.assert_called_once()
 
 
-async def test_reverse_journal_smoke():
-    """Smoke test for module-level function reverse_journal."""
-    try:
-        result = await reverse_journal(journal_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), reverse_use_case=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reverse_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_reverse_journal_returns_success():
+    reverse_use_case = MagicMock()
+    reverse_use_case.execute = MagicMock(return_value={"success": True})
+    result = await reverse_journal(
+        journal_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        reverse_use_case=reverse_use_case,
+    )
+    assert result is not None
+    assert result.get("success") is True
+    reverse_use_case.execute.assert_called_once()
 
 
-async def test_unpost_journal_smoke():
-    """Smoke test for module-level function unpost_journal."""
-    try:
-        result = await unpost_journal(journal_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unpost_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_unpost_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.unpost_journal = MagicMock(return_value={"success": True})
+    result = await unpost_journal(
+        journal_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_lock_journal_smoke():
-    """Smoke test for module-level function lock_journal."""
-    try:
-        result = await lock_journal(journal_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_lock_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.lock_journal = MagicMock(return_value={"success": True})
+    result = await lock_journal(
+        journal_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_unlock_journal_smoke():
-    """Smoke test for module-level function unlock_journal."""
-    try:
-        result = await unlock_journal(journal_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_unlock_journal_returns_success():
+    journal_service = MagicMock()
+    journal_service.unlock_journal = MagicMock(return_value={"success": True})
+    result = await unlock_journal(
+        journal_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_list_journals_smoke():
-    """Smoke test for module-level function list_journals."""
-    try:
-        result = await list_journals(status=JournalStatus.DRAFT, journal_type=JournalType.GENERAL, source_type=JournalSource.MANUAL, start_date=date.today(), end_date=date.today(), journal_number="test_value", reference_number="test_value", account_code="test_value", created_by=uuid4(), page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_journals needs specific input data: {e}")
-        return
-    assert True
+async def test_list_journals_returns_list():
+    journal_service = MagicMock()
+    journal_service.list_journals = MagicMock(return_value=[])
+    result = await list_journals(
+        status=JournalStatus.DRAFT,
+        journal_type=JournalType.GENERAL,
+        source_type=JournalSource.MANUAL,
+        start_date=date.today(),
+        end_date=date.today(),
+        journal_number="JRN-001",
+        reference_number="REF-001",
+        account_code="1100",
+        created_by=uuid4(),
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_validate_journal_smoke():
-    """Smoke test for module-level function validate_journal."""
-    try:
-        result = await validate_journal(journal_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"validate_journal needs specific input data: {e}")
-        return
-    assert True
+async def test_validate_journal_returns_validation():
+    journal_service = MagicMock()
+    journal_service.validate_journal = MagicMock(return_value={"is_valid": True})
+    result = await validate_journal(
+        journal_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "is_valid" in result
 
 
-async def test_get_journal_status_smoke():
-    """Smoke test for module-level function get_journal_status."""
-    try:
-        result = await get_journal_status(journal_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_journal_status needs specific input data: {e}")
-        return
-    assert True
+async def test_get_journal_status_returns_status():
+    journal_service = MagicMock()
+    journal_service.get_journal_status = MagicMock(return_value={"status": "draft"})
+    result = await get_journal_status(
+        journal_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "status" in result
 
 
-async def test_get_journal_history_smoke():
-    """Smoke test for module-level function get_journal_history."""
-    try:
-        result = await get_journal_history(journal_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_journal_history needs specific input data: {e}")
-        return
-    assert True
+async def test_get_journal_history_returns_list():
+    journal_service = MagicMock()
+    journal_service.get_journal_history = MagicMock(return_value=[])
+    result = await get_journal_history(
+        journal_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_journal_ledger_entries_smoke():
-    """Smoke test for module-level function get_journal_ledger_entries."""
-    try:
-        result = await get_journal_ledger_entries(journal_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_journal_ledger_entries needs specific input data: {e}")
-        return
-    assert True
+async def test_get_journal_ledger_entries_returns_list():
+    journal_service = MagicMock()
+    journal_service.get_journal_ledger_entries = MagicMock(return_value=[])
+    result = await get_journal_ledger_entries(
+        journal_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_export_journals_smoke():
-    """Smoke test for module-level function export_journals."""
-    try:
-        result = await export_journals(start_date=date.today(), end_date=date.today(), format="test_value", status=JournalStatus.DRAFT, _permission=MagicMock(), legal_entity_id=uuid4(), journal_service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_journals needs specific input data: {e}")
-        return
-    assert True
+async def test_export_journals_returns_export():
+    journal_service = MagicMock()
+    journal_service.export_journals = MagicMock(return_value={"file": "base64data"})
+    result = await export_journals(
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        status=JournalStatus.DRAFT,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        journal_service=journal_service,
+    )
+    assert result is not None
+    assert "file" in result

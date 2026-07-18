@@ -54,47 +54,23 @@ from adapters.primary_api.v1.fastapi_document_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestDocumentStatus:
-    """Tests for the DocumentStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(DocumentStatus, 'DRAFT')
         assert hasattr(DocumentStatus, 'PENDING')
         assert hasattr(DocumentStatus, 'APPROVED')
@@ -106,14 +82,11 @@ class TestDocumentStatus:
         assert hasattr(DocumentStatus, 'EXPIRED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(DocumentStatus.DRAFT, DocumentStatus)
 
 
 class TestDocumentType:
-    """Tests for the DocumentType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(DocumentType, 'INVOICE')
         assert hasattr(DocumentType, 'PURCHASE_ORDER')
         assert hasattr(DocumentType, 'SALES_ORDER')
@@ -130,14 +103,11 @@ class TestDocumentType:
         assert hasattr(DocumentType, 'ATTACHMENT')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(DocumentType.INVOICE, DocumentType)
 
 
 class TestDocumentMimeType:
-    """Tests for the DocumentMimeType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(DocumentMimeType, 'PDF')
         assert hasattr(DocumentMimeType, 'JPEG')
         assert hasattr(DocumentMimeType, 'PNG')
@@ -153,492 +123,536 @@ class TestDocumentMimeType:
         assert hasattr(DocumentMimeType, 'JSON')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(DocumentMimeType.PDF, DocumentMimeType)
 
 
 class TestDocumentUploadResponseSchema:
-    """Tests for the DocumentUploadResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            document_number="test_value",
-            original_filename="test_value",
-            file_size=1,
-            mime_type="test_value",
-            file_hash="test_value",
-            status=DocumentStatus.DRAFT,
-            download_url="test_value",
-            uploaded_at=datetime.now(UTC),
-            uploaded_by=uuid4(),
-            uploaded_by_name="test_value",
-        )
-
     def test_construction_success(self):
-        """DocumentUploadResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentUploadResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        doc_id = uuid4()
+        kwargs = {
+            "id": doc_id,
+            "document_number": "DOC-001",
+            "original_filename": "invoice.pdf",
+            "file_size": 1024,
+            "mime_type": "application/pdf",
+            "file_hash": "abc123",
+            "status": DocumentStatus.DRAFT,
+            "download_url": "https://example.com/download/123",
+            "uploaded_at": datetime.now(UTC),
+            "uploaded_by": uuid4(),
+            "uploaded_by_name": "admin",
+        }
+        instance = DocumentUploadResponseSchema(**kwargs)
         assert isinstance(instance, DocumentUploadResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == doc_id
 
 
 class TestDocumentResponseSchema:
-    """Tests for the DocumentResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            document_number="test_value",
-            original_filename="test_value",
-            file_size=1,
-            mime_type="test_value",
-            file_hash="test_value",
-            version=1,
-            entity_type="test_value",
-            entity_id=uuid4(),
-            entity_reference="test_value",
-            tags=["test_value"],
-            description="test_value",
-            status=DocumentStatus.DRAFT,
-            is_locked=True,
-            is_encrypted=True,
-            retention_until=datetime.now(UTC),
-            expiry_date=datetime.now(UTC),
-            uploaded_by=uuid4(),
-            uploaded_by_name="test_value",
-            uploaded_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            archived_by=uuid4(),
-            archived_at=datetime.now(UTC),
-            download_url="test_value",
-            preview_url="test_value",
-            version_of=uuid4(),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """DocumentResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        doc_id = uuid4()
+        kwargs = {
+            "id": doc_id,
+            "document_number": "DOC-001",
+            "original_filename": "invoice.pdf",
+            "file_size": 1024,
+            "mime_type": "application/pdf",
+            "file_hash": "abc123",
+            "version": 1,
+            "entity_type": "INVOICE",
+            "entity_id": uuid4(),
+            "entity_reference": "REF-001",
+            "tags": ["finance"],
+            "description": "Test document",
+            "status": DocumentStatus.DRAFT,
+            "is_locked": False,
+            "is_encrypted": False,
+            "retention_until": datetime.now(UTC),
+            "expiry_date": datetime.now(UTC),
+            "uploaded_by": uuid4(),
+            "uploaded_by_name": "admin",
+            "uploaded_at": datetime.now(UTC),
+            "approved_by": None,
+            "approved_by_name": None,
+            "approved_at": None,
+            "archived_by": None,
+            "archived_at": None,
+            "download_url": "https://example.com/download/123",
+            "preview_url": "https://example.com/preview/123",
+            "version_of": None,
+            "notes": "Test notes",
+        }
+        instance = DocumentResponseSchema(**kwargs)
         assert isinstance(instance, DocumentResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == doc_id
 
 
 class TestDocumentUpdateSchema:
-    """Tests for the DocumentUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            entity_type="test_value",
-            entity_id=uuid4(),
-            tags=["test_value"],
-            description="test_value",
-            notes="test_value",
-            retention_until=datetime.now(UTC),
-            expiry_date=datetime.now(UTC),
-            status=DocumentStatus.DRAFT,
-        )
-
     def test_construction_success(self):
-        """DocumentUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        entity_id = uuid4()
+        kwargs = {
+            "entity_type": "INVOICE",
+            "entity_id": entity_id,
+            "tags": ["updated"],
+            "description": "Updated description",
+            "notes": "Updated notes",
+            "retention_until": datetime.now(UTC),
+            "expiry_date": datetime.now(UTC),
+            "status": DocumentStatus.DRAFT,
+        }
+        instance = DocumentUpdateSchema(**kwargs)
         assert isinstance(instance, DocumentUpdateSchema)
-        assert instance.entity_type == kwargs['entity_type']
+        assert instance.entity_type == kwargs["entity_type"]
 
 
 class TestDocumentBulkUploadSchema:
-    """Tests for the DocumentBulkUploadSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            files=[MagicMock()],
-            entity_type="test_value",
-            entity_id=uuid4(),
-            tags=["test_value"],
-            description="test_value",
-            retention_days=1,
-        )
-
     def test_construction_success(self):
-        """DocumentBulkUploadSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentBulkUploadSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        entity_id = uuid4()
+        kwargs = {
+            "files": [MagicMock(), MagicMock()],
+            "entity_type": "INVOICE",
+            "entity_id": entity_id,
+            "tags": ["bulk"],
+            "description": "Bulk upload",
+            "retention_days": 365,
+        }
+        instance = DocumentBulkUploadSchema(**kwargs)
         assert isinstance(instance, DocumentBulkUploadSchema)
-        assert instance.files == kwargs['files']
+        assert len(instance.files) == 2
 
 
 class TestDocumentBulkLinkSchema:
-    """Tests for the DocumentBulkLinkSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            document_ids=[uuid4()],
-            entity_type="test_value",
-            entity_id=uuid4(),
-        )
-
     def test_construction_success(self):
-        """DocumentBulkLinkSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentBulkLinkSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        doc_ids = [uuid4(), uuid4()]
+        entity_id = uuid4()
+        kwargs = {
+            "document_ids": doc_ids,
+            "entity_type": "INVOICE",
+            "entity_id": entity_id,
+        }
+        instance = DocumentBulkLinkSchema(**kwargs)
         assert isinstance(instance, DocumentBulkLinkSchema)
-        assert instance.document_ids == kwargs['document_ids']
+        assert len(instance.document_ids) == 2
 
 
 class TestDocumentSearchSchema:
-    """Tests for the DocumentSearchSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            entity_type="test_value",
-            entity_id=uuid4(),
-            tag="test_value",
-            status=DocumentStatus.DRAFT,
-            start_date=datetime.now(UTC),
-            end_date=datetime.now(UTC),
-            filename_contains="test_value",
-            page=1,
-            page_size=1,
-        )
-
     def test_construction_success(self):
-        """DocumentSearchSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentSearchSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        entity_id = uuid4()
+        kwargs = {
+            "entity_type": "INVOICE",
+            "entity_id": entity_id,
+            "tag": "finance",
+            "status": DocumentStatus.DRAFT,
+            "start_date": datetime.now(UTC),
+            "end_date": datetime.now(UTC),
+            "filename_contains": "invoice",
+            "page": 1,
+            "page_size": 10,
+        }
+        instance = DocumentSearchSchema(**kwargs)
         assert isinstance(instance, DocumentSearchSchema)
-        assert instance.entity_type == kwargs['entity_type']
+        assert instance.entity_type == kwargs["entity_type"]
 
 
 class TestDocumentVersionResponseSchema:
-    """Tests for the DocumentVersionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            document_number="test_value",
-            version=1,
-            file_size=1,
-            file_hash="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """DocumentVersionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentVersionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        version_id = uuid4()
+        kwargs = {
+            "id": version_id,
+            "document_number": "DOC-001",
+            "version": 2,
+            "file_size": 2048,
+            "file_hash": "def456",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "notes": "New version",
+        }
+        instance = DocumentVersionResponseSchema(**kwargs)
         assert isinstance(instance, DocumentVersionResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == version_id
 
 
 class TestDocumentIntegrityResponseSchema:
-    """Tests for the DocumentIntegrityResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            document_id=uuid4(),
-            document_number="test_value",
-            original_filename="test_value",
-            stored_hash="test_value",
-            computed_hash="test_value",
-            is_valid=True,
-            file_size=1,
-            verified_at=datetime.now(UTC),
-            verified_by=uuid4(),
-            verified_by_name="test_value",
-        )
-
     def test_construction_success(self):
-        """DocumentIntegrityResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = DocumentIntegrityResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        doc_id = uuid4()
+        kwargs = {
+            "document_id": doc_id,
+            "document_number": "DOC-001",
+            "original_filename": "invoice.pdf",
+            "stored_hash": "abc123",
+            "computed_hash": "abc123",
+            "is_valid": True,
+            "file_size": 1024,
+            "verified_at": datetime.now(UTC),
+            "verified_by": uuid4(),
+            "verified_by_name": "admin",
+        }
+        instance = DocumentIntegrityResponseSchema(**kwargs)
         assert isinstance(instance, DocumentIntegrityResponseSchema)
-        assert instance.document_id == kwargs['document_id']
+        assert instance.document_id == doc_id
 
 
-async def test_get_document_svc_smoke():
-    """Smoke test for module-level function get_document_svc."""
-    try:
-        result = await get_document_svc(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_document_svc needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (HELPERS & ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_document_svc_returns_service():
+    request = MagicMock()
+    result = await get_document_svc(request=request)
+    assert result is not None
 
 
-def test_compute_file_hash_smoke():
-    """Smoke test for module-level function compute_file_hash."""
-    try:
-        result = compute_file_hash(content=b"test")
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"compute_file_hash needs specific input data: {e}")
-        return
-    assert True
+def test_compute_file_hash_returns_string():
+    content = b"test content"
+    result = compute_file_hash(content=content)
+    # Should return a SHA-256 hash (64 hex chars) or similar
+    assert isinstance(result, str)
+    assert len(result) == 64  # SHA-256 hex length
 
 
-def test_validate_file_size_smoke():
-    """Smoke test for module-level function validate_file_size."""
-    try:
-        result = validate_file_size(content=b"test")
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"validate_file_size needs specific input data: {e}")
-        return
-    assert True
+def test_validate_file_size_returns_bool():
+    # Test with valid file size
+    content = b"small content"
+    result = validate_file_size(content=content)
+    assert result is True
+
+    # Test with larger content (if max size is limited)
+    # Using patch to avoid actual large memory
+    with patch("adapters.primary_api.v1.fastapi_document_router.MAX_FILE_SIZE_BYTES", 1):
+        large_content = b"x" * 100
+        result = validate_file_size(content=large_content)
+        assert result is False
 
 
-def test_get_mime_type_smoke():
-    """Smoke test for module-level function get_mime_type."""
-    try:
-        result = get_mime_type(filename="test_value")
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_mime_type needs specific input data: {e}")
-        return
-    assert True
+def test_get_mime_type_returns_correct_mime():
+    # Test common extensions
+    assert get_mime_type("document.pdf") == "application/pdf"
+    assert get_mime_type("image.jpg") == "image/jpeg"
+    assert get_mime_type("image.png") == "image/png"
+    assert get_mime_type("data.xlsx") == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert get_mime_type("data.xls") == "application/vnd.ms-excel"
+    assert get_mime_type("document.docx") == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert get_mime_type("document.doc") == "application/msword"
+    assert get_mime_type("data.csv") == "text/csv"
+    assert get_mime_type("file.txt") == "text/plain"
+    assert get_mime_type("unknown.xyz") == "application/octet-stream"
 
 
-async def test_upload_document_smoke():
-    """Smoke test for module-level function upload_document."""
-    try:
-        result = await upload_document(file=MagicMock(), entity_type="test_value", entity_id=uuid4(), tags="test_value", description="test_value", retention_days=1, notes="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"upload_document needs specific input data: {e}")
-        return
-    assert True
+async def test_upload_document_returns_upload_response():
+    doc_svc = MagicMock()
+    doc_svc.upload_document = MagicMock(return_value={"id": str(uuid4())})
+    result = await upload_document(
+        file=MagicMock(),
+        entity_type="INVOICE",
+        entity_id=uuid4(),
+        tags="finance",
+        description="Test upload",
+        retention_days=365,
+        notes="Test notes",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_bulk_upload_documents_smoke():
-    """Smoke test for module-level function bulk_upload_documents."""
-    try:
-        result = await bulk_upload_documents(files=[MagicMock()], entity_type="test_value", entity_id=uuid4(), tags="test_value", description="test_value", retention_days=1, _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"bulk_upload_documents needs specific input data: {e}")
-        return
-    assert True
+async def test_bulk_upload_documents_returns_list():
+    doc_svc = MagicMock()
+    doc_svc.bulk_upload = MagicMock(return_value=[{"id": str(uuid4())}])
+    result = await bulk_upload_documents(
+        files=[MagicMock(), MagicMock()],
+        entity_type="INVOICE",
+        entity_id=uuid4(),
+        tags="bulk",
+        description="Bulk upload",
+        retention_days=365,
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert isinstance(result, list)
 
 
-async def test_download_document_smoke():
-    """Smoke test for module-level function download_document."""
-    try:
-        result = await download_document(document_id=uuid4(), inline=True, _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"download_document needs specific input data: {e}")
-        return
-    assert True
+async def test_download_document_returns_file_response():
+    doc_svc = MagicMock()
+    doc_svc.download_document = MagicMock(return_value={"content": b"pdf data", "filename": "doc.pdf"})
+    result = await download_document(
+        document_id=uuid4(),
+        inline=True,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "content" in result
 
 
-async def test_preview_document_smoke():
-    """Smoke test for module-level function preview_document."""
-    try:
-        result = await preview_document(document_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"preview_document needs specific input data: {e}")
-        return
-    assert True
+async def test_preview_document_returns_preview():
+    doc_svc = MagicMock()
+    doc_svc.preview_document = MagicMock(return_value={"preview_url": "https://example.com/preview/123"})
+    result = await preview_document(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "preview_url" in result
 
 
-async def test_get_document_metadata_smoke():
-    """Smoke test for module-level function get_document_metadata."""
-    try:
-        result = await get_document_metadata(document_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_document_metadata needs specific input data: {e}")
-        return
-    assert True
+async def test_get_document_metadata_returns_metadata():
+    doc_svc = MagicMock()
+    doc_svc.get_document_metadata = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_document_metadata(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_document_metadata_smoke():
-    """Smoke test for module-level function update_document_metadata."""
-    try:
-        result = await update_document_metadata(document_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_document_metadata needs specific input data: {e}")
-        return
-    assert True
+async def test_update_document_metadata_returns_updated():
+    doc_svc = MagicMock()
+    doc_svc.update_document_metadata = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_document_metadata(
+        document_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_delete_document_smoke():
-    """Smoke test for module-level function delete_document."""
-    try:
-        result = await delete_document(document_id=uuid4(), reason="test_value", permanent=True, idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"delete_document needs specific input data: {e}")
-        return
-    assert True
+async def test_delete_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.delete_document = MagicMock(return_value={"success": True})
+    result = await delete_document(
+        document_id=uuid4(),
+        reason="test",
+        permanent=True,
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_restore_document_smoke():
-    """Smoke test for module-level function restore_document."""
-    try:
-        result = await restore_document(document_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"restore_document needs specific input data: {e}")
-        return
-    assert True
+async def test_restore_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.restore_document = MagicMock(return_value={"success": True})
+    result = await restore_document(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_approve_document_smoke():
-    """Smoke test for module-level function approve_document."""
-    try:
-        result = await approve_document(document_id=uuid4(), notes="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_document needs specific input data: {e}")
-        return
-    assert True
+async def test_approve_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.approve_document = MagicMock(return_value={"success": True})
+    result = await approve_document(
+        document_id=uuid4(),
+        notes="Approved",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_reject_document_smoke():
-    """Smoke test for module-level function reject_document."""
-    try:
-        result = await reject_document(document_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reject_document needs specific input data: {e}")
-        return
-    assert True
+async def test_reject_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.reject_document = MagicMock(return_value={"success": True})
+    result = await reject_document(
+        document_id=uuid4(),
+        reason="Rejected",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_archive_document_smoke():
-    """Smoke test for module-level function archive_document."""
-    try:
-        result = await archive_document(document_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"archive_document needs specific input data: {e}")
-        return
-    assert True
+async def test_archive_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.archive_document = MagicMock(return_value={"success": True})
+    result = await archive_document(
+        document_id=uuid4(),
+        reason="Archived",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_lock_document_smoke():
-    """Smoke test for module-level function lock_document."""
-    try:
-        result = await lock_document(document_id=uuid4(), reason="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_document needs specific input data: {e}")
-        return
-    assert True
+async def test_lock_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.lock_document = MagicMock(return_value={"success": True})
+    result = await lock_document(
+        document_id=uuid4(),
+        reason="Locked",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_unlock_document_smoke():
-    """Smoke test for module-level function unlock_document."""
-    try:
-        result = await unlock_document(document_id=uuid4(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_document needs specific input data: {e}")
-        return
-    assert True
+async def test_unlock_document_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.unlock_document = MagicMock(return_value={"success": True})
+    result = await unlock_document(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_create_document_version_smoke():
-    """Smoke test for module-level function create_document_version."""
-    try:
-        result = await create_document_version(document_id=uuid4(), file=MagicMock(), notes="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_document_version needs specific input data: {e}")
-        return
-    assert True
+async def test_create_document_version_returns_version():
+    doc_svc = MagicMock()
+    doc_svc.create_document_version = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_document_version(
+        document_id=uuid4(),
+        file=MagicMock(),
+        notes="New version",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_document_versions_smoke():
-    """Smoke test for module-level function get_document_versions."""
-    try:
-        result = await get_document_versions(document_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_document_versions needs specific input data: {e}")
-        return
-    assert True
+async def test_get_document_versions_returns_list():
+    doc_svc = MagicMock()
+    doc_svc.get_document_versions = MagicMock(return_value=[])
+    result = await get_document_versions(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert isinstance(result, list)
 
 
-async def test_verify_document_integrity_smoke():
-    """Smoke test for module-level function verify_document_integrity."""
-    try:
-        result = await verify_document_integrity(document_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), current_user=MagicMock(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"verify_document_integrity needs specific input data: {e}")
-        return
-    assert True
+async def test_verify_document_integrity_returns_integrity_check():
+    doc_svc = MagicMock()
+    doc_svc.verify_integrity = MagicMock(return_value={"is_valid": True})
+    result = await verify_document_integrity(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        current_user=MagicMock(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "is_valid" in result
 
 
-async def test_bulk_link_documents_smoke():
-    """Smoke test for module-level function bulk_link_documents."""
-    try:
-        result = await bulk_link_documents(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"bulk_link_documents needs specific input data: {e}")
-        return
-    assert True
+async def test_bulk_link_documents_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.bulk_link = MagicMock(return_value={"success": True})
+    result = await bulk_link_documents(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_bulk_delete_documents_smoke():
-    """Smoke test for module-level function bulk_delete_documents."""
-    try:
-        result = await bulk_delete_documents(document_ids=[uuid4()], reason="test_value", permanent=True, idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"bulk_delete_documents needs specific input data: {e}")
-        return
-    assert True
+async def test_bulk_delete_documents_returns_success():
+    doc_svc = MagicMock()
+    doc_svc.bulk_delete = MagicMock(return_value={"success": True})
+    result = await bulk_delete_documents(
+        document_ids=[uuid4(), uuid4()],
+        reason="test",
+        permanent=True,
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_list_documents_smoke():
-    """Smoke test for module-level function list_documents."""
-    try:
-        result = await list_documents(entity_type="test_value", entity_id=uuid4(), tag="test_value", status=DocumentStatus.DRAFT, start_date=datetime.now(UTC), end_date=datetime.now(UTC), filename_contains="test_value", page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_documents needs specific input data: {e}")
-        return
-    assert True
+async def test_list_documents_returns_list():
+    doc_svc = MagicMock()
+    doc_svc.list_documents = MagicMock(return_value=[])
+    result = await list_documents(
+        entity_type="INVOICE",
+        entity_id=uuid4(),
+        tag="finance",
+        status=DocumentStatus.DRAFT,
+        start_date=datetime.now(UTC),
+        end_date=datetime.now(UTC),
+        filename_contains="invoice",
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert isinstance(result, list)
 
 
-async def test_generate_presigned_url_smoke():
-    """Smoke test for module-level function generate_presigned_url."""
-    try:
-        result = await generate_presigned_url(document_id=uuid4(), expires_in_seconds=1, _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"generate_presigned_url needs specific input data: {e}")
-        return
-    assert True
+async def test_generate_presigned_url_returns_url():
+    doc_svc = MagicMock()
+    doc_svc.generate_presigned_url = MagicMock(return_value={"url": "https://example.com/presigned/123"})
+    result = await generate_presigned_url(
+        document_id=uuid4(),
+        expires_in_seconds=3600,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert result is not None
+    assert "url" in result
 
 
-async def test_get_document_history_smoke():
-    """Smoke test for module-level function get_document_history."""
-    try:
-        result = await get_document_history(document_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), doc_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_document_history needs specific input data: {e}")
-        return
-    assert True
+async def test_get_document_history_returns_list():
+    doc_svc = MagicMock()
+    doc_svc.get_document_history = MagicMock(return_value=[])
+    result = await get_document_history(
+        document_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        doc_svc=doc_svc,
+    )
+    assert isinstance(result, list)

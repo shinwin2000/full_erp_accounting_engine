@@ -3,7 +3,7 @@
 # =============================================================================
 
 # service_iam.py - Final fixed version (no duplicate user_id parameters)
-# v5.9.5 - Fixed CachePort.delete to include audit decorator and authority check stub
+# v5.9.6 - Added login() method for API router compatibility
 
 #!/usr/bin/env python3
 
@@ -1254,6 +1254,28 @@ class IAMService:
 
         logger.info("Access issued")
         return LoginResponse(access_token=access_token, refresh_token=refresh_token)
+
+    # --------------------------------------------------------------------------
+    # NEW: login() method for API router compatibility
+    # --------------------------------------------------------------------------
+    async def login(
+        self,
+        username: str,
+        password: str,
+        mfa_code: str | None = None,
+        legal_entity_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        correlation_id: str | None = None,
+    ) -> LoginResponse:
+        """
+        Authenticate user and return tokens.
+        This is the main login method used by the API router.
+        It delegates to authenticate() and currently does not use mfa_code,
+        legal_entity_id, ip_address, user_agent (can be extended later).
+        """
+        # For now, we simply call authenticate with username/password
+        return await self.authenticate(username, password, correlation_id)
 
     async def refresh_access_token(
         self,

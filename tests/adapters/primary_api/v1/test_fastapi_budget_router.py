@@ -61,47 +61,23 @@ from adapters.primary_api.v1.fastapi_budget_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestBudgetStatus:
-    """Tests for the BudgetStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(BudgetStatus, 'DRAFT')
         assert hasattr(BudgetStatus, 'SUBMITTED')
         assert hasattr(BudgetStatus, 'UNDER_REVIEW')
@@ -113,14 +89,11 @@ class TestBudgetStatus:
         assert hasattr(BudgetStatus, 'EXPIRED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(BudgetStatus.DRAFT, BudgetStatus)
 
 
 class TestBudgetType:
-    """Tests for the BudgetType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(BudgetType, 'OPERATIONAL')
         assert hasattr(BudgetType, 'CAPITAL')
         assert hasattr(BudgetType, 'CASH')
@@ -132,662 +105,649 @@ class TestBudgetType:
         assert hasattr(BudgetType, 'LABOR')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(BudgetType.OPERATIONAL, BudgetType)
 
 
 class TestBudgetPeriod:
-    """Tests for the BudgetPeriod enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(BudgetPeriod, 'MONTHLY')
         assert hasattr(BudgetPeriod, 'QUARTERLY')
         assert hasattr(BudgetPeriod, 'YEARLY')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(BudgetPeriod.MONTHLY, BudgetPeriod)
 
 
 class TestVarianceType:
-    """Tests for the VarianceType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(VarianceType, 'FAVORABLE')
         assert hasattr(VarianceType, 'UNFAVORABLE')
         assert hasattr(VarianceType, 'NEUTRAL')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(VarianceType.FAVORABLE, VarianceType)
 
 
 class TestBudgetLineSchema:
-    """Tests for the BudgetLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            account_code="test_value",
-            amount=Decimal("100.00"),
-            note="test_value",
-        )
-
     def test_construction_success(self):
-        """BudgetLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        account_id = uuid4()
+        kwargs = {
+            "account_id": account_id,
+            "account_code": "1100",
+            "amount": Decimal("1000000"),
+            "note": "Test line",
+        }
+        instance = BudgetLineSchema(**kwargs)
         assert isinstance(instance, BudgetLineSchema)
-        assert instance.account_id == kwargs['account_id']
+        assert instance.account_id == account_id
 
 
 class TestBudgetCreateSchema:
-    """Tests for the BudgetCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            budget_code="test_value",
-            budget_name="test_value",
-            budget_type=BudgetType.OPERATIONAL,
-            fiscal_year=1,
-            period=BudgetPeriod.MONTHLY,
-            version="test_value",
-            effective_date=date.today(),
-            expiry_date=date.today(),
-            currency="test_value",
-            lines=[MagicMock()],
-            notes="test_value",
-            tags=["test_value"],
-        )
-
     def test_construction_success(self):
-        """BudgetCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "budget_code": "BUD-2026-001",
+            "budget_name": "Operational Budget 2026",
+            "budget_type": BudgetType.OPERATIONAL,
+            "fiscal_year": 2026,
+            "period": BudgetPeriod.MONTHLY,
+            "version": "1.0",
+            "effective_date": date.today(),
+            "expiry_date": date.today(),
+            "currency": "IDR",
+            "lines": [MagicMock()],
+            "notes": "Test notes",
+            "tags": ["tag1", "tag2"],
+        }
+        instance = BudgetCreateSchema(**kwargs)
         assert isinstance(instance, BudgetCreateSchema)
-        assert instance.budget_code == kwargs['budget_code']
+        assert instance.budget_code == kwargs["budget_code"]
 
 
 class TestBudgetUpdateSchema:
-    """Tests for the BudgetUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            budget_name="test_value",
-            effective_date=date.today(),
-            expiry_date=date.today(),
-            notes="test_value",
-            tags=["test_value"],
-            status=BudgetStatus.DRAFT,
-        )
-
     def test_construction_success(self):
-        """BudgetUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "budget_name": "Updated Budget",
+            "effective_date": date.today(),
+            "expiry_date": date.today(),
+            "notes": "Updated notes",
+            "tags": ["updated"],
+            "status": BudgetStatus.DRAFT,
+        }
+        instance = BudgetUpdateSchema(**kwargs)
         assert isinstance(instance, BudgetUpdateSchema)
-        assert instance.budget_name == kwargs['budget_name']
+        assert instance.budget_name == kwargs["budget_name"]
 
 
 class TestBudgetLineUpdateSchema:
-    """Tests for the BudgetLineUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            line_id=uuid4(),
-            amount=Decimal("100.00"),
-            note="test_value",
-        )
-
     def test_construction_success(self):
-        """BudgetLineUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetLineUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        line_id = uuid4()
+        kwargs = {
+            "line_id": line_id,
+            "amount": Decimal("2000000"),
+            "note": "Updated line",
+        }
+        instance = BudgetLineUpdateSchema(**kwargs)
         assert isinstance(instance, BudgetLineUpdateSchema)
-        assert instance.line_id == kwargs['line_id']
+        assert instance.line_id == line_id
 
 
 class TestBudgetResponseSchema:
-    """Tests for the BudgetResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            budget_code="test_value",
-            budget_name="test_value",
-            budget_type=BudgetType.OPERATIONAL,
-            fiscal_year=1,
-            period=BudgetPeriod.MONTHLY,
-            version="test_value",
-            status=BudgetStatus.DRAFT,
-            effective_date=date.today(),
-            expiry_date=date.today(),
-            currency="test_value",
-            total_amount=Decimal("100.00"),
-            actual_amount_ytd=Decimal("100.00"),
-            variance_amount=Decimal("100.00"),
-            variance_percent=1.5,
-            consumption_percent=1.5,
-            notes="test_value",
-            tags=["test_value"],
-            is_locked=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_by_name="test_value",
-            lines=[{}],
-        )
-
     def test_construction_success(self):
-        """BudgetResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        budget_id = uuid4()
+        kwargs = {
+            "id": budget_id,
+            "budget_code": "BUD-2026-001",
+            "budget_name": "Operational Budget 2026",
+            "budget_type": BudgetType.OPERATIONAL,
+            "fiscal_year": 2026,
+            "period": BudgetPeriod.MONTHLY,
+            "version": "1.0",
+            "status": BudgetStatus.DRAFT,
+            "effective_date": date.today(),
+            "expiry_date": date.today(),
+            "currency": "IDR",
+            "total_amount": Decimal("100000000"),
+            "actual_amount_ytd": Decimal("50000000"),
+            "variance_amount": Decimal("50000000"),
+            "variance_percent": 50.0,
+            "consumption_percent": 50.0,
+            "notes": "Test",
+            "tags": ["tag1"],
+            "is_locked": False,
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+            "approved_by_name": None,
+            "lines": [],
+        }
+        instance = BudgetResponseSchema(**kwargs)
         assert isinstance(instance, BudgetResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == budget_id
 
 
 class TestBudgetVersionResponseSchema:
-    """Tests for the BudgetVersionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            budget_code="test_value",
-            version="test_value",
-            status=BudgetStatus.DRAFT,
-            total_amount=Decimal("100.00"),
-            effective_date=date.today(),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-        )
-
     def test_construction_success(self):
-        """BudgetVersionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetVersionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        version_id = uuid4()
+        kwargs = {
+            "id": version_id,
+            "budget_code": "BUD-2026-001",
+            "version": "2.0",
+            "status": BudgetStatus.DRAFT,
+            "total_amount": Decimal("120000000"),
+            "effective_date": date.today(),
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+        }
+        instance = BudgetVersionResponseSchema(**kwargs)
         assert isinstance(instance, BudgetVersionResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == version_id
 
 
 class TestBudgetTransferSchema:
-    """Tests for the BudgetTransferSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            from_account_id=uuid4(),
-            to_account_id=uuid4(),
-            amount=Decimal("100.00"),
-            reason="test_value",
-            effective_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """BudgetTransferSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetTransferSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        from_account = uuid4()
+        to_account = uuid4()
+        kwargs = {
+            "from_account_id": from_account,
+            "to_account_id": to_account,
+            "amount": Decimal("1000000"),
+            "reason": "Reallocate funds",
+            "effective_date": date.today(),
+        }
+        instance = BudgetTransferSchema(**kwargs)
         assert isinstance(instance, BudgetTransferSchema)
-        assert instance.from_account_id == kwargs['from_account_id']
+        assert instance.from_account_id == from_account
 
 
 class TestBudgetTransferResponseSchema:
-    """Tests for the BudgetTransferResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            transfer_id=uuid4(),
-            budget_id=uuid4(),
-            from_account_id=uuid4(),
-            from_account_code="test_value",
-            from_account_name="test_value",
-            to_account_id=uuid4(),
-            to_account_code="test_value",
-            to_account_name="test_value",
-            amount=Decimal("100.00"),
-            reason="test_value",
-            effective_date=date.today(),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-        )
-
     def test_construction_success(self):
-        """BudgetTransferResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetTransferResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        transfer_id = uuid4()
+        kwargs = {
+            "transfer_id": transfer_id,
+            "budget_id": uuid4(),
+            "from_account_id": uuid4(),
+            "from_account_code": "1100",
+            "from_account_name": "Cash",
+            "to_account_id": uuid4(),
+            "to_account_code": "1200",
+            "to_account_name": "Bank",
+            "amount": Decimal("1000000"),
+            "reason": "Reallocate",
+            "effective_date": date.today(),
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "approved_at": None,
+            "approved_by": None,
+        }
+        instance = BudgetTransferResponseSchema(**kwargs)
         assert isinstance(instance, BudgetTransferResponseSchema)
-        assert instance.transfer_id == kwargs['transfer_id']
+        assert instance.transfer_id == transfer_id
 
 
 class TestBudgetVsActualLineSchema:
-    """Tests for the BudgetVsActualLineSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            account_code="test_value",
-            account_name="test_value",
-            budget_amount=Decimal("100.00"),
-            actual_amount=Decimal("100.00"),
-            variance_amount=Decimal("100.00"),
-            variance_percent=1.5,
-            variance_type=VarianceType.FAVORABLE,
-            consumption_percent=1.5,
-            remaining_budget=Decimal("100.00"),
-        )
-
     def test_construction_success(self):
-        """BudgetVsActualLineSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetVsActualLineSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        account_id = uuid4()
+        kwargs = {
+            "account_id": account_id,
+            "account_code": "1100",
+            "account_name": "Cash",
+            "budget_amount": Decimal("1000000"),
+            "actual_amount": Decimal("800000"),
+            "variance_amount": Decimal("200000"),
+            "variance_percent": 20.0,
+            "variance_type": VarianceType.FAVORABLE,
+            "consumption_percent": 80.0,
+            "remaining_budget": Decimal("200000"),
+        }
+        instance = BudgetVsActualLineSchema(**kwargs)
         assert isinstance(instance, BudgetVsActualLineSchema)
-        assert instance.account_id == kwargs['account_id']
+        assert instance.account_id == account_id
 
 
 class TestBudgetVsActualResponseSchema:
-    """Tests for the BudgetVsActualResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            budget_id=uuid4(),
-            budget_name="test_value",
-            fiscal_year=1,
-            period=1,
-            period_name="test_value",
-            total_budget=Decimal("100.00"),
-            total_actual=Decimal("100.00"),
-            total_variance=Decimal("100.00"),
-            variance_percent=1.5,
-            variance_type=VarianceType.FAVORABLE,
-            consumption_rate=1.5,
-            remaining_budget=Decimal("100.00"),
-            lines=[MagicMock()],
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """BudgetVsActualResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetVsActualResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        budget_id = uuid4()
+        kwargs = {
+            "budget_id": budget_id,
+            "budget_name": "Operational Budget 2026",
+            "fiscal_year": 2026,
+            "period": 1,
+            "period_name": "January",
+            "total_budget": Decimal("10000000"),
+            "total_actual": Decimal("8000000"),
+            "total_variance": Decimal("2000000"),
+            "variance_percent": 20.0,
+            "variance_type": VarianceType.FAVORABLE,
+            "consumption_rate": 80.0,
+            "remaining_budget": Decimal("2000000"),
+            "lines": [],
+            "generated_at": datetime.now(UTC),
+        }
+        instance = BudgetVsActualResponseSchema(**kwargs)
         assert isinstance(instance, BudgetVsActualResponseSchema)
-        assert instance.budget_id == kwargs['budget_id']
+        assert instance.budget_id == budget_id
 
 
 class TestBudgetDashboardResponseSchema:
-    """Tests for the BudgetDashboardResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            as_of_date=date.today(),
-            total_budgets=1,
-            active_budgets=1,
-            total_budget_amount=Decimal("100.00"),
-            total_actual_ytd=Decimal("100.00"),
-            total_variance=Decimal("100.00"),
-            overall_consumption_rate=1.5,
-            by_type={},
-            by_status={},
-            top_variance_items=[{}],
-            alerts=[{}],
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """BudgetDashboardResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetDashboardResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "as_of_date": date.today(),
+            "total_budgets": 5,
+            "active_budgets": 3,
+            "total_budget_amount": Decimal("500000000"),
+            "total_actual_ytd": Decimal("300000000"),
+            "total_variance": Decimal("200000000"),
+            "overall_consumption_rate": 60.0,
+            "by_type": {"OPERATIONAL": 3, "CAPITAL": 2},
+            "by_status": {"ACTIVE": 3, "DRAFT": 2},
+            "top_variance_items": [],
+            "alerts": [],
+            "generated_at": datetime.now(UTC),
+        }
+        instance = BudgetDashboardResponseSchema(**kwargs)
         assert isinstance(instance, BudgetDashboardResponseSchema)
-        assert instance.as_of_date == kwargs['as_of_date']
+        assert instance.as_of_date == kwargs["as_of_date"]
 
 
 class TestBudgetAlertSchema:
-    """Tests for the BudgetAlertSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            budget_id=uuid4(),
-            budget_name="test_value",
-            account_id=uuid4(),
-            account_code="test_value",
-            account_name="test_value",
-            budget_amount=Decimal("100.00"),
-            actual_amount=Decimal("100.00"),
-            consumption_percent=1.5,
-            threshold_percent=1.5,
-            message="test_value",
-            severity="test_value",
-            created_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """BudgetAlertSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetAlertSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        budget_id = uuid4()
+        kwargs = {
+            "budget_id": budget_id,
+            "budget_name": "Operational Budget",
+            "account_id": uuid4(),
+            "account_code": "1100",
+            "account_name": "Cash",
+            "budget_amount": Decimal("1000000"),
+            "actual_amount": Decimal("950000"),
+            "consumption_percent": 95.0,
+            "threshold_percent": 90.0,
+            "message": "Budget nearly exhausted",
+            "severity": "HIGH",
+            "created_at": datetime.now(UTC),
+        }
+        instance = BudgetAlertSchema(**kwargs)
         assert isinstance(instance, BudgetAlertSchema)
-        assert instance.budget_id == kwargs['budget_id']
+        assert instance.budget_id == budget_id
 
 
 class TestBudgetRollingForecastSchema:
-    """Tests for the BudgetRollingForecastSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            base_budget_id=uuid4(),
-            forecast_months=1,
-            adjustment_factors={},
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """BudgetRollingForecastSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BudgetRollingForecastSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        base_budget_id = uuid4()
+        kwargs = {
+            "base_budget_id": base_budget_id,
+            "forecast_months": 6,
+            "adjustment_factors": {"factor1": 1.1},
+            "notes": "Rolling forecast",
+        }
+        instance = BudgetRollingForecastSchema(**kwargs)
         assert isinstance(instance, BudgetRollingForecastSchema)
-        assert instance.base_budget_id == kwargs['base_budget_id']
+        assert instance.base_budget_id == base_budget_id
 
 
-async def test_get_budget_service_smoke():
-    """Smoke test for module-level function get_budget_service."""
-    try:
-        result = await get_budget_service(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_service needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_budget_service_returns_service():
+    request = MagicMock()
+    result = await get_budget_service(request=request)
+    assert result is not None
 
 
-async def test_create_budget_smoke():
-    """Smoke test for module-level function create_budget."""
-    try:
-        result = await create_budget(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_create_budget_returns_budget():
+    service = MagicMock()
+    service.create_budget = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_budget(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_budget_smoke():
-    """Smoke test for module-level function get_budget."""
-    try:
-        result = await get_budget(budget_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_returns_budget():
+    service = MagicMock()
+    service.get_budget = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_budget(
+        budget_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_budget_by_code_smoke():
-    """Smoke test for module-level function get_budget_by_code."""
-    try:
-        result = await get_budget_by_code(budget_code="test_value", fiscal_year=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_by_code needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_by_code_returns_budget():
+    service = MagicMock()
+    service.get_budget_by_code = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_budget_by_code(
+        budget_code="BUD-001",
+        fiscal_year=2026,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_budget_smoke():
-    """Smoke test for module-level function update_budget."""
-    try:
-        result = await update_budget(budget_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_update_budget_returns_updated():
+    service = MagicMock()
+    service.update_budget = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_budget(
+        budget_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_update_budget_lines_smoke():
-    """Smoke test for module-level function update_budget_lines."""
-    try:
-        result = await update_budget_lines(budget_id=uuid4(), lines=[MagicMock()], idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_budget_lines needs specific input data: {e}")
-        return
-    assert True
+async def test_update_budget_lines_returns_updated():
+    service = MagicMock()
+    service.update_budget_lines = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_budget_lines(
+        budget_id=uuid4(),
+        lines=[MagicMock()],
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_archive_budget_smoke():
-    """Smoke test for module-level function archive_budget."""
-    try:
-        result = await archive_budget(budget_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"archive_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_archive_budget_returns_success():
+    service = MagicMock()
+    service.archive_budget = MagicMock(return_value={"success": True})
+    result = await archive_budget(
+        budget_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_submit_budget_smoke():
-    """Smoke test for module-level function submit_budget."""
-    try:
-        result = await submit_budget(budget_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"submit_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_submit_budget_returns_success():
+    service = MagicMock()
+    service.submit_budget = MagicMock(return_value={"success": True})
+    result = await submit_budget(
+        budget_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_approve_budget_smoke():
-    """Smoke test for module-level function approve_budget."""
-    try:
-        result = await approve_budget(budget_id=uuid4(), notes="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"approve_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_approve_budget_returns_success():
+    service = MagicMock()
+    service.approve_budget = MagicMock(return_value={"success": True})
+    result = await approve_budget(
+        budget_id=uuid4(),
+        notes="Approved",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_reject_budget_smoke():
-    """Smoke test for module-level function reject_budget."""
-    try:
-        result = await reject_budget(budget_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reject_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_reject_budget_returns_success():
+    service = MagicMock()
+    service.reject_budget = MagicMock(return_value={"success": True})
+    result = await reject_budget(
+        budget_id=uuid4(),
+        reason="Rejected",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_activate_budget_smoke():
-    """Smoke test for module-level function activate_budget."""
-    try:
-        result = await activate_budget(budget_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"activate_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_activate_budget_returns_success():
+    service = MagicMock()
+    service.activate_budget = MagicMock(return_value={"success": True})
+    result = await activate_budget(
+        budget_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_lock_budget_smoke():
-    """Smoke test for module-level function lock_budget."""
-    try:
-        result = await lock_budget(budget_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_lock_budget_returns_success():
+    service = MagicMock()
+    service.lock_budget = MagicMock(return_value={"success": True})
+    result = await lock_budget(
+        budget_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_unlock_budget_smoke():
-    """Smoke test for module-level function unlock_budget."""
-    try:
-        result = await unlock_budget(budget_id=uuid4(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_unlock_budget_returns_success():
+    service = MagicMock()
+    service.unlock_budget = MagicMock(return_value={"success": True})
+    result = await unlock_budget(
+        budget_id=uuid4(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_list_budgets_smoke():
-    """Smoke test for module-level function list_budgets."""
-    try:
-        result = await list_budgets(budget_type=BudgetType.OPERATIONAL, fiscal_year=1, status=BudgetStatus.DRAFT, is_active=True, page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_budgets needs specific input data: {e}")
-        return
-    assert True
+async def test_list_budgets_returns_list():
+    service = MagicMock()
+    service.list_budgets = MagicMock(return_value=[])
+    result = await list_budgets(
+        budget_type=BudgetType.OPERATIONAL,
+        fiscal_year=2026,
+        status=BudgetStatus.DRAFT,
+        is_active=True,
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_budget_versions_smoke():
-    """Smoke test for module-level function get_budget_versions."""
-    try:
-        result = await get_budget_versions(budget_code="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_versions needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_versions_returns_list():
+    service = MagicMock()
+    service.get_budget_versions = MagicMock(return_value=[])
+    result = await get_budget_versions(
+        budget_code="BUD-001",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_create_budget_version_smoke():
-    """Smoke test for module-level function create_budget_version."""
-    try:
-        result = await create_budget_version(budget_id=uuid4(), version="test_value", notes="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_budget_version needs specific input data: {e}")
-        return
-    assert True
+async def test_create_budget_version_returns_version():
+    service = MagicMock()
+    service.create_budget_version = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_budget_version(
+        budget_id=uuid4(),
+        version="2.0",
+        notes="New version",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_budget_vs_actual_smoke():
-    """Smoke test for module-level function get_budget_vs_actual."""
-    try:
-        result = await get_budget_vs_actual(budget_id=uuid4(), period=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_vs_actual needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_vs_actual_returns_vs_actual():
+    service = MagicMock()
+    service.get_budget_vs_actual = MagicMock(return_value={"budget_id": str(uuid4())})
+    result = await get_budget_vs_actual(
+        budget_id=uuid4(),
+        period=1,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "budget_id" in result
 
 
-async def test_get_budget_vs_actual_ytd_smoke():
-    """Smoke test for module-level function get_budget_vs_actual_ytd."""
-    try:
-        result = await get_budget_vs_actual_ytd(budget_id=uuid4(), as_of_month=1, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_vs_actual_ytd needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_vs_actual_ytd_returns_vs_actual():
+    service = MagicMock()
+    service.get_budget_vs_actual_ytd = MagicMock(return_value={"budget_id": str(uuid4())})
+    result = await get_budget_vs_actual_ytd(
+        budget_id=uuid4(),
+        as_of_month=6,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "budget_id" in result
 
 
-async def test_transfer_budget_smoke():
-    """Smoke test for module-level function transfer_budget."""
-    try:
-        result = await transfer_budget(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"transfer_budget needs specific input data: {e}")
-        return
-    assert True
+async def test_transfer_budget_returns_transfer():
+    service = MagicMock()
+    service.transfer_budget = MagicMock(return_value={"transfer_id": str(uuid4())})
+    result = await transfer_budget(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "transfer_id" in result
 
 
-async def test_get_budget_dashboard_smoke():
-    """Smoke test for module-level function get_budget_dashboard."""
-    try:
-        result = await get_budget_dashboard(as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_dashboard needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_dashboard_returns_dashboard():
+    service = MagicMock()
+    service.get_budget_dashboard = MagicMock(return_value={"total_budgets": 5})
+    result = await get_budget_dashboard(
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "total_budgets" in result
 
 
-async def test_get_budget_alerts_smoke():
-    """Smoke test for module-level function get_budget_alerts."""
-    try:
-        result = await get_budget_alerts(threshold_percent=1.5, severity="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_alerts needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_alerts_returns_list():
+    service = MagicMock()
+    service.get_budget_alerts = MagicMock(return_value=[])
+    result = await get_budget_alerts(
+        threshold_percent=90.0,
+        severity="HIGH",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_create_rolling_forecast_smoke():
-    """Smoke test for module-level function create_rolling_forecast."""
-    try:
-        result = await create_rolling_forecast(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_rolling_forecast needs specific input data: {e}")
-        return
-    assert True
+async def test_create_rolling_forecast_returns_forecast():
+    service = MagicMock()
+    service.create_rolling_forecast = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_rolling_forecast(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_budget_history_smoke():
-    """Smoke test for module-level function get_budget_history."""
-    try:
-        result = await get_budget_history(budget_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_history needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_history_returns_list():
+    service = MagicMock()
+    service.get_budget_history = MagicMock(return_value=[])
+    result = await get_budget_history(
+        budget_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_budget_status_smoke():
-    """Smoke test for module-level function get_budget_status."""
-    try:
-        result = await get_budget_status(budget_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_budget_status needs specific input data: {e}")
-        return
-    assert True
+async def test_get_budget_status_returns_status():
+    service = MagicMock()
+    service.get_budget_status = MagicMock(return_value={"status": "active"})
+    result = await get_budget_status(
+        budget_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "status" in result
 
 
-async def test_export_budgets_smoke():
-    """Smoke test for module-level function export_budgets."""
-    try:
-        result = await export_budgets(fiscal_year=1, format="test_value", budget_type=BudgetType.OPERATIONAL, _permission=MagicMock(), legal_entity_id=uuid4(), service=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_budgets needs specific input data: {e}")
-        return
-    assert True
+async def test_export_budgets_returns_export():
+    service = MagicMock()
+    service.export_budgets = MagicMock(return_value={"file": "base64data"})
+    result = await export_budgets(
+        fiscal_year=2026,
+        format="csv",
+        budget_type=BudgetType.OPERATIONAL,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        service=service,
+    )
+    assert result is not None
+    assert "file" in result

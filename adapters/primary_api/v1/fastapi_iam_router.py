@@ -475,7 +475,7 @@ async def get_iam_service(request: Request) -> Any:
 # ROUTER
 # ============================================================================
 
-router = APIRouter(prefix="/iam", tags=["IAM"])
+router = APIRouter(tags=["IAM"])
 
 
 # ----------------------------------------------------------------------------

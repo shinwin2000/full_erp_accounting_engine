@@ -1,130 +1,397 @@
 {
-  "timestamp": "2026-07-17T08:13:30Z",
-  "version": "6.0.0",
+  "timestamp": "2026-07-18T02:23:18.158377Z",
+  "version": "7.3.0",
   "summary": {
-    "total_duration_seconds": 18.646,
-    "passed": 3,
-    "failed": 4,
-    "warnings": 0,
-    "total_tests": 7
+    "total_duration_seconds": 31.212,
+    "passed": 13,
+    "failed": 2,
+    "warnings": 2,
+    "total_tests": 17,
+    "score_percent": 76.5,
+    "test_env_used": false,
+    "rca_enabled": true
   },
   "results": [
     {
       "name": "Environment Safety",
+      "category": "ENVIRONMENT",
       "passed": false,
       "duration_seconds": 0.0,
       "severity": "CRITICAL",
       "details": {
         "environment": "production",
-        "is_production": true,
         "debug_enabled": false,
-        "critical_vars_missing": [],
+        "is_production": true,
+        "indicators": [
+          "ENVIRONMENT=production"
+        ],
+        "test_env_flag": false,
         "python_version": "3.11.9",
         "platform": "win32"
       },
-      "error": "Cannot run smoke tests in production environment!",
-      "context": {},
-      "suggested_fix": "Set ENVIRONMENT=development or run from non-production environment",
-      "evidence": []
+      "error": "Production environment terdeteksi: ENVIRONMENT=production",
+      "suggested_fix": "Gunakan --test-env atau set ENVIRONMENT=development",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
     },
     {
       "name": "DI Container Integrity",
-      "passed": false,
-      "duration_seconds": 17.658,
-      "severity": "CRITICAL",
-      "details": {},
-      "error": "No DI Container found in expected locations",
-      "context": {},
-      "suggested_fix": "Ensure core.di_container or equivalent module exists with container instance",
-      "evidence": [
-        "Tried modules: core.di_container, infrastructure.di_container, container, di_container"
-      ]
+      "category": "ARCHITECTURE",
+      "passed": true,
+      "duration_seconds": 15.48,
+      "severity": "WARNING",
+      "details": {
+        "container_type": "class (discovered)",
+        "container_module": "bootstrap.dependency_container.ioc_container",
+        "container_class": "IoCContainer",
+        "status": "instantiated",
+        "health_issues": [
+          "UnitOfWork tidak terdaftar: Dependency tidak terdaftar: UnitOfWork"
+        ],
+        "health_ok": false
+      },
+      "error": "UnitOfWork tidak terdaftar di DI Container",
+      "suggested_fix": "Daftarkan UnitOfWork jika diperlukan, atau abaikan jika menggunakan persistence lain",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
     },
     {
       "name": "FastAPI App Structure",
+      "category": "WEB",
       "passed": false,
-      "duration_seconds": 0.283,
-      "severity": "CRITICAL",
+      "duration_seconds": 0.017,
+      "severity": "ERROR",
       "details": {},
-      "error": "No module named 'main'",
-      "context": {},
-      "suggested_fix": "Create main.py with FastAPI app instance or factory",
+      "error": "Tidak ditemukan FastAPI app di project",
+      "suggested_fix": "Buat erp_engine/app.py dengan instance FastAPI() atau di main.py",
       "evidence": [
-        "Tried modules: main, app, application.main, erp_engine"
-      ]
+        "Dicari di: erp_engine, main, app, server, erp.asgi"
+      ],
+      "rca_analysis": null,
+      "remediation_steps": []
     },
     {
       "name": "Database Connectivity & Metadata",
-      "passed": false,
-      "duration_seconds": 0.698,
-      "severity": "CRITICAL",
-      "details": {},
-      "error": "Database connection failed: 'async_generator' object has no attribute 'execute'",
-      "context": {},
-      "suggested_fix": "Check DATABASE_URL credentials and ensure database server is running",
-      "evidence": []
+      "category": "INFRASTRUCTURE",
+      "passed": true,
+      "duration_seconds": 0.964,
+      "severity": "INFO",
+      "details": {
+        "connection": "success",
+        "db_type": "postgresql+asyncpg",
+        "async": true,
+        "session_factory": "get_session"
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
     },
     {
       "name": "Security Configuration Audit",
+      "category": "SECURITY",
       "passed": true,
       "duration_seconds": 0.0,
       "severity": "WARNING",
       "details": {
-        "issues_found": 0,
-        "warnings_found": 1,
+        "issues_count": 0,
+        "warnings_count": 1,
         "issues": [],
         "warnings": [
-          "Weak/default secrets: ['DB_PASSWORD (weak)', 'GITLAB_TOKEN (weak)']"
+          "Weak secrets: DB_PASSWORD (length 11), GITLAB_TOKEN (length 10)"
         ],
         "secrets_checked": 11
       },
       "error": null,
-      "context": {
-        "warnings": [
-          "Weak/default secrets: ['DB_PASSWORD (weak)', 'GITLAB_TOKEN (weak)']"
-        ]
-      },
-      "suggested_fix": null,
-      "evidence": []
+      "suggested_fix": "Periksa secret key dan tambahkan middleware keamanan",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
     },
     {
       "name": "Business Logic Sanity Check",
+      "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 0.0,
-      "severity": "WARNING",
+      "duration_seconds": 0.004,
+      "severity": "INFO",
       "details": {
-        "status": "skipped",
-        "reason": "Business logic tests require specific domain knowledge",
-        "recommendation": "Implement domain-specific sanity checks"
+        "found_modules": [
+          "domain",
+          "application",
+          "infrastructure"
+        ],
+        "missing_modules": [],
+        "status": "ok"
       },
       "error": null,
-      "context": {
-        "note": "Consider implementing domain-specific tests"
-      },
       "suggested_fix": null,
-      "evidence": []
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
     },
     {
       "name": "Resource Leak Detection",
+      "category": "PERFORMANCE",
       "passed": true,
       "duration_seconds": 0.0,
       "severity": "INFO",
       "details": {
-        "start_memory_mb": 22.55,
-        "end_memory_mb": 95.36,
-        "memory_diff_mb": 72.81,
+        "start_memory_mb": 67.27,
+        "end_memory_mb": 103.8,
+        "memory_diff_mb": 36.54,
         "start_threads": 1,
         "end_threads": 1,
         "thread_diff": 0
       },
       "error": null,
-      "context": {},
       "suggested_fix": null,
-      "evidence": []
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "API Health Check",
+      "category": "API",
+      "passed": true,
+      "duration_seconds": 0.076,
+      "severity": "WARNING",
+      "details": {
+        "note": "Endpoint health ditemukan di kode, tetapi tidak terdaftar di app.routes"
+      },
+      "error": null,
+      "suggested_fix": "Pastikan endpoint health terdaftar di aplikasi",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Configuration Validation",
+      "category": "CONFIG",
+      "passed": true,
+      "duration_seconds": 0.0,
+      "severity": "WARNING",
+      "details": {
+        "required_vars_defined": [
+          "ENVIRONMENT",
+          "DATABASE_URL",
+          "SECRET_KEY"
+        ],
+        "optional_vars_defined": [
+          "REDIS_URL"
+        ],
+        "missing_required": [],
+        "missing_optional": [
+          "CACHE_URL",
+          "BROKER_URL",
+          "SENTRY_DSN",
+          "CORS_ORIGINS"
+        ]
+      },
+      "error": null,
+      "suggested_fix": "Set jika diperlukan untuk fitur tertentu",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Domain Models",
+      "category": "DOMAIN",
+      "passed": true,
+      "duration_seconds": 0.319,
+      "severity": "INFO",
+      "details": {
+        "domain_folder_exists": true,
+        "model_files_count": 251,
+        "found_model_classes": [
+          "event_base.DomainEvent",
+          "event_base.IntegrationEvent"
+        ],
+        "total_classes_found": 2
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Repository Pattern",
+      "category": "DATA",
+      "passed": true,
+      "duration_seconds": 12.102,
+      "severity": "INFO",
+      "details": {
+        "repository_modules_found": [],
+        "repository_classes_found": [
+          "adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl.FiscalPeriodRepositoryPort",
+          "adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl.SQLAlchemyFiscalPeriodRepository",
+          "adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl.SQLAlchemyFiscalPeriodRepositoryImpl",
+          "adapters.secondary_impl.sqlalchemy_forex_repository_impl.ForexRepositoryPort",
+          "adapters.secondary_impl.sqlalchemy_forex_repository_impl.SQLAlchemyForexRepository",
+          "adapters.secondary_impl.sqlalchemy_forex_repository_impl.SQLAlchemyForexRepositoryImpl",
+          "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.GoodsReceiptRepositoryPort",
+          "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.SQLAlchemyGoodsReceiptRepository",
+          "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.SQLAlchemyGoodsReceiptRepositoryImpl",
+          "adapters.secondary_impl.sqlalchemy_goodwill_repository_impl.GoodwillRepositoryPort"
+        ],
+        "total_repositories": 484
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "CORS Configuration",
+      "category": "SECURITY",
+      "passed": true,
+      "duration_seconds": 0.002,
+      "severity": "INFO",
+      "details": {
+        "cors_configured": true,
+        "cors_origins_env": "not_set",
+        "details": {
+          "file": "asgi.py"
+        }
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Authentication / Authorization",
+      "category": "SECURITY",
+      "passed": true,
+      "duration_seconds": 0.891,
+      "severity": "INFO",
+      "details": {
+        "auth_indicators": [
+          "File auth: api_oauth2_client.py, fastapi_auth_jwt_middleware.py, tax_authority_coretax_adapter_impl.py"
+        ],
+        "jwt_secret_set": false,
+        "has_auth_files": true
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Master Data Models (ERP)",
+      "category": "DOMAIN",
+      "passed": false,
+      "duration_seconds": 0.042,
+      "severity": "WARNING",
+      "details": {
+        "core_models_defined": [
+          "Company",
+          "Branch",
+          "FiscalYear",
+          "Currency",
+          "ChartOfAccount",
+          "Account",
+          "Journal",
+          "Ledger",
+          "Product",
+          "Warehouse",
+          "StockMovement",
+          "Customer",
+          "Supplier",
+          "SalesOrder",
+          "PurchaseOrder",
+          "Invoice",
+          "Payment",
+          "Receipt"
+        ],
+        "found_models": [],
+        "missing_models": [
+          "Company",
+          "Branch",
+          "FiscalYear",
+          "Currency",
+          "ChartOfAccount",
+          "Account",
+          "Journal",
+          "Ledger",
+          "Product",
+          "Warehouse",
+          "StockMovement",
+          "Customer",
+          "Supplier",
+          "SalesOrder",
+          "PurchaseOrder",
+          "Invoice",
+          "Payment",
+          "Receipt"
+        ],
+        "coverage": "0/18"
+      },
+      "error": "Tidak ditemukan satupun model ERP inti",
+      "suggested_fix": "Buat model-model bisnis di domain/ (Company, Account, Product, dll.)",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "OpenAPI Documentation",
+      "category": "API",
+      "passed": false,
+      "duration_seconds": 0.0,
+      "severity": "WARNING",
+      "details": {},
+      "error": "App instance tidak tersedia",
+      "suggested_fix": "Pastikan FastAPI app ditemukan",
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Message Broker Connectivity",
+      "category": "INTEGRATION",
+      "passed": true,
+      "duration_seconds": 0.009,
+      "severity": "INFO",
+      "details": {
+        "type": "redis",
+        "url": "redis://localhost:6379/0"
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
+    },
+    {
+      "name": "Scheduler Availability",
+      "category": "INTEGRATION",
+      "passed": true,
+      "duration_seconds": 1.297,
+      "severity": "INFO",
+      "details": {
+        "scheduler_indicators": [
+          "Celery app ditemukan di celery.current_app",
+          "File scheduler: batch_job_scheduler_adapter.py, background_task_monitor.py, key_rotation_scheduler_vault.py"
+        ],
+        "celery_found": true,
+        "apscheduler_found": false,
+        "has_scheduler_files": true
+      },
+      "error": null,
+      "suggested_fix": null,
+      "evidence": [],
+      "rca_analysis": null,
+      "remediation_steps": []
     }
   ],
   "baseline": {
-    "start_memory_mb": 22.55,
+    "start_memory_mb": 67.27,
     "start_thread_count": 1
   }
 }

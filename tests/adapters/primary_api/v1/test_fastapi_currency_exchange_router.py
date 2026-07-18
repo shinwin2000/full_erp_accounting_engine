@@ -65,47 +65,23 @@ from adapters.primary_api.v1.fastapi_currency_exchange_router import (
 
 
 class TestIdempotencyManager:
-    """Tests for IdempotencyManager."""
-
-    def _build_instance(self):
-        return IdempotencyManager()
-
     def test_construction(self):
-        """IdempotencyManager can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
+        instance = IdempotencyManager()
         assert isinstance(instance, IdempotencyManager)
 
-    def test_get_cached_result_smoke(self):
-        """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_get_cached_result_returns_none_for_missing_key(self):
+        instance = IdempotencyManager()
+        result = instance.get_cached_result("non_existent_key", "method")
+        assert result is None
 
-    def test_cache_result_smoke(self):
-        """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
-        try:
-            instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
-            return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+    def test_cache_result_returns_true_on_success(self):
+        instance = IdempotencyManager()
+        result = instance.cache_result("key", "method", {"data": "value"})
+        assert result is True
 
 
 class TestCurrencyCode:
-    """Tests for the CurrencyCode enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(CurrencyCode, 'IDR')
         assert hasattr(CurrencyCode, 'USD')
         assert hasattr(CurrencyCode, 'EUR')
@@ -134,14 +110,11 @@ class TestCurrencyCode:
         assert hasattr(CurrencyCode, 'PLN')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(CurrencyCode.IDR, CurrencyCode)
 
 
 class TestRateType:
-    """Tests for the RateType enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(RateType, 'MID')
         assert hasattr(RateType, 'BUY')
         assert hasattr(RateType, 'SELL')
@@ -150,14 +123,11 @@ class TestRateType:
         assert hasattr(RateType, 'SWAP')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(RateType.MID, RateType)
 
 
 class TestRateProvider:
-    """Tests for the RateProvider enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(RateProvider, 'MANUAL')
         assert hasattr(RateProvider, 'BANK_INDONESIA')
         assert hasattr(RateProvider, 'BLOOMBERG')
@@ -172,14 +142,11 @@ class TestRateProvider:
         assert hasattr(RateProvider, 'YAHOO')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(RateProvider.MANUAL, RateProvider)
 
 
 class TestRateStatus:
-    """Tests for the RateStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(RateStatus, 'ACTIVE')
         assert hasattr(RateStatus, 'INACTIVE')
         assert hasattr(RateStatus, 'EXPIRED')
@@ -188,14 +155,11 @@ class TestRateStatus:
         assert hasattr(RateStatus, 'ARCHIVED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(RateStatus.ACTIVE, RateStatus)
 
 
 class TestRevaluationStatus:
-    """Tests for the RevaluationStatus enum."""
     def test_members_exist(self):
-        """All expected enum members are defined."""
         assert hasattr(RevaluationStatus, 'DRAFT')
         assert hasattr(RevaluationStatus, 'PROCESSED')
         assert hasattr(RevaluationStatus, 'POSTED')
@@ -203,678 +167,626 @@ class TestRevaluationStatus:
         assert hasattr(RevaluationStatus, 'CANCELLED')
 
     def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
         assert isinstance(RevaluationStatus.DRAFT, RevaluationStatus)
 
 
 class TestCurrencyInfoSchema:
-    """Tests for the CurrencyInfoSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            code=CurrencyCode.IDR,
-            name="test_value",
-            symbol="test_value",
-            decimal_places=1,
-            is_active=True,
-            is_base=True,
-            country="test_value",
-        )
-
     def test_construction_success(self):
-        """CurrencyInfoSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CurrencyInfoSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "code": CurrencyCode.IDR,
+            "name": "Rupiah",
+            "symbol": "Rp",
+            "decimal_places": 2,
+            "is_active": True,
+            "is_base": True,
+            "country": "Indonesia",
+        }
+        instance = CurrencyInfoSchema(**kwargs)
         assert isinstance(instance, CurrencyInfoSchema)
-        assert instance.code == kwargs['code']
+        assert instance.code == kwargs["code"]
 
 
 class TestExchangeRateCreateSchema:
-    """Tests for the ExchangeRateCreateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            from_currency=CurrencyCode.IDR,
-            to_currency=CurrencyCode.IDR,
-            rate=Decimal("100.00"),
-            rate_type=RateType.MID,
-            effective_date=date.today(),
-            provider=RateProvider.MANUAL,
-            bid_rate=Decimal("100.00"),
-            ask_rate=Decimal("100.00"),
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """ExchangeRateCreateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ExchangeRateCreateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "from_currency": CurrencyCode.USD,
+            "to_currency": CurrencyCode.IDR,
+            "rate": Decimal("15250"),
+            "rate_type": RateType.MID,
+            "effective_date": date.today(),
+            "provider": RateProvider.MANUAL,
+            "bid_rate": Decimal("15200"),
+            "ask_rate": Decimal("15300"),
+            "notes": "Manual rate",
+        }
+        instance = ExchangeRateCreateSchema(**kwargs)
         assert isinstance(instance, ExchangeRateCreateSchema)
-        assert instance.from_currency == kwargs['from_currency']
+        assert instance.from_currency == kwargs["from_currency"]
 
 
 class TestExchangeRateUpdateSchema:
-    """Tests for the ExchangeRateUpdateSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            rate=Decimal("100.00"),
-            bid_rate=Decimal("100.00"),
-            ask_rate=Decimal("100.00"),
-            provider=RateProvider.MANUAL,
-            notes="test_value",
-            status=RateStatus.ACTIVE,
-        )
-
     def test_construction_success(self):
-        """ExchangeRateUpdateSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ExchangeRateUpdateSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "rate": Decimal("15300"),
+            "bid_rate": Decimal("15250"),
+            "ask_rate": Decimal("15350"),
+            "provider": RateProvider.BANK_INDONESIA,
+            "notes": "Updated rate",
+            "status": RateStatus.ACTIVE,
+        }
+        instance = ExchangeRateUpdateSchema(**kwargs)
         assert isinstance(instance, ExchangeRateUpdateSchema)
-        assert instance.rate == kwargs['rate']
+        assert instance.rate == kwargs["rate"]
 
 
 class TestExchangeRateResponseSchema:
-    """Tests for the ExchangeRateResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            from_currency=CurrencyCode.IDR,
-            to_currency=CurrencyCode.IDR,
-            rate=Decimal("100.00"),
-            rate_type=RateType.MID,
-            effective_date=date.today(),
-            provider=RateProvider.MANUAL,
-            bid_rate=Decimal("100.00"),
-            ask_rate=Decimal("100.00"),
-            spread=Decimal("100.00"),
-            spread_percent=1.5,
-            status=RateStatus.ACTIVE,
-            is_locked=True,
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            version=1,
-        )
-
     def test_construction_success(self):
-        """ExchangeRateResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ExchangeRateResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        rate_id = uuid4()
+        kwargs = {
+            "id": rate_id,
+            "from_currency": CurrencyCode.USD,
+            "to_currency": CurrencyCode.IDR,
+            "rate": Decimal("15250"),
+            "rate_type": RateType.MID,
+            "effective_date": date.today(),
+            "provider": RateProvider.MANUAL,
+            "bid_rate": Decimal("15200"),
+            "ask_rate": Decimal("15300"),
+            "spread": Decimal("100"),
+            "spread_percent": 0.66,
+            "status": RateStatus.ACTIVE,
+            "is_locked": False,
+            "notes": "Manual rate",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "version": 1,
+        }
+        instance = ExchangeRateResponseSchema(**kwargs)
         assert isinstance(instance, ExchangeRateResponseSchema)
-        assert instance.id == kwargs['id']
+        assert instance.id == rate_id
 
 
 class TestExchangeRateListResponseSchema:
-    """Tests for the ExchangeRateListResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            items=[MagicMock()],
-            total=1,
-            page=1,
-            page_size=1,
-            as_of_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """ExchangeRateListResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ExchangeRateListResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "page_size": 10,
+            "as_of_date": date.today(),
+        }
+        instance = ExchangeRateListResponseSchema(**kwargs)
         assert isinstance(instance, ExchangeRateListResponseSchema)
-        assert instance.items == kwargs['items']
+        assert instance.items == kwargs["items"]
 
 
 class TestCurrencyConversionRequestSchema:
-    """Tests for the CurrencyConversionRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            from_currency=CurrencyCode.IDR,
-            to_currency=CurrencyCode.IDR,
-            amount=Decimal("100.00"),
-            as_of_date=date.today(),
-            rate_type=RateType.MID,
-            use_bank_rate=True,
-        )
-
     def test_construction_success(self):
-        """CurrencyConversionRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CurrencyConversionRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "from_currency": CurrencyCode.USD,
+            "to_currency": CurrencyCode.IDR,
+            "amount": Decimal("100"),
+            "as_of_date": date.today(),
+            "rate_type": RateType.MID,
+            "use_bank_rate": True,
+        }
+        instance = CurrencyConversionRequestSchema(**kwargs)
         assert isinstance(instance, CurrencyConversionRequestSchema)
-        assert instance.from_currency == kwargs['from_currency']
+        assert instance.from_currency == kwargs["from_currency"]
 
 
 class TestCurrencyConversionResponseSchema:
-    """Tests for the CurrencyConversionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            from_currency=CurrencyCode.IDR,
-            to_currency=CurrencyCode.IDR,
-            from_amount=Decimal("100.00"),
-            to_amount=Decimal("100.00"),
-            rate_used=Decimal("100.00"),
-            rate_type=RateType.MID,
-            effective_date=date.today(),
-            converted_at=datetime.now(UTC),
-            rate_id=uuid4(),
-        )
-
     def test_construction_success(self):
-        """CurrencyConversionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CurrencyConversionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "from_currency": CurrencyCode.USD,
+            "to_currency": CurrencyCode.IDR,
+            "from_amount": Decimal("100"),
+            "to_amount": Decimal("1525000"),
+            "rate_used": Decimal("15250"),
+            "rate_type": RateType.MID,
+            "effective_date": date.today(),
+            "converted_at": datetime.now(UTC),
+            "rate_id": uuid4(),
+        }
+        instance = CurrencyConversionResponseSchema(**kwargs)
         assert isinstance(instance, CurrencyConversionResponseSchema)
-        assert instance.from_currency == kwargs['from_currency']
+        assert instance.from_currency == kwargs["from_currency"]
 
 
 class TestBatchConversionRequestSchema:
-    """Tests for the BatchConversionRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            conversions=[MagicMock()],
-            as_of_date=date.today(),
-        )
-
     def test_construction_success(self):
-        """BatchConversionRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BatchConversionRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "conversions": [MagicMock()],
+            "as_of_date": date.today(),
+        }
+        instance = BatchConversionRequestSchema(**kwargs)
         assert isinstance(instance, BatchConversionRequestSchema)
-        assert instance.conversions == kwargs['conversions']
+        assert instance.conversions == kwargs["conversions"]
 
 
 class TestBatchConversionResponseSchema:
-    """Tests for the BatchConversionResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            results=[MagicMock()],
-            total_from_amount=Decimal("100.00"),
-            total_to_amount=Decimal("100.00"),
-            errors=[{}],
-        )
-
     def test_construction_success(self):
-        """BatchConversionResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = BatchConversionResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "results": [],
+            "total_from_amount": Decimal("1000"),
+            "total_to_amount": Decimal("15250000"),
+            "errors": [],
+        }
+        instance = BatchConversionResponseSchema(**kwargs)
         assert isinstance(instance, BatchConversionResponseSchema)
-        assert instance.results == kwargs['results']
+        assert instance.results == kwargs["results"]
 
 
 class TestCurrencyRevaluationRequestSchema:
-    """Tests for the CurrencyRevaluationRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            revaluation_date=date.today(),
-            functional_currency=CurrencyCode.IDR,
-            account_ids=[uuid4()],
-            post_to_ledger=True,
-            gain_account_code="test_value",
-            loss_account_code="test_value",
-            notes="test_value",
-        )
-
     def test_construction_success(self):
-        """CurrencyRevaluationRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CurrencyRevaluationRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "revaluation_date": date.today(),
+            "functional_currency": CurrencyCode.IDR,
+            "account_ids": [uuid4()],
+            "post_to_ledger": True,
+            "gain_account_code": "4100",
+            "loss_account_code": "5100",
+            "notes": "Monthly revaluation",
+        }
+        instance = CurrencyRevaluationRequestSchema(**kwargs)
         assert isinstance(instance, CurrencyRevaluationRequestSchema)
-        assert instance.revaluation_date == kwargs['revaluation_date']
+        assert instance.revaluation_date == kwargs["revaluation_date"]
 
 
 class TestCurrencyRevaluationResponseSchema:
-    """Tests for the CurrencyRevaluationResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            revaluation_id=uuid4(),
-            revaluation_number="test_value",
-            revaluation_date=date.today(),
-            functional_currency=CurrencyCode.IDR,
-            total_foreign_currency_balance=Decimal("100.00"),
-            total_gain=Decimal("100.00"),
-            total_loss=Decimal("100.00"),
-            net_gain_loss=Decimal("100.00"),
-            accounts_affected=[{}],
-            journal_id=uuid4(),
-            status=RevaluationStatus.DRAFT,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-            posted_at=datetime.now(UTC),
-            reversed_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """CurrencyRevaluationResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = CurrencyRevaluationResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        rev_id = uuid4()
+        kwargs = {
+            "revaluation_id": rev_id,
+            "revaluation_number": "REV-2026-001",
+            "revaluation_date": date.today(),
+            "functional_currency": CurrencyCode.IDR,
+            "total_foreign_currency_balance": Decimal("100000000"),
+            "total_gain": Decimal("500000"),
+            "total_loss": Decimal("200000"),
+            "net_gain_loss": Decimal("300000"),
+            "accounts_affected": [],
+            "journal_id": uuid4(),
+            "status": RevaluationStatus.DRAFT,
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "admin",
+            "posted_at": None,
+            "reversed_at": None,
+        }
+        instance = CurrencyRevaluationResponseSchema(**kwargs)
         assert isinstance(instance, CurrencyRevaluationResponseSchema)
-        assert instance.revaluation_id == kwargs['revaluation_id']
+        assert instance.revaluation_id == rev_id
 
 
 class TestHistoricalRateResponseSchema:
-    """Tests for the HistoricalRateResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            from_currency=CurrencyCode.IDR,
-            to_currency=CurrencyCode.IDR,
-            rate_type=RateType.MID,
-            entries=[{}],
-            period_start=date.today(),
-            period_end=date.today(),
-            average_rate=Decimal("100.00"),
-            min_rate=Decimal("100.00"),
-            max_rate=Decimal("100.00"),
-            volatility=1.5,
-            trend="test_value",
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """HistoricalRateResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = HistoricalRateResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "from_currency": CurrencyCode.USD,
+            "to_currency": CurrencyCode.IDR,
+            "rate_type": RateType.MID,
+            "entries": [],
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "average_rate": Decimal("15250"),
+            "min_rate": Decimal("15100"),
+            "max_rate": Decimal("15400"),
+            "volatility": 0.5,
+            "trend": "stable",
+            "generated_at": datetime.now(UTC),
+        }
+        instance = HistoricalRateResponseSchema(**kwargs)
         assert isinstance(instance, HistoricalRateResponseSchema)
-        assert instance.from_currency == kwargs['from_currency']
+        assert instance.from_currency == kwargs["from_currency"]
 
 
 class TestForexDashboardResponseSchema:
-    """Tests for the ForexDashboardResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            as_of_date=date.today(),
-            functional_currency=CurrencyCode.IDR,
-            latest_rates={},
-            month_to_date_gain_loss=Decimal("100.00"),
-            year_to_date_gain_loss=Decimal("100.00"),
-            open_positions={},
-            pending_revaluations=1,
-            last_revaluation_date=date.today(),
-            last_revaluation_result={},
-            rate_providers_status={},
-            currency_heatmap=[{}],
-            generated_at=datetime.now(UTC),
-        )
-
     def test_construction_success(self):
-        """ForexDashboardResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = ForexDashboardResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "as_of_date": date.today(),
+            "functional_currency": CurrencyCode.IDR,
+            "latest_rates": {},
+            "month_to_date_gain_loss": Decimal("100000"),
+            "year_to_date_gain_loss": Decimal("500000"),
+            "open_positions": {},
+            "pending_revaluations": 1,
+            "last_revaluation_date": date.today(),
+            "last_revaluation_result": {},
+            "rate_providers_status": {},
+            "currency_heatmap": [],
+            "generated_at": datetime.now(UTC),
+        }
+        instance = ForexDashboardResponseSchema(**kwargs)
         assert isinstance(instance, ForexDashboardResponseSchema)
-        assert instance.as_of_date == kwargs['as_of_date']
+        assert instance.as_of_date == kwargs["as_of_date"]
 
 
 class TestRateSyncRequestSchema:
-    """Tests for the RateSyncRequestSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            provider=RateProvider.MANUAL,
-            effective_date=date.today(),
-            currencies=[CurrencyCode.IDR],
-            dry_run=True,
-        )
-
     def test_construction_success(self):
-        """RateSyncRequestSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RateSyncRequestSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "provider": RateProvider.BANK_INDONESIA,
+            "effective_date": date.today(),
+            "currencies": [CurrencyCode.USD, CurrencyCode.EUR],
+            "dry_run": False,
+        }
+        instance = RateSyncRequestSchema(**kwargs)
         assert isinstance(instance, RateSyncRequestSchema)
-        assert instance.provider == kwargs['provider']
+        assert instance.provider == kwargs["provider"]
 
 
 class TestRateSyncResponseSchema:
-    """Tests for the RateSyncResponseSchema value object / model."""
-
-    def _build_kwargs(self):
-        return dict(
-            provider=RateProvider.MANUAL,
-            effective_date=date.today(),
-            rates_synced=1,
-            new_rates=1,
-            updated_rates=1,
-            failed_currencies=["test_value"],
-            errors=["test_value"],
-            duration_ms=1.5,
-            synced_at=datetime.now(UTC),
-            synced_by=uuid4(),
-        )
-
     def test_construction_success(self):
-        """RateSyncResponseSchema can be constructed with valid field values."""
-        kwargs = self._build_kwargs()
-        try:
-            instance = RateSyncResponseSchema(**kwargs)
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
-            return
+        kwargs = {
+            "provider": RateProvider.BANK_INDONESIA,
+            "effective_date": date.today(),
+            "rates_synced": 10,
+            "new_rates": 5,
+            "updated_rates": 5,
+            "failed_currencies": [],
+            "errors": [],
+            "duration_ms": 150.5,
+            "synced_at": datetime.now(UTC),
+            "synced_by": uuid4(),
+        }
+        instance = RateSyncResponseSchema(**kwargs)
         assert isinstance(instance, RateSyncResponseSchema)
-        assert instance.provider == kwargs['provider']
+        assert instance.provider == kwargs["provider"]
 
 
-async def test_get_forex_svc_smoke():
-    """Smoke test for module-level function get_forex_svc."""
-    try:
-        result = await get_forex_svc(request=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_forex_svc needs specific input data: {e}")
-        return
-    assert True
+# ============================================================================
+# MODULE-LEVEL FUNCTIONS (ROUTER ENDPOINTS)
+# ============================================================================
+
+async def test_get_forex_svc_returns_service():
+    request = MagicMock()
+    result = await get_forex_svc(request=request)
+    assert result is not None
 
 
-async def test_get_forex_revaluation_use_case_smoke():
-    """Smoke test for module-level function get_forex_revaluation_use_case."""
-    try:
-        result = await get_forex_revaluation_use_case()
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_forex_revaluation_use_case needs specific input data: {e}")
-        return
-    assert True
+async def test_get_forex_revaluation_use_case_returns_use_case():
+    result = await get_forex_revaluation_use_case()
+    assert result is not None
 
 
-async def test_get_supported_currencies_smoke():
-    """Smoke test for module-level function get_supported_currencies."""
-    try:
-        result = await get_supported_currencies(_permission=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_supported_currencies needs specific input data: {e}")
-        return
-    assert True
+async def test_get_supported_currencies_returns_list():
+    result = await get_supported_currencies(_permission=MagicMock())
+    assert isinstance(result, list)
 
 
-async def test_create_exchange_rate_smoke():
-    """Smoke test for module-level function create_exchange_rate."""
-    try:
-        result = await create_exchange_rate(request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"create_exchange_rate needs specific input data: {e}")
-        return
-    assert True
+async def test_create_exchange_rate_returns_rate():
+    forex_svc = MagicMock()
+    forex_svc.create_exchange_rate = MagicMock(return_value={"id": str(uuid4())})
+    result = await create_exchange_rate(
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_exchange_rate_by_id_smoke():
-    """Smoke test for module-level function get_exchange_rate_by_id."""
-    try:
-        result = await get_exchange_rate_by_id(rate_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_exchange_rate_by_id needs specific input data: {e}")
-        return
-    assert True
+async def test_get_exchange_rate_by_id_returns_rate():
+    forex_svc = MagicMock()
+    forex_svc.get_exchange_rate_by_id = MagicMock(return_value={"id": str(uuid4())})
+    result = await get_exchange_rate_by_id(
+        rate_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_get_current_exchange_rate_smoke():
-    """Smoke test for module-level function get_current_exchange_rate."""
-    try:
-        result = await get_current_exchange_rate(from_currency=CurrencyCode.IDR, to_currency=CurrencyCode.IDR, rate_type=RateType.MID, as_of_date=date.today(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_current_exchange_rate needs specific input data: {e}")
-        return
-    assert True
+async def test_get_current_exchange_rate_returns_rate():
+    forex_svc = MagicMock()
+    forex_svc.get_current_exchange_rate = MagicMock(return_value={"rate": 15250})
+    result = await get_current_exchange_rate(
+        from_currency=CurrencyCode.USD,
+        to_currency=CurrencyCode.IDR,
+        rate_type=RateType.MID,
+        as_of_date=date.today(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "rate" in result
 
 
-async def test_list_exchange_rates_smoke():
-    """Smoke test for module-level function list_exchange_rates."""
-    try:
-        result = await list_exchange_rates(from_currency=CurrencyCode.IDR, to_currency=CurrencyCode.IDR, rate_type=RateType.MID, effective_date=date.today(), provider=RateProvider.MANUAL, page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_exchange_rates needs specific input data: {e}")
-        return
-    assert True
+async def test_list_exchange_rates_returns_list():
+    forex_svc = MagicMock()
+    forex_svc.list_exchange_rates = MagicMock(return_value=[])
+    result = await list_exchange_rates(
+        from_currency=CurrencyCode.USD,
+        to_currency=CurrencyCode.IDR,
+        rate_type=RateType.MID,
+        effective_date=date.today(),
+        provider=RateProvider.MANUAL,
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert isinstance(result, list)
 
 
-async def test_update_exchange_rate_smoke():
-    """Smoke test for module-level function update_exchange_rate."""
-    try:
-        result = await update_exchange_rate(rate_id=uuid4(), request=MagicMock(), idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"update_exchange_rate needs specific input data: {e}")
-        return
-    assert True
+async def test_update_exchange_rate_returns_updated():
+    forex_svc = MagicMock()
+    forex_svc.update_exchange_rate = MagicMock(return_value={"id": str(uuid4())})
+    result = await update_exchange_rate(
+        rate_id=uuid4(),
+        request=MagicMock(),
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "id" in result
 
 
-async def test_deactivate_exchange_rate_smoke():
-    """Smoke test for module-level function deactivate_exchange_rate."""
-    try:
-        result = await deactivate_exchange_rate(rate_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"deactivate_exchange_rate needs specific input data: {e}")
-        return
-    assert True
+async def test_deactivate_exchange_rate_returns_success():
+    forex_svc = MagicMock()
+    forex_svc.deactivate_exchange_rate = MagicMock(return_value={"success": True})
+    result = await deactivate_exchange_rate(
+        rate_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_lock_exchange_rate_smoke():
-    """Smoke test for module-level function lock_exchange_rate."""
-    try:
-        result = await lock_exchange_rate(rate_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"lock_exchange_rate needs specific input data: {e}")
-        return
-    assert True
+async def test_lock_exchange_rate_returns_success():
+    forex_svc = MagicMock()
+    forex_svc.lock_exchange_rate = MagicMock(return_value={"success": True})
+    result = await lock_exchange_rate(
+        rate_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_unlock_exchange_rate_smoke():
-    """Smoke test for module-level function unlock_exchange_rate."""
-    try:
-        result = await unlock_exchange_rate(rate_id=uuid4(), reason="test_value", idempotency_key="test_value", _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"unlock_exchange_rate needs specific input data: {e}")
-        return
-    assert True
+async def test_unlock_exchange_rate_returns_success():
+    forex_svc = MagicMock()
+    forex_svc.unlock_exchange_rate = MagicMock(return_value={"success": True})
+    result = await unlock_exchange_rate(
+        rate_id=uuid4(),
+        reason="test",
+        idempotency_key="key",
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_convert_currency_smoke():
-    """Smoke test for module-level function convert_currency."""
-    try:
-        result = await convert_currency(request=MagicMock(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"convert_currency needs specific input data: {e}")
-        return
-    assert True
+async def test_convert_currency_returns_conversion():
+    forex_svc = MagicMock()
+    forex_svc.convert_currency = MagicMock(return_value={"to_amount": 1525000})
+    result = await convert_currency(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "to_amount" in result
 
 
-async def test_batch_convert_currency_smoke():
-    """Smoke test for module-level function batch_convert_currency."""
-    try:
-        result = await batch_convert_currency(request=MagicMock(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"batch_convert_currency needs specific input data: {e}")
-        return
-    assert True
+async def test_batch_convert_currency_returns_batch_result():
+    forex_svc = MagicMock()
+    forex_svc.batch_convert_currency = MagicMock(return_value={"results": []})
+    result = await batch_convert_currency(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "results" in result
 
 
-async def test_get_historical_rates_smoke():
-    """Smoke test for module-level function get_historical_rates."""
-    try:
-        result = await get_historical_rates(from_currency=CurrencyCode.IDR, to_currency=CurrencyCode.IDR, start_date=date.today(), end_date=date.today(), rate_type=RateType.MID, _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_historical_rates needs specific input data: {e}")
-        return
-    assert True
+async def test_get_historical_rates_returns_history():
+    forex_svc = MagicMock()
+    forex_svc.get_historical_rates = MagicMock(return_value={"entries": []})
+    result = await get_historical_rates(
+        from_currency=CurrencyCode.USD,
+        to_currency=CurrencyCode.IDR,
+        start_date=date.today(),
+        end_date=date.today(),
+        rate_type=RateType.MID,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "entries" in result
 
 
-async def test_run_currency_revaluation_smoke():
-    """Smoke test for module-level function run_currency_revaluation."""
-    try:
-        result = await run_currency_revaluation(request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), revaluation_use_case=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"run_currency_revaluation needs specific input data: {e}")
-        return
-    assert True
+async def test_run_currency_revaluation_returns_revaluation():
+    revaluation_use_case = MagicMock()
+    revaluation_use_case.run_revaluation = MagicMock(return_value={"revaluation_id": str(uuid4())})
+    result = await run_currency_revaluation(
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        revaluation_use_case=revaluation_use_case,
+    )
+    assert result is not None
+    assert "revaluation_id" in result
 
 
-async def test_list_currency_revaluations_smoke():
-    """Smoke test for module-level function list_currency_revaluations."""
-    try:
-        result = await list_currency_revaluations(start_date=date.today(), end_date=date.today(), status=RevaluationStatus.DRAFT, page=1, page_size=1, _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"list_currency_revaluations needs specific input data: {e}")
-        return
-    assert True
+async def test_list_currency_revaluations_returns_list():
+    forex_svc = MagicMock()
+    forex_svc.list_currency_revaluations = MagicMock(return_value=[])
+    result = await list_currency_revaluations(
+        start_date=date.today(),
+        end_date=date.today(),
+        status=RevaluationStatus.DRAFT,
+        page=1,
+        page_size=10,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_currency_revaluation_smoke():
-    """Smoke test for module-level function get_currency_revaluation."""
-    try:
-        result = await get_currency_revaluation(revaluation_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_currency_revaluation needs specific input data: {e}")
-        return
-    assert True
+async def test_get_currency_revaluation_returns_revaluation():
+    forex_svc = MagicMock()
+    forex_svc.get_currency_revaluation = MagicMock(return_value={"revaluation_id": str(uuid4())})
+    result = await get_currency_revaluation(
+        revaluation_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "revaluation_id" in result
 
 
-async def test_reverse_currency_revaluation_smoke():
-    """Smoke test for module-level function reverse_currency_revaluation."""
-    try:
-        result = await reverse_currency_revaluation(revaluation_id=uuid4(), reason="test_value", reversal_date=date.today(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"reverse_currency_revaluation needs specific input data: {e}")
-        return
-    assert True
+async def test_reverse_currency_revaluation_returns_success():
+    forex_svc = MagicMock()
+    forex_svc.reverse_currency_revaluation = MagicMock(return_value={"success": True})
+    result = await reverse_currency_revaluation(
+        revaluation_id=uuid4(),
+        reason="test",
+        reversal_date=date.today(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert result.get("success") is True
 
 
-async def test_sync_rates_from_provider_smoke():
-    """Smoke test for module-level function sync_rates_from_provider."""
-    try:
-        result = await sync_rates_from_provider(provider=RateProvider.MANUAL, request=MagicMock(), _permission=MagicMock(), current_user=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"sync_rates_from_provider needs specific input data: {e}")
-        return
-    assert True
+async def test_sync_rates_from_provider_returns_sync_result():
+    forex_svc = MagicMock()
+    forex_svc.sync_rates_from_provider = MagicMock(return_value={"rates_synced": 10})
+    result = await sync_rates_from_provider(
+        provider=RateProvider.MANUAL,
+        request=MagicMock(),
+        _permission=MagicMock(),
+        current_user=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "rates_synced" in result
 
 
-async def test_get_rate_providers_smoke():
-    """Smoke test for module-level function get_rate_providers."""
-    try:
-        result = await get_rate_providers(_permission=MagicMock(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_rate_providers needs specific input data: {e}")
-        return
-    assert True
+async def test_get_rate_providers_returns_list():
+    forex_svc = MagicMock()
+    forex_svc.get_rate_providers = MagicMock(return_value=[])
+    result = await get_rate_providers(
+        _permission=MagicMock(),
+        forex_svc=forex_svc,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_forex_position_smoke():
-    """Smoke test for module-level function get_forex_position."""
-    try:
-        result = await get_forex_position(as_of_date=date.today(), functional_currency=CurrencyCode.IDR, _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_forex_position needs specific input data: {e}")
-        return
-    assert True
+async def test_get_forex_position_returns_position():
+    forex_svc = MagicMock()
+    forex_svc.get_forex_position = MagicMock(return_value={"total_position": 1000})
+    result = await get_forex_position(
+        as_of_date=date.today(),
+        functional_currency=CurrencyCode.IDR,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "total_position" in result
 
 
-async def test_get_forex_dashboard_smoke():
-    """Smoke test for module-level function get_forex_dashboard."""
-    try:
-        result = await get_forex_dashboard(as_of_date=date.today(), functional_currency=CurrencyCode.IDR, _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_forex_dashboard needs specific input data: {e}")
-        return
-    assert True
+async def test_get_forex_dashboard_returns_dashboard():
+    forex_svc = MagicMock()
+    forex_svc.get_forex_dashboard = MagicMock(return_value={"as_of_date": date.today()})
+    result = await get_forex_dashboard(
+        as_of_date=date.today(),
+        functional_currency=CurrencyCode.IDR,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "as_of_date" in result
 
 
-async def test_get_rate_history_smoke():
-    """Smoke test for module-level function get_rate_history."""
-    try:
-        result = await get_rate_history(rate_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_rate_history needs specific input data: {e}")
-        return
-    assert True
+async def test_get_rate_history_returns_history():
+    forex_svc = MagicMock()
+    forex_svc.get_rate_history = MagicMock(return_value=[])
+    result = await get_rate_history(
+        rate_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert isinstance(result, list)
 
 
-async def test_get_rate_status_smoke():
-    """Smoke test for module-level function get_rate_status."""
-    try:
-        result = await get_rate_status(rate_id=uuid4(), _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"get_rate_status needs specific input data: {e}")
-        return
-    assert True
+async def test_get_rate_status_returns_status():
+    forex_svc = MagicMock()
+    forex_svc.get_rate_status = MagicMock(return_value={"status": "active"})
+    result = await get_rate_status(
+        rate_id=uuid4(),
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "status" in result
 
 
-async def test_export_exchange_rates_smoke():
-    """Smoke test for module-level function export_exchange_rates."""
-    try:
-        result = await export_exchange_rates(start_date=date.today(), end_date=date.today(), format="test_value", from_currency=CurrencyCode.IDR, _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_exchange_rates needs specific input data: {e}")
-        return
-    assert True
+async def test_export_exchange_rates_returns_export():
+    forex_svc = MagicMock()
+    forex_svc.export_exchange_rates = MagicMock(return_value={"file": "base64data"})
+    result = await export_exchange_rates(
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        from_currency=CurrencyCode.USD,
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "file" in result
 
 
-async def test_export_revaluation_history_smoke():
-    """Smoke test for module-level function export_revaluation_history."""
-    try:
-        result = await export_revaluation_history(start_date=date.today(), end_date=date.today(), format="test_value", _permission=MagicMock(), legal_entity_id=uuid4(), forex_svc=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"export_revaluation_history needs specific input data: {e}")
-        return
-    assert True
+async def test_export_revaluation_history_returns_export():
+    forex_svc = MagicMock()
+    forex_svc.export_revaluation_history = MagicMock(return_value={"file": "base64data"})
+    result = await export_revaluation_history(
+        start_date=date.today(),
+        end_date=date.today(),
+        format="csv",
+        _permission=MagicMock(),
+        legal_entity_id=uuid4(),
+        forex_svc=forex_svc,
+    )
+    assert result is not None
+    assert "file" in result

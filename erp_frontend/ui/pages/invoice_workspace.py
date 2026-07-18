@@ -91,6 +91,7 @@ class InvoiceWorkspacePage(QWidget):
     def __init__(self, config: InvoiceWorkspaceConfig, parent=None):
         super().__init__(parent)
         self.config = config
+        self.page = 1
         self._records: list[dict[str, Any]] = []
         self._build_ui()
         self.refresh()
@@ -128,13 +129,23 @@ class InvoiceWorkspacePage(QWidget):
         toolbar = QHBoxLayout()
         self.status_filter = QComboBox()
         self.status_filter.addItems(STATUS_FILTERS)
-        self.status_filter.currentTextChanged.connect(lambda _t: self.refresh())
+        self.status_filter.currentTextChanged.connect(lambda _t: self._reset_and_refresh())
         toolbar.addWidget(self.status_filter)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Cari no. invoice...")
+        self.search_edit.setMaximumWidth(200)
+        self.search_edit.returnPressed.connect(self._reset_and_refresh)
+        toolbar.addWidget(self.search_edit)
 
         refresh_btn = QPushButton("⟳ Refresh")
         refresh_btn.clicked.connect(self.refresh)
         toolbar.addWidget(refresh_btn)
         toolbar.addStretch()
+
+        detail_btn = QPushButton("🔍 Lihat Detail")
+        detail_btn.clicked.connect(self._view_detail)
+        toolbar.addWidget(detail_btn)
 
         self.action_btn = QToolButton()
         self.action_btn.setText("Aksi Workflow ▾")
@@ -167,7 +178,21 @@ class InvoiceWorkspacePage(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
+        self.table.doubleClicked.connect(lambda *_: self._view_detail())
         layout.addWidget(self.table, stretch=1)
+
+        pager_row = QHBoxLayout()
+        self.pager_label = QLabel("")
+        self.pager_label.setStyleSheet("color:#6B7280;")
+        pager_row.addWidget(self.pager_label)
+        pager_row.addStretch()
+        self.prev_btn = QPushButton("‹ Sebelumnya")
+        self.prev_btn.clicked.connect(self._prev_page)
+        self.next_btn = QPushButton("Berikutnya ›")
+        self.next_btn.clicked.connect(self._next_page)
+        pager_row.addWidget(self.prev_btn)
+        pager_row.addWidget(self.next_btn)
+        layout.addLayout(pager_row)
 
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
@@ -206,11 +231,20 @@ class InvoiceWorkspacePage(QWidget):
         return tab
 
     # ------------------------------------------------------------------
+    PAGE_SIZE = 50
+
+    def _reset_and_refresh(self) -> None:
+        self.page = 1
+        self.refresh()
+
     def refresh(self) -> None:
-        params: dict[str, Any] = {"page": 1, "page_size": 100}
+        params: dict[str, Any] = {"page": self.page, "page_size": self.PAGE_SIZE}
         status = self.status_filter.currentText()
         if status != "Semua":
             params["status"] = status
+        search = self.search_edit.text().strip()
+        if search:
+            params["search"] = search
         self.status_label.setText("Memuat invoice...")
         run_task(api_client.get, on_success=self._on_loaded, on_error=self._on_error,
                   path=f"{self.config.base_path}/invoices", params=params)
@@ -237,7 +271,34 @@ class InvoiceWorkspacePage(QWidget):
                     item.setForeground(QColor(status_color(val)))
                 self.table.setItem(row, col, item)
         self.table.resizeColumnsToContents()
+        start = (self.page - 1) * self.PAGE_SIZE + 1 if self._records else 0
+        end = start + len(self._records) - 1 if self._records else 0
+        self.pager_label.setText(f"Menampilkan {start}-{end}")
+        self.prev_btn.setEnabled(self.page > 1)
+        self.next_btn.setEnabled(len(self._records) == self.PAGE_SIZE)
         self.status_label.setText(f"{len(self._records)} invoice dimuat.")
+
+    def _prev_page(self) -> None:
+        if self.page > 1:
+            self.page -= 1
+            self.refresh()
+
+    def _next_page(self) -> None:
+        self.page += 1
+        self.refresh()
+
+    def _view_detail(self) -> None:
+        record = self._selected_record()
+        if not record:
+            QMessageBox.information(self, "Info", "Pilih invoice terlebih dahulu.")
+            return
+        invoice_id = record.get("id")
+        run_task(api_client.get, on_success=self._show_detail_dialog, on_error=self._on_error,
+                  path=f"{self.config.base_path}/invoices/{invoice_id}")
+
+    def _show_detail_dialog(self, data: dict[str, Any]) -> None:
+        dlg = InvoiceDetailDialog(self.config, data, parent=self)
+        dlg.exec()
 
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Gagal memuat: {message}")
@@ -462,9 +523,39 @@ class InvoiceFormDialog(QDialog):
         if not self.invoice_no_edit.text().strip():
             QMessageBox.warning(self, "Validasi", "No. invoice wajib diisi.")
             return
-        if self.line_table.rowCount() == 0 or not self._cell(0, 0).strip():
+        if not self.desc_edit.text().strip():
+            QMessageBox.warning(self, "Validasi", "Deskripsi invoice wajib diisi (field ini wajib di backend).")
+            return
+        if self.due_date.date() < self.invoice_date.date():
+            QMessageBox.warning(self, "Validasi", "Tanggal jatuh tempo tidak boleh sebelum tanggal invoice.")
+            return
+
+        filled_rows = [r for r in range(self.line_table.rowCount()) if self._cell(r, 0).strip()]
+        if not filled_rows:
             QMessageBox.warning(self, "Validasi", "Minimal 1 baris invoice diperlukan.")
             return
+
+        for row in filled_rows:
+            qty = _to_decimal(self._cell(row, 1))
+            unit_price = _to_decimal(self._cell(row, 2))
+            discount = _to_decimal(self._cell(row, 3))
+            tax = _to_decimal(self._cell(row, 4))
+            account_code = self._cell(row, 5).strip()
+            if qty <= 0:
+                QMessageBox.warning(self, "Validasi", f"Baris {row + 1}: Qty harus > 0.")
+                return
+            if unit_price <= 0:
+                QMessageBox.warning(self, "Validasi", f"Baris {row + 1}: Harga satuan harus > 0.")
+                return
+            if not (0 <= discount <= 100):
+                QMessageBox.warning(self, "Validasi", f"Baris {row + 1}: Diskon harus di antara 0-100%.")
+                return
+            if not (0 <= tax <= 100):
+                QMessageBox.warning(self, "Validasi", f"Baris {row + 1}: Pajak harus di antara 0-100%.")
+                return
+            if not account_code:
+                QMessageBox.warning(self, "Validasi", f"Baris {row + 1}: Kode akun wajib diisi ({self.config.account_hint}).")
+                return
         self.accept()
 
 
@@ -987,3 +1078,70 @@ class ThreeWayMatchTab(QWidget):
     def _on_error(self, message: str) -> None:
         QMessageBox.warning(self, "Gagal", message)
         self.status_label.setText("Gagal.")
+
+
+# ==========================================================================
+class InvoiceDetailDialog(QDialog):
+    """Menampilkan header + baris invoice yang sudah ada (read-only)."""
+
+    def __init__(self, config: InvoiceWorkspaceConfig, data: dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.data = data
+        inv_number = data.get(config.invoice_number_field, data.get("invoice_number", ""))
+        self.setWindowTitle(f"Detail Invoice — {inv_number}")
+        self.resize(700, 520)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        data = self.data
+
+        party_name = data.get("customer_name") or data.get("vendor_name") or data.get("supplier_name") or "-"
+        header = QLabel(
+            f"<b>No. Invoice:</b> {data.get(self.config.invoice_number_field, data.get('invoice_number', ''))}"
+            f" &nbsp;|&nbsp; <b>Status:</b> "
+            f"<span style='color:{status_color(str(data.get('status')))}'>{data.get('status')}</span><br>"
+            f"<b>{self.config.party_label}:</b> {party_name}<br>"
+            f"<b>Tanggal Invoice:</b> {format_date(data.get('invoice_date'))} &nbsp;|&nbsp; "
+            f"<b>Jatuh Tempo:</b> {format_date(data.get('due_date'))}<br>"
+            f"<b>Deskripsi:</b> {data.get('description', '-')}<br>"
+            f"<b>No. Referensi:</b> {data.get('reference_number') or '-'}"
+        )
+        header.setWordWrap(True)
+        outer.addWidget(header)
+
+        outer.addWidget(QLabel("<b>Baris Invoice:</b>"))
+        lines = data.get("lines", []) or []
+        table = QTableWidget(len(lines), 6)
+        table.setHorizontalHeaderLabels(["Deskripsi", "Qty", "Harga Satuan", "Diskon%", "Pajak%", "Subtotal"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        for r, line in enumerate(lines):
+            values = [
+                line.get("description", ""),
+                str(line.get("quantity", "")),
+                format_money(line.get("unit_price")),
+                str(line.get("discount_percent", 0)),
+                str(line.get("tax_rate", 0)),
+                format_money(line.get("subtotal", line.get("line_total"))),
+            ]
+            for c, v in enumerate(values):
+                table.setItem(r, c, QTableWidgetItem(v))
+        table.resizeColumnsToContents()
+        outer.addWidget(table, stretch=1)
+
+        summary = QLabel(
+            f"<b>Subtotal:</b> {format_money(data.get('subtotal'))} &nbsp;|&nbsp; "
+            f"<b>Pajak:</b> {format_money(data.get('tax_amount'))} &nbsp;|&nbsp; "
+            f"<b>Total:</b> {format_money(data.get('total_amount'))}<br>"
+            f"<b>Terbayar:</b> {format_money(data.get('paid_amount'))} &nbsp;|&nbsp; "
+            f"<b>Sisa:</b> {format_money(data.get('outstanding_amount'))}"
+        )
+        outer.addWidget(summary)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        outer.addWidget(buttons)
