@@ -1,21 +1,21 @@
 {
-  "timestamp": "2026-07-18T06:31:14.664491Z",
-  "version": "1.5.3",
+  "timestamp": "2026-07-18T06:41:20.503461Z",
+  "version": "2.0.0",
   "summary": {
-    "total_duration_seconds": 0.622,
-    "passed": 10,
-    "total_tests": 10,
+    "total_duration_seconds": 0.607,
+    "passed": 16,
+    "total_tests": 16,
     "score_percent": 100.0
   },
   "results": [
     {
-      "name": "Trial Balance (Debit = Credit)",
+      "name": "Trial Balance (Global Debit=Credit)",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.517,
+      "duration_seconds": 0.505,
       "severity": "WARNING",
       "details": {
-        "note": "Tidak ada data transaksi"
+        "note": "No data"
       },
       "error": null,
       "suggested_fix": null,
@@ -23,30 +23,24 @@
       "evidence": []
     },
     {
-      "name": "Duplicate Journal Numbers",
+      "name": "Duplicate Journal Numbers (Global)",
       "category": "DATA_INTEGRITY",
       "passed": true,
       "duration_seconds": 0.005,
       "severity": "INFO",
-      "details": {
-        "duplicate_count": 0,
-        "sample": []
-      },
+      "details": {},
       "error": null,
       "suggested_fix": null,
       "rca": null,
       "evidence": []
     },
     {
-      "name": "Invalid Account References (FK Integrity)",
+      "name": "Invalid Account References (FK)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.017,
+      "duration_seconds": 0.014,
       "severity": "INFO",
-      "details": {
-        "invalid_accounts_found": 0,
-        "sample": []
-      },
+      "details": {},
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -56,10 +50,10 @@
       "name": "Subledger vs GL Reconciliation",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.008,
+      "duration_seconds": 0.004,
       "severity": "WARNING",
       "details": {
-        "note": "Tidak ada tabel subledger yang ditemukan"
+        "note": "No subledger"
       },
       "error": null,
       "suggested_fix": null,
@@ -70,10 +64,10 @@
       "name": "Negative Stock / Inventory",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.005,
+      "duration_seconds": 0.004,
       "severity": "WARNING",
       "details": {
-        "note": "Tidak ada tabel inventory yang ditemukan"
+        "note": "No inventory table"
       },
       "error": null,
       "suggested_fix": null,
@@ -84,11 +78,9 @@
       "name": "Transactions Outside Fiscal Period",
       "category": "BUSINESS_RULE",
       "passed": true,
-      "duration_seconds": 0.027,
+      "duration_seconds": 0.021,
       "severity": "INFO",
-      "details": {
-        "status": "Semua periode valid"
-      },
+      "details": {},
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -98,11 +90,10 @@
       "name": "Optimistic Lock Version Consistency",
       "category": "CONCURRENCY",
       "passed": true,
-      "duration_seconds": 0.005,
+      "duration_seconds": 0.004,
       "severity": "INFO",
       "details": {
-        "table": "general_ledger",
-        "note": "Tidak ada data"
+        "checked": 0
       },
       "error": null,
       "suggested_fix": null,
@@ -110,13 +101,13 @@
       "evidence": []
     },
     {
-      "name": "Audit Trail Integrity (Immutability)",
+      "name": "Audit Trail Integrity (Hash Chain)",
       "category": "SECURITY",
       "passed": true,
       "duration_seconds": 0.004,
       "severity": "WARNING",
       "details": {
-        "note": "Tidak ada tabel audit trail yang ditemukan"
+        "note": "No audit table"
       },
       "error": null,
       "suggested_fix": null,
@@ -124,13 +115,77 @@
       "evidence": []
     },
     {
-      "name": "Orphaned Records (Journal tanpa periode)",
+      "name": "Orphaned Records (Journal Ref)",
+      "category": "DATA_INTEGRITY",
+      "passed": true,
+      "duration_seconds": 0.002,
+      "severity": "WARNING",
+      "details": {
+        "note": "Tables missing"
+      },
+      "error": null,
+      "suggested_fix": null,
+      "rca": null,
+      "evidence": []
+    },
+    {
+      "name": "Duplicate Master Data (Account, Customer, Supplier)",
+      "category": "DATA_INTEGRITY",
+      "passed": true,
+      "duration_seconds": 0.024,
+      "severity": "INFO",
+      "details": {},
+      "error": null,
+      "suggested_fix": null,
+      "rca": null,
+      "evidence": []
+    },
+    {
+      "name": "Trial Balance by Legal Entity & Period",
+      "category": "ACCOUNTING",
+      "passed": true,
+      "duration_seconds": 0.004,
+      "severity": "INFO",
+      "details": {
+        "status": "All entities/periods balanced"
+      },
+      "error": null,
+      "suggested_fix": null,
+      "rca": null,
+      "evidence": []
+    },
+    {
+      "name": "Journal Duplicates by Period/Entity",
+      "category": "DATA_INTEGRITY",
+      "passed": true,
+      "duration_seconds": 0.003,
+      "severity": "INFO",
+      "details": {},
+      "error": null,
+      "suggested_fix": null,
+      "rca": null,
+      "evidence": []
+    },
+    {
+      "name": "Expanded FK Integrity (Customer, Vendor, Project)",
+      "category": "DATA_INTEGRITY",
+      "passed": true,
+      "duration_seconds": 0.001,
+      "severity": "INFO",
+      "details": {},
+      "error": null,
+      "suggested_fix": null,
+      "rca": null,
+      "evidence": []
+    },
+    {
+      "name": "Inventory Sanity (On-Hand, Reserved, Available)",
       "category": "DATA_INTEGRITY",
       "passed": true,
       "duration_seconds": 0.003,
       "severity": "WARNING",
       "details": {
-        "note": "Tabel journal tidak ditemukan"
+        "note": "No inventory table"
       },
       "error": null,
       "suggested_fix": null,
@@ -138,14 +193,26 @@
       "evidence": []
     },
     {
-      "name": "Duplicate Master Data (Account, Customer, dll.)",
-      "category": "DATA_INTEGRITY",
+      "name": "Missing Posting Check (Invoice vs GL)",
+      "category": "BUSINESS_FLOW",
       "passed": true,
-      "duration_seconds": 0.027,
+      "duration_seconds": 0.001,
       "severity": "INFO",
       "details": {
-        "status": "Tidak ada duplikasi yang ditemukan"
+        "note": "No missing postings found or tables not fully compatible"
       },
+      "error": null,
+      "suggested_fix": null,
+      "rca": null,
+      "evidence": []
+    },
+    {
+      "name": "Date Sequence Sanity (Posting vs Document)",
+      "category": "BUSINESS_RULE",
+      "passed": true,
+      "duration_seconds": 0.004,
+      "severity": "INFO",
+      "details": {},
       "error": null,
       "suggested_fix": null,
       "rca": null,
