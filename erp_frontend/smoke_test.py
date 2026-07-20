@@ -90,6 +90,8 @@ def main() -> int:
         "project_advanced": ("ui.pages.project_advanced_page", "ProjectAdvancedPage"),
         "report_generation": ("ui.pages.report_generation_page", "ReportGenerationPage"),
         "umkm_advanced": ("ui.pages.umkm_advanced_page", "UmkmAdvancedPage"),
+        "bom": ("ui.pages.bom_routing_page", "BomRoutingPage"),
+        "routing": ("ui.pages.bom_routing_page", "BomRoutingPage"),
     }
 
     for key, (mod_path, cls_name) in {**CUSTOM_PAGES, **MODULE_PAGE_MAP}.items():
@@ -117,6 +119,14 @@ def main() -> int:
         tested += 2
     except Exception as e:
         errors.append(("forex_workspace", str(e)))
+
+    try:
+        from ui.pages.order_workspace_page import OrderWorkspacePage, PO_CONFIG, SO_CONFIG
+        OrderWorkspacePage(PO_CONFIG)
+        OrderWorkspacePage(SO_CONFIG)
+        tested += 2
+    except Exception as e:
+        errors.append(("order_workspace", str(e)))
 
     if errors:
         print(f"  ❌ {len(errors)}/{tested} halaman GAGAL dibuat:")

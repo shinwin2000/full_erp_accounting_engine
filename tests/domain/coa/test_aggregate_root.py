@@ -66,14 +66,12 @@ from domain.coa.account_normal_balance_vo import NormalBalance
 from domain.coa.account_type_enum import AccountType
 from domain.coa.aggregate_root import (
     AccountAggregate,
-    COAAggregate,
-    COARepository,
-    COAStatus,
     ChartOfAccounts,
     ChartOfAccountsAggregate,
+    COAAggregate,
+    COAStatus,
     InMemoryCOARepository,
 )
-
 
 # ============================================================================
 # Reset shared ClassVar state between tests

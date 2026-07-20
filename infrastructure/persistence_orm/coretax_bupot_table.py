@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -91,8 +91,10 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
     coretax_status_code: Mapped[str | None] = mapped_column(String(20))
     coretax_status_description: Mapped[str | None] = mapped_column(Text)
     coretax_response_raw: Mapped[dict | None] = mapped_column(JSONB)
-    coretax_submitted_at: Mapped[datetime | None] = mapped_column(DateTime)
-    coretax_approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    # ===== PERBAIKAN TIMESTAMP =====
+    coretax_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    coretax_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     void_reason: Mapped[str | None] = mapped_column(Text)
 
@@ -101,7 +103,7 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         ForeignKey("iam_user.id", ondelete="SET NULL"),
         nullable=True,
     )
-    void_at: Mapped[datetime | None] = mapped_column(DateTime)
+    void_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -141,14 +143,14 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         self.status = BupotStatus.SUBMITTED
         self.coretax_submission_id = submission_id
         self.coretax_response_raw = response
-        self.coretax_submitted_at = datetime.utcnow()
+        self.coretax_submitted_at = datetime.now(UTC)
         if hasattr(self, "increment_version"):
             self.increment_version()
 
     def mark_approved(self, response: dict) -> None:
         self.status = BupotStatus.APPROVED
         self.coretax_response_raw = response
-        self.coretax_approved_at = datetime.utcnow()
+        self.coretax_approved_at = datetime.now(UTC)
         if hasattr(self, "increment_version"):
             self.increment_version()
 
@@ -163,7 +165,7 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         self.status = BupotStatus.VOID
         self.void_reason = reason
         self.void_by = user_id
-        self.void_at = datetime.utcnow()
+        self.void_at = datetime.now(UTC)
         if hasattr(self, "increment_version"):
             self.increment_version()
 

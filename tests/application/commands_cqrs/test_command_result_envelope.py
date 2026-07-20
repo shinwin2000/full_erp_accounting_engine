@@ -7,8 +7,7 @@ All tests PASS and follow forensic-grade standards.
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -24,7 +23,6 @@ from application.commands_cqrs.command_result_envelope import (
     result_from_exception,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -32,7 +30,7 @@ from application.commands_cqrs.command_result_envelope import (
 @pytest.fixture
 def fixed_time() -> datetime:
     """Fixed timestamp for deterministic testing."""
-    return datetime(2026, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(2026, 7, 15, 12, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture

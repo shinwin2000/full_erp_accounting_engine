@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, getcontext
 from enum import Enum, auto
@@ -27,9 +27,15 @@ logger = logging.getLogger(__name__)
 
 getcontext().prec = 28
 
+# ============================================================================
+# EXCEPTIONS
+# ============================================================================
+class ConservationOfValueError(Exception):
+    """Exception raised when conservation of value axiom is violated."""
+    pass
+
 
 # === 1. ENUMS ===
-
 
 class ValueFlowType(Enum):
     SOURCE_TO_DESTINATION = auto()
@@ -88,8 +94,7 @@ class InvalidValueFlowError(Exception):
     pass
 
 
-# === 3. VALUE OBJECTS ===
-
+# === 3. VALUE OBJECTS =========================================================
 
 @dataclass(kw_only=True)
 class ValueNode:
@@ -916,7 +921,6 @@ class ConservationOfValueValidator:
         tolerance: Decimal | None = None,
         auto_correct: bool = False,
     ):
-        # Implementasi dari kode asli (disingkat untuk contoh)
         sources = []
         destinations = []
         for idx, line in enumerate(journal_lines):
@@ -1184,8 +1188,156 @@ class ConservationOfValueAxiom:
             self._violation_history = []
 
 
-# === 6. HELPER FUNCTIONS ===
+# === 6. ADDITIONAL VALUE TYPES FOR TEST COMPATIBILITY ========================
 
+@dataclass
+class ValuePool:
+    """Representasi pool nilai (akun/saldo)."""
+    pool_id: UUID
+    balance: Decimal
+    pool_type: str = "cash"
+    currency: str = "IDR"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def apply_debit(self, amount: Decimal) -> ValuePool:
+        if amount < 0:
+            raise ValueError("Debit amount must be non-negative")
+        if self.balance < amount:
+            raise ValueError(f"Insufficient balance: {self.balance} < {amount}")
+        return ValuePool(
+            pool_id=self.pool_id,
+            balance=self.balance - amount,
+            pool_type=self.pool_type,
+            currency=self.currency,
+            metadata=self.metadata,
+        )
+
+    def apply_credit(self, amount: Decimal) -> ValuePool:
+        if amount < 0:
+            raise ValueError("Credit amount must be positive")
+        return ValuePool(
+            pool_id=self.pool_id,
+            balance=self.balance + amount,
+            pool_type=self.pool_type,
+            currency=self.currency,
+            metadata=self.metadata,
+        )
+
+
+@dataclass
+class ValueTransfer:
+    """Transfer nilai antara dua pool."""
+    source: ValuePool
+    destination: ValuePool
+    amount: Decimal
+    fee: Decimal = Decimal(0)
+    tax: Decimal = Decimal(0)
+    executed: bool = False
+
+    def execute(self) -> ValueTransfer:
+        if self.executed:
+            raise ValueError("Transfer already executed")
+        if self.amount <= 0:
+            raise ValueError("Amount must be positive")
+        if self.fee < 0 or self.tax < 0:
+            raise ValueError("Fee and tax must be non-negative")
+
+        total_debit = self.amount + self.fee + self.tax
+        if self.source.balance < total_debit:
+            raise ValueError(f"Insufficient balance: need {total_debit}, have {self.source.balance}")
+
+        self.source = self.source.apply_debit(total_debit)
+        self.destination = self.destination.apply_credit(self.amount)
+        self.executed = True
+        return self
+
+    def reverse(self) -> ValueTransfer:
+        """Balik transfer (source <-> destination)."""
+        if not self.executed:
+            raise ValueError("Cannot reverse unexecuted transfer")
+        return ValueTransfer(
+            source=self.destination,
+            destination=self.source,
+            amount=self.amount,
+            fee=self.fee,
+            tax=self.tax,
+            executed=False,
+        )
+
+
+@dataclass
+class ValueConservationRule:
+    """Aturan konservasi nilai untuk validasi."""
+    name: str = "Default Conservation Rule"
+    description: str = "Ensures value is conserved in transfers"
+    is_active: bool = True
+    tolerance: Decimal = Decimal("0.01")
+
+    def apply(self, transfer: ValueTransfer) -> dict[str, Any]:
+        """Periksa konservasi nilai pada transfer."""
+        if not self.is_active:
+            return {"valid": True, "violations": []}
+        violations = []
+        required = transfer.amount + transfer.fee + transfer.tax
+        if transfer.source.balance < required:
+            violations.append(f"Insufficient balance: need {required}, have {transfer.source.balance}")
+        total_before = transfer.source.balance + transfer.destination.balance
+        # Simulasikan eksekusi
+        temp_source = transfer.source.balance - required
+        temp_dest = transfer.destination.balance + transfer.amount
+        total_after = temp_source + temp_dest
+        if abs(total_after - total_before) > self.tolerance:
+            violations.append(f"Value leak: before {total_before}, after {total_after}, diff {total_after - total_before}")
+        return {"valid": len(violations) == 0, "violations": violations}
+
+
+# === 7. VALIDATION FUNCTIONS (modul-level) ===================================
+
+def validate_conservation_of_value(
+    transfer: ValueTransfer,
+    include_pools: list[ValuePool] | None = None,
+) -> tuple[bool, list[str]]:
+    """Validasi konservasi nilai untuk satu transfer."""
+    rule = ValueConservationRule()
+    result = rule.apply(transfer)
+    violations = result.get("violations", [])
+    if include_pools:
+        total_before = transfer.source.balance + transfer.destination.balance + sum(p.balance for p in include_pools)
+        # simulasi eksekusi + include pools
+        temp_source = transfer.source.balance - (transfer.amount + transfer.fee + transfer.tax)
+        temp_dest = transfer.destination.balance + transfer.amount
+        total_after = temp_source + temp_dest + sum(p.balance for p in include_pools)
+        if abs(total_after - total_before) > Decimal("0.01"):
+            violations.append(f"Conservation failed with extra pools: before {total_before}, after {total_after}")
+    return len(violations) == 0, violations
+
+
+def validate_value_flow(flow: ValueFlow) -> tuple[bool, list[str]]:
+    """Validasi flow nilai."""
+    violations = []
+    try:
+        is_conserved, record, _ = ConservationOfValueValidator.validate_flow(flow)
+        if not is_conserved:
+            violations.append(record.violation_message or "Flow not conserved")
+    except Exception as e:
+        violations.append(str(e))
+    return len(violations) == 0, violations
+
+
+def validate_value_pool(pool: ValuePool) -> tuple[bool, list[str]]:
+    """Validasi pool nilai."""
+    violations = []
+    if pool.balance < 0:
+        violations.append(f"Balance cannot be negative: {pool.balance}")
+    return len(violations) == 0, violations
+
+
+def validate_value_transfer(transfer: ValueTransfer) -> tuple[bool, list[str]]:
+    """Validasi transfer nilai."""
+    return validate_conservation_of_value(transfer)
+
+
+# === 8. HELPER FUNCTIONS =====================================================
 
 def create_value_node(
     category: ValueCategory,
@@ -1236,7 +1388,7 @@ def create_journal_line_dict(
     }
 
 
-# === 7. SINGLETON ACCESSOR ===
+# === 9. SINGLETON ACCESSOR ===================================================
 
 _conservation_axiom_instance: ConservationOfValueAxiom | None = None
 
@@ -1248,6 +1400,8 @@ def get_conservation_axiom() -> ConservationOfValueAxiom:
     return _conservation_axiom_instance
 
 
+# === 10. EXPORTS =============================================================
+
 __all__ = [
     "ConservationOfValueAxiom",
     "ConservationOfValueValidator",
@@ -1256,10 +1410,17 @@ __all__ = [
     "ConservationViolationSeverity",
     "InvalidValueFlowError",
     "ValueCategory",
+    "ValueConservationRule",
     "ValueFlow",
     "ValueFlowType",
     "ValueNode",
+    "ValuePool",
+    "ValueTransfer",
     "create_journal_line_dict",
     "create_value_node",
     "get_conservation_axiom",
+    "validate_conservation_of_value",
+    "validate_value_flow",
+    "validate_value_pool",
+    "validate_value_transfer",
 ]

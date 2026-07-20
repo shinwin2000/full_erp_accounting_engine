@@ -10,8 +10,6 @@ from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-import pytest
-
 from adapters.primary_api.v1.fastapi_report_router import (
     DeliveryMethod,
     IdempotencyManager,

@@ -12,7 +12,6 @@ import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -30,7 +29,6 @@ from constitution.constitutional_invariants import (
     get_constitutional_invariants_service,
     get_validator_for_invariant,
 )
-
 
 # ============================================================================
 # Helper Functions

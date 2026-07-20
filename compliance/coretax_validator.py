@@ -167,7 +167,7 @@ class CoreTaxValidator:
     Mencakup validasi faktur, e-bupot, NTPN, NSFP, SPT, dan API response.
     """
 
-    # Format regex
+    # Format regex (semua menggunakan raw string untuk menghindari SyntaxWarning)
     FAKTUR_PATTERN = re.compile(r"^\d{3}\.\d{3}-\d{2}\.\d{8}$")
     NTPN_PATTERN = re.compile(r"^\d{16}$")
     NSFP_PATTERN = re.compile(r"^\d{3}\.\d{3}-\d{2}\.\d{8}$")

@@ -1551,6 +1551,10 @@ def register_all_handlers(registry=None) -> int:
 
     return registered_count
 
+# ============================================================================
+# ALIAS UNTUK BACKWARD COMPATIBILITY (digunakan oleh test)
+# ============================================================================
+handle_register_all_handlers = register_all_handlers
 
 # ============================================================================
 # AUTO-REGISTER (saat modul diimpor)

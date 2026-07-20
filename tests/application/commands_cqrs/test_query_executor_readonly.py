@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -40,7 +39,6 @@ from application.commands_cqrs.query_executor_readonly import (
     ReadReplicaRouterPort,
     audit,
 )
-
 
 # ============================================================================
 # Suppress unraisable exception warnings (socket issues on Windows)

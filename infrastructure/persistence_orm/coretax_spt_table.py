@@ -3,6 +3,10 @@
 Module: coretax_spt_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Tabel untuk SPT (Surat Pemberitahuan) yang disubmit ke Coretax DJP.
+
+Perbaikan timezone:
+    - submitted_at menggunakan DateTime(timezone=True)
+    - default menggunakan datetime.now(timezone.utc)
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ class CoretaxSPTTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_coretax_spt_npwp_tahun_bulan", "npwp", "tahun", "bulan"),
         Index("idx_coretax_spt_status", "status"),
         Index("idx_coretax_spt_legal_entity", "legal_entity_id"),
+        {"extend_existing": True},
     )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -42,10 +47,13 @@ class CoretaxSPTTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     xml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     coretax_tracking_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    approval_date: Mapped[date | None] = mapped_column(Date)
-    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    approval_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    submitted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    # ===== PERBAIKAN TIMESTAMP =====
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     def to_dict(self) -> dict[str, Any]:

@@ -288,6 +288,10 @@ class PurchaseInvoice:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     legal_entity_id: UUID | None = None
     lines: list[InvoiceLine] = field(default_factory=list)
+    # Tambahan field untuk alasan pembatalan, dispute, write-off
+    cancel_reason: str | None = None
+    dispute_reason: str | None = None
+    write_off_reason: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -306,6 +310,10 @@ class SalesInvoice:
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     legal_entity_id: UUID | None = None
     lines: list[InvoiceLine] = field(default_factory=list)
+    # Tambahan field untuk alasan pembatalan, dispute, write-off
+    cancel_reason: str | None = None
+    dispute_reason: str | None = None
+    write_off_reason: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -464,12 +472,12 @@ class PurchaseSalesService:
             po_lines.append(
                 PurchaseOrderLine(
                     product_id=UUID(line["product_id"]),
-                    product_code=line["product_code"] if "product_code" in line else "",
-                    product_name=line["product_name"] if "product_name" in line else "",
+                    product_code=line.get("product_code", ""),
+                    product_name=line.get("product_name", ""),
                     quantity=Decimal(str(line["quantity"])),
                     unit_price=Decimal(str(line["unit_price"])),
-                    discount_percentage=Decimal(str(line["discount_percentage"] if "discount_percentage" in line else 0)),
-                    tax_rate=Decimal(str(line["tax_rate"] if "tax_rate" in line else 11)),
+                    discount_percentage=Decimal(str(line.get("discount_percentage", 0))),
+                    tax_rate=Decimal(str(line.get("tax_rate", 11))),
                 )
             )
 
@@ -638,12 +646,12 @@ class PurchaseSalesService:
             gr_lines.append(
                 GoodsReceiptLine(
                     product_id=UUID(line["product_id"]),
-                    product_code=line["product_code"] if "product_code" in line else "",
-                    product_name=line["product_name"] if "product_name" in line else "",
-                    ordered_quantity=Decimal(str(line["ordered_quantity"] if "ordered_quantity" in line else 0)),
+                    product_code=line.get("product_code", ""),
+                    product_name=line.get("product_name", ""),
+                    ordered_quantity=Decimal(str(line.get("ordered_quantity", 0))),
                     received_quantity=Decimal(str(line["received_quantity"])),
-                    rejected_quantity=Decimal(str(line["rejected_quantity"] if "rejected_quantity" in line else 0)),
-                    unit_cost=Decimal(str(line["unit_cost"] if "unit_cost" in line else 0)),
+                    rejected_quantity=Decimal(str(line.get("rejected_quantity", 0))),
+                    unit_cost=Decimal(str(line.get("unit_cost", 0))),
                 )
             )
 
@@ -719,13 +727,13 @@ class PurchaseSalesService:
                 invoice_lines.append(
                     InvoiceLine(
                         product_id=UUID(line["product_id"]),
-                        product_code=line["product_code"] if "product_code" in line else "",
-                        product_name=line["product_name"] if "product_name" in line else "",
-                        quantity=Decimal(str(line["quantity"] if "quantity" in line else 0)),
-                        unit_price=Decimal(str(line["unit_price"] if "unit_price" in line else 0)),
-                        discount_percentage=Decimal(str(line["discount_percentage"] if "discount_percentage" in line else 0)),
-                        tax_rate=Decimal(str(line["tax_rate"] if "tax_rate" in line else 11)),
-                        total_amount=Decimal(str(line["total_amount"] if "total_amount" in line else 0)),
+                        product_code=line.get("product_code", ""),
+                        product_name=line.get("product_name", ""),
+                        quantity=Decimal(str(line.get("quantity", 0))),
+                        unit_price=Decimal(str(line.get("unit_price", 0))),
+                        discount_percentage=Decimal(str(line.get("discount_percentage", 0))),
+                        tax_rate=Decimal(str(line.get("tax_rate", 11))),
+                        total_amount=Decimal(str(line.get("total_amount", 0))),
                     )
                 )
 
@@ -1124,12 +1132,12 @@ class PurchaseSalesService:
             so_lines.append(
                 SalesOrderLine(
                     product_id=UUID(line["product_id"]),
-                    product_code=line["product_code"] if "product_code" in line else "",
-                    product_name=line["product_name"] if "product_name" in line else "",
+                    product_code=line.get("product_code", ""),
+                    product_name=line.get("product_name", ""),
                     quantity=Decimal(str(line["quantity"])),
                     unit_price=Decimal(str(line["unit_price"])),
-                    discount_percentage=Decimal(str(line["discount_percentage"] if "discount_percentage" in line else 0)),
-                    tax_rate=Decimal(str(line["tax_rate"] if "tax_rate" in line else 11)),
+                    discount_percentage=Decimal(str(line.get("discount_percentage", 0))),
+                    tax_rate=Decimal(str(line.get("tax_rate", 11))),
                 )
             )
 
@@ -1298,11 +1306,11 @@ class PurchaseSalesService:
             dn_lines.append(
                 DeliveryNoteLine(
                     product_id=UUID(line["product_id"]),
-                    product_code=line["product_code"] if "product_code" in line else "",
-                    product_name=line["product_name"] if "product_name" in line else "",
-                    ordered_quantity=Decimal(str(line["ordered_quantity"] if "ordered_quantity" in line else 0)),
+                    product_code=line.get("product_code", ""),
+                    product_name=line.get("product_name", ""),
+                    ordered_quantity=Decimal(str(line.get("ordered_quantity", 0))),
                     delivered_quantity=Decimal(str(line["delivered_quantity"])),
-                    unit_price=Decimal(str(line["unit_price"] if "unit_price" in line else 0)),
+                    unit_price=Decimal(str(line.get("unit_price", 0))),
                 )
             )
 
@@ -1378,13 +1386,13 @@ class PurchaseSalesService:
                 invoice_lines.append(
                     InvoiceLine(
                         product_id=UUID(line["product_id"]),
-                        product_code=line["product_code"] if "product_code" in line else "",
-                        product_name=line["product_name"] if "product_name" in line else "",
-                        quantity=Decimal(str(line["quantity"] if "quantity" in line else 0)),
-                        unit_price=Decimal(str(line["unit_price"] if "unit_price" in line else 0)),
-                        discount_percentage=Decimal(str(line["discount_percentage"] if "discount_percentage" in line else 0)),
-                        tax_rate=Decimal(str(line["tax_rate"] if "tax_rate" in line else 11)),
-                        total_amount=Decimal(str(line["total_amount"] if "total_amount" in line else 0)),
+                        product_code=line.get("product_code", ""),
+                        product_name=line.get("product_name", ""),
+                        quantity=Decimal(str(line.get("quantity", 0))),
+                        unit_price=Decimal(str(line.get("unit_price", 0))),
+                        discount_percentage=Decimal(str(line.get("discount_percentage", 0))),
+                        tax_rate=Decimal(str(line.get("tax_rate", 11))),
+                        total_amount=Decimal(str(line.get("total_amount", 0))),
                     )
                 )
 
@@ -1398,6 +1406,8 @@ class PurchaseSalesService:
             lines=invoice_lines,
             created_by=created_by,
             legal_entity_id=legal_entity_id,
+            # Set status langsung ISSUED karena event issued dipublikasikan
+            status=DocumentStatus.ISSUED,
         )
 
         self._sales_invoices[invoice.id] = invoice

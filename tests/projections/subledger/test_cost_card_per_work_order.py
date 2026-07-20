@@ -5,19 +5,18 @@
 # Strategy: Globally patch the database session provider to prevent DB calls and skips.
 
 from datetime import date
-from uuid import uuid4
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
+from infrastructure.database.session_factory_sqlalchemy import dispose
 from projections.subledger.cost_card_per_work_order import (
     CostCardError,
     CostCardPerWorkOrder,
     CostCardTable,
     get_cost_card_projection,
 )
-
-from infrastructure.database.session_factory_sqlalchemy import dispose
 
 # Tentukan lokasi fungsi get_session yang sebenarnya diimpor oleh modul target.
 # Biasanya ini ada di infrastructure.database.session_factory_sqlalchemy
@@ -35,17 +34,17 @@ async def cleanup_db_session():
 def mock_db_session():
     """Create a robust mocked async DB session."""
     session = AsyncMock(spec=['execute', 'scalars', 'commit', 'close', 'rollback'])
-    
+
     # Konfigurasi return values agar tidak mengembalikan coroutine saat diakses atributnya
     mock_result = MagicMock()
     mock_result.scalar_one_or_none = MagicMock(return_value=None)
     mock_result.scalars = MagicMock(return_value=[])
     mock_result.all = MagicMock(return_value=[])
-    
+
     # session.execute() mengembalikan mock_result
     session.execute = AsyncMock(return_value=mock_result)
     session.scalars = AsyncMock(return_value=[])
-    
+
     return session
 
 
@@ -76,7 +75,7 @@ class TestCostCardPerWorkOrder:
         """Smoke test for compute_cost_card with global DB mocking."""
         work_order_id = uuid4()
         legal_entity_id = uuid4()
-        
+
         # Patch di sumbernya (where it is imported from)
         with patch(DB_SESSION_PATH, return_value=mock_db_session):
             try:
@@ -97,7 +96,7 @@ class TestCostCardPerWorkOrder:
                     pytest.fail(f"DB Mock failed to intercept call: {e}")
                 # Pass untuk smoke test jika sampai ke logika bisnis yang gagal
                 pass
-        
+
         assert True
 
     async def test_save_cost_card_smoke(self, mock_db_session):
@@ -107,7 +106,7 @@ class TestCostCardPerWorkOrder:
             "total_cost": 100.00,
             "status": "calculated"
         }
-        
+
         with patch(DB_SESSION_PATH, return_value=mock_db_session):
             try:
                 instance = self._build_instance()
@@ -121,13 +120,13 @@ class TestCostCardPerWorkOrder:
                 if "connection" in str(e).lower() or "session" in str(e).lower():
                     pytest.fail(f"DB Mock failed to intercept call: {e}")
                 pass
-        
+
         assert True
 
     async def test_get_cost_card_smoke(self, mock_db_session):
         """Smoke test for get_cost_card with global DB mocking."""
         work_order_id = uuid4()
-        
+
         with patch(DB_SESSION_PATH, return_value=mock_db_session):
             try:
                 instance = self._build_instance()
@@ -141,7 +140,7 @@ class TestCostCardPerWorkOrder:
                 if "connection" in str(e).lower() or "session" in str(e).lower():
                     pytest.fail(f"DB Mock failed to intercept call: {e}")
                 pass
-        
+
         assert True
 
     async def test_get_cost_cards_by_period_smoke(self, mock_db_session):
@@ -149,13 +148,13 @@ class TestCostCardPerWorkOrder:
         legal_entity_id = uuid4()
         start_date = date.today()
         end_date = date.today()
-        
+
         with patch(DB_SESSION_PATH, return_value=mock_db_session):
             try:
                 instance = self._build_instance()
                 await instance.get_cost_cards_by_period(
-                    legal_entity_id=legal_entity_id, 
-                    start_date=start_date, 
+                    legal_entity_id=legal_entity_id,
+                    start_date=start_date,
                     end_date=end_date
                 )
             except AttributeError as e:
@@ -167,7 +166,7 @@ class TestCostCardPerWorkOrder:
                 if "connection" in str(e).lower() or "session" in str(e).lower():
                     pytest.fail(f"DB Mock failed to intercept call: {e}")
                 pass
-        
+
         assert True
 
 
@@ -182,7 +181,7 @@ class TestCostCardTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory."""
-        kwargs = {} 
+        kwargs = {}
         try:
             instance = CostCardTable(**kwargs)
         except TypeError as e:

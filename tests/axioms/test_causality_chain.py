@@ -9,13 +9,12 @@ CausalityChainAxiom, CausalityChainValidator, helper functions
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from axioms.causality_chain import (
-    CausalLink,
     CausalityChainAxiom,
     CausalityChainValidator,
     CausalityRecord,
@@ -23,13 +22,13 @@ from axioms.causality_chain import (
     CausalityType,
     CausalityViolation,
     CausalityViolationSeverity,
+    CausalLink,
     EvidenceType,
     create_causal_link_dict,
     get_causality_chain_axiom,
     get_causality_type_from_string,
     get_evidence_type_from_string,
 )
-
 
 # ============================================================================
 # HELPER FUNCTIONS

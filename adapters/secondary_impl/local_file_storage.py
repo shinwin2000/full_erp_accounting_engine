@@ -11,9 +11,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import mimetypes
 import logging
-import os
+import mimetypes
 import shutil
 import time
 from datetime import UTC, datetime, timedelta
@@ -66,7 +65,7 @@ class LocalFileStorage(FileStoragePort):
     def _load_metadata(self):
         """Load metadata dari file JSON."""
         if self.metadata_path.exists():
-            with open(self.metadata_path, "r") as f:
+            with open(self.metadata_path) as f:
                 self._metadata = json.load(f)
         else:
             self._metadata = {}

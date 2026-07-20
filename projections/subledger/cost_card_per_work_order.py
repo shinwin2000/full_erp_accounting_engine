@@ -98,7 +98,7 @@ class CostCardPerWorkOrder:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
         return await self._session_factory.get_session()
-    
+
     async def compute_cost_card(self, work_order_id: UUID, legal_entity_id: UUID) -> dict[str, Any]:
         async with await self._get_session() as session:
             wo_stmt = select(WorkOrderTable).where(

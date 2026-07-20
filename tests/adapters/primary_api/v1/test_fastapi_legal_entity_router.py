@@ -11,8 +11,6 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-import pytest
-
 from adapters.primary_api.v1.fastapi_legal_entity_router import (
     BranchCreateSchema,
     BranchResponseSchema,

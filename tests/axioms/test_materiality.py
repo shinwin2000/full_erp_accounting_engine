@@ -9,7 +9,7 @@ MaterialityValidator, MaterialityAxiom, helper functions
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -17,7 +17,6 @@ import pytest
 
 from axioms.materiality import (
     MaterialityAxiom,
-    MaterialityDimension,
     MaterialityJudgment,
     MaterialitySeverity,
     MaterialityThreshold,
@@ -30,7 +29,6 @@ from axioms.materiality import (
     create_qualitative_factor_from_string,
     get_materiality_axiom,
 )
-
 
 # ============================================================================
 # HELPER FUNCTIONS

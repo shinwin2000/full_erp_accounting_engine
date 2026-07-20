@@ -6,7 +6,7 @@ Mencakup: ContainerProtocol, DummyContainer, ApplicationFactory,
 create_app, shutdown_app
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

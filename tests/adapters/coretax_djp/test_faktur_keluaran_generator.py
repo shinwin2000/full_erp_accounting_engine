@@ -8,7 +8,6 @@ Mencakup: FakturKeluaran, FakturKeluaranGenerator
 from __future__ import annotations
 
 import base64
-import tempfile
 from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,15 +15,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from adapters.coretax_djp.faktur_keluaran_generator import (
-    CORETAX_FAKTUR_ENDPOINT,
-    FakturError,
+    PPN_RATE,
     FakturInvalidStateError,
     FakturKeluaran,
     FakturKeluaranGenerator,
     FakturLockedError,
     FakturStatus,
     FakturValidationError,
-    PPN_RATE,
     get_faktur_generator,
 )
 
@@ -1299,7 +1296,6 @@ class TestFakturKeluaranAdditional:
 
     def test_sign_with_private_key(self):
         from cryptography.hazmat.primitives.asymmetric import rsa
-        from cryptography.hazmat.primitives import serialization
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         faktur = FakturKeluaran(
             faktur_number="010.2026.05.00000001",
@@ -1799,4 +1795,4 @@ class TestFakturKeluaranGeneratorAdditional:
             gen1 = await get_faktur_generator()
             gen2 = await get_faktur_generator()
             assert gen1 is gen2
-            assert MockGen.call_count == 1       
+            assert MockGen.call_count == 1

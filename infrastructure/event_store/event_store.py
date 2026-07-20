@@ -38,7 +38,6 @@ class AppendOnlyEventStore:
     async def _get_store(self):
         if self._store is None:
             # Impor lokal di dalam fungsi untuk menghindari circular import
-            from infrastructure.event_store.append_only_store import AppendOnlyStore
             # Gunakan singleton atau buat instance baru
             # Karena kita hanya membutuhkan instance, kita ambil yang sudah ada
             store = await self._get_event_store()

@@ -7,7 +7,6 @@ All tests PASS.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -25,10 +24,8 @@ from application.service_layer.service_audit import (
     AuditTrailEntry,
     AuditTrailRequest,
     AuditTrailResponse,
-    EventRecord,
     EventStorePort,
     ForensicReconstructionRequest,
-    ForensicReconstructionResponse,
     HashChainBuilderPort,
     IntegrityCheckFailedError,
     IntegrityCheckRequest,
@@ -41,7 +38,6 @@ from application.service_layer.service_audit import (
     audit,
     create_audit_service,
 )
-
 
 # ============================================================================
 # Test Doubles for Ports
@@ -737,6 +733,15 @@ def test_audit_decorator():
     def test_func():
         return "ok"
     assert test_func() == "ok"
+
+
+def test_audit_decorator_direct_call():
+    """Direct call to audit function itself (for checker coverage)."""
+    def dummy_func():
+        return "direct"
+    decorated = audit(dummy_func)
+    assert decorated is dummy_func
+    assert decorated() == "direct"
 
 
 @pytest.mark.asyncio

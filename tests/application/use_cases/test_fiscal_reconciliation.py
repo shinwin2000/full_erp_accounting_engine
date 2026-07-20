@@ -19,7 +19,6 @@ from application.use_cases.fiscal_reconciliation import (
     fiscal_reconciliation_handler,
 )
 
-
 # ============================================================================
 # Test FiscalReconciliationCommand
 # ============================================================================

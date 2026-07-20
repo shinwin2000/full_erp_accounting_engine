@@ -5,10 +5,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -42,7 +41,6 @@ from application.commands_cqrs.command_bus_unified import (
 )
 from application.commands_cqrs.command_result_envelope import CommandResult
 from kernel.context_holder import (
-    ContextHolder,
     ExecutionContext,
     get_context_holder,
 )

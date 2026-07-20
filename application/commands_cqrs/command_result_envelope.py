@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Generic, TypeVar
@@ -78,7 +78,7 @@ class CommandResult(Generic[T]):
     data: T | None = None
     error: str | None = None
     error_code: str | None = None
-    occurred_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # FIXED: timezone.UTC -> timezone.utc
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))  # FIXED: timezone.UTC -> timezone.utc
     metadata: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -176,7 +176,7 @@ class CommandResult(Generic[T]):
             command_id=command_id,
             status=CommandStatus.SUCCESS,
             data=data,
-            occurred_at=occurred_at or datetime.now(timezone.utc),  # FIXED
+            occurred_at=occurred_at or datetime.now(UTC),  # FIXED
             metadata=metadata,
         )
 
@@ -195,7 +195,7 @@ class CommandResult(Generic[T]):
             status=CommandStatus.FAILURE,
             error=error,
             error_code=error_code,
-            occurred_at=occurred_at or datetime.now(timezone.utc),  # FIXED
+            occurred_at=occurred_at or datetime.now(UTC),  # FIXED
             metadata=metadata,
         )
 
@@ -214,7 +214,7 @@ class CommandResult(Generic[T]):
             status=CommandStatus.DUPLICATE,
             error=message,
             error_code=error_code,
-            occurred_at=occurred_at or datetime.now(timezone.utc),  # FIXED
+            occurred_at=occurred_at or datetime.now(UTC),  # FIXED
             metadata=metadata,
         )
 
@@ -232,7 +232,7 @@ class CommandResult(Generic[T]):
             status=CommandStatus.PENDING,
             error=message,
             error_code="PENDING",
-            occurred_at=occurred_at or datetime.now(timezone.utc),  # FIXED
+            occurred_at=occurred_at or datetime.now(UTC),  # FIXED
             metadata=metadata,
         )
 
@@ -251,7 +251,7 @@ class CommandResult(Generic[T]):
             status=CommandStatus.PARTIAL,
             error=message,
             error_code="PARTIAL_SUCCESS",
-            occurred_at=occurred_at or datetime.now(timezone.utc),  # FIXED
+            occurred_at=occurred_at or datetime.now(UTC),  # FIXED
             metadata={"partial_results": [r.to_dict() for r in partial_results], **metadata},
         )
 
@@ -346,7 +346,7 @@ class CommandResultBatch:
     results: list[CommandResult] = field(default_factory=list)
     partial_failure_allowed: bool = False
     batch_id: UUID = field(default_factory=uuid4)
-    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # FIXED
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))  # FIXED
     completed_at: datetime | None = None
 
     def add(self, result: CommandResult) -> None:
@@ -359,7 +359,7 @@ class CommandResultBatch:
 
     def complete(self) -> None:
         """Mark batch as completed."""
-        self.completed_at = datetime.now(timezone.utc)  # FIXED
+        self.completed_at = datetime.now(UTC)  # FIXED
 
     def all_successful(self) -> bool:
         """Check if all results are successful."""

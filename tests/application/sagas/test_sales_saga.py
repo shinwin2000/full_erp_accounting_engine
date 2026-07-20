@@ -84,12 +84,50 @@ class TestSalesSagaContext:
         assert isinstance(instance, SalesSagaContext)
         assert instance.saga_id == kwargs['saga_id']
 
+    # ---- Additional tests for setter methods ----
+    def test_set_so_number(self):
+        """SalesSagaContext.set_so_number updates the so_number attribute."""
+        kwargs = self._build_kwargs()
+        instance = SalesSagaContext(**kwargs)
+        new_value = "SO-2025-001"
+        instance.set_so_number(new_value)
+        assert instance.so_number == new_value
+
+    def test_set_delivery_number(self):
+        """SalesSagaContext.set_delivery_number updates the delivery_number attribute."""
+        kwargs = self._build_kwargs()
+        instance = SalesSagaContext(**kwargs)
+        new_value = "DL-2025-001"
+        instance.set_delivery_number(new_value)
+        assert instance.delivery_number == new_value
+
+    def test_set_invoice_number(self):
+        """SalesSagaContext.set_invoice_number updates the invoice_number attribute."""
+        kwargs = self._build_kwargs()
+        instance = SalesSagaContext(**kwargs)
+        new_value = "INV-2025-001"
+        instance.set_invoice_number(new_value)
+        assert instance.invoice_number == new_value
+
+    def test_set_payment_receipt_number(self):
+        """SalesSagaContext.set_payment_receipt_number updates the payment_receipt_number attribute."""
+        kwargs = self._build_kwargs()
+        instance = SalesSagaContext(**kwargs)
+        new_value = "RC-2025-001"
+        instance.set_payment_receipt_number(new_value)
+        assert instance.payment_receipt_number == new_value
+
 
 class TestSalesSagaOrchestrator:
     """Tests for SalesSagaOrchestrator."""
 
     def _build_instance(self):
-        return SalesSagaOrchestrator(state_store=MagicMock(), sales_service=MagicMock(), ar_service=MagicMock(), inventory_service=MagicMock())
+        return SalesSagaOrchestrator(
+            state_store=MagicMock(),
+            sales_service=MagicMock(),
+            ar_service=MagicMock(),
+            inventory_service=MagicMock(),
+        )
 
     def test_construction(self):
         """SalesSagaOrchestrator can be instantiated with mocked dependencies."""
@@ -104,7 +142,13 @@ class TestSalesSagaOrchestrator:
         """Smoke test for SalesSagaOrchestrator.start_sales using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_sales(legal_entity_id=uuid4(), customer_id=uuid4(), items=[{}], user_id=uuid4(), correlation_id="test_value")
+            result = await instance.start_sales(
+                legal_entity_id=uuid4(),
+                customer_id=uuid4(),
+                items=[{}],
+                user_id=uuid4(),
+                correlation_id="test_value",
+            )
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_sales needs specific domain fixtures/data: {e}")
             return

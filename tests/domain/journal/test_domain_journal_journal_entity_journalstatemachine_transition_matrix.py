@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from domain.journal.journal_entity import JournalStatus, JournalStateMachine
+from domain.journal.journal_entity import JournalStateMachine, JournalStatus
 from tests._helpers.state_machine_kit import (
     assert_no_self_transition,
     assert_transition_matrix,

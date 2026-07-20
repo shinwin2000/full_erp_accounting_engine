@@ -59,11 +59,10 @@ MODULE_PAGE_MAP: dict[str, tuple[str, str]] = {
     "inventory_items": ("ui.pages.inventory_items_page", "InventoryItemsPage"),
     "stock_movements": ("ui.pages.stock_movements_page", "StockMovementsPage"),
     "warehouses": ("ui.pages.warehouses_page", "WarehousesPage"),
-    "bom": ("ui.pages.bom_page", "BomPage"),
-    "routing": ("ui.pages.routing_page", "RoutingPage"),
+    # bom & routing: ditangani branch eksplisit di _build_page (butuh tab gabungan)
     "work_orders": ("ui.pages.work_orders_page", "WorkOrdersPage"),
-    "purchase_orders": ("ui.pages.purchase_orders_page", "PurchaseOrdersPage"),
-    "sales_orders": ("ui.pages.sales_orders_page", "SalesOrdersPage"),
+    # purchase_orders & sales_orders: ditangani branch eksplisit di _build_page
+    # (butuh config PO_CONFIG/SO_CONFIG, bukan konstruktor tanpa argumen)
     "projects": ("ui.pages.projects_page", "ProjectsPage"),
     "time_entries": ("ui.pages.time_entries_page", "TimeEntriesPage"),
     "exchange_rates": ("ui.pages.exchange_rates_page", "ExchangeRatesPage"),
@@ -309,6 +308,15 @@ class MainWindow(QMainWindow):
             if key == "umkm_advanced":
                 from ui.pages.umkm_advanced_page import UmkmAdvancedPage
                 return UmkmAdvancedPage()
+            if key == "purchase_orders":
+                from ui.pages.order_workspace_page import OrderWorkspacePage, PO_CONFIG
+                return OrderWorkspacePage(PO_CONFIG)
+            if key == "sales_orders":
+                from ui.pages.order_workspace_page import OrderWorkspacePage, SO_CONFIG
+                return OrderWorkspacePage(SO_CONFIG)
+            if key in ("bom", "routing"):
+                from ui.pages.bom_routing_page import BomRoutingPage
+                return BomRoutingPage()
 
             # 37 modul lain -> masing-masing punya file halaman sendiri di
             # ui/pages/<key>_page.py (lihat MODULE_PAGE_MAP di bawah), yang

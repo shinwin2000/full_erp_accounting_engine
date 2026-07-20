@@ -10,7 +10,6 @@ All tests PASS.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -26,15 +25,6 @@ from application.dto_objects.ap_invoice_request import (
     APPaymentRunRequestDTO,
     ThreeWayMatchRequestDTO,
 )
-from application.dto_objects.ap_response import (
-    APAgingReportDTO,
-    APCreditNoteResponseDTO,
-    APInvoiceResponseDTO,
-    APPaymentResponseDTO,
-    APPaymentRunResponseDTO,
-    APVendorBalanceDTO,
-    ThreeWayMatchResultDTO,
-)
 from application.service_layer.service_ap import (
     APInvoiceAlreadyPaidError,
     APInvoiceNotFoundError,
@@ -48,8 +38,7 @@ from application.service_layer.service_ap import (
     create_ap_service,
 )
 from domain.subledger_ap.invoice_entity import APInvoice, APInvoiceStatus, APInvoiceType
-from domain.subledger_ap.payment_entity import APPayment, APPaymentMethod, APPaymentStatus
-
+from domain.subledger_ap.payment_entity import APPayment, APPaymentStatus
 
 # ============================================================================
 # Local DTO for payment allocation (not in module)

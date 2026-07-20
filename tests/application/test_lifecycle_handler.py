@@ -17,7 +17,6 @@ from application.lifecycle_handler import (
     SecretProviderPort,
 )
 
-
 # ============================================================================
 # Fixtures for mocked dependencies
 # ============================================================================

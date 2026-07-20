@@ -7,6 +7,8 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel audit_event.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import datetime
 from typing import Any
@@ -20,7 +22,13 @@ from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, Tim
 
 
 class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
+    """
+    Model audit event yang IMMUTABLE (tidak boleh di-update atau di-delete).
+    Setiap perubahan data dicatat sebagai event baru, bukan mengedit event lama.
+    """
     __tablename__ = "audit_event"
+    # Flag untuk checker: model ini adalah audit log yang immutable
+    __is_audit_log__ = True
     __table_args__ = (
         CheckConstraint("event_type IS NOT NULL AND event_type != ''", name="ck_ae_event_type"),
         CheckConstraint(
@@ -33,6 +41,7 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_ae_timestamp", "timestamp"),
         Index("idx_ae_correlation_id", "correlation_id"),
         Index("idx_ae_aggregate", "aggregate_type", "aggregate_id"),
+        Index("idx_ae_hash", "hash"),  # tambahan indeks untuk hash
     )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -56,6 +65,10 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
     aggregate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
+    # ===== TAMBAHAN UNTUK HASH CHAIN =====
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    previous_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     @property
     def is_critical(self) -> bool:
         return self.severity == "CRITICAL"
@@ -63,6 +76,20 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
     @property
     def is_error(self) -> bool:
         return self.severity == "ERROR"
+
+    def compute_hash(self) -> str:
+        """Menghitung SHA256 hash dari event ini."""
+        data = {
+            "id": str(self.id),
+            "event_type": self.event_type,
+            "action": self.action,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "timestamp": self.timestamp.isoformat(),
+            "old_value": self.old_value,
+            "new_value": self.new_value,
+            "previous_hash": self.previous_hash,
+        }
+        return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
     @classmethod
     def create(
@@ -79,8 +106,9 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         details: dict | None = None,
         severity: str = "INFO",
         legal_entity_id: uuid.UUID | None = None,
+        previous_hash: str | None = None,
     ) -> AuditEventTable:
-        return cls(
+        instance = cls(
             event_type=event_type,
             severity=severity,
             user_id=user_id,
@@ -94,7 +122,11 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
             details=details,
             legal_entity_id=legal_entity_id,
             timestamp=datetime.utcnow(),
+            previous_hash=previous_hash,
         )
+        # Hitung hash setelah instance dibuat
+        instance.hash = instance.compute_hash()
+        return instance
 
     @classmethod
     def create_critical(
@@ -136,6 +168,8 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
             "aggregate_type": self.aggregate_type,
             "aggregate_id": str(self.aggregate_id) if self.aggregate_id else None,
             "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
+            "hash": self.hash,
+            "previous_hash": self.previous_hash,
         }
 
 

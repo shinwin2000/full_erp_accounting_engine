@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,9 +19,13 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class AuditTable(Base):
-    """ORM model for table: audit."""
-
+    """
+    ORM model for table: audit.
+    Model ini IMMUTABLE - tidak boleh di-update atau di-delete.
+    """
     __tablename__ = "audit"
+    # Flag untuk checker: model ini adalah audit log yang immutable
+    __is_audit_log__ = True
 
     id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),

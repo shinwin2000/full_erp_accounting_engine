@@ -20,7 +20,6 @@ from application.use_cases.hpp_manufacturing_close import (
     transactional,
 )
 
-
 # ============================================================================
 # Test HPPManufacturingCloseCommand
 # ============================================================================

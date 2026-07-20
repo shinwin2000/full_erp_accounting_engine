@@ -6,8 +6,6 @@ Test untuk application/use_cases/registry.py
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from application.use_cases.registry import (
     get_command_registry,
     get_query_registry,

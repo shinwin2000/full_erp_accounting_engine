@@ -47,9 +47,16 @@ logger = logging.getLogger(__name__)
 
 
 class InventoryAggregate:
-    """Inventory Aggregate Root - mengelola item persediaan dan stok."""
+    """
+    Inventory Aggregate Root - mengelola item persediaan dan stok.
 
-    # ---- Class-level attribute for static checker compliance ----
+    Class-level attributes for checker compliance:
+        id: UUID — unique identifier of the aggregate
+        version: int — optimistic locking version
+    """
+
+    # ---- Class-level type annotations for checker compliance ----
+    id: UUID
     version: int
 
     def __init__(
@@ -61,6 +68,7 @@ class InventoryAggregate:
         self.id = id or uuid4()
         self.legal_entity_id = legal_entity_id
         self._version = version
+        self.version = version  # set the class attribute via property
         self._item: Item | None = None
         self._events: list[Any] = []
         self._fifo_layers: list[dict] = []
@@ -74,7 +82,6 @@ class InventoryAggregate:
         self._deactivated_at: datetime | None = None
         self._deactivated_by: UUID | None = None
         self._warehouse_id: UUID | None = None
-        self.version = version  # set attribute
 
     # ==================== PROPERTIES ====================
 
@@ -692,7 +699,9 @@ class InventoryAggregate:
                 occurred_at=datetime.now(UTC),
             )
         )
-        self._record_audit_trail("set_reorder_point", {"user_id": str(user_id), "value": str(reorder_point)})
+        self._record_audit_trail(
+            "set_reorder_point", {"user_id": str(user_id), "value": str(reorder_point)}
+        )
 
     def set_safety_stock(self, safety_stock: Decimal, user_id: UUID) -> None:
         """Set safety stock level."""
@@ -745,7 +754,9 @@ class InventoryAggregate:
                 occurred_at=datetime.now(UTC),
             )
         )
-        self._record_audit_trail("set_safety_stock", {"user_id": str(user_id), "value": str(safety_stock)})
+        self._record_audit_trail(
+            "set_safety_stock", {"user_id": str(user_id), "value": str(safety_stock)}
+        )
 
     def set_standard_cost(self, standard_cost: Decimal, user_id: UUID) -> None:
         """Set standard cost."""
@@ -798,7 +809,9 @@ class InventoryAggregate:
                 occurred_at=datetime.now(UTC),
             )
         )
-        self._record_audit_trail("set_standard_cost", {"user_id": str(user_id), "value": str(standard_cost)})
+        self._record_audit_trail(
+            "set_standard_cost", {"user_id": str(user_id), "value": str(standard_cost)}
+        )
 
     def set_selling_price(self, selling_price: Decimal, user_id: UUID) -> None:
         """Set selling price."""
@@ -851,7 +864,9 @@ class InventoryAggregate:
                 occurred_at=datetime.now(UTC),
             )
         )
-        self._record_audit_trail("set_selling_price", {"user_id": str(user_id), "value": str(selling_price)})
+        self._record_audit_trail(
+            "set_selling_price", {"user_id": str(user_id), "value": str(selling_price)}
+        )
 
     def set_category(self, category: str | None, user_id: UUID) -> None:
         """Set item category."""
@@ -902,7 +917,9 @@ class InventoryAggregate:
                 occurred_at=datetime.now(UTC),
             )
         )
-        self._record_audit_trail("set_category", {"user_id": str(user_id), "category": category})
+        self._record_audit_trail(
+            "set_category", {"user_id": str(user_id), "category": category}
+        )
 
     def update_standard_cost(self, new_cost: Decimal, user_id: UUID) -> None:
         """Update standard cost (alias for set_standard_cost)."""
@@ -960,7 +977,9 @@ class InventoryAggregate:
                 occurred_at=datetime.now(UTC),
             )
         )
-        self._record_audit_trail("deactivate_item", {"user_id": str(user_id), "reason": reason})
+        self._record_audit_trail(
+            "deactivate_item", {"user_id": str(user_id), "reason": reason}
+        )
 
     # ==================== STOCK MOVEMENTS ====================
 

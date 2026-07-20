@@ -7,9 +7,7 @@ wildcards, metadata, statistics, and convenience functions.
 
 from __future__ import annotations
 
-import asyncio
-import time
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,7 +20,6 @@ from application.commands_cqrs.command_handler_registry import (
     HandlerMetadata,
     InvalidCommandHandlerSignatureError,
     clear_command_handlers,
-    command_handler_registry,
     default_logging_wildcard,
     default_metrics_wildcard,
     get_all_command_types,
@@ -34,7 +31,6 @@ from application.commands_cqrs.command_handler_registry import (
     reset_command_handler_registry,
     unregister_command_handler,
 )
-
 
 # ============================================================================
 # Fixtures

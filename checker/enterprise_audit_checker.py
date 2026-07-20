@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ENTERPRISE AUDIT CHECKER v2.0.0 - BUSINESS FLOW & DATA INTEGRITY
 ==================================================================
@@ -14,19 +13,18 @@ Perbaikan & Penambahan:
 Semua tes adaptif terhadap skema aktual.
 """
 
-import os
-import sys
-import time
-import json
-import logging
 import asyncio
 import importlib
 import inspect
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+import json
+import logging
+import sys
+import time
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any
 
 # ----------------------------------------------------------------------
 # Konfigurasi logging
@@ -66,13 +64,13 @@ class AuditSeverity(Enum):
 class AuditResult:
     name: str; category: str; passed: bool; duration: float = 0.0
     severity: AuditSeverity = AuditSeverity.INFO
-    details: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-    suggested_fix: Optional[str] = None
-    rca: Optional[Dict[str, Any]] = None
-    evidence: List[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    suggested_fix: str | None = None
+    rca: dict[str, Any] | None = None
+    evidence: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name, "category": self.category, "passed": self.passed,
             "duration_seconds": round(self.duration, 3), "severity": self.severity.value,
@@ -86,7 +84,7 @@ class AuditResult:
 # ----------------------------------------------------------------------
 class EnterpriseAuditRunner:
     def __init__(self, verbose: bool = False, test_env: bool = False):
-        self.results: List[AuditResult] = []
+        self.results: list[AuditResult] = []
         self.verbose = verbose
         self.test_env = test_env
         self.project_root = Path.cwd()
@@ -95,7 +93,7 @@ class EnterpriseAuditRunner:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._rca_engine = get_engine() if RCA_AVAILABLE else None
-        self._table_schemas: Dict[str, List[str]] = {}
+        self._table_schemas: dict[str, list[str]] = {}
 
     # ------------------------------------------------------------------
     # Utilitas Database
@@ -123,7 +121,7 @@ class EnterpriseAuditRunner:
                 continue
         return None
 
-    async def _run_sql(self, query: str, params: dict = None) -> List[Dict]:
+    async def _run_sql(self, query: str, params: dict = None) -> list[dict]:
         factory = self._get_session_factory()
         if not factory:
             raise Exception("Session factory not found")
@@ -151,7 +149,7 @@ class EnterpriseAuditRunner:
                         rows = result.fetchall()
                         return [dict(row._mapping) for row in rows]
                     return []
-        except Exception as e:
+        except Exception:
             raise
         finally:
             if session:
@@ -176,7 +174,7 @@ class EnterpriseAuditRunner:
         except:
             return False
 
-    async def _get_table_schema(self, table_name: str) -> List[str]:
+    async def _get_table_schema(self, table_name: str) -> list[str]:
         if table_name in self._table_schemas:
             return self._table_schemas[table_name]
         try:
@@ -191,7 +189,7 @@ class EnterpriseAuditRunner:
         except:
             return []
 
-    async def _get_column_type(self, table_name: str, column_name: str) -> Optional[str]:
+    async def _get_column_type(self, table_name: str, column_name: str) -> str | None:
         try:
             rows = await self._run_sql("""
                 SELECT data_type FROM information_schema.columns

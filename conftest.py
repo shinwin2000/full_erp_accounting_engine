@@ -1,5 +1,4 @@
 import sys
-import os
 from pathlib import Path
 
 # ========== 1. Tentukan root proyek ==========

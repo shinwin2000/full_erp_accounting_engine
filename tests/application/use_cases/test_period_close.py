@@ -18,7 +18,6 @@ from application.use_cases.period_close import (
     period_close_handler,
 )
 
-
 # ============================================================================
 # Test PeriodCloseCommand
 # ============================================================================

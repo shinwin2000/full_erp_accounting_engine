@@ -10,8 +10,6 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-import pytest
-
 from adapters.primary_api.v1.fastapi_document_router import (
     DocumentBulkLinkSchema,
     DocumentBulkUploadSchema,

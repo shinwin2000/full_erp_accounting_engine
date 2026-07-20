@@ -46,7 +46,6 @@ from domain.shared_value_objects.percentage_vo import (
     weighted_average_percentage,
 )
 
-
 # ============================================================================
 # Construction & validation
 # ============================================================================

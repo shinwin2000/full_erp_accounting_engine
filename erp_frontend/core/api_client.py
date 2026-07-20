@@ -194,13 +194,42 @@ class ApiClient:
     # ------------------------------------------------------------------
     # Shortcut methods
     def get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
-        return self.request("GET", path, params=params)
+        """
+        Beberapa endpoint backend (Customer, Supplier, Employee,
+        FiscalPeriod, Payment, Payroll — terverifikasi dari source code)
+        mewajibkan `legal_entity_id` sebagai query param EKSPLISIT,
+        terpisah dari yang sudah ter-embed di JWT. Disuntikkan otomatis
+        di sini kalau belum ada di `params` supaya semua pemanggil GET
+        (generic maupun halaman kustom) otomatis benar tanpa perlu tahu
+        endpoint mana yang butuh — endpoint yang tidak butuh akan
+        mengabaikan param ekstra ini (perilaku standar FastAPI).
+        """
+        merged = dict(params or {})
+        if session.legal_entity_id and "legal_entity_id" not in merged:
+            merged["legal_entity_id"] = session.legal_entity_id
+        return self.request("GET", path, params=merged)
 
     def post(self, path: str, json_body: Optional[Any] = None, params: Optional[dict[str, Any]] = None) -> Any:
-        return self.request("POST", path, params=params, json_body=json_body)
+        return self.request("POST", path, params=params, json_body=self._with_legal_entity(json_body))
 
     def put(self, path: str, json_body: Optional[Any] = None) -> Any:
-        return self.request("PUT", path, json_body=json_body)
+        return self.request("PUT", path, json_body=self._with_legal_entity(json_body))
+
+    @staticmethod
+    def _with_legal_entity(json_body: Optional[Any]) -> Optional[Any]:
+        """
+        Sejumlah schema Create/Update (Customer, Supplier, Employee,
+        FiscalPeriod, Payment, Payroll — terverifikasi dari source code)
+        mewajibkan field `legal_entity_id` langsung di body, bukan hanya
+        dari JWT. Disuntikkan otomatis kalau body berupa dict dan field
+        ini belum diisi — modul yang tidak butuh field ini akan
+        mengabaikannya (Pydantic default mengabaikan field tak dikenal
+        kecuali model diset `extra="forbid"`, yang tidak dipakai backend
+        ini untuk request Create/Update).
+        """
+        if isinstance(json_body, dict) and session.legal_entity_id and "legal_entity_id" not in json_body:
+            return {**json_body, "legal_entity_id": session.legal_entity_id}
+        return json_body
 
     def patch(self, path: str, json_body: Optional[Any] = None) -> Any:
         return self.request("PATCH", path, json_body=json_body)

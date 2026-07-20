@@ -3,16 +3,12 @@
 Module: coretax_emeterai_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Coretax e-Meterai table for electronic stamp duty.
-
-Perbaikan presisi:
-    - Mengubah float() menjadi str() pada nilai moneter (value) di to_dict()
-      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -39,13 +35,13 @@ class CoretaxEMeteraiTable(Base, TimestampMixin, SoftDeleteMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="available")
     purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     purchase_transaction_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     used_on_document: Mapped[str | None] = mapped_column(String(200), nullable=True)
     used_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     def mark_used(self, used_by: uuid.UUID, document_id: str) -> None:
         self.status = "used"
-        self.used_at = datetime.utcnow()
+        self.used_at = datetime.now(UTC)
         self.used_by = used_by
         self.used_on_document = document_id
 
@@ -54,7 +50,7 @@ class CoretaxEMeteraiTable(Base, TimestampMixin, SoftDeleteMixin):
             "id": str(self.id),
             "meterai_code": self.meterai_code,
             "npwp": self.npwp,
-            "value": str(self.value),  # ganti float -> str untuk presisi
+            "value": str(self.value),
             "status": self.status,
             "purchase_date": self.purchase_date.isoformat() if self.purchase_date else None,
             "purchase_transaction_id": self.purchase_transaction_id,

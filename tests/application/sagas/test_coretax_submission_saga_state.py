@@ -21,7 +21,6 @@ import pytest
 
 from application.sagas.coretax_submission_saga_state import CoretaxSubmissionSagaState
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

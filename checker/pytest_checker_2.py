@@ -1,24 +1,30 @@
 """
-PYTEST QUALITY CHECKER v6.1.0 - DETAILED WEAK REPORT
+PYTEST QUALITY CHECKER v6.2.0 - DETAILED WEAK REPORT
 ----------------------------------------------------
 Fitur:
 1. Auto-exclude folder venv, .git, __pycache__, etc.
 2. Handling encoding error dengan utf-8 errors='ignore'.
 3. Logika weak assertion yang lebih pintar:
    - assert True/False/None/0/"" dianggap LEMAH.
-   - assert x == True dianggap LEMAH.
+   - assert x == True / assert True == x dianggap LEMAH.
    - assert x is not None, assert x > 0, assert len(x) > 0 dianggap KUAT.
 4. Laporan menampilkan 8 file dengan weak assertion terbanyak, lengkap dengan baris-baris lemahnya.
 5. Output JSON dengan ringkasan dan detail weak per file.
+
+Changelog v6.2.0 (bugfix):
+- FIX: deteksi "comparison with boolean literal" sebelumnya hanya mengecek
+  sisi kanan (test_node.comparators), sehingga pola literal-di-kiri seperti
+  `assert True == x` lolos tanpa terdeteksi. Sekarang test_node.left juga
+  diperiksa.
 """
 
 import ast
+import json
 import os
 import sys
-import json
-from typing import List, Dict, Any, Optional
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
 # --- KONFIGURASI ---
 EXCLUDE_DIRS = {'venv', '.git', '__pycache__', 'node_modules', '.idea', '.vscode', 'build', 'dist'}
@@ -55,7 +61,7 @@ class AssertAnalyzer(ast.NodeVisitor):
             self.asserts.append(analysis)
         self.generic_visit(node)
 
-    def _analyze_assert_node(self, node) -> Optional[Dict[str, Any]]:
+    def _analyze_assert_node(self, node) -> dict[str, Any] | None:
         test_node = node.test
         msg_node = node.msg
 
@@ -95,9 +101,12 @@ class AssertAnalyzer(ast.NodeVisitor):
             comparators = test_node.comparators
             op_names = [type(op).__name__ for op in ops]
 
-            # Deteksi pola lemah: x == True, x != False
-            for i, comp in enumerate(comparators):
-                op_name = op_names[i]
+            # Deteksi pola lemah: x == True, x != False, True == x, False != x
+            # Operand kiri (test_node.left) dicek berdasarkan operator pertama;
+            # operand kanan (comparators[i]) dicek berdasarkan op_names[i].
+            weak_operands = [(test_node.left, op_names[0])] if op_names else []
+            weak_operands += list(zip(comparators, op_names))
+            for comp, op_name in weak_operands:
                 if isinstance(comp, ast.Constant) and isinstance(comp.value, bool):
                     if op_name in ['Eq', 'NotEq']:
                         result['is_weak'] = True
@@ -203,7 +212,7 @@ class PytestChecker:
             # Skip file dengan syntax error
             pass
         except Exception as e:
-            self.encoding_errors.append(f"{filepath}: {str(e)}")
+            self.encoding_errors.append(f"{filepath}: {e!s}")
 
     def generate_report(self):
         total = self.stats['total_asserts']

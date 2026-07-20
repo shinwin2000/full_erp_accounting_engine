@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Module: delivery_order_table.py
 Layer: Infrastructure / Persistence ORM
@@ -10,12 +11,14 @@ from uuid import uuid4
 
 from sqlalchemy import UUID as SQLUUID
 from sqlalchemy import Column, Date, DateTime, Integer, Numeric, String, Text
+from sqlalchemy.sql import func
 
 from infrastructure.persistence_orm.base_model import Base
 
 
 class DeliveryOrderTable(Base):
     __tablename__ = "delivery_order"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -28,21 +31,28 @@ class DeliveryOrderTable(Base):
     shipping_address = Column(String(500), nullable=True)
     status = Column(String(20), nullable=False, server_default="draft")
     shipped_by = Column(String(100), nullable=True)
-    shipped_at = Column(DateTime, nullable=True)
+    shipped_at = Column(DateTime(timezone=True), nullable=True)
     delivered_by = Column(String(100), nullable=True)
-    delivered_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
     received_by = Column(String(100), nullable=True)
-    received_at = Column(DateTime, nullable=True)
+    received_at = Column(DateTime(timezone=True), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default="now()")
-    updated_at = Column(DateTime, server_default="now()")
+
+    # ===== PERBAIKAN TIMESTAMP =====
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
     created_by = Column(SQLUUID(as_uuid=True), nullable=True)
     updated_by = Column(SQLUUID(as_uuid=True), nullable=True)
     version = Column(Integer, server_default="1")
 
+    def __repr__(self) -> str:
+        return f"<DeliveryOrderTable {self.delivery_number}>"
+
 
 class DeliveryOrderLineTable(Base):
     __tablename__ = "delivery_order_line"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     delivery_order_id = Column(SQLUUID(as_uuid=True), nullable=False)
@@ -57,5 +67,9 @@ class DeliveryOrderLineTable(Base):
     total_amount = Column(Numeric(19, 4), nullable=False)
     batch_number = Column(String(50), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default="now()")
-    updated_at = Column(DateTime, server_default="now()")
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<DeliveryOrderLineTable id={self.id}>"

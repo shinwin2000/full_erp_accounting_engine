@@ -18,7 +18,6 @@ from application.use_cases.year_end_closing import (
     year_end_closing_handler,
 )
 
-
 # ============================================================================
 # Test YearEndClosingCommand
 # ============================================================================
@@ -115,26 +114,26 @@ class TestYearEndClosingUseCase:
         # Setup mocks
         mock_period_close = AsyncMock()
         mock_period_close.close_period = AsyncMock(return_value={"period_id": "P001"})
-        
+
         mock_post_closing = AsyncMock()
         mock_post_closing.post_closing_journal = AsyncMock(return_value={"journal_id": "JRN-001"})
-        
+
         mock_tax = AsyncMock()
         mock_tax.adjust_tax = AsyncMock(return_value={"adjustment_id": "TAX-001"})
-        
+
         mock_asset = AsyncMock()
         mock_asset.perform_impairment_test = AsyncMock(return_value={"impairment_id": "IMP-001"})
         mock_asset.revalue_assets = AsyncMock(return_value={"revaluation_id": "REV-001"})
-        
+
         mock_fiscal = AsyncMock()
         mock_fiscal.create_closing_period = AsyncMock(return_value={"period": "2026-01"})
-        
+
         mock_journal = AsyncMock()
         mock_journal.post_journal = AsyncMock(return_value={"journal_id": "JRN-002"})
-        
+
         mock_gate = MagicMock()
         mock_gate.check = AsyncMock(return_value=True)
-        
+
         use_case = YearEndClosingUseCase(
             period_close_uc=mock_period_close,
             post_closing_uc=mock_post_closing,
@@ -144,7 +143,7 @@ class TestYearEndClosingUseCase:
             journal_service=mock_journal,
             sealed_gate=mock_gate
         )
-        
+
         command = MagicMock()
         command.to_dict.return_value = {
             "legal_entity_id": str(uuid4()),
@@ -157,7 +156,7 @@ class TestYearEndClosingUseCase:
             "generate_financial_statements": True,
             "dry_run": False
         }
-        
+
         result = await use_case.execute(command)
         assert isinstance(result, YearEndClosingResult)
         # Verify mocks were called
@@ -176,7 +175,7 @@ class TestYearEndClosingUseCase:
         mock_fiscal = AsyncMock()
         mock_journal = AsyncMock()
         mock_gate = MagicMock()
-        
+
         use_case = YearEndClosingUseCase(
             period_close_uc=mock_period_close,
             post_closing_uc=AsyncMock(),
@@ -186,7 +185,7 @@ class TestYearEndClosingUseCase:
             journal_service=mock_journal,
             sealed_gate=mock_gate
         )
-        
+
         command = MagicMock()
         command.to_dict.return_value = {
             "legal_entity_id": str(uuid4()),
@@ -194,7 +193,7 @@ class TestYearEndClosingUseCase:
             "closing_date": date.today().isoformat(),
             "dry_run": True
         }
-        
+
         result = await use_case.execute(command)
         assert isinstance(result, YearEndClosingResult)
         # In dry_run mode, services should NOT be called (or minimal)

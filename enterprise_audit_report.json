@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-07-18T06:41:20.503461Z",
+  "timestamp": "2026-07-20T00:53:17.100363Z",
   "version": "2.0.0",
   "summary": {
-    "total_duration_seconds": 0.607,
+    "total_duration_seconds": 2.323,
     "passed": 16,
     "total_tests": 16,
     "score_percent": 100.0
@@ -12,7 +12,7 @@
       "name": "Trial Balance (Global Debit=Credit)",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.505,
+      "duration_seconds": 2.142,
       "severity": "WARNING",
       "details": {
         "note": "No data"
@@ -26,7 +26,7 @@
       "name": "Duplicate Journal Numbers (Global)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.005,
+      "duration_seconds": 0.01,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -38,7 +38,7 @@
       "name": "Invalid Account References (FK)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.014,
+      "duration_seconds": 0.038,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -50,7 +50,7 @@
       "name": "Subledger vs GL Reconciliation",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.006,
       "severity": "WARNING",
       "details": {
         "note": "No subledger"
@@ -64,7 +64,7 @@
       "name": "Negative Stock / Inventory",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.007,
       "severity": "WARNING",
       "details": {
         "note": "No inventory table"
@@ -78,7 +78,7 @@
       "name": "Transactions Outside Fiscal Period",
       "category": "BUSINESS_RULE",
       "passed": true,
-      "duration_seconds": 0.021,
+      "duration_seconds": 0.035,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -118,7 +118,7 @@
       "name": "Orphaned Records (Journal Ref)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.002,
+      "duration_seconds": 0.003,
       "severity": "WARNING",
       "details": {
         "note": "Tables missing"
@@ -132,7 +132,7 @@
       "name": "Duplicate Master Data (Account, Customer, Supplier)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.024,
+      "duration_seconds": 0.046,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -144,7 +144,7 @@
       "name": "Trial Balance by Legal Entity & Period",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.008,
       "severity": "INFO",
       "details": {
         "status": "All entities/periods balanced"
@@ -158,7 +158,7 @@
       "name": "Journal Duplicates by Period/Entity",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.003,
+      "duration_seconds": 0.004,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -170,7 +170,7 @@
       "name": "Expanded FK Integrity (Customer, Vendor, Project)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.001,
+      "duration_seconds": 0.002,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -182,7 +182,7 @@
       "name": "Inventory Sanity (On-Hand, Reserved, Available)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.003,
+      "duration_seconds": 0.004,
       "severity": "WARNING",
       "details": {
         "note": "No inventory table"

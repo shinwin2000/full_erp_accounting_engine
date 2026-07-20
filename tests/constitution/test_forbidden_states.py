@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -18,11 +18,8 @@ from constitution.forbidden_states import (
     ForbiddenStateAction,
     ForbiddenStateCategory,
     ForbiddenStateDefinition,
-    ForbiddenStateDetectedError,
     ForbiddenStateDetection,
     ForbiddenStateDetector,
-    ForbiddenStateError,
-    ForbiddenStateRecoveryError,
     ForbiddenStateSeverity,
     ForbiddenStatesRegistry,
     ForbiddenStatesService,
@@ -30,7 +27,6 @@ from constitution.forbidden_states import (
     get_detector_for_state,
     get_forbidden_states_service,
 )
-
 
 # ============================================================================
 # Helper functions for creating test objects

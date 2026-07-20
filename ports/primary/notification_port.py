@@ -871,7 +871,7 @@ __all__ = [
     "NotificationChannel",
     "NotificationConfig",
     "NotificationPort",
-    "NotificationPortImpl",     
+    "NotificationPortImpl",
     "NotificationPriority",
     "NotificationStatus",
     "NotificationTemplate",

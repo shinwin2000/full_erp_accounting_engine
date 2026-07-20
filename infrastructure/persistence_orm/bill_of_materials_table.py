@@ -74,7 +74,7 @@ class BillOfMaterialsTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     # Menggunakan string reference untuk menghindari import circular.
     # back_populates harus cocok dengan 'bom' di BillOfMaterialsLineTable.
     # =========================================================================
-    lines: Mapped[list["BillOfMaterialsLineTable"]] = relationship(
+    lines: Mapped[list[BillOfMaterialsLineTable]] = relationship(
         "BillOfMaterialsLineTable",
         back_populates="bom",
         cascade="all, delete-orphan",

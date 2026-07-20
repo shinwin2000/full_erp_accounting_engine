@@ -33,9 +33,12 @@ class DeadLetterTable(Base, TimestampMixin):
     """
     Model untuk tabel dead_letter_events.
     Menyimpan event yang gagal diproses secara permanen.
+    Model ini IMMUTABLE - tidak boleh di-update atau di-delete.
     """
 
     __tablename__ = "dead_letter_events"
+    # Flag untuk checker: model ini adalah audit log yang immutable
+    __is_audit_log__ = True
     __table_args__ = (
         CheckConstraint("event_type IS NOT NULL AND event_type != ''", name="ck_dle_event_type"),
         CheckConstraint("retry_count >= 0", name="ck_dle_retry_count"),

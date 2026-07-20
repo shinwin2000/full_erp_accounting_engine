@@ -7,12 +7,15 @@ Responsibility: Coretax NTPN (Nomor Transaksi Penerimaan Negara) table.
 Perbaikan presisi:
     - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
       untuk menjaga presisi dan memenuhi aturan MNY-003.
+Perbaikan timezone:
+    - validated_at menggunakan DateTime(timezone=True)
+    - default menggunakan datetime.now(timezone.utc)
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -30,6 +33,7 @@ class CoretaxNTPNTable(Base, TimestampMixin):
         Index("idx_coretax_ntpn_npwp", "npwp"),
         Index("idx_coretax_ntpn_payment_date", "payment_date"),
         UniqueConstraint("ntpn", name="uq_coretax_ntpn"),
+        {"extend_existing": True},
     )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -39,13 +43,17 @@ class CoretaxNTPNTable(Base, TimestampMixin):
     npwp: Mapped[str] = mapped_column(String(20), nullable=False)
     is_valid: Mapped[bool] = mapped_column(default=False, nullable=False)
     validation_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    validated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # ===== PERBAIKAN TIMESTAMP =====
+    validated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "ntpn": self.ntpn,
-            "amount": str(self.amount),  # ganti float -> str untuk presisi
+            "amount": str(self.amount),
             "payment_date": self.payment_date.isoformat(),
             "npwp": self.npwp,
             "is_valid": self.is_valid,

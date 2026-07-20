@@ -26,9 +26,13 @@ from infrastructure.persistence_orm.base_model import Base
 
 
 class CoretaxAuditLogTable(Base):
-    """ORM model for table: coretax_audit_log."""
-
+    """
+    ORM model for table: coretax_audit_log.
+    Model ini IMMUTABLE - tidak boleh di-update atau di-delete.
+    """
     __tablename__ = "coretax_audit_log"
+    # Flag untuk checker: model ini adalah audit log yang immutable
+    __is_audit_log__ = True
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     legal_entity_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)

@@ -15,8 +15,8 @@ from enum import Enum
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from domain.consolidation.elimination_entry import EliminationEntry
 from domain.consolidation.domain_events import ConsolidationCompleted
+from domain.consolidation.elimination_entry import EliminationEntry
 from domain.consolidation.intercompany_transaction import IntercompanyTransaction
 from domain.legal_entity.company_entity import Company
 

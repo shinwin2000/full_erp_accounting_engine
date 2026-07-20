@@ -8,8 +8,7 @@ to ensure real execution passes without unawaited coroutine warnings.
 from __future__ import annotations
 
 import asyncio
-import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -19,7 +18,7 @@ import pytest
 # ============================================================================
 # EARLY RUNTIME PATCHES (Executed BEFORE importing functions directly)
 # ============================================================================
-import application.commands_cqrs.command_executor_with_audit as audit_module
+
 
 # 1. Fix Signature Verification Bug (avoids circular self-hashing issue)
 def _real_verify_signature(self, secret_key: str) -> bool:
@@ -132,7 +131,7 @@ get_command_executor = _sync_get_command_executor
 def patch_timezone_utc():
     """Patch timezone.UTC in all relevant modules to timezone.utc."""
     with patch("application.commands_cqrs.command_executor_with_audit.timezone") as mock_tz:
-        mock_tz.UTC = timezone.utc
+        mock_tz.UTC = UTC
         yield
 
 # ============================================================================
@@ -156,7 +155,7 @@ def audit_store() -> ImmutableAuditStore:
 @pytest.fixture
 def sample_command() -> Command:
     class SampleCommand(Command):
-        __slots__ = ("user_id", "amount", "description")
+        __slots__ = ("amount", "description", "user_id")
         def __init__(self, command_id=None, correlation_id=None):
             super().__init__(command_id or uuid4(), correlation_id or "corr-123", "SampleCommand")
             self.user_id = uuid4()
@@ -178,7 +177,7 @@ def sample_audit_context() -> AuditContext:
 
 @pytest.fixture
 def sample_audit_record(sample_command, sample_audit_context) -> AuditRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return AuditRecord(
         audit_id=uuid4(),
         command_id=sample_command.command_id,
@@ -296,7 +295,7 @@ async def test_ImmutableAuditStore_get_by_date_range(audit_store, sample_audit_r
 
 @pytest.mark.asyncio
 async def test_ImmutableAuditStore_get_failed_commands(audit_store):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rec = AuditRecord(
         audit_id=uuid4(),
         command_id=uuid4(),
@@ -321,7 +320,7 @@ async def test_ImmutableAuditStore_get_failed_commands(audit_store):
 
 @pytest.mark.asyncio
 async def test_ImmutableAuditStore_hash_chain(audit_store):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rec1 = AuditRecord(
         audit_id=uuid4(),
         command_id=uuid4(),
@@ -372,7 +371,7 @@ async def test_ImmutableAuditStore_hash_chain(audit_store):
 
 @pytest.mark.asyncio
 async def test_ImmutableAuditStore_tamper_detection(audit_store):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rec1 = AuditRecord(
         audit_id=uuid4(),
         command_id=uuid4(),

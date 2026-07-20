@@ -9,6 +9,6 @@ from __future__ import annotations
 
 __all__ = [
     "AppendOnlyStore",
-    "get_event_store",
     "get_audit_store",
+    "get_event_store",
 ]

@@ -7,22 +7,15 @@ Mencakup semua kelas dan metode secara exhaustive dengan mocking.
 
 from __future__ import annotations
 
-import base64
-import random
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from adapters.coretax_djp.spt_masa_ppn_builder import (
-    CORETAX_SPT_CANCEL_ENDPOINT,
-    CORETAX_SPT_PPN_ENDPOINT,
-    CORETAX_SPT_STATUS_ENDPOINT,
     FORM_CODE,
-    MAX_RETRY_ATTEMPTS,
-    PPN_RATE,
     PaymentReference,
     SPTAlreadyExistsError,
     SPTCalculationError,
@@ -33,7 +26,6 @@ from adapters.coretax_djp.spt_masa_ppn_builder import (
     SPTMasaPpn,
     SPTMasaPPNBuilder,
     SPTNotFoundError,
-    SPTRepositoryPort,
     SPTStatus,
     SPTType,
     SPTValidationError,
@@ -42,7 +34,6 @@ from adapters.coretax_djp.spt_masa_ppn_builder import (
     _FallbackSPTRepository,
     get_spt_ppn_builder,
 )
-
 
 # ============================================================================
 # Fixtures

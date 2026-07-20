@@ -50,6 +50,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
 # =============================================================================
 # ROOT PATH
 # =============================================================================
@@ -776,7 +779,6 @@ class RuntimeExhaustiveChecker:
     def check_models(self) -> RuntimeCheckResult:
         def _inner():
             try:
-                from sqlalchemy import MetaData
 
                 # 1) Pastikan engine tersedia
                 engine = None
@@ -1242,6 +1244,7 @@ class RuntimeExhaustiveChecker:
 
             try:
                 import time
+
                 from sqlalchemy import text
 
                 if self._engine is None:

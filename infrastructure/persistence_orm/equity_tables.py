@@ -14,27 +14,6 @@ from sqlalchemy import Column, Date, DateTime, Integer, Numeric, String, Text
 from infrastructure.persistence_orm.base_model import Base
 
 
-class CapitalContributionTable(Base):
-    __tablename__ = "capital_contribution"
-
-    id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
-    legal_entity_id = Column(SQLUUID(as_uuid=True), nullable=False)
-    contribution_number = Column(String(50), nullable=False, unique=True)
-    contribution_date = Column(Date, nullable=False)
-    shareholder_id = Column(SQLUUID(as_uuid=True), nullable=True)
-    shareholder_name = Column(String(200), nullable=False)
-    contribution_type = Column(String(20), nullable=False)
-    amount = Column(Numeric(19, 4), nullable=False)
-    currency = Column(String(3), server_default="IDR")
-    notes = Column(Text, nullable=True)
-    approved_at = Column(DateTime, nullable=True)
-    approved_by = Column(SQLUUID(as_uuid=True), nullable=True)
-    created_at = Column(DateTime, server_default="now()")
-    updated_at = Column(DateTime, server_default="now()")
-    created_by = Column(SQLUUID(as_uuid=True), nullable=True)
-    version = Column(Integer, server_default="1")
-
-
 class DividendDeclarationTable(Base):
     __tablename__ = "dividend_declaration"
 

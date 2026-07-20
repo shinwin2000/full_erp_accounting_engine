@@ -1,28 +1,22 @@
 #!/usr/bin/env python3
 """
-tests/unit/test_spt_tahunan_badan_builder.py
+tests/adapters/coretax_djp/test_spt_tahunan_badan_builder.py
 Test untuk adapters/coretax_djp/spt_tahunan_badan_builder.py
 Mencakup semua kelas dan metode secara exhaustive dengan mocking.
 """
 
 from __future__ import annotations
 
-import base64
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
 import pytest
 
 from adapters.coretax_djp.spt_tahunan_badan_builder import (
-    CORETAX_SPT_CANCEL_ENDPOINT,
-    CORETAX_SPT_TAHUNAN_ENDPOINT,
-    CORETAX_SPT_STATUS_ENDPOINT,
     CORPORATE_TAX_RATE,
     JENIS_KOREKSI,
-    MAX_RETRY_ATTEMPTS,
-    PUBLIC_COMPANY_RATE,
     SUMBER_KOREKSI,
     KoreksiFiskal,
     KoreksiFiskalType,
@@ -33,7 +27,6 @@ from adapters.coretax_djp.spt_tahunan_badan_builder import (
     SPTBadanInvalidStateError,
     SPTBadanLockedError,
     SPTBadanNotFoundError,
-    SPTBadanRepositoryPort,
     SPTBadanValidationError,
     SPTBadanXMLGenerationError,
     SPTStatus,
@@ -45,10 +38,23 @@ from adapters.coretax_djp.spt_tahunan_badan_builder import (
     get_spt_tahunan_builder,
 )
 
+# ============================================================================
+# Fixtures - with datetime mocking to avoid flaky tests
+# ============================================================================
 
-# ============================================================================
-# Fixtures
-# ============================================================================
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now() and date.today() globally for all tests."""
+    fixed_datetime = datetime(2026, 1, 1, 12, 0, 0)
+    fixed_date = date(2026, 1, 1)
+    with patch("adapters.coretax_djp.spt_tahunan_badan_builder.datetime") as mock_dt:
+        mock_dt.datetime.now.return_value = fixed_datetime
+        mock_dt.date.today.return_value = fixed_date
+        # Also patch the imported datetime and date directly
+        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.datetime.now", return_value=fixed_datetime):
+            with patch("adapters.coretax_djp.spt_tahunan_badan_builder.date.today", return_value=fixed_date):
+                yield
+
 
 @pytest.fixture
 def sample_spt_data() -> dict:
@@ -1006,7 +1012,7 @@ class TestSPTTahunanBadanBuilder:
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
         assert not result["success"]
         assert "Coretax authentication failed" in result["error"]
-        mock_spt.transition.assert_called_with(SPTStatus.ERROR, unittest.mock.ANY, unittest.mock.ANY)
+        mock_spt.transition.assert_called_with(SPTStatus.ERROR, ANY, ANY)
 
     async def test_submit_spt_retry_success(self, sample_builder):
         mock_spt = MagicMock()
@@ -1191,16 +1197,17 @@ async def test_get_spt_tahunan_builder_singleton():
         assert builder1 is builder2
         assert MockBuilder.call_count == 1
 
+
 # ============================================================================
 # TESTS TAMBAHAN UNTUK MENINGKATKAN COVERAGE
 # ============================================================================
 
+@pytest.mark.asyncio
 class TestSPTTahunanBadanBuilderPrivateMethods:
     """Test untuk private methods SPTTahunanBadanBuilder."""
 
     @pytest.fixture
     def builder(self):
-        """Buat builder tanpa mock _init_file_storage agar method asli terpanggil."""
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter") as mock_storage:
             mock_storage.return_value = MagicMock()
             builder = SPTTahunanBadanBuilder(config={})
@@ -1286,6 +1293,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         assert result == data
 
     async def test_collect_data_calls_getter_methods(self, sample_builder):
+        """Test that collect_data calls the appropriate service methods and verifies calls."""
         with patch.object(sample_builder, "_get_ledger_service", new_callable=AsyncMock) as mock_get_ledger:
             with patch.object(sample_builder, "_get_tax_service", new_callable=AsyncMock) as mock_get_tax:
                 ledger_mock = AsyncMock()
@@ -1311,8 +1319,18 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
                 tax_mock.get_fiscal_depreciation = AsyncMock(return_value=[])
 
                 await sample_builder.collect_data("123", 2026)
+
+                # Verifikasi semua method dipanggil dengan argumen yang benar
                 mock_get_ledger.assert_called_once()
                 mock_get_tax.assert_called_once()
+                ledger_mock.get_commercial_financials.assert_called_once_with("123", 2026)
+                tax_mock.get_fiscal_reconciliation.assert_called_once_with("123", 2026)
+                tax_mock.get_loss_compensation.assert_called_once_with("123", 2026)
+                tax_mock.check_public_company.assert_called_once_with("123")
+                tax_mock.get_tax_credits.assert_called_once_with("123", 2026)
+                tax_mock.get_ntpn_for_period.assert_called_once_with("123", 2026, None, tax_type="badan")
+                tax_mock.get_shareholders.assert_called_once_with("123", 2026)
+                tax_mock.get_fiscal_depreciation.assert_called_once_with("123", 2026)
 
     async def test_submit_spt_calls_trigger_alert_on_success(self, sample_builder):
         mock_spt = MagicMock()
@@ -1403,6 +1421,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client.post = AsyncMock(return_value={"status": "success"})
 
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert", side_effect=ImportError("No module")):
+            # Harus tetap sukses meskipun alert gagal
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
             assert result["success"]
 
@@ -1434,7 +1453,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
         result = await sample_builder.check_spt_status(uuid.uuid4())
         assert result["success"]
-        mock_spt.reject.assert_called_once_with(unittest.mock.ANY, "Data tidak lengkap")
+        mock_spt.reject.assert_called_once_with(ANY, "Data tidak lengkap")
 
     async def test_submit_spt_with_s3_upload_success(self, sample_builder):
         mock_spt = MagicMock()
@@ -1534,3 +1553,208 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
         assert result["success"]
         sample_builder._set_cached.assert_called_once()
+
+    # ========================================================================
+    # Additional Negative Path Tests for Builder
+    # ========================================================================
+
+    async def test_submit_spt_calculate_error(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.status = SPTStatus.DRAFT
+        mock_spt.calculate = MagicMock(side_effect=SPTBadanCalculationError("Calc error"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
+        assert not result["success"]
+        assert "Calc error" in result["error"]
+
+    async def test_submit_spt_xml_generation_error(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.status = SPTStatus.CALCULATED
+        mock_spt._generate_xml = MagicMock(side_effect=SPTBadanXMLGenerationError("XML error"))
+        mock_spt.calculate = MagicMock(return_value=mock_spt)
+        mock_spt.validate = MagicMock(return_value=mock_spt)
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
+        assert not result["success"]
+        assert "XML error" in result["error"]
+
+    async def test_submit_spt_client_post_failure(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.status = SPTStatus.CALCULATED
+        mock_spt.spt_id = uuid.uuid4()
+        mock_spt.npwp_badan = "123"
+        mock_spt.tahun_pajak = 2026
+        mock_spt.spt_type = SPTType.NORMAL
+        mock_spt.correction_number = 0
+        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
+        mock_spt.calculate = MagicMock(return_value=mock_spt)
+        mock_spt.validate = MagicMock(return_value=mock_spt)
+        mock_spt.submit = MagicMock(return_value=mock_spt)
+        mock_spt.transition = MagicMock(return_value=mock_spt)
+
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+
+        client = sample_builder._coretax_client
+        client.post = AsyncMock(side_effect=Exception("Post error"))
+
+        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
+        assert not result["success"]
+        assert "Post error" in result["error"]
+        mock_spt.transition.assert_called_with(SPTStatus.ERROR, ANY, "Post error")
+
+    async def test_check_spt_status_error(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.tracking_id = "TRK-123"
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        client = sample_builder._coretax_client
+        client.get = AsyncMock(side_effect=Exception("Status check error"))
+        result = await sample_builder.check_spt_status(uuid.uuid4())
+        assert not result["success"]
+        assert "Status check error" in result["error"]
+
+    async def test_cancel_spt_already_cancelled_error(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.cancel = MagicMock(side_effect=SPTBadanInvalidStateError("Already cancelled"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
+        assert not result["success"]
+        assert "Already cancelled" in result["error"]
+
+    async def test_create_correction_spt_previous_not_found(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.create_correction_spt("123", 2026, uuid.uuid4(), 1, uuid.uuid4())
+        assert not result["success"]
+        assert "Previous SPT not found" in result["error"]
+
+    async def test_get_status_not_found(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.get_status(uuid.uuid4())
+        assert not result["success"]
+        assert "not found" in result["error"]
+
+    async def test_get_history_not_found(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.get_history(uuid.uuid4())
+        assert not result["success"]
+        assert "not found" in result["error"]
+
+    async def test_snapshot_not_found(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.snapshot(uuid.uuid4())
+        assert not result["success"]
+        assert "not found" in result["error"]
+
+    # ========================================================================
+    # Additional Database Verification Tests
+    # ========================================================================
+
+    async def test_create_updates_cache_and_repository(self, sample_builder):
+        sample_builder._repository.exists = AsyncMock(return_value=False)
+        sample_builder._repository.add = AsyncMock()
+        sample_builder._set_cached = AsyncMock()
+        result = await sample_builder.create("123", 2026, uuid.uuid4())
+        assert result["success"]
+        sample_builder._repository.add.assert_called_once()
+        sample_builder._set_cached.assert_called_once()
+
+    async def test_build_updates_repository(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.spt_id = uuid.uuid4()
+        mock_spt.tahun_pajak = 2026
+        mock_spt.status = SPTStatus.DRAFT
+        sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=mock_spt)
+        with patch.object(sample_builder, "collect_data", return_value={
+            "penghasilan_neto_komersial": Decimal("1000"),
+            "penghasilan_neto_fiskal": Decimal("1100"),
+            "kompensasi_kerugian": Decimal("100"),
+            "penghasilan_kena_pajak": Decimal("1000"),
+            "pph_terutang": Decimal("220"),
+            "total_kredit_pajak": Decimal("20"),
+            "kurang_bayar": Decimal("200"),
+            "lebih_bayar": Decimal("0"),
+            "tarif": Decimal("0.22"),
+            "ntpn": "1234567890123456",
+            "koreksi_positif": [],
+            "koreksi_negatif": [],
+            "shareholders": [],
+        }):
+            mock_spt.add_koreksi_positif = MagicMock(return_value=mock_spt)
+            mock_spt.add_koreksi_negatif = MagicMock(return_value=mock_spt)
+            mock_spt.add_pemegang_saham = MagicMock(return_value=mock_spt)
+            mock_spt.set_ntpn = MagicMock(return_value=mock_spt)
+            mock_spt.calculate = MagicMock(return_value=mock_spt)
+            sample_builder._repository.update = AsyncMock()
+            sample_builder._set_cached = AsyncMock()
+            result = await sample_builder.build("123", 2026, uuid.uuid4())
+            assert result["success"]
+            sample_builder._repository.update.assert_called_once()
+            sample_builder._set_cached.assert_called_once()
+
+    async def test_validate_spt_updates_repository_and_cache(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.validate = MagicMock(return_value=mock_spt)
+        mock_spt.npwp_badan = "123"
+        mock_spt.tahun_pajak = 2026
+        mock_spt.to_dict = MagicMock(return_value={"data": "valid"})
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+        sample_builder._set_cached = AsyncMock()
+        result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
+        assert result["success"]
+        sample_builder._repository.update.assert_called_once()
+        sample_builder._set_cached.assert_called_once()
+
+    async def test_submit_spt_updates_repository_and_cache(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.status = SPTStatus.CALCULATED
+        mock_spt.spt_id = uuid.uuid4()
+        mock_spt.npwp_badan = "123"
+        mock_spt.tahun_pajak = 2026
+        mock_spt.spt_type = SPTType.NORMAL
+        mock_spt.correction_number = 0
+        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
+        mock_spt.calculate = MagicMock(return_value=mock_spt)
+        mock_spt.validate = MagicMock(return_value=mock_spt)
+        mock_spt.submit = MagicMock(return_value=mock_spt)
+        mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
+        mock_spt.spt_number = "SPT-001"
+        mock_spt.tracking_id = "TRK-123"
+        mock_spt.coretax_id = "COR-456"
+        mock_spt.status = SPTStatus.SUBMITTED
+        mock_spt.npwp_badan = "123"
+        mock_spt.tahun_pajak = 2026
+        mock_spt.to_dict = MagicMock(return_value={"data": "submitted"})
+
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+        sample_builder._set_cached = AsyncMock()
+
+        client = sample_builder._coretax_client
+        client.post = AsyncMock(return_value={"status": "success", "message": "OK"})
+
+        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
+        assert result["success"]
+        # Periksa bahwa update dipanggil setidaknya dua kali (sebelum dan sesudah submit)
+        assert sample_builder._repository.update.call_count >= 2
+        sample_builder._set_cached.assert_called()
+
+    async def test_cancel_spt_updates_repository_and_removes_cache(self, sample_builder):
+        mock_spt = MagicMock()
+        mock_spt.spt_id = uuid.uuid4()
+        mock_spt.tracking_id = "TRK-123"
+        mock_spt.npwp_badan = "123"
+        mock_spt.tahun_pajak = 2026
+        mock_spt.cancel = MagicMock(return_value=mock_spt)
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+        sample_builder._cache = {"some_key": "data"}
+        sample_builder._get_cache_key = MagicMock(return_value="some_key")
+
+        client = sample_builder._coretax_client
+        client.post = AsyncMock(return_value={"status": "ok"})
+
+        result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
+        assert result["success"]
+        sample_builder._repository.update.assert_called_once()
+        assert "some_key" not in sample_builder._cache

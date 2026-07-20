@@ -23,7 +23,6 @@ from application.use_cases.post_journal_entry import (
     post_journal_entry_handler,
 )
 
-
 # ============================================================================
 # Test BalanceGuard
 # ============================================================================

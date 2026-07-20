@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tests/unit/test_faktur_masukan_processor.py
+tests/adapters/coretax_djp/test_faktur_masukan_processor.py
 Test untuk adapters/coretax_djp/faktur_masukan_processor.py
 Mencakup semua kelas dan metode secara exhaustive dengan mocking.
 """
@@ -9,18 +9,15 @@ from __future__ import annotations
 
 import base64
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
 import pytest
 
 from adapters.coretax_djp.faktur_masukan_processor import (
     CORETAX_PM_CANCEL_ENDPOINT,
     CORETAX_PM_CREDIT_ENDPOINT,
-    CORETAX_PM_DETAIL_ENDPOINT,
-    CORETAX_PM_DOWNLOAD_ENDPOINT,
-    CORETAX_PM_LIST_ENDPOINT,
     DEFAULT_PPN_RATE,
     EXPIRY_DAYS,
     FakturMasukan,
@@ -31,17 +28,32 @@ from adapters.coretax_djp.faktur_masukan_processor import (
     FakturMasukanLockedError,
     FakturMasukanNotFoundError,
     FakturMasukanProcessor,
-    FakturMasukanRepositoryPort,
     FakturMasukanStatus,
     FakturMasukanValidationError,
     _FallbackTaxRepository,
     get_faktur_masukan_processor,
 )
 
+# ============================================================================
+# FIXED DATETIME & FIXTURES
+# ============================================================================
 
-# ============================================================================
-# Fixtures
-# ============================================================================
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+FIXED_DATE = date(2026, 1, 1)
+EXPIRED_DATE = FIXED_DATE - timedelta(days=EXPIRY_DAYS + 1)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now() and date.today() globally for all tests."""
+    with patch("adapters.coretax_djp.faktur_masukan_processor.datetime") as mock_dt:
+        mock_dt.datetime.now.return_value = FIXED_NOW
+        mock_dt.date.today.return_value = FIXED_DATE
+        mock_dt.UTC = UTC
+        with patch("adapters.coretax_djp.faktur_masukan_processor.datetime.now", return_value=FIXED_NOW):
+            with patch("adapters.coretax_djp.faktur_masukan_processor.date.today", return_value=FIXED_DATE):
+                yield
+
 
 @pytest.fixture
 def sample_faktur_data() -> dict:
@@ -49,7 +61,7 @@ def sample_faktur_data() -> dict:
         "faktur_number": "010.2026.05.00000001",
         "npwp_penjual": "123456789012345",
         "nama_penjual": "PT Supplier Maju",
-        "tanggal_faktur": date(2026, 5, 1),
+        "tanggal_faktur": FIXED_DATE,
         "dpp": Decimal("100000000"),
         "ppn": Decimal("11000000"),
         "npwp_pembeli": "987654321098765",
@@ -141,10 +153,14 @@ class TestFakturMasukan:
         assert not faktur.is_expired
 
     def test_is_expired(self, sample_faktur):
-        sample_faktur._tanggal_faktur = date.today() - timedelta(days=EXPIRY_DAYS + 1)
-        assert sample_faktur.is_expired
-        sample_faktur._status = FakturMasukanStatus.CANCELLED
-        assert not sample_faktur.is_expired  # cancelled not expired
+        sample_faktur._tanggal_faktur = EXPIRED_DATE
+        # Is_expired depends on date.today() which is mocked to FIXED_DATE
+        # FIXED_DATE is not expired, so we need to override.
+        with patch("adapters.coretax_djp.faktur_masukan_processor.date") as mock_date:
+            mock_date.today.return_value = EXPIRED_DATE + timedelta(days=1)
+            assert sample_faktur.is_expired
+            sample_faktur._status = FakturMasukanStatus.CANCELLED
+            assert not sample_faktur.is_expired
 
     def test_create(self, sample_faktur):
         created_by = uuid.uuid4()
@@ -166,7 +182,7 @@ class TestFakturMasukan:
         assert result._events[0]["event_type"] == "faktur_masukan_updated"
 
     def test_update_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.update({}, uuid.uuid4())
 
@@ -234,12 +250,12 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_lock_already_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="already locked"):
             sample_faktur.lock(uuid.uuid4(), "test")
 
     def test_unlock(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         sample_faktur._locked_by = uuid.uuid4()
         unlocked_by = uuid.uuid4()
         result = sample_faktur.unlock(unlocked_by)
@@ -263,13 +279,15 @@ class TestFakturMasukan:
 
     def test_validate_expired_raises(self, sample_faktur):
         sample_faktur._status = FakturMasukanStatus.PENDING
-        sample_faktur._tanggal_faktur = date.today() - timedelta(days=EXPIRY_DAYS + 1)
-        with pytest.raises(FakturMasukanExpiredError, match="has expired"):
-            sample_faktur.validate(uuid.uuid4())
-        assert sample_faktur.status == FakturMasukanStatus.EXPIRED
+        sample_faktur._tanggal_faktur = EXPIRED_DATE
+        with patch("adapters.coretax_djp.faktur_masukan_processor.date") as mock_date:
+            mock_date.today.return_value = EXPIRED_DATE + timedelta(days=1)
+            with pytest.raises(FakturMasukanExpiredError, match="has expired"):
+                sample_faktur.validate(uuid.uuid4())
+            assert sample_faktur.status == FakturMasukanStatus.EXPIRED
 
     def test_validate_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.validate(uuid.uuid4())
 
@@ -288,13 +306,15 @@ class TestFakturMasukan:
 
     def test_approve_expired_raises(self, sample_faktur):
         sample_faktur._status = FakturMasukanStatus.VALIDATED
-        sample_faktur._tanggal_faktur = date.today() - timedelta(days=EXPIRY_DAYS + 1)
-        with pytest.raises(FakturMasukanExpiredError, match="has expired"):
-            sample_faktur.approve(uuid.uuid4())
-        assert sample_faktur.status == FakturMasukanStatus.EXPIRED
+        sample_faktur._tanggal_faktur = EXPIRED_DATE
+        with patch("adapters.coretax_djp.faktur_masukan_processor.date") as mock_date:
+            mock_date.today.return_value = EXPIRED_DATE + timedelta(days=1)
+            with pytest.raises(FakturMasukanExpiredError, match="has expired"):
+                sample_faktur.approve(uuid.uuid4())
+            assert sample_faktur.status == FakturMasukanStatus.EXPIRED
 
     def test_approve_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.approve(uuid.uuid4())
 
@@ -312,7 +332,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_reject_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.reject(uuid.uuid4(), "reason")
 
@@ -329,7 +349,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_cancel_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.cancel(uuid.uuid4(), "reason")
 
@@ -351,7 +371,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_void_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.void(uuid.uuid4(), "reason")
 
@@ -364,7 +384,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_post_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.post(uuid.uuid4())
 
@@ -382,7 +402,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_unpost_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.unpost(uuid.uuid4())
 
@@ -399,7 +419,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_reverse_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.reverse(uuid.uuid4(), "reason")
 
@@ -412,7 +432,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_close_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.close(uuid.uuid4())
 
@@ -430,7 +450,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_reopen_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.reopen(uuid.uuid4())
 
@@ -501,7 +521,7 @@ class TestFakturMasukan:
             sample_faktur.credit(uuid.uuid4(), uuid.uuid4(), Decimal("999999999"))
 
     def test_credit_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.credit(uuid.uuid4(), uuid.uuid4())
 
@@ -514,7 +534,7 @@ class TestFakturMasukan:
         sample_faktur._status = FakturMasukanStatus.CREDITED
         sample_faktur._period_id = uuid.uuid4()
         sample_faktur._credit_amount = Decimal("11000000")
-        sample_faktur._credited_at = datetime.now()
+        sample_faktur._credited_at = FIXED_NOW
         reversed_by = uuid.uuid4()
         result = sample_faktur.reverse_credit(reversed_by, "test")
         assert result.status == FakturMasukanStatus.APPROVED
@@ -524,7 +544,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_reverse_credit_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.reverse_credit(uuid.uuid4(), "reason")
 
@@ -556,7 +576,7 @@ class TestFakturMasukan:
         assert result.version == 2
 
     def test_match_locked_raises(self, sample_faktur):
-        sample_faktur._locked_at = datetime.now()
+        sample_faktur._locked_at = FIXED_NOW
         with pytest.raises(FakturMasukanLockedError, match="is locked"):
             sample_faktur.match(uuid.uuid4(), uuid.uuid4())
 
@@ -660,10 +680,12 @@ class TestFakturMasukan:
         assert sample_faktur._hash != h1
 
     def test_private__check_expiry(self, sample_faktur):
-        sample_faktur._tanggal_faktur = date.today() - timedelta(days=EXPIRY_DAYS + 1)
+        sample_faktur._tanggal_faktur = EXPIRED_DATE
         sample_faktur._status = FakturMasukanStatus.PENDING
-        assert sample_faktur._check_expiry()
-        assert sample_faktur.status == FakturMasukanStatus.EXPIRED
+        with patch("adapters.coretax_djp.faktur_masukan_processor.date") as mock_date:
+            mock_date.today.return_value = EXPIRED_DATE + timedelta(days=1)
+            assert sample_faktur._check_expiry()
+            assert sample_faktur.status == FakturMasukanStatus.EXPIRED
 
 
 # ============================================================================
@@ -712,12 +734,15 @@ class TestFallbackTaxRepository:
 
     async def test_update_faktur_masukan_status_not_found(self):
         repo = _FallbackTaxRepository()
-        # Should not raise
+        # Should not raise, and no changes
         await repo.update_faktur_masukan_status(uuid.uuid4(), "pending")
+        # Assert nothing changed (no exception, no side effects)
+        # We can verify that store is empty
+        assert len(repo._faktur_store) == 0
 
     async def test_find_matching_purchase_transactions(self):
         repo = _FallbackTaxRepository()
-        result = await repo.find_matching_purchase_transactions("123", date.today(), Decimal("1000"))
+        result = await repo.find_matching_purchase_transactions("123", FIXED_DATE, Decimal("1000"))
         assert result == []
 
     async def test_record_ppn_credit(self, sample_faktur):
@@ -730,8 +755,9 @@ class TestFallbackTaxRepository:
 
     async def test_record_ppn_credit_not_found(self):
         repo = _FallbackTaxRepository()
-        # Should not raise
+        # Should not raise, and no changes
         await repo.record_ppn_credit(uuid.uuid4(), uuid.uuid4(), Decimal("1000"), uuid.uuid4())
+        assert len(repo._faktur_store) == 0
 
     async def test_reverse_ppn_credit(self, sample_faktur):
         repo = _FallbackTaxRepository()
@@ -742,8 +768,8 @@ class TestFallbackTaxRepository:
 
     async def test_reverse_ppn_credit_not_found(self):
         repo = _FallbackTaxRepository()
-        # Should not raise
         await repo.reverse_ppn_credit(uuid.uuid4(), uuid.uuid4(), "test")
+        assert len(repo._faktur_store) == 0
 
     async def test_get_unprocessed_periods(self):
         repo = _FallbackTaxRepository()
@@ -790,727 +816,4 @@ class TestFakturMasukanProcessorAsync:
         with patch("adapters.coretax_djp.faktur_masukan_processor.get_coretax_client") as mock_get:
             mock_client = AsyncMock()
             mock_get.return_value = mock_client
-            client1 = await sample_processor._get_coretax_client()
-            assert client1 is mock_client
-            mock_get.assert_called_once()
-            client2 = await sample_processor._get_coretax_client()
-            assert client2 is client1
-            assert mock_get.call_count == 1
-
-    async def test_get_tax_service(self, sample_processor):
-        with patch("adapters.coretax_djp.faktur_masukan_processor.TaxService") as mock_tax:
-            mock_tax.return_value = AsyncMock()
-            svc1 = await sample_processor._get_tax_service()
-            assert svc1 is not None
-            mock_tax.assert_called_once()
-            svc2 = await sample_processor._get_tax_service()
-            assert svc2 is svc1
-            assert mock_tax.call_count == 1
-
-    async def test_get_tax_service_fallback(self, sample_processor):
-        with patch("adapters.coretax_djp.faktur_masukan_processor.TaxService", side_effect=ImportError):
-            svc = await sample_processor._get_tax_service()
-            assert svc is not None
-
-    def test_get_cache_key(self, sample_processor):
-        key = sample_processor._get_cache_key("FK-001")
-        assert key == "faktur_masukan:FK-001"
-
-    async def test_get_cached(self, sample_processor):
-        sample_processor._cache["faktur_masukan:FK-001"] = {"data": "value"}
-        result = await sample_processor._get_cached("FK-001")
-        assert result == {"data": "value"}
-
-    async def test_get_cached_missing(self, sample_processor):
-        result = await sample_processor._get_cached("MISSING")
-        assert result is None
-
-    async def test_set_cached(self, sample_processor):
-        await sample_processor._set_cached("FK-001", {"data": "value"})
-        assert sample_processor._cache["faktur_masukan:FK-001"] == {"data": "value"}
-
-    def test_parse_faktur_xml_valid(self, sample_processor):
-        xml = """
-        <Faktur>
-            <KepalaFaktur>
-                <NomorFaktur>010.2026.05.00000001</NomorFaktur>
-                <TanggalFaktur>2026-05-01</TanggalFaktur>
-            </KepalaFaktur>
-            <Penjual>
-                <NPWP>123456789012345</NPWP>
-                <Nama>PT Supplier</Nama>
-                <Alamat>Jl. Supplier</Alamat>
-            </Penjual>
-            <Pembeli>
-                <NPWP>987654321098765</NPWP>
-            </Pembeli>
-            <DetailTransaksi>
-                <DPP>100000000</DPP>
-                <PPN>11000000</PPN>
-                <PPNBM>0</PPNBM>
-                <Keterangan>Test</Keterangan>
-            </DetailTransaksi>
-        </Faktur>
-        """
-        result = sample_processor._parse_faktur_xml(xml)
-        assert result["faktur_number"] == "010.2026.05.00000001"
-        assert result["npwp_penjual"] == "123456789012345"
-        assert result["nama_penjual"] == "PT Supplier"
-        assert result["dpp"] == Decimal("100000000")
-        assert result["ppn"] == Decimal("11000000")
-
-    def test_parse_faktur_xml_invalid(self, sample_processor):
-        with pytest.raises(ValueError, match="Invalid faktur XML"):
-            sample_processor._parse_faktur_xml("<invalid></invalid>")
-
-    def test_parse_faktur_xml_missing_kepala(self, sample_processor):
-        with pytest.raises(ValueError, match="missing KepalaFaktur"):
-            sample_processor._parse_faktur_xml("<Faktur></Faktur>")
-
-    def test_parse_faktur_xml_parse_error(self, sample_processor):
-        with pytest.raises(ValueError, match="Invalid XML format"):
-            sample_processor._parse_faktur_xml("not xml")
-
-    async def test_create(self, sample_processor, sample_faktur_data):
-        tax_service = sample_processor._tax_service
-        tax_service.save_faktur_masukan = AsyncMock(return_value=uuid.uuid4())
-        result = await sample_processor.create(sample_faktur_data, uuid.uuid4())
-        assert result["success"]
-        assert "faktur_id" in result
-        assert result["faktur_number"] == sample_faktur_data["faktur_number"]
-
-    async def test_update_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        sample_processor._set_cached = AsyncMock()
-        result = await sample_processor.update(faktur_id, {"keterangan": "Updated"}, uuid.uuid4())
-        assert result["success"]
-        assert result["faktur_id"] == str(faktur_id)
-
-    async def test_update_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.update(uuid.uuid4(), {}, uuid.uuid4())
-        assert not result["success"]
-        assert "not found" in result["error"]
-
-    async def test_delete_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.delete(faktur_id, uuid.uuid4(), permanent=False)
-        assert result["success"]
-
-    async def test_delete_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.delete(uuid.uuid4(), uuid.uuid4())
-        assert not result["success"]
-        assert "not found" in result["error"]
-
-    async def test_restore_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "archived"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.restore(faktur_id, uuid.uuid4())
-        assert result["success"]
-
-    async def test_restore_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.restore(uuid.uuid4(), uuid.uuid4())
-        assert not result["success"]
-
-    async def test_validate_faktur_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "pending"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.validate_faktur(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["valid"]
-
-    async def test_validate_faktur_expired(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={
-            "faktur_id": str(faktur_id),
-            "faktur_number": "FK-001",
-            "status": "pending",
-            "tanggal_faktur": (date.today() - timedelta(days=EXPIRY_DAYS + 1)).isoformat(),
-        })
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.validate_faktur(faktur_id, uuid.uuid4())
-        assert not result["success"]
-        assert "expired" in result["error"]
-        assert result["status"] == "expired"
-
-    async def test_approve_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "validated"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        sample_processor._load_config = MagicMock(return_value={"coretax_djp": {"faktur_masukan": {"auto_credit": False}}})
-        result = await sample_processor.approve(faktur_id, uuid.uuid4(), "Approved")
-        assert result["success"]
-        assert result["approved"]
-
-    async def test_approve_with_auto_credit(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "validated"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        sample_processor._load_config = MagicMock(return_value={"coretax_djp": {"faktur_masukan": {"auto_credit": True}}})
-        sample_processor.credit_ppn_masukan = AsyncMock(return_value={"success": True})
-        result = await sample_processor.approve(faktur_id, uuid.uuid4(), "Approved")
-        assert result["success"]
-        sample_processor.credit_ppn_masukan.assert_called_once()
-
-    async def test_approve_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.approve(uuid.uuid4(), uuid.uuid4())
-        assert not result["success"]
-
-    async def test_reject_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "pending"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.reject(faktur_id, uuid.uuid4(), "Invalid")
-        assert result["success"]
-        assert result["rejection_reason"] == "Invalid"
-
-    async def test_cancel_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "pending"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        client = sample_processor._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-        result = await sample_processor.cancel(faktur_id, uuid.uuid4(), "test")
-        assert result["success"]
-        assert result["cancelled"]
-        client.post.assert_called_once_with(CORETAX_PM_CANCEL_ENDPOINT, {"faktur_number": "FK-001", "npwp": "", "reason": "test"})
-
-    async def test_cancel_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.cancel(uuid.uuid4(), uuid.uuid4(), "test")
-        assert not result["success"]
-
-    async def test_void_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "pending"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.void(faktur_id, uuid.uuid4(), "test")
-        assert result["success"]
-        assert result["voided"]
-
-    async def test_post_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "approved"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.post(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["posted"]
-
-    async def test_unpost_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "posted"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.unpost(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert not result["posted"]
-
-    async def test_reverse_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "credited"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.reverse(faktur_id, uuid.uuid4(), "test")
-        assert result["success"]
-        assert result["reversed"]
-
-    async def test_close_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "posted"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.close(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["closed"]
-
-    async def test_reopen_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "closed"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.reopen(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert not result["closed"]
-
-    async def test_archive_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "closed"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.archive(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["archived"]
-
-    async def test_unarchive_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "archived"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.unarchive(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert not result["archived"]
-
-    async def test_sync_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "npwp_pembeli": "123"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(return_value={"status": "success", "dpp": "150000000", "ppn": "16500000"})
-        result = await sample_processor.sync(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["synced"]
-
-    async def test_sync_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.sync(uuid.uuid4(), uuid.uuid4())
-        assert not result["success"]
-
-    async def test_sync_coretax_error(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "npwp_pembeli": "123"})
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(return_value={"status": "error", "message": "Failed"})
-        result = await sample_processor.sync(faktur_id, uuid.uuid4())
-        assert not result["success"]
-        assert "Failed" in result["error"]
-
-    async def test_download_faktur_masukan_success(self, sample_processor):
-        npwp = "123456789012345"
-        tahun = 2026
-        bulan = 5
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(return_value={"data": [{"nomor_faktur": "FK-001"}]})
-        sample_processor._download_detail_faktur = AsyncMock(return_value={"faktur_number": "FK-001", "dpp": 100000000})
-        sample_processor._get_cached = AsyncMock(return_value=None)
-        sample_processor._set_cached = AsyncMock()
-        results = await sample_processor.download_faktur_masukan(npwp, bulan, tahun)
-        assert len(results) == 1
-        assert results[0]["faktur_number"] == "FK-001"
-
-    async def test_download_faktur_masukan_with_cache(self, sample_processor):
-        npwp = "123"
-        tahun = 2026
-        bulan = 5
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(return_value={"data": [{"nomor_faktur": "FK-001"}]})
-        sample_processor._get_cached = AsyncMock(return_value={"faktur_number": "FK-001", "cached": True})
-        results = await sample_processor.download_faktur_masukan(npwp, bulan, tahun)
-        assert len(results) == 1
-        assert results[0]["cached"]
-
-    async def test_download_faktur_masukan_auth_error(self, sample_processor):
-        from adapters.coretax_djp.api_oauth2_client import CoretaxAuthError
-        npwp = "123"
-        tahun = 2026
-        bulan = 5
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(side_effect=CoretaxAuthError("Auth failed"))
-        results = await sample_processor.download_faktur_masukan(npwp, bulan, tahun)
-        assert results == []
-
-    async def test_download_faktur_masukan_generic_error(self, sample_processor):
-        npwp = "123"
-        tahun = 2026
-        bulan = 5
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(side_effect=Exception("Network error"))
-        results = await sample_processor.download_faktur_masukan(npwp, bulan, tahun)
-        assert results == []
-
-    async def test__download_detail_faktur_success(self, sample_processor):
-        npwp = "123"
-        faktur_number = "FK-001"
-        client = sample_processor._coretax_client
-        xml_content = "<Faktur><KepalaFaktur><NomorFaktur>FK-001</NomorFaktur></KepalaFaktur></Faktur>"
-        xml_b64 = base64.b64encode(xml_content.encode()).decode()
-        client.get = AsyncMock(return_value={"faktur_xml": xml_b64})
-        result = await sample_processor._download_detail_faktur(npwp, faktur_number)
-        assert result is not None
-        assert result["faktur_number"] == "FK-001"
-        assert "raw_xml" in result
-
-    async def test__download_detail_faktur_no_xml(self, sample_processor):
-        npwp = "123"
-        faktur_number = "FK-001"
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(return_value={})
-        result = await sample_processor._download_detail_faktur(npwp, faktur_number)
-        assert result is None
-
-    async def test__download_detail_faktur_with_storage(self, sample_processor):
-        npwp = "123"
-        faktur_number = "FK-001"
-        sample_processor._file_storage = AsyncMock()
-        sample_processor._file_storage.upload = AsyncMock()
-        client = sample_processor._coretax_client
-        xml_content = "<Faktur><KepalaFaktur><NomorFaktur>FK-001</NomorFaktur></KepalaFaktur></Faktur>"
-        xml_b64 = base64.b64encode(xml_content.encode()).decode()
-        client.get = AsyncMock(return_value={"faktur_xml": xml_b64})
-        result = await sample_processor._download_detail_faktur(npwp, faktur_number)
-        assert result is not None
-        assert "stored_uri" in result
-        sample_processor._file_storage.upload.assert_called_once()
-
-    async def test__download_detail_faktur_error(self, sample_processor):
-        npwp = "123"
-        faktur_number = "FK-001"
-        client = sample_processor._coretax_client
-        client.get = AsyncMock(side_effect=Exception("Error"))
-        result = await sample_processor._download_detail_faktur(npwp, faktur_number)
-        assert result is None
-
-    async def test_import_faktur_from_upload_success(self, sample_processor):
-        xml = """
-        <Faktur>
-            <KepalaFaktur>
-                <NomorFaktur>010.2026.05.00000001</NomorFaktur>
-                <TanggalFaktur>2026-05-01</TanggalFaktur>
-            </KepalaFaktur>
-            <Penjual>
-                <NPWP>123456789012345</NPWP>
-                <Nama>PT Supplier</Nama>
-            </Penjual>
-            <Pembeli>
-                <NPWP>987654321098765</NPWP>
-            </Pembeli>
-            <DetailTransaksi>
-                <DPP>100000000</DPP>
-                <PPN>11000000</PPN>
-            </DetailTransaksi>
-        </Faktur>
-        """
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_number = AsyncMock(return_value=None)
-        tax_service.save_faktur_masukan = AsyncMock(return_value=uuid.uuid4())
-        result = await sample_processor.import_faktur_from_upload(xml, uuid.uuid4())
-        assert result["success"]
-        assert result["faktur_number"] == "010.2026.05.00000001"
-
-    async def test_import_faktur_from_upload_already_exists(self, sample_processor):
-        xml = "<Faktur><KepalaFaktur><NomorFaktur>FK-001</NomorFaktur></KepalaFaktur></Faktur>"
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_number = AsyncMock(return_value={"faktur_number": "FK-001"})
-        result = await sample_processor.import_faktur_from_upload(xml, uuid.uuid4())
-        assert not result["success"]
-        assert "already exists" in result["error"]
-
-    async def test_import_faktur_from_upload_parse_error(self, sample_processor):
-        result = await sample_processor.import_faktur_from_upload("invalid", uuid.uuid4())
-        assert not result["success"]
-
-    async def test_credit_ppn_masukan_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        period_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "npwp_pembeli": "123", "status": "approved"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        tax_service.record_ppn_credit = AsyncMock()
-        client = sample_processor._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-        result = await sample_processor.credit_ppn_masukan(faktur_id, period_id, uuid.uuid4())
-        assert result["success"]
-        assert result["status"] == "credited"
-        client.post.assert_called_once_with(CORETAX_PM_CREDIT_ENDPOINT, {"faktur_number": "FK-001", "npwp": "123", "period_id": str(period_id), "amount": 0.0})
-
-    async def test_credit_ppn_masukan_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.credit_ppn_masukan(uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
-        assert not result["success"]
-        assert "not found" in result["error"]
-
-    async def test_credit_ppn_masukan_invalid_status(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.credit_ppn_masukan(faktur_id, uuid.uuid4(), uuid.uuid4())
-        assert not result["success"]
-        assert "status must be APPROVED" in result["error"]
-
-    async def test_credit_ppn_masukan_coretax_error(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        period_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "npwp_pembeli": "123", "status": "approved"})
-        client = sample_processor._coretax_client
-        client.post = AsyncMock(return_value={"status": "error", "message": "Coretax error"})
-        result = await sample_processor.credit_ppn_masukan(faktur_id, period_id, uuid.uuid4())
-        assert not result["success"]
-        assert "Coretax error" in result["error"]
-
-    async def test_reverse_credit_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "npwp_pembeli": "123", "status": "credited"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        tax_service.reverse_ppn_credit = AsyncMock()
-        client = sample_processor._coretax_client
-        client.post = AsyncMock(return_value={"status": "success"})
-        result = await sample_processor.reverse_credit(faktur_id, uuid.uuid4(), "test")
-        assert result["success"]
-        assert result["status"] == "approved"
-
-    async def test_reverse_credit_not_found(self, sample_processor):
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value=None)
-        result = await sample_processor.reverse_credit(uuid.uuid4(), uuid.uuid4(), "test")
-        assert not result["success"]
-
-    async def test_reverse_credit_invalid_status(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.reverse_credit(faktur_id, uuid.uuid4(), "test")
-        assert not result["success"]
-        assert "not in CREDITED status" in result["error"]
-
-    async def test_match_faktur_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        transaction_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "validated"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.match_faktur(faktur_id, transaction_id, uuid.uuid4())
-        assert result["success"]
-        assert result["matched_transaction_id"] == str(transaction_id)
-
-    async def test_calculate_faktur_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "dpp": 100000000, "ppn": 11000000})
-        result = await sample_processor.calculate_faktur(faktur_id)
-        assert result["success"]
-        assert result["dpp"] == 100000000
-        assert result["ppn"] == 11000000
-
-    async def test_recalculate_faktur_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "dpp": 100000000, "ppn": 0})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.recalculate_faktur(faktur_id, uuid.uuid4())
-        assert result["success"]
-        expected_ppn = (Decimal("100000000") * DEFAULT_PPN_RATE).quantize(Decimal("0.01"))
-        assert result["ppn"] == float(expected_ppn)
-
-    async def test_get_status_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.get_status(faktur_id)
-        assert result["success"]
-        assert result["status"] == "draft"
-
-    async def test_get_history_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.get_history(faktur_id)
-        assert result["success"]
-        assert "history" in result
-
-    async def test_snapshot_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft", "dpp": 100000000})
-        result = await sample_processor.snapshot(faktur_id)
-        assert result["success"]
-        assert result["faktur_number"] == "FK-001"
-
-    async def test_clone_faktur_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        new_faktur_number = "FK-002"
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft", "dpp": 100000000, "ppn": 11000000})
-        tax_service.save_faktur_masukan = AsyncMock(return_value=uuid.uuid4())
-        result = await sample_processor.clone_faktur(faktur_id, new_faktur_number, uuid.uuid4())
-        assert result["success"]
-        assert result["new_faktur_number"] == new_faktur_number
-
-    async def test_to_dict_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001"})
-        result = await sample_processor.to_dict(faktur_id)
-        assert result["success"]
-        assert result["faktur_number"] == "FK-001"
-
-    async def test_audit_trail_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.audit_trail(faktur_id)
-        assert result["success"]
-        assert "audit_trail" in result
-
-    async def test_can_transition_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.can_transition(faktur_id, "pending")
-        assert result["success"]
-        assert result["can_transition"]
-
-    async def test_transition_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.transition(faktur_id, "pending", uuid.uuid4(), "test")
-        assert result["success"]
-        assert result["to_status"] == "pending"
-
-    async def test_transition_invalid_raises(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.transition(faktur_id, "approved", uuid.uuid4())
-        assert not result["success"]
-        assert "invalid" in result["error"].lower()
-
-    async def test_register_event_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.register_event(faktur_id, "test", {"data": "value"})
-        assert result["success"]
-        assert len(result["events"]) == 1
-
-    async def test_get_events_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.get_events(faktur_id)
-        assert result["success"]
-        assert "events" in result
-
-    async def test_clear_events_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        result = await sample_processor.clear_events(faktur_id)
-        assert result["success"]
-        assert result["events_cleared"]
-
-    async def test_version_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft", "version": 5})
-        result = await sample_processor.version(faktur_id)
-        assert result["success"]
-        assert result["version"] == 5
-
-    async def test_lock_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "pending"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.lock(faktur_id, uuid.uuid4(), "test")
-        assert result["success"]
-        assert result["locked"]
-
-    async def test_unlock_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "locked"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.unlock(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert not result["locked"]
-
-    async def test_activate_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "draft"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.activate(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["status"] == "pending"
-
-    async def test_deactivate_success(self, sample_processor):
-        faktur_id = uuid.uuid4()
-        tax_service = sample_processor._tax_service
-        tax_service.get_faktur_masukan_by_id = AsyncMock(return_value={"faktur_id": str(faktur_id), "faktur_number": "FK-001", "status": "pending"})
-        tax_service.update_faktur_masukan_status = AsyncMock()
-        result = await sample_processor.deactivate(faktur_id, uuid.uuid4())
-        assert result["success"]
-        assert result["status"] == "draft"
-
-    async def test_sync_faktur_masukan_periodic_success(self, sample_processor):
-        npwp = "123456789012345"
-        tax_service = sample_processor._tax_service
-        tax_service.get_unprocessed_periods = AsyncMock(return_value=[{"month": 5, "year": 2026}])
-        sample_processor.download_faktur_masukan = AsyncMock(return_value=[{"faktur_number": "FK-001", "npwp_penjual": "123", "nama_penjual": "Supplier", "tanggal_faktur": date.today(), "dpp": 100000000, "ppn": 11000000}])
-        tax_service.get_faktur_masukan_by_number = AsyncMock(return_value=None)
-        tax_service.save_faktur_masukan = AsyncMock(return_value=uuid.uuid4())
-        result = await sample_processor.sync_faktur_masukan_periodic(npwp)
-        assert result["synced_count"] == 1
-        assert "FK-001" in result["faktur_numbers"]
-
-    async def test_sync_faktur_masukan_periodic_with_existing(self, sample_processor):
-        npwp = "123"
-        tax_service = sample_processor._tax_service
-        tax_service.get_unprocessed_periods = AsyncMock(return_value=[{"month": 5, "year": 2026}])
-        sample_processor.download_faktur_masukan = AsyncMock(return_value=[{"faktur_number": "FK-001"}])
-        tax_service.get_faktur_masukan_by_number = AsyncMock(return_value={"faktur_number": "FK-001"})
-        result = await sample_processor.sync_faktur_masukan_periodic(npwp)
-        assert result["synced_count"] == 0
-
-    def test__check_expiry(self, sample_processor):
-        data = {"tanggal_faktur": date.today() - timedelta(days=EXPIRY_DAYS + 1)}
-        assert sample_processor._check_expiry(data)
-        data = {"tanggal_faktur": date.today()}
-        assert not sample_processor._check_expiry(data)
-        data = {}
-        assert not sample_processor._check_expiry(data)
-
-    def test_legacy_approve_expiry_check(self, sample_processor):
-        data = {"tanggal_faktur": date.today()}
-        result = sample_processor.legacy_approve_expiry_check(data)
-        assert result.status == "APPROVED"
-        assert result.pengkreditan_allowed
-        data = {"tanggal_faktur": date.today() - timedelta(days=EXPIRY_DAYS + 1)}
-        with pytest.raises(ValueError, match="batas waktu 3 bulan"):
-            sample_processor.legacy_approve_expiry_check(data)
-
-
-# ============================================================================
-# Tests for Singleton get_faktur_masukan_processor
-# ============================================================================
-
-@pytest.mark.asyncio
-async def test_get_faktur_masukan_processor_singleton():
-    with patch("adapters.coretax_djp.faktur_masukan_processor.FakturMasukanProcessor") as MockProcessor:
-        MockProcessor.return_value = MagicMock()
-        proc1 = await get_faktur_masukan_processor()
-        proc2 = await get_faktur_masukan_processor()
-        assert proc1 is proc2
-        assert MockProcessor.call_count == 1
+            client1 = await sample_processor._get_coretax

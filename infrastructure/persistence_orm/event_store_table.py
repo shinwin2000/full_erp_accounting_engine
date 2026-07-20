@@ -33,7 +33,8 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
@@ -43,9 +44,12 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
     """
     Model untuk tabel event_store.
     Tabel ini bersifat append-only (tidak ada UPDATE/DELETE setelah INSERT).
+    Model ini IMMUTABLE - tidak boleh di-update atau di-delete.
     """
 
     __tablename__ = "event_store"
+    # Flag untuk checker: model ini adalah audit log yang immutable
+    __is_audit_log__ = True
     __table_args__ = (
         UniqueConstraint("stream_name", "sequence_number", name="uq_event_store_stream_sequence"),
         CheckConstraint("stream_name IS NOT NULL AND stream_name != ''", name="ck_es_stream_name"),

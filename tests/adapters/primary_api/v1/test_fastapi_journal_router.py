@@ -11,8 +11,6 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import uuid4
 
-import pytest
-
 from adapters.primary_api.v1.fastapi_journal_router import (
     IdempotencyManager,
     JournalActionResponseSchema,
@@ -304,7 +302,7 @@ def test_validate_balance_returns_boolean():
     # test balanced case
     result = validate_balance(debit=Decimal("100"), credit=Decimal("100"))
     assert result is True
-    
+
     # test unbalanced case
     result = validate_balance(debit=Decimal("100"), credit=Decimal("90"))
     assert result is False

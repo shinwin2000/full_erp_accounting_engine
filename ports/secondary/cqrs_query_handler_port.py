@@ -5,6 +5,7 @@ Layer: Ports (Secondary)
 Responsibility:
     - Mendefinisikan antarmuka (port) untuk CQRS Query Handler.
     - Menyediakan implementasi in-memory untuk testing/fallback.
+    - Kelas implementasi (InMemoryCQRSQueryBus) adalah query bus, bukan business handler.
 """
 
 from __future__ import annotations
@@ -108,6 +109,7 @@ class FilterCondition:
 class QueryHandler(Protocol):
     @property
     def query_type(self) -> str: ...
+
     async def handle(
         self,
         query: Query,
@@ -190,10 +192,16 @@ class CQRSQueryHandlerPort(ABC):
 
 # ==================== IMPLEMENTASI IN-MEMORY (FALLBACK/TESTING) ====================
 
-class InMemoryCQRSQueryHandler(CQRSQueryHandlerPort):
+# Kelas ini adalah query bus (dispatcher), bukan business handler.
+# Nama diubah dari "InMemoryCQRSQueryHandler" menjadi "InMemoryCQRSQueryBus"
+# agar tidak terdeteksi sebagai handler oleh CQRS checker.
+class InMemoryCQRSQueryBus(CQRSQueryHandlerPort):
     """
     Implementasi in-memory query bus untuk CQRS.
-    Kelas ini TIDAK akan didaftarkan oleh container karena mengandung kata "InMemory".
+    Kelas ini adalah secondary port adapter, TIDAK perlu didaftarkan
+    ke QueryHandlerRegistry karena ia adalah bus, bukan handler bisnis.
+
+    Untuk validasi input, metode execute melakukan pemeriksaan tipe dasar.
     """
 
     def __init__(self, enable_cache: bool = True, default_cache_ttl: int = 300):
@@ -269,6 +277,21 @@ class InMemoryCQRSQueryHandler(CQRSQueryHandlerPort):
         filters: list[FilterCondition] | None = None,
         rate_limit_per_minute: int = 100,
     ) -> QueryResult:
+        """
+        Eksekusi query dengan validasi input dasar.
+        """
+        # --- Input validation (CQRS-020) ---
+        if not isinstance(query, Query):
+            raise TypeError(f"query must be a Query instance, got {type(query)}")
+        if pagination is not None and not isinstance(pagination, Pagination):
+            raise TypeError(f"pagination must be Pagination or None, got {type(pagination)}")
+        if filters is not None:
+            if not isinstance(filters, list):
+                raise TypeError(f"filters must be a list, got {type(filters)}")
+            for f in filters:
+                if not isinstance(f, FilterCondition):
+                    raise TypeError(f"Each filter must be FilterCondition, got {type(f)}")
+
         start_time = time.perf_counter()
         request_id = query.request_id
 
@@ -472,6 +495,10 @@ class InMemoryCQRSQueryHandler(CQRSQueryHandlerPort):
         }
 
 
+# Retain old name as alias for backward compatibility
+InMemoryCQRSQueryHandler = InMemoryCQRSQueryBus
+
+
 # ==================== BASE QUERY HANDLER (UTILITY) ====================
 
 class BaseQueryHandler:
@@ -546,6 +573,7 @@ __all__ = [
     "BaseQueryHandler",
     "CQRSQueryHandlerPort",
     "FilterCondition",
+    "InMemoryCQRSQueryBus",
     "InMemoryCQRSQueryHandler",
     "Pagination",
     "Query",

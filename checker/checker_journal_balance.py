@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JOURNAL BALANCE CHECKER v3 — PRECISION ARCHITECTURAL VALIDATOR WITH RCA
+JOURNAL BALANCE CHECKER v3.1 — PRECISION ARCHITECTURAL VALIDATOR WITH RCA
 ========================================================================
 Memeriksa implementasi jurnal memastikan debit == kredit.
 Integrasi dengan RCAEngine untuk rekomendasi perbaikan.
@@ -8,6 +8,14 @@ Integrasi dengan RCAEngine untuk rekomendasi perbaikan.
 v3:
 - Skip GraphQL types (strawberry) agar tidak salah deteksi
 - Perbaikan deteksi class jurnal lebih akurat
+
+v3.1 (bugfix performa, ditemukan lewat benchmark nyata):
+- FIX BUG PERFORMA UTAMA: setiap file di-parse ulang (read_text + ast.parse)
+  SEBANYAK 3 KALI — sekali per step analisis (kumpulkan class jurnal,
+  analisis fungsi pembuat entitas, analisis repository). Parsing AST adalah
+  bagian termahal dari static analysis, jadi ini menyebabkan waktu proses
+  3x lebih lama dari seharusnya. Sekarang setiap file di-parse sekali,
+  hasil AST-nya di-cache, lalu dipakai ulang di ketiga step.
 
 Cara pakai:
     python checker/checker_journal_balance.py [--json report.json] [--rca]
@@ -412,7 +420,7 @@ def get_rca_analysis_for_finding(finding: Finding) -> tuple[str, str]:
 
 def run_checker(verbose: bool = False, json_out: str | None = None, use_rca: bool = True) -> int:
     print(f"{BOLD}{CYAN}╔{'═'*78}╗{RESET}")
-    print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER v3 (RCA-ENABLED){' '*20}║{RESET}")
+    print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER v3.1 (RCA-ENABLED){' '*20}║{RESET}")
     print(f"{BOLD}{CYAN}╚{'═'*78}╝{RESET}")
     print(f"  Root: {ROOT}")
     print(f"  RCA Enabled: {RCA_AVAILABLE and use_rca}")
@@ -435,12 +443,22 @@ def run_checker(verbose: bool = False, json_out: str | None = None, use_rca: boo
     journal_classes: list[JournalClassInfo] = []
     journal_class_names: set[str] = set()
 
-    # ─── Step 1: Kumpulkan semua class jurnal ────────────────────────────────
+    # FIX v3.1.0 — BUG PERFORMA UTAMA:
+    # Versi lama memanggil get_ast_tree(file_path) — yaitu read_text() + ast.parse() —
+    # SATU KALI PER STEP untuk SETIAP file, dan ada 3 step (kumpulkan class jurnal,
+    # analisis fungsi pembuat entitas, analisis repository). Artinya setiap file
+    # dibaca dari disk dan di-parse ulang 3x. Pada codebase besar, parsing AST
+    # adalah bagian termahal dari static analysis, jadi ini yang membuat checker
+    # terasa lama. Sekarang setiap file di-parse SEKALI, tree-nya di-cache, lalu
+    # dipakai ulang di ketiga step.
+    file_trees: dict[Path, ast.AST] = {}
     for file_path in all_files:
         tree = get_ast_tree(file_path)
-        if tree is None:
-            continue
+        if tree is not None:
+            file_trees[file_path] = tree
 
+    # ─── Step 1: Kumpulkan semua class jurnal ────────────────────────────────
+    for file_path, tree in file_trees.items():
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 if is_journal_class(node, file_path):
@@ -458,11 +476,7 @@ def run_checker(verbose: bool = False, json_out: str | None = None, use_rca: boo
                         ))
 
     # ─── Step 2: Analisis semua fungsi yang membuat dan menyimpan entitas jurnal ──
-    for file_path in all_files:
-        tree = get_ast_tree(file_path)
-        if tree is None:
-            continue
-
+    for file_path, tree in file_trees.items():
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 creations = extract_object_creations(node, journal_class_names, file_path)
@@ -507,11 +521,7 @@ def run_checker(verbose: bool = False, json_out: str | None = None, use_rca: boo
                         ))
 
     # ─── Step 3: Analisis Repository (JournalRepository, LedgerRepository) ──
-    for file_path in all_files:
-        tree = get_ast_tree(file_path)
-        if tree is None:
-            continue
-
+    for file_path, tree in file_trees.items():
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 if not node.name.endswith("Repository"):

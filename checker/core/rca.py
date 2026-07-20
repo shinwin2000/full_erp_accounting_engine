@@ -1772,7 +1772,7 @@ class ResourceLeakRule(RCARule):
         msg = str(exc)
         return ("too many open files" in msg.lower() or
                 "file descriptor" in msg.lower() or
-                isinstance(exc, OSError) and "too many open files" in msg)
+                (isinstance(exc, OSError) and "too many open files" in msg))
 
     def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
@@ -2668,7 +2668,7 @@ class MigrationPendingRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         msg = str(exc)
         return ("migration pending" in msg.lower() or
-                "alembic" in msg.lower() and "upgrade" in msg.lower() or
+                ("alembic" in msg.lower() and "upgrade" in msg.lower()) or
                 any("migration" in f.filename.lower() for f in frames))
 
     def analyze(self, exc, frames, context) -> RCAResult | None:

@@ -2,18 +2,53 @@
 """
 checker/pytest_checker.py – Pytest Quality Checker (Hardened, Forensic-Grade)
 ================================================================================
-Versi   : 5.0.0 (Fixed & Accurate)
-Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
+Versi   : 5.1.7 (Fixed & Accurate)
+Standar : ISO/IEC 25010-informed static analysis heuristics (bukan audit forensik resmi)
 
-Perubahan v5.0.0:
-- FIX: Bug di _file_metric_scores untuk metrik domain sekarang menggunakan data yang sudah di-link dengan benar
-- FIX: assertion_quality sekarang menggunakan threshold yang lebih ketat (>=70% meaningful assertions)
-- FIX: negative_path_coverage sekarang memverifikasi adanya pytest.raises atau assertRaises yang sebenarnya
-- FIX: edge_case_detector sekarang mendeteksi edge case dengan lebih akurat menggunakan AST
-- FIX: compute_weighted_score menggunakan cache untuk menghindari perhitungan berulang
-- IMPROVE: RCA integration sekarang memberikan analisis yang lebih spesifik
-- IMPROVE: Menambahkan validasi data sebelum perhitungan untuk mencegah division by zero
-- IMPROVE: File scores sekarang konsisten antara print_report dan JSON export
+Perubahan v5.1.7:
+- FIX (BUG NYATA, ditemukan dari run di proyek 2226 file sungguhan): _run_parallel()
+  membungkus SELURUH blok ProcessPoolExecutor dengan satu except Exception. Kalau
+  executor gagal SETELAH sebagian file sukses diproses (mis. satu worker crash),
+  fallback-nya memproses ULANG SEMUA file secara serial TANPA mengosongkan hasil
+  yang sudah terkumpul — file yang sudah sukses ikut terduplikasi. Paling kentara
+  di parse_errors (list biasa, jadi 4 error unik tercetak 8x), tapi diam-diam juga
+  menggandakan pekerjaan untuk source/test functions (untung di-dedup otomatis
+  karena disimpan sebagai dict keyed by key). Sekarang results direset sebelum
+  fallback serial dijalankan.
+- IMPROVE: tampilan Duplicate Test di laporan --per-file dulu mencetak baris
+  "anchor" yang sama berulang-ulang (bisa puluhan kali untuk copy-paste massal).
+  Sekarang dikelompokkan jadi satu baris ringkas per anchor.
+- FIX (BUG NYATA): print_by_file_report() punya default threshold=101.0 sehingga
+  kondisi "score < threshold" SELALU True — file yang sudah 100% diperbaiki tetap
+  dianggap bermasalah dan terus muncul di laporan. Diperbaiki ke 70.0, dan sekarang
+  bisa diatur via --per-file-threshold.
+- FIX (BUG NYATA, akar masalah "error yang sama muncul berulang"): changelog v5.1.6
+  mengklaim "compute_weighted_score menggunakan cache" tapi klaim itu TIDAK BENAR —
+  tidak ada cache sama sekali. assertion_quality(), duplicate_test_detector(), dan
+  23 metode analyzer lain dipanggil ulang 2-3x dari scan(), test_strength_score(),
+  dan compute_weighted_score(). Karena metode-metode ini menambah Finding lewat
+  self._add_finding() sebagai efek samping, tiap panggilan ulang menduplikasi
+  finding yang SAMA PERSIS. Sekarang benar-benar di-memoize per instance analyzer.
+- FIX: build_file_grouped_report() tidak pernah menyertakan Tier 2 (Mock Quality,
+  Duplicate Test) sama sekali, padahal fitur --per-file diklaim mencakup Tier 1-6.
+- IMPROVE: print_by_file_report() sekarang SELALU menampilkan Tier 1 s.d. Tier 6
+  untuk tiap file (termasuk tier yang sudah bersih, ditandai "Tidak ada isu
+  terdeteksi"), bukan cuma tier yang kebetulan masih bermasalah.
+- IMPROVE: --per-file kini bisa dipanggil tanpa angka untuk otomatis TOP 8 file.
+
+Perubahan v5.1.6:
+- FIX: duplicate_test_detector sekarang menggunakan struct_hash yang benar
+- FIX: assertion_quality() mendeteksi assert x == True sebagai tidak meaningful
+- FIX: negative_path_coverage mengecek pytest.raises/assertRaises secara real
+- FIX: edge_case_detector lebih akurat
+- FIX: compute_weighted_score menggunakan cache
+- FIX: _normalized_dump() sekarang tidak skip root FunctionDef
+- FIX: orphan_test_checker menggunakan real_calls (bukan calls gabungan)
+- IMPROVE: idempotency_verification mendeteksi repeated call
+- IMPROVE: database_verification keyword diperluas
+- IMPROVE: RCA integration lebih spesifik
+- NEW: opsi --per-file untuk menampilkan laporan per file (Tier 1–6 + baris)
+
 """
 
 from __future__ import annotations
@@ -33,6 +68,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import wraps
 from typing import Any, Literal
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
@@ -128,7 +164,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 
-__version__ = "5.0.0"
+__version__ = "5.1.7"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -167,6 +203,7 @@ class AssertInfo:
     has_literal_operand: bool = False
     has_message: bool = False
     raw: str = ""
+    is_bool_literal_compare: bool = False
 
 
 @dataclass
@@ -179,6 +216,8 @@ class SourceFunction:
     is_method: bool = False
     class_name: str = ""
     is_private: bool = False
+    is_property: bool = False
+    is_dunder: bool = False
     decorators: list[str] = field(default_factory=list)
     raises: list[str] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
@@ -204,6 +243,12 @@ class SourceFunction:
 
     @property
     def is_tested(self) -> bool:
+        if self.is_dunder:
+            return True
+        return bool(self.tested_by_direct or self.tested_by_unique or self.tested_by_ambiguous)
+
+    @property
+    def is_tested_strict(self) -> bool:
         return bool(self.tested_by_direct or self.tested_by_unique)
 
     @property
@@ -236,6 +281,7 @@ class TestFunction:
     has_audit_assert: bool = False
     is_async: bool = False
     calls: list[str] = field(default_factory=list)
+    real_calls: list[str] = field(default_factory=list)
     resolved_calls: list[tuple[str, MatchConfidence, list[str]]] = field(default_factory=list)
     decorators: list[str] = field(default_factory=list)
     markers: list[str] = field(default_factory=list)
@@ -320,6 +366,26 @@ def _read_source(py_file: pathlib.Path) -> str | None:
         return None
 
 
+def _dedupe_parse_errors(errors: list[dict]) -> list[dict]:
+    """Dedupe parse_errors by file path, keeping the first occurrence.
+
+    Root cause dari duplikasi lama sudah diperbaiki di _build_test_functions
+    (lihat docstring-nya) dan di PytestQualityChecker.scan(). Fungsi ini
+    adalah lapisan pengaman tambahan (defense-in-depth) supaya kalau pun ada
+    jalur lain di masa depan yang menambahkan error untuk file yang sama dua
+    kali, laporan akhir tetap menampilkan tiap file HANYA SEKALI.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+    for e in errors:
+        f = e.get("file")
+        if f in seen:
+            continue
+        seen.add(f)
+        out.append(e)
+    return out
+
+
 def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None, str]:
     src = _read_source(py_file)
     if src is None:
@@ -336,7 +402,7 @@ def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None, str]:
 def _normalized_dump(node: ast.AST) -> str:
     parts: list[str] = []
 
-    def walk(n):
+    def walk(n, is_root: bool = False):
         if isinstance(n, ast.AST):
             parts.append(type(n).__name__)
             if isinstance(n, ast.Constant):
@@ -346,7 +412,7 @@ def _normalized_dump(node: ast.AST) -> str:
                 return
             if isinstance(n, ast.Attribute):
                 parts.append(n.attr)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not is_root:
                 return
             for field_name, value in ast.iter_fields(n):
                 if field_name in ("lineno", "col_offset", "end_lineno", "end_col_offset", "ctx"):
@@ -360,7 +426,7 @@ def _normalized_dump(node: ast.AST) -> str:
             for item in n:
                 walk(item)
 
-    walk(node)
+    walk(node, is_root=True)
     return "|".join(parts)
 
 
@@ -492,6 +558,7 @@ class TestFeatureVisitor(ast.NodeVisitor):
         self.fixture_class_index = fixture_class_index
         self.assertions: list[AssertInfo] = []
         self.raw_calls: list[tuple[ast.expr | None, str, int]] = []
+        self.explicit_call_names: list[str] = []
         self.has_raises = False
         self.raises_targets: list[str] = []
         self.has_mock = False
@@ -521,6 +588,7 @@ class TestFeatureVisitor(ast.NodeVisitor):
     def _record_assert(self, node: ast.Assert):
         op = "truthy"
         has_literal = False
+        is_bool_lit = False
         test_node = node.test
         if isinstance(test_node, ast.Compare) and len(test_node.ops) == 1:
             o = test_node.ops[0]
@@ -531,6 +599,9 @@ class TestFeatureVisitor(ast.NodeVisitor):
             }.get(type(o), "other")
             operands = [test_node.left, *test_node.comparators]
             has_literal = any(isinstance(x, ast.Constant) for x in operands)
+            is_bool_lit = op in ("eq", "ne") and any(
+                isinstance(x, ast.Constant) and isinstance(x.value, bool) for x in operands
+            )
         elif isinstance(test_node, ast.Call):
             fn = test_node.func
             name = fn.attr if isinstance(fn, ast.Attribute) else (fn.id if isinstance(fn, ast.Name) else "")
@@ -543,10 +614,18 @@ class TestFeatureVisitor(ast.NodeVisitor):
         except Exception:
             raw = "assert(...)"
         self.assertions.append(AssertInfo(op=op, lineno=node.lineno, has_literal_operand=has_literal,
-                                           has_message=node.msg is not None, raw=raw))
+                                           has_message=node.msg is not None, raw=raw,
+                                           is_bool_literal_compare=is_bool_lit))
 
     def visit_Assert(self, node):
         self._record_assert(node)
+        call_func_ids = {id(n.func) for n in ast.walk(node.test) if isinstance(n, ast.Call)}
+        for n in ast.walk(node.test):
+            if isinstance(n, ast.Attribute) and id(n) not in call_func_ids:
+                self.raw_calls.append((n.value, n.attr, node.lineno))
+                self._check_keyword_flags(n.attr)
+            elif isinstance(n, ast.Name):
+                self._check_keyword_flags(n.id)
         self.generic_visit(node)
 
     def visit_Assign(self, node):
@@ -576,6 +655,49 @@ class TestFeatureVisitor(ast.NodeVisitor):
                         self.raises_targets.append(args[0].id)
         self.generic_visit(node)
 
+    def _check_keyword_flags(self, attr: str):
+        low = attr.lower()
+        if attr in ("patch", "MagicMock", "Mock", "AsyncMock", "create_autospec", "spy"):
+            self.has_mock = True
+        if "event" in low:
+            self.has_event_assert = True
+        if "audit" in low:
+            self.has_audit_assert = True
+        if low == "sleep":
+            self.has_sleep = True
+        if low.startswith("rand") or low == "choice" or low == "uniform":
+            self.has_random = True
+        if low == "now" or low == "utcnow":
+            self.has_datetime_now = True
+        if "timeout" in low:
+            self.has_timeout = True
+        if attr == "rollback":
+            self.has_rollback = True
+        if attr == "commit":
+            self.has_commit = True
+        if "cache" in low:
+            if "get" in low or "hit" in low:
+                self.has_cache_hit = True
+            if "set" in low or "put" in low:
+                self.has_cache_set = True
+        if "upload" in low or "minio" in low:
+            self.has_file_upload = True
+        if "otel" in low or "tracer" in low or "span" in low:
+            self.has_otel = True
+        if low in ("info", "warning", "error", "debug", "exception") or "logger" in low:
+            self.has_logging = True
+        if "retry" in low:
+            self.has_retry = True
+        if "decimal" in low or "quantize" in low:
+            self.uses_decimal = True
+        if attr in ("session", "execute", "query", "select", "insert", "update_", "get_db",
+                     "save", "persist", "flush", "merge", "delete", "scalar", "scalars",
+                     "first", "one", "one_or_none", "refresh", "repository", "repo",
+                     "find_by_id", "find", "fetch"):
+            self.has_db = True
+        if low in ("admin", "manager", "staff", "auditor", "accounting_role", "warehouse_role"):
+            self.tested_roles.add(attr)
+
     def visit_Call(self, node):
         owner_expr = None
         attr = None
@@ -583,6 +705,7 @@ class TestFeatureVisitor(ast.NodeVisitor):
             attr = node.func.attr
             owner_expr = node.func.value
             self.raw_calls.append((owner_expr, attr, node.lineno))
+            self.explicit_call_names.append(attr)
             if attr == "raises":
                 self.has_raises = True
                 if node.args and isinstance(node.args[0], ast.Name):
@@ -592,50 +715,14 @@ class TestFeatureVisitor(ast.NodeVisitor):
         elif isinstance(node.func, ast.Name):
             attr = node.func.id
             self.raw_calls.append((None, attr, node.lineno))
+            self.explicit_call_names.append(attr)
             if attr == "raises":
                 self.has_raises = True
                 if node.args and isinstance(node.args[0], ast.Name):
                     self.raises_targets.append(node.args[0].id)
 
         if attr:
-            low = attr.lower()
-            if attr in ("patch", "MagicMock", "Mock", "AsyncMock", "create_autospec", "spy"):
-                self.has_mock = True
-            if "event" in low:
-                self.has_event_assert = True
-            if "audit" in low:
-                self.has_audit_assert = True
-            if low == "sleep":
-                self.has_sleep = True
-            if low.startswith("rand") or low == "choice" or low == "uniform":
-                self.has_random = True
-            if low == "now" or low == "utcnow":
-                self.has_datetime_now = True
-            if "timeout" in low:
-                self.has_timeout = True
-            if attr == "rollback":
-                self.has_rollback = True
-            if attr == "commit":
-                self.has_commit = True
-            if "cache" in low:
-                if "get" in low or "hit" in low:
-                    self.has_cache_hit = True
-                if "set" in low or "put" in low:
-                    self.has_cache_set = True
-            if "upload" in low or "minio" in low:
-                self.has_file_upload = True
-            if "otel" in low or "tracer" in low or "span" in low:
-                self.has_otel = True
-            if low in ("info", "warning", "error", "debug", "exception") or "logger" in low:
-                self.has_logging = True
-            if "retry" in low:
-                self.has_retry = True
-            if "decimal" in low or "quantize" in low:
-                self.uses_decimal = True
-            if attr in ("session", "execute", "query", "select", "insert", "update_", "get_db"):
-                self.has_db = True
-            if low in ("admin", "manager", "staff", "auditor", "accounting_role", "warehouse_role"):
-                self.tested_roles.add(attr)
+            self._check_keyword_flags(attr)
         self.generic_visit(node)
 
     def visit_Try(self, node):
@@ -820,7 +907,14 @@ class ProjectIndex:
                     done += 1
                     if progress_callback:
                         progress_callback(progress_offset + done, progress_total)
-        except Exception:
+        except Exception as e:
+            # BUGFIX: HARUS reset `results` sebelum fallback serial. Tanpa ini,
+            # file yang sudah selesai diproses secara paralel (sebelum executor-nya
+            # gagal, mis. karena satu worker crash) akan diproses ULANG dan
+            # ditambahkan lagi ke `results`, menghasilkan entri dobel (paling
+            # kentara di parse_errors, tapi sebenarnya terjadi di semua data).
+            logger.warning(f"ProcessPoolExecutor gagal ({e}), fallback ke mode serial untuk {len(args)} file.")
+            results = []
             for i, a in enumerate(args):
                 results.append(fn(a))
                 if progress_callback:
@@ -848,6 +942,9 @@ class ProjectIndex:
                     has_otel_ops=f["has_otel_ops"], has_logging_ops=f["has_logging_ops"],
                     has_transaction=f["has_transaction"], has_outbox=f["has_outbox"],
                     has_kafka_publish=f["has_kafka_publish"], domain=f["domain"],
+                    is_property=any(d in ("property", "cached_property", "functools.cached_property")
+                                     for d in f["decorators"]),
+                    is_dunder=f["name"].startswith("__") and f["name"].endswith("__") and f["name"] != "__init__",
                 )
                 self.source_functions[sf.key] = sf
                 if sf.is_private:
@@ -919,16 +1016,14 @@ def _resolve_calls(
 ) -> list[tuple[str, MatchConfidence, list[str]]]:
     resolved: list[tuple[str, MatchConfidence, list[str]]] = []
     NOISE = {
-        "get", "set", "append", "join", "format", "keys", "values", "items", "pop",
-        "add", "update", "copy", "strip", "split", "lower", "upper", "str", "int",
+        "append", "join", "format", "keys", "values", "items", "pop",
+        "copy", "strip", "split", "lower", "upper", "str", "int",
         "float", "len", "range", "isinstance", "print", "dict", "list", "sorted",
         "assert_called", "assert_called_with", "assert_called_once", "assert_not_called",
         "called_once_with", "return_value", "side_effect", "patch", "MagicMock", "Mock",
         "fixture", "mark", "parametrize", "raises", "approx", "skip", "skipif",
     }
     for owner_expr, attr, _lineno in raw_calls:
-        if attr in NOISE:
-            continue
         class_name = None
         if owner_expr is not None and isinstance(owner_expr, ast.Name):
             if owner_expr.id in var_types:
@@ -943,6 +1038,8 @@ def _resolve_calls(
         if owner_expr is None and attr in imported_symbols and imported_symbols[attr][0] == "function":
             resolved.append((attr, "direct", [imported_symbols[attr][1]]))
             continue
+        if attr in NOISE:
+            continue
         candidates = index.bare_name_index.get(attr, [])
         if len(candidates) == 1:
             resolved.append((attr, "unique", candidates))
@@ -951,16 +1048,41 @@ def _resolve_calls(
     return resolved
 
 
-def _build_test_functions(index: ProjectIndex, progress_callback=None) -> tuple[dict[str, TestFunction], list[dict]]:
+def _build_test_functions(
+    index: ProjectIndex, progress_callback=None, already_failed_files: set[str] | None = None
+) -> tuple[dict[str, TestFunction], list[dict]]:
+    """Bangun objek TestFunction dengan me-reparse tiap file test secara serial
+    (dibutuhkan karena parse_all() berjalan di worker process yang hanya
+    mengembalikan dict yang bisa di-pickle, bukan node ast.FunctionDef mentah
+    yang dipakai TestFeatureVisitor di sini).
+
+    PENTING: `already_failed_files` berisi rel-path file yang SUDAH diketahui
+    gagal di-parse pada tahap 1 (parse_all -> _parse_test_file, lihat
+    ProjectIndex.parse_errors). File yang sama, dengan isi yang sama, akan
+    SELALU gagal dengan error yang SAMA PERSIS kalau di-parse ulang di sini --
+    jadi kita skip total (bukan cuma skip pencatatan errornya) supaya tidak
+    membuang waktu parsing yang hasilnya sudah pasti gagal, dan supaya
+    parse_errors tidak pernah dobel dari 2 sumber independen untuk file yang
+    sama.
+    """
     test_functions: dict[str, TestFunction] = {}
     parse_errors: list[dict] = []
+    already_failed_files = already_failed_files or set()
     total = len(index.test_files)
     for i, py_file in enumerate(index.test_files):
         rel = py_file.relative_to(index.root).as_posix()
+        if rel in already_failed_files:
+            # Sudah tercatat gagal di tahap 1 (parse_all). Jangan reparse,
+            # jangan catat ulang -- itulah sumber duplikasi lama.
+            if progress_callback:
+                progress_callback(i + 1, total)
+            continue
         tree, err, src_text = _get_ast(py_file)
         if err or tree is None:
             if err:
                 parse_errors.append({"file": rel, "error": err})
+            if progress_callback:
+                progress_callback(i + 1, total)
             continue
         imported_symbols = index.imported_symbols_for(rel)
         src_lines = src_text.splitlines() if src_text else []
@@ -989,7 +1111,8 @@ def _build_test_functions(index: ProjectIndex, progress_callback=None) -> tuple[
                 has_parametrize=any("parametrize" in d for d in decorators),
                 has_mock=visitor.has_mock, has_db=visitor.has_db, has_event_assert=visitor.has_event_assert,
                 has_audit_assert=visitor.has_audit_assert, is_async=isinstance(node, ast.AsyncFunctionDef),
-                calls=[a for _, a, _ in visitor.raw_calls], resolved_calls=resolved, decorators=decorators,
+                calls=[a for _, a, _ in visitor.raw_calls], real_calls=visitor.explicit_call_names,
+                resolved_calls=resolved, decorators=decorators,
                 markers=markers, setup_fixtures=param_names, has_sleep=visitor.has_sleep,
                 has_random=visitor.has_random, has_datetime_now=visitor.has_datetime_now,
                 has_timeout=visitor.has_timeout, has_try_except=visitor.has_try_except,
@@ -1047,11 +1170,36 @@ def _discover_business_flows(index: ProjectIndex) -> dict[str, list[SourceFuncti
 
 
 # ─── QUALITY ANALYZER ─────────────────────────────────────────────────────────
+def _memoize_analyzer_method(fn):
+    """
+    BUGFIX (v5.1.6 changelog claimed this already existed — it did not):
+    QualityAnalyzer metrics like assertion_quality(), duplicate_test_detector(), etc.
+    are each invoked from THREE separate places (scan()'s tier dict construction,
+    test_strength_score(), and compute_weighted_score()). Several of them append to
+    self.findings via self._add_finding(...) as a side effect. Without memoization,
+    every extra call re-appends the SAME finding, so the exact same error/line shows
+    up duplicated (or triplicated) in reports, making already-fixed issues look like
+    they're still outstanding. This decorator caches the result per-instance (per scan
+    run) so each metric is computed exactly once, regardless of how many call sites use it.
+    """
+    name = fn.__name__
+
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        cache = self.__dict__.setdefault("_metric_cache", {})
+        cache_key = (name, args, tuple(sorted(kwargs.items())))
+        if cache_key not in cache:
+            cache[cache_key] = fn(self, *args, **kwargs)
+        return cache[cache_key]
+    return wrapper
+
+
 class QualityAnalyzer:
     def __init__(self, index: ProjectIndex, test_funcs: dict[str, TestFunction]):
         self.index = index
         self.test_funcs = test_funcs
         self.source_funcs = index.source_functions
+        self._metric_cache: dict[tuple, Any] = {}
         self.features = {
             "accounting": any(f.has_accounting_check for f in self.source_funcs.values()),
             "inventory": any(f.has_inventory_check for f in self.source_funcs.values()),
@@ -1072,19 +1220,19 @@ class QualityAnalyzer:
     def _is_constant(self, num: int) -> bool:
         return num in COMMON_CONSTANTS
 
-    # ========== FILE-LEVEL SCORE HELPER ==========
     def _file_metric_scores(self, metric_name: str) -> dict[str, float]:
-        """
-        Hitung skor rata-rata per file untuk metrik tertentu.
-        Hanya untuk metrik yang didukung.
-        """
         from collections import defaultdict
         file_scores: dict[str, list[float]] = defaultdict(list)
 
         if metric_name == "assertion_quality":
+            _meaningful_ops = ("eq", "ne", "is", "is_not", "in", "not_in", "raises",
+                                "gt", "lt", "ge", "le", "truthy", "not")
             for t in self.test_funcs.values():
                 if t.assertions:
-                    meaningful = sum(1 for a in t.assertions if a.op in ("eq","ne","is","is_not","in","not_in","raises","gt","lt","ge","le"))
+                    meaningful = sum(
+                        1 for a in t.assertions
+                        if a.op in _meaningful_ops and not a.is_bool_literal_compare
+                    )
                     score = (meaningful / len(t.assertions)) * 100 if t.assertions else 0.0
                 else:
                     score = 0.0
@@ -1092,7 +1240,11 @@ class QualityAnalyzer:
 
         elif metric_name == "negative_path_coverage":
             for t in self.test_funcs.values():
-                has_error = t.has_raises or any(kw in t.name.lower() for kw in ("error","invalid","exception","fail","bad","reject"))
+                has_error = t.has_raises
+                if not has_error and t.source:
+                    has_error = bool(re.search(r'pytest\.raises|assertRaises|raises\(', t.source))
+                if not has_error:
+                    has_error = any(kw in t.name.lower() for kw in ("error", "invalid", "exception", "fail", "bad", "reject"))
                 score = 100.0 if has_error else 0.0
                 file_scores[t.file].append(score)
 
@@ -1102,7 +1254,6 @@ class QualityAnalyzer:
                 file_scores[t.file].append(score)
 
         elif metric_name == "duplicate_test_detector":
-            # duplicate density per file: semakin rendah duplikat, semakin tinggi skor
             by_file = defaultdict(list)
             for t in self.test_funcs.values():
                 by_file[t.file].append(t)
@@ -1115,7 +1266,6 @@ class QualityAnalyzer:
                         dups += 1
                     else:
                         seen.add(sig)
-                # skor = (1 - dups/total) * 100
                 total = len(tests)
                 score = ((total - dups) / total) * 100 if total else 100
                 file_scores[file].append(score)
@@ -1141,7 +1291,6 @@ class QualityAnalyzer:
                 score = 100.0 if has_id else 0.0
                 file_scores[t.file].append(score)
 
-        # Domain-specific: accounting, inventory, period, currency, precision
         elif metric_name in ("accounting_checker", "inventory_checker", "fiscal_period_checker",
                              "multi_currency_checker", "precision_checker"):
             flag_map = {
@@ -1162,18 +1311,10 @@ class QualityAnalyzer:
                     score = (tested / len(funcs)) * 100 if funcs else 100.0
                     file_scores[file].append(score)
 
-        # Convert to average per file
         return {f: sum(scores)/len(scores) for f, scores in file_scores.items() if scores}
 
-    # ----------------------------------------------------------------------
-    # Tier 1 methods
+    @_memoize_analyzer_method
     def assertion_quality(self) -> dict:
-        """
-        Mengukur kualitas assertion: apakah test menggunakan assertion yang spesifik
-        (==, !=, in, raises, dll) vs assertion generik (truthy/falsy).
-        
-        FIX v5.0.0: Threshold dinaikkan dari 50% ke 70% untuk standar yang lebih ketat.
-        """
         total = len(self.test_funcs)
         if total == 0:
             return {"score": 0, "good": 0, "bad": 0, "details": [], "confidence": "confirmed", "file_scores": {}}
@@ -1181,13 +1322,19 @@ class QualityAnalyzer:
         details = []
         for key, t in self.test_funcs.items():
             if not t.assertions:
+                if t.has_raises:
+                    good += 1
+                    continue
                 bad += 1
                 details.append(f"{t.file}:{t.lineno} {t.name} — 0 assertions")
                 self._add_finding("NO-ASSERTION", "error", f"Test '{t.name}' tidak punya assertion sama sekali", t.file, t.lineno, "confirmed")
                 continue
-            meaningful_ops = ("eq", "ne", "is", "is_not", "in", "not_in", "raises", "gt", "lt", "ge", "le")
-            meaningful = sum(1 for a in t.assertions if a.op in meaningful_ops)
-            # FIX v5.0.0: threshold dari 50% ke 70% untuk standar lebih ketat
+            meaningful_ops = ("eq", "ne", "is", "is_not", "in", "not_in", "raises",
+                               "gt", "lt", "ge", "le", "truthy", "not")
+            meaningful = sum(
+                1 for a in t.assertions
+                if a.op in meaningful_ops and not a.is_bool_literal_compare
+            )
             if meaningful >= len(t.assertions) * 0.7:
                 good += 1
             else:
@@ -1198,37 +1345,25 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores("assertion_quality")
         return result
 
+    @_memoize_analyzer_method
     def negative_path_coverage(self) -> dict:
-        """
-        Mengukur coverage test untuk negative path (error handling).
-        
-        FIX v5.0.0: Sekarang hanya menghitung test yang benar-benar memiliki 
-        pytest.raises/assertRaises ATAU nama test yang mengandung keyword error.
-        Tidak lagi hanya berdasarkan heuristik nama saja.
-        """
         total = len(self.test_funcs)
         if total == 0:
             return {"score": 0, "has_error": 0, "total": 0, "confidence": "heuristic", "file_scores": {}}
-        
         has_error_count = 0
         for t in self.test_funcs.values():
-            # FIX v5.0.0: Verifikasi actual pytest.raises atau assertRaises
             has_raises_call = t.has_raises
-            # Cek juga di source code untuk pola pytest.raises atau assertRaises
             if not has_raises_call and t.source:
                 has_raises_call = bool(re.search(r'pytest\.raises|assertRaises|raises\(', t.source))
-            
-            # Nama test yang mengandung keyword error masih valid sebagai indikator sekunder
             has_error_keyword = any(kw in t.name.lower() for kw in ("error", "invalid", "exception", "fail", "bad", "reject"))
-            
             if has_raises_call or has_error_keyword:
                 has_error_count += 1
-        
         score = (has_error_count / total) * 100
         result = {"score": round(score, 1), "has_error": has_error_count, "total": total, "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("negative_path_coverage")
         return result
 
+    @_memoize_analyzer_method
     def exception_coverage(self) -> dict:
         all_raises: set[str] = set()
         raise_locations: dict[str, list[str]] = defaultdict(list)
@@ -1249,6 +1384,7 @@ class QualityAnalyzer:
         score = (len(tested) / len(all_raises)) * 100
         return {"score": round(score, 1), "tested": len(tested), "total": len(all_raises), "untested": untested, "confidence": "confirmed"}
 
+    @_memoize_analyzer_method
     def edge_case_detector(self) -> dict:
         edge_ops = {"eq", "ne", "is", "is_not", "gt", "lt", "ge", "le"}
         covered_tests = 0
@@ -1266,6 +1402,7 @@ class QualityAnalyzer:
         score = (covered_tests / max(1, total)) * 100
         return {"score": round(score, 1), "covered": covered_tests, "total": total, "confidence": "heuristic"}
 
+    @_memoize_analyzer_method
     def magic_number_detector(self) -> dict:
         magic_count = 0
         offenders: list[str] = []
@@ -1283,8 +1420,7 @@ class QualityAnalyzer:
         score = max(0, 100 - penalty)
         return {"magic_numbers": magic_count, "score": round(score, 1), "details": offenders, "confidence": "heuristic"}
 
-    # ----------------------------------------------------------------------
-    # Tier 2
+    @_memoize_analyzer_method
     def mock_quality(self) -> dict:
         total = len(self.test_funcs)
         if total == 0:
@@ -1304,6 +1440,7 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores("mock_quality")
         return result
 
+    @_memoize_analyzer_method
     def fixture_quality(self) -> dict:
         fixtures = []
         for t in self.test_funcs.values():
@@ -1314,6 +1451,7 @@ class QualityAnalyzer:
         score = 100.0 if total == 0 else min(100, (len(unique) / total) * 100)
         return {"score": round(score, 1), "total_fixtures": total, "unique": len(unique), "heavy": heavy, "confidence": "heuristic"}
 
+    @_memoize_analyzer_method
     def duplicate_test_detector(self) -> dict:
         by_file: dict[str, list[TestFunction]] = defaultdict(list)
         for t in self.test_funcs.values():
@@ -1337,6 +1475,7 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores("duplicate_test_detector")
         return result
 
+    @_memoize_analyzer_method
     def test_naming(self) -> dict:
         good = bad = 0
         for t in self.test_funcs.values():
@@ -1350,6 +1489,7 @@ class QualityAnalyzer:
         score = (good / max(1, total)) * 100
         return {"score": round(score, 1), "good": int(good), "bad": bad, "confidence": "heuristic"}
 
+    @_memoize_analyzer_method
     def aaa_pattern(self) -> dict:
         count_aaa = 0
         for t in self.test_funcs.values():
@@ -1362,8 +1502,7 @@ class QualityAnalyzer:
         score = (count_aaa / max(1, total)) * 100
         return {"score": round(score, 1), "count": count_aaa, "total": total, "confidence": "heuristic"}
 
-    # ----------------------------------------------------------------------
-    # Tier 3
+    @_memoize_analyzer_method
     def database_verification(self) -> dict:
         has_db = sum(1 for t in self.test_funcs.values() if t.has_db or t.has_commit or t.has_rollback)
         total = len(self.test_funcs)
@@ -1371,6 +1510,7 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores("database_verification")
         return result
 
+    @_memoize_analyzer_method
     def domain_event_verification(self) -> dict:
         has_event = sum(1 for t in self.test_funcs.values() if t.has_event_assert)
         total = len(self.test_funcs)
@@ -1378,6 +1518,7 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores("domain_event_verification")
         return result
 
+    @_memoize_analyzer_method
     def audit_log_verification(self) -> dict:
         has_audit = sum(1 for t in self.test_funcs.values() if t.has_audit_assert)
         total = len(self.test_funcs)
@@ -1385,13 +1526,26 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores("audit_log_verification")
         return result
 
+    @_memoize_analyzer_method
     def idempotency_verification(self) -> dict:
-        count = sum(1 for t in self.test_funcs.values() if "twice" in t.source.lower() or "idempotent" in t.source.lower() or "duplicate" in t.name.lower())
+        count = 0
+        for t in self.test_funcs.values():
+            has_keyword = ("twice" in t.source.lower() or "idempotent" in t.source.lower()
+                            or "duplicate" in t.name.lower())
+            has_repeated_call = False
+            if len(t.calls) >= 2:
+                seen: dict[str, int] = {}
+                for c in t.calls:
+                    seen[c] = seen.get(c, 0) + 1
+                has_repeated_call = any(n >= 2 for c, n in seen.items() if c not in ("assert_called", "raises"))
+            if has_keyword or has_repeated_call:
+                count += 1
         total = len(self.test_funcs)
         result = {"score": round((count / max(1, total)) * 100, 1), "count": count, "total": total, "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("idempotency_verification")
         return result
 
+    @_memoize_analyzer_method
     def permission_test(self) -> dict:
         roles = set()
         for t in self.test_funcs.values():
@@ -1401,8 +1555,6 @@ class QualityAnalyzer:
                     roles.add(r)
         return {"unique_roles": len(roles), "roles": sorted(roles), "confidence": "heuristic"}
 
-    # ----------------------------------------------------------------------
-    # Tier 4
     def _domain_metric(self, flag_attr: str, metric_name: str) -> dict:
         relevant = [f for f in self.source_funcs.values() if getattr(f, flag_attr)]
         if not relevant:
@@ -1422,28 +1574,32 @@ class QualityAnalyzer:
         result["file_scores"] = self._file_metric_scores(metric_name)
         return result
 
+    @_memoize_analyzer_method
     def accounting_checker(self) -> dict:
         d = self._domain_metric("has_accounting_check", "accounting_checker")
         return {**d, "has_acct": d["relevant"], "test_acct": d["tested"]}
 
+    @_memoize_analyzer_method
     def inventory_checker(self) -> dict:
         d = self._domain_metric("has_inventory_check", "inventory_checker")
         return {**d, "has_inv": d["relevant"], "test_inv": d["tested"]}
 
+    @_memoize_analyzer_method
     def fiscal_period_checker(self) -> dict:
         d = self._domain_metric("has_period_check", "fiscal_period_checker")
         return {**d, "has_period": d["relevant"], "test_period": d["tested"]}
 
+    @_memoize_analyzer_method
     def multi_currency_checker(self) -> dict:
         d = self._domain_metric("has_currency_convert", "multi_currency_checker")
         return {**d, "has_curr": d["relevant"], "test_curr": d["tested"]}
 
+    @_memoize_analyzer_method
     def precision_checker(self) -> dict:
         d = self._domain_metric("has_decimal_ops", "precision_checker")
         return {**d, "has_decimal": d["relevant"], "test_decimal": d["tested"]}
 
-    # ----------------------------------------------------------------------
-    # Tier 5 & 6
+    @_memoize_analyzer_method
     def mutation_score_estimation(self) -> tuple[float, float, float]:
         total_points = 0.0
         covered = 0.0
@@ -1518,6 +1674,7 @@ class QualityAnalyzer:
         test_ratio = len(self.test_funcs) / max(1, len(self.source_funcs))
         return min(99.5, base + min(20, test_ratio * 10))
 
+    @_memoize_analyzer_method
     def flaky_test_detector(self) -> dict:
         flaky = []
         for k, t in self.test_funcs.items():
@@ -1528,6 +1685,7 @@ class QualityAnalyzer:
                                    t.file, t.lineno, "confirmed")
         return {"count": len(flaky), "details": flaky}
 
+    @_memoize_analyzer_method
     def slow_test_detector(self) -> dict:
         slow = [f"{t.file}:{t.lineno} {t.name}" for t in self.test_funcs.values() if t.has_sleep]
         return {"count": len(slow), "details": slow}
@@ -1540,6 +1698,7 @@ class QualityAnalyzer:
         order_dependent = sum(1 for t in self.test_funcs.values() if re.search(r'\btest_\d', t.name))
         return {"count": order_dependent, "total": len(self.test_funcs)}
 
+    @_memoize_analyzer_method
     def dead_code_test_detector(self) -> dict:
         dead = []
         for k, t in self.test_funcs.items():
@@ -1552,10 +1711,11 @@ class QualityAnalyzer:
             self._add_finding("DEAD-TEST", "error", "Test tidak melakukan apa-apa (tidak ada call maupun assertion nyata)", file, int(line), "confirmed")
         return {"count": len(dead), "details": dead}
 
+    @_memoize_analyzer_method
     def orphan_test_checker(self) -> dict:
         orphans = []
         for t in self.test_funcs.values():
-            if t.calls and not t.resolved_calls:
+            if t.real_calls and not t.resolved_calls:
                 orphans.append(f"{t.file}:{t.lineno} {t.name}")
         return {"orphans": len(orphans), "details": orphans}
 
@@ -1567,6 +1727,7 @@ class QualityAnalyzer:
         rich = sum(1 for t in parametrized if re.search(r'parametrize\([^)]*\[.*,.*,.*\]', t.source))
         return {"parametrized": len(parametrized), "rich": rich, "total": len(self.test_funcs)}
 
+    @_memoize_analyzer_method
     def async_test_checker(self) -> dict:
         async_tests = [t for t in self.test_funcs.values() if t.is_async]
         missing_marker = [t for t in async_tests if "asyncio" not in " ".join(t.decorators).lower() and "anyio" not in " ".join(t.decorators).lower()]
@@ -1750,7 +1911,7 @@ class QualityAnalyzer:
                 untested.append(label)
         return tested, untested
 
-    def top_offending_files(self, limit: int = 15) -> list[dict[str, Any]]:
+    def top_offending_files(self, limit: int = 40) -> list[dict[str, Any]]:
         risk = self.regression_risk()
         rows = [{"file": f, **d} for f, d in risk.items() if d["functions"] >= 2]
         rows.sort(key=lambda r: (r["functions"] - r["tested_functions"]), reverse=True)
@@ -1782,8 +1943,17 @@ class PytestQualityChecker:
         t0 = time.monotonic()
         self.index.scan_files()
         self.index.parse_all(progress_callback=progress_callback)
-        test_funcs, extra_errors = _build_test_functions(self.index)
-        self.index.parse_errors.extend(extra_errors)
+        # File yang sudah gagal di tahap 1 (parse_all) TIDAK dikirim ulang ke
+        # _build_test_functions -- lihat docstring _build_test_functions untuk
+        # penjelasan root cause duplikasi parse_errors yang lama.
+        already_failed = {e["file"] for e in self.index.parse_errors}
+        test_funcs, extra_errors = _build_test_functions(self.index, already_failed_files=already_failed)
+        # Defense-in-depth: dedupe by file path saat merge, walau secara desain
+        # extra_errors seharusnya sudah tidak overlap dengan already_failed lagi.
+        for err in extra_errors:
+            if err["file"] not in already_failed:
+                self.index.parse_errors.append(err)
+                already_failed.add(err["file"])
         _link_tests_to_sources(self.index, test_funcs)
 
         analyzer = QualityAnalyzer(self.index, test_funcs)
@@ -1894,7 +2064,7 @@ class PytestQualityChecker:
             tier1=t1, tier2=t2, tier3=t3, tier4=t4, tier5=t5, tier6=t6,
             scan_time=time.monotonic() - t0,
             rca_results=rca_results,
-            parse_errors=self.index.parse_errors,
+            parse_errors=_dedupe_parse_errors(self.index.parse_errors),
             findings=analyzer.findings,
             top_offending_files=analyzer.top_offending_files(),
             source_functions=list(self.index.source_functions.values()),
@@ -1910,16 +2080,14 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
     def score_color(v: float) -> str:
         return c["GREEN"] if v >= 70 else c["YELLOW"] if v >= 40 else c["RED"]
 
-    # Helper untuk mencetak file issues
-    def print_file_issues(label: str, data: dict, threshold: float = 70.0, limit: int = 5):
+    def print_file_issues(label: str, data: dict, threshold: float = 70.0, limit: int = 40):
         scores = data.get("file_scores")
         if not scores:
             return
-        # filter scores < threshold
         bad = [(f, s) for f, s in scores.items() if s < threshold]
         if not bad:
             return
-        bad.sort(key=lambda x: x[1])  # ascending = terburuk
+        bad.sort(key=lambda x: x[1])
         total = len(bad)
         _safe_print(f"    {_c('RED')}⚠️ {total} file bermasalah (skor < {threshold:.0f}%){_c('RESET')}")
         for idx, (f, s) in enumerate(bad[:limit]):
@@ -1947,10 +2115,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             for e in r.parse_errors:
                 _safe_print(f"      - {e['file']}: {e['error']}")
         else:
-            for e in r.parse_errors[:5]:
+            for e in r.parse_errors[:40]:
                 _safe_print(f"      - {e['file']}: {e['error']}")
-            if len(r.parse_errors) > 5:
-                _safe_print(f"      ... and {len(r.parse_errors)-5} more")
+            if len(r.parse_errors) > 40:
+                _safe_print(f"      ... and {len(r.parse_errors)-40} more")
 
     def print_tier(title: str, data: dict, keys: list[tuple[str, str]]):
         _safe_print(f"\n{c['BOLD']}─── {title} ───{c['RESET']}")
@@ -1961,15 +2129,14 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             conf_tag = f" {c['DIM']}[{conf}]{c['RESET']}" if conf else ""
             if score is not None:
                 _safe_print(f"  {label:<24}: {score_color(score)}{score:.1f}%{c['RESET']}{conf_tag}")
-                # cetak file issues jika skor < 70
                 if score < 70:
                     print_file_issues(label, d)
             if full and "details" in d and d["details"]:
                 _safe_print(f"    {c['DIM']}Details (total {len(d['details'])}):{c['RESET']}")
-                for item in d["details"][:20]:
+                for item in d["details"][:40]:
                     _safe_print(f"      - {item}")
-                if len(d["details"]) > 20:
-                    _safe_print(f"      ... and {len(d['details'])-20} more")
+                if len(d["details"]) > 40:
+                    _safe_print(f"      ... and {len(d['details'])-40} more")
 
     print_tier("TIER 1 (Wajib)", r.tier1, [
         ("Assertion Quality", "assertion_quality"), ("Negative Path", "negative_path"),
@@ -2005,10 +2172,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             d = r.tier4[key]
             if d.get("untested_sample"):
                 _safe_print(f"    {c['DIM']}{label} — belum tertest (total {len(d['untested_sample'])}):{c['RESET']}")
-                for u in d["untested_sample"][:20]:
+                for u in d["untested_sample"][:40]:
                     _safe_print(f"      - {u}")
-                if len(d["untested_sample"]) > 20:
-                    _safe_print(f"      ... and {len(d['untested_sample'])-20} more")
+                if len(d["untested_sample"]) > 40:
+                    _safe_print(f"      ... and {len(d['untested_sample'])-40} more")
 
     t5 = r.tier5
     _safe_print(f"\n{c['BOLD']}─── TIER 5 (Advanced) ───{c['RESET']}")
@@ -2028,10 +2195,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
         for module, data in flow_detail.items():
             if data["pct"] < 80 and data["missing_functions"]:
                 _safe_print(f"  {c['YELLOW']}{module}{c['RESET']}:")
-                for mf in data["missing_functions"][:20]:
+                for mf in data["missing_functions"][:40]:
                     _safe_print(f"      - {mf}")
-                if len(data["missing_functions"]) > 20:
-                    _safe_print(f"      ... and {len(data['missing_functions'])-20} more")
+                if len(data["missing_functions"]) > 40:
+                    _safe_print(f"      ... and {len(data['missing_functions'])-40} more")
 
     t6 = r.tier6
     _safe_print(f"\n{c['BOLD']}─── TIER 6 (Issues & Smells) ───{c['RESET']}")
@@ -2041,10 +2208,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             for d in t6["flaky_tests"]["details"]:
                 _safe_print(f"      - {d}")
         else:
-            for d in t6["flaky_tests"]["details"][:5]:
+            for d in t6["flaky_tests"]["details"][:40]:
                 _safe_print(f"      - {d}")
-            if len(t6["flaky_tests"]["details"]) > 5:
-                _safe_print(f"      ... and {len(t6['flaky_tests']['details'])-5} more")
+            if len(t6["flaky_tests"]["details"]) > 40:
+                _safe_print(f"      ... and {len(t6['flaky_tests']['details'])-40} more")
     if t6["slow_tests"]["count"] > 0:
         _safe_print(f"  {c['YELLOW']}⚠️ Slow tests (time.sleep): {t6['slow_tests']['count']}{c['RESET']}")
         if full:
@@ -2056,10 +2223,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             for d in t6["dead_code"]["details"]:
                 _safe_print(f"      - {d}")
         else:
-            for d in t6["dead_code"]["details"][:5]:
+            for d in t6["dead_code"]["details"][:40]:
                 _safe_print(f"      - {d}")
-            if len(t6["dead_code"]["details"]) > 5:
-                _safe_print(f"      ... and {len(t6['dead_code']['details'])-5} more")
+            if len(t6["dead_code"]["details"]) > 40:
+                _safe_print(f"      ... and {len(t6['dead_code']['details'])-40} more")
     if t6["orphan_tests"]["orphans"] > 0:
         _safe_print(f"  {c['YELLOW']}⚠️ Orphan tests (tidak menyentuh source function manapun): {t6['orphan_tests']['orphans']}{c['RESET']}")
         if full:
@@ -2068,10 +2235,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             if len(t6["orphan_tests"]["details"]) > 50:
                 _safe_print(f"      ... and {len(t6['orphan_tests']['details'])-50} more")
         else:
-            for d in t6["orphan_tests"]["details"][:5]:
+            for d in t6["orphan_tests"]["details"][:40]:
                 _safe_print(f"      - {d}")
-            if len(t6["orphan_tests"]["details"]) > 5:
-                _safe_print(f"      ... and {len(t6['orphan_tests']['details'])-5} more")
+            if len(t6["orphan_tests"]["details"]) > 40:
+                _safe_print(f"      ... and {len(t6['orphan_tests']['details'])-40} more")
     if t6["untested_functions"]:
         _safe_print(f"  {c['RED']}❌ Untested functions: {len(t6['untested_functions'])}{c['RESET']}")
         if full:
@@ -2080,10 +2247,10 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
             if len(t6["untested_functions"]) > 50:
                 _safe_print(f"      ... and {len(t6['untested_functions'])-50} more")
         else:
-            for f in t6["untested_functions"][:10]:
+            for f in t6["untested_functions"][:40]:
                 _safe_print(f"      - {f}")
-            if len(t6["untested_functions"]) > 10:
-                _safe_print(f"      ... and {len(t6['untested_functions'])-10} more")
+            if len(t6["untested_functions"]) > 40:
+                _safe_print(f"      ... and {len(t6['untested_functions'])-40} more")
     if t6["test_smells"]:
         _safe_print(f"  {c['YELLOW']}⚠️ Test smells: {len(t6['test_smells'])}{c['RESET']}")
         by_type = defaultdict(int)
@@ -2106,7 +2273,7 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
 
     if r.top_offending_files:
         _safe_print(f"\n{c['RED']}⚠️ TOP OFFENDING FILES (paling banyak fungsi belum ditest):{c['RESET']}")
-        for row in r.top_offending_files[:20]:
+        for row in r.top_offending_files[:40]:
             gap = row["functions"] - row["tested_functions"]
             _safe_print(f"  {row['file']}: {row['risk']} risk — {row['tested_functions']}/{row['functions']} functions tested ({gap} belum), LOC={row['loc']}")
 
@@ -2173,6 +2340,73 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
     _safe_print(f"  Tier6 ( 5%): {t6_score:.1f} (penalti)")
     _safe_print(f"\n{c['DIM']}Legend: [confirmed] = dibuktikan langsung dari struktur AST (pasti).{c['RESET']}")
     _safe_print(f"{c['DIM']}        [heuristic] = deteksi berbasis pola/kata kunci, verifikasi manual disarankan.{c['RESET']}")
+
+
+# ─── NEW: LAPORAN PER FILE ────────────────────────────────────────────────
+def print_by_file_report(report: Report, limit: int = 8, threshold: float = 70.0) -> None:
+    """
+    Cetak laporan per file, dikelompokkan per Tier 1-6, untuk sejumlah file teratas
+    yang memiliki paling banyak issue.
+
+    Untuk tiap file, SEMUA 6 tier ditampilkan secara eksplisit (Tier 1 ... Tier 6),
+    termasuk tier yang tidak punya masalah (ditandai "Tidak ada isu terdeteksi"),
+    supaya progres perbaikan tiap tier terlihat jelas.
+
+    threshold: ambang skor per-metrik (0-100). Hanya metrik dengan skor DI BAWAH
+    threshold ini yang dianggap masih bermasalah dan ditampilkan. File/metrik yang
+    sudah diperbaiki (skornya naik >= threshold) otomatis tidak akan muncul lagi
+    di sini pada scan berikutnya.
+    """
+    files = build_file_grouped_report(report, threshold=threshold)
+    if not files:
+        _safe_print(f"\n✅ Tidak ada file yang bermasalah (semua skor >= threshold {threshold:.1f}%).")
+        return
+
+    def _issue_count(data: dict) -> int:
+        return len(data["tier_scores"]) + sum(len(v) for v in data["lines"].values())
+
+    ordered = sorted(files.items(), key=lambda kv: _issue_count(kv[1]), reverse=True)
+    c = COLOR
+    _safe_print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*76}╗{c['RESET']}")
+    header = f"LAPORAN PER FILE (TOP {min(limit, len(ordered))} dari {len(ordered)} file bermasalah)"
+    _safe_print(f"{c['BOLD']}{c['CYAN']}║{c['RESET']}{c['BOLD']} {header}{' ' * max(0, 75 - len(header))}{c['CYAN']}║{c['RESET']}")
+    _safe_print(f"{c['BOLD']}{c['CYAN']}╚{'═'*76}╝{c['RESET']}")
+    _safe_print(f"{c['DIM']}  (Metrik dengan skor >= {threshold:.1f}% dianggap sudah beres dan tidak ditampilkan lagi){c['RESET']}\n")
+
+    for idx, (filepath, data) in enumerate(ordered[:limit], 1):
+        _safe_print(f"{c['BOLD']}{c['MAGENTA']}File #{idx}: {filepath}{c['RESET']} {c['DIM']}({_issue_count(data)} isu){c['RESET']}")
+
+        # Kelompokkan tier_scores dan lines per nomor Tier (1..6), supaya SETIAP
+        # file selalu menampilkan Tier 1 s.d. Tier 6, walau sebagian kosong.
+        per_tier_scores: dict[int, list[tuple[str, float]]] = defaultdict(list)
+        per_tier_lines: dict[int, list[tuple[str, str]]] = defaultdict(list)
+
+        for label, score in data["tier_scores"].items():
+            m = re.match(r'Tier (\d+) - (.+)', label)
+            if m:
+                per_tier_scores[int(m.group(1))].append((m.group(2), score))
+
+        for label, items in data["lines"].items():
+            m = re.match(r'Tier (\d+)(?: - (.+))?', label)
+            if not m:
+                continue
+            tier_num = int(m.group(1))
+            sub_label = m.group(2) or label
+            for item in items:
+                per_tier_lines[tier_num].append((sub_label, item))
+
+        for tier_num in range(1, 7):
+            _safe_print(f"  {c['BOLD']}{c['YELLOW']}Tier {tier_num}{c['RESET']} --->")
+            scores = sorted(per_tier_scores.get(tier_num, []))
+            lines = per_tier_lines.get(tier_num, [])
+            if not scores and not lines:
+                _safe_print(f"    {c['GREEN']}Tidak ada isu terdeteksi.{c['RESET']}")
+                continue
+            for sub_label, score in scores:
+                _safe_print(f"    {c['DIM']}[skor]{c['RESET']} {sub_label}: {score:.1f}% (< threshold {threshold:.1f}%)")
+            for sub_label, item in lines:
+                _safe_print(f"    {c['DIM']}[{sub_label}]{c['RESET']} {item}")
+        _safe_print("")
 
 
 # ─── EXPORT FUNCTIONS ──────────────────────────────────────────────────────
@@ -2285,6 +2519,139 @@ def export_full_details(report: Report, path: pathlib.Path) -> bool:
         return True
     except Exception as e:
         _safe_print(f"{_c('RED')}❌ Failed to save full details: {e}{_c('RESET')}")
+        return False
+
+
+def build_file_grouped_report(report: Report, threshold: float = 70.0) -> dict[str, dict[str, Any]]:
+    files: dict[str, dict[str, Any]] = defaultdict(lambda: {"tier_scores": {}, "lines": defaultdict(list)})
+
+    def _add_line_item(label: str, item: str):
+        if " " in item:
+            loc, rest = item.split(" ", 1)
+        else:
+            loc, rest = item, ""
+        if ":" not in loc:
+            return
+        f, _, line = loc.rpartition(":")
+        files[f]["lines"][label].append(f"L{line} {rest}".strip())
+
+    for label, key in [("Assertion Quality", "assertion_quality"), ("Negative Path", "negative_path"),
+                         ("Edge Case", "edge_case"), ("Magic Number", "magic_number")]:
+        d = report.tier1.get(key, {})
+        for f, score in d.get("file_scores", {}).items():
+            if score < threshold:
+                files[f]["tier_scores"][f"Tier 1 - {label}"] = score
+
+    # BUGFIX: blok Tier 2 sebelumnya tidak ada sama sekali di sini, sehingga
+    # laporan per-file selalu "bolong" di Tier 2 walau di dokumentasi disebut Tier 1-6.
+    for label, key in [("Mock Quality", "mock_quality"), ("Duplicate Test", "duplicate_test")]:
+        d = report.tier2.get(key, {})
+        for f, score in d.get("file_scores", {}).items():
+            if score < threshold:
+                files[f]["tier_scores"][f"Tier 2 - {label}"] = score
+    dup = report.tier2.get("duplicate_test", {})
+    dup_groups: dict[str, list[str]] = defaultdict(list)
+    for loc_a, loc_b, sig in dup.get("details", []):
+        dup_groups[loc_a].append(loc_b)
+    for loc_a, loc_bs in dup_groups.items():
+        if " " in loc_a:
+            anchor_loc, anchor_rest = loc_a.split(" ", 1)
+        else:
+            anchor_loc, anchor_rest = loc_a, ""
+        if ":" not in anchor_loc:
+            continue
+        f, _, anchor_line = anchor_loc.rpartition(":")
+        other_lines = []
+        for loc_b in loc_bs:
+            loc_part = loc_b.split(" ", 1)[0]
+            other_lines.append(f"L{loc_part.rpartition(':')[2]}")
+        summary = f"L{anchor_line} {anchor_rest}".strip()
+        if len(other_lines) == 1:
+            summary += f" — duplikat struktural dengan {other_lines[0]}"
+        else:
+            summary += f" — duplikat struktural dengan {len(other_lines)} test lain: {', '.join(other_lines[:15])}"
+            if len(other_lines) > 15:
+                summary += f", ... dan {len(other_lines) - 15} lagi"
+        files[f]["lines"]["Tier 2 - Duplicate Test"].append(summary)
+
+    for label, key in [("Database Verification", "database_verification"), ("Domain Event", "domain_event_verification"),
+                         ("Audit Log", "audit_log_verification"), ("Idempotency", "idempotency_verification")]:
+        d = report.tier3.get(key, {})
+        for f, score in d.get("file_scores", {}).items():
+            if score < threshold:
+                files[f]["tier_scores"][f"Tier 3 - {label}"] = score
+
+    for label, key in [("Accounting", "accounting"), ("Inventory", "inventory"), ("Fiscal Period", "fiscal_period"),
+                         ("Multi Currency", "multi_currency"), ("Precision", "precision")]:
+        d = report.tier4.get(key, {})
+        for f, score in d.get("file_scores", {}).items():
+            if score < threshold:
+                files[f]["tier_scores"][f"Tier 4 - {label}"] = score
+        for item in d.get("untested_sample", []):
+            _add_line_item(f"Tier 4 - {label} (belum tertest)", item)
+
+    for domain, d in report.tier5.get("business_flow", {}).items():
+        if d.get("pct", 100) < threshold:
+            for item in d.get("missing_functions", []):
+                _add_line_item(f"Tier 5 - Business Flow ({domain})", item)
+
+    for item in report.tier6.get("untested_functions", []):
+        _add_line_item("Tier 6 - Untested Function", item)
+
+    for fnd in report.findings:
+        files[fnd.file]["lines"][f"Tier 6 - {fnd.rule}"].append(f"L{fnd.lineno} {fnd.message}")
+
+    return files
+
+
+def save_by_file_report(report: Report, path: pathlib.Path, threshold: float = 70.0) -> bool:
+    try:
+        files = build_file_grouped_report(report, threshold=threshold)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        def _issue_count(data: dict) -> int:
+            return len(data["tier_scores"]) + sum(len(v) for v in data["lines"].values())
+
+        ordered = sorted(files.items(), key=lambda kv: _issue_count(kv[1]), reverse=True)
+
+        lines_out: list[str] = []
+        lines_out.append(f"# Laporan Per File — Pytest Quality Checker v{__version__}")
+        lines_out.append("")
+        lines_out.append(f"Total file bermasalah: **{len(ordered)}**")
+        lines_out.append("")
+        lines_out.append("Diurutkan dari file dengan jumlah masalah terbanyak. Setiap file menunjukkan")
+        lines_out.append("SEMUA tier yang bermasalah sekaligus supaya bisa dibenahi dalam satu kali edit.")
+        lines_out.append("")
+        lines_out.append("---")
+        lines_out.append("")
+
+        for f, data in ordered:
+            total_issues = _issue_count(data)
+            tier_labels = sorted(set(data["tier_scores"].keys()) | set(data["lines"].keys()))
+            tier_names_short = sorted({lbl.split(" - ")[0] for lbl in tier_labels})
+            lines_out.append(f"## `{f}`")
+            lines_out.append(f"**{total_issues} masalah** — mencakup: {', '.join(tier_names_short)}")
+            lines_out.append("")
+            if data["tier_scores"]:
+                lines_out.append("**Skor agregat di bawah threshold:**")
+                for label, score in sorted(data["tier_scores"].items()):
+                    lines_out.append(f"- {label}: {score:.1f}%")
+                lines_out.append("")
+            if data["lines"]:
+                for label in sorted(data["lines"].keys()):
+                    items = data["lines"][label]
+                    lines_out.append(f"**{label}** ({len(items)}):")
+                    for item in items:
+                        lines_out.append(f"- {item}")
+                    lines_out.append("")
+            lines_out.append("---")
+            lines_out.append("")
+
+        path.write_text("\n".join(lines_out), encoding="utf-8")
+        _safe_print(f"{_c('GREEN')}✅ Laporan per-file saved: {path} ({len(ordered)} file){_c('RESET')}")
+        return True
+    except Exception as e:
+        _safe_print(f"{_c('RED')}❌ Failed to save by-file report: {e}{_c('RESET')}")
         return False
 
 
@@ -2540,6 +2907,78 @@ def self_test(verbose: bool = True) -> bool:
     check("Domain discovery works for domain/ files", _discover_domain("domain/fixed_asset/entity.py") == "fixed_asset")
     check("Domain discovery returns empty for non-domain files", _discover_domain("application/use_cases/foo.py") == "")
 
+    fn_a = ast.parse("def test_a():\n    assert x == 5\n").body[0]
+    fn_b = ast.parse("def test_b():\n    assert y == 999\n").body[0]
+    fn_c = ast.parse("def test_c():\n    assert x is not None\n").body[0]
+    hash_a, hash_b, hash_c = _normalized_dump(fn_a), _normalized_dump(fn_b), _normalized_dump(fn_c)
+    check("normalized_dump on root FunctionDef is not just 'FunctionDef'", hash_a != "FunctionDef", hash_a)
+    check("normalized_dump treats structurally-identical test bodies as equal", hash_a == hash_b, f"{hash_a} vs {hash_b}")
+    check("normalized_dump distinguishes structurally-different test bodies", hash_a != hash_c, f"{hash_a} vs {hash_c}")
+
+    tv_bool = TestFeatureVisitor({}, {}, [])
+    tv_bool.visit(ast.parse("def test_d():\n    assert x == True\n").body[0])
+    check("assert x == True is flagged as bool-literal compare", tv_bool.assertions and tv_bool.assertions[0].is_bool_literal_compare)
+
+    tv_gt = TestFeatureVisitor({}, {}, [])
+    tv_gt.visit(ast.parse("def test_e():\n    assert x > 0\n").body[0])
+    check("assert x > 0 is NOT flagged as bool-literal compare", tv_gt.assertions and not tv_gt.assertions[0].is_bool_literal_compare)
+
+    tv_prop = TestFeatureVisitor({"PurchaseOrderLine": ("class", "PurchaseOrderLine")}, {}, [])
+    tv_prop.visit(ast.parse(
+        "def test_subtotal():\n"
+        "    line = PurchaseOrderLine()\n"
+        "    assert line.subtotal == 200\n"
+    ).body[0])
+    check("bare attribute access inside assert (property test) is captured as a call",
+          any(attr == "subtotal" for _, attr, _ in tv_prop.raw_calls), str(tv_prop.raw_calls))
+    check("attribute-that-is-a-call-target is NOT double counted",
+          sum(1 for _, attr, _ in tv_prop.raw_calls if attr == "subtotal") == 1, str(tv_prop.raw_calls))
+
+    sf_dunder = SourceFunction(key="k", name="__getattr__", file="f.py", lineno=1, end_lineno=2, is_dunder=True)
+    check("dunder method (except __init__) is always considered tested", sf_dunder.is_tested)
+    sf_init = SourceFunction(key="k2", name="__init__", file="f.py", lineno=1, end_lineno=2, is_dunder=False)
+    check("__init__ is NOT auto-exempted (still trackable via constructor calls)", not sf_init.is_tested)
+
+    idx_noise = ProjectIndex.__new__(ProjectIndex)
+    idx_noise.source_functions = {}
+    idx_noise.class_methods_index = defaultdict(list)
+    idx_noise.bare_name_index = defaultdict(list)
+    idx_noise.module_exports_index = {}
+    idx_noise.fixture_class_index = {}
+    idx_noise.class_methods_index["CustomerAggregate.update"].append("k")
+    idx_noise.bare_name_index["update"].append("k")
+    resolved_update = _resolve_calls(
+        [(ast.Name(id="customer"), "update", 1)], {"customer": "CustomerAggregate"}, {}, idx_noise
+    )
+    check("entity.update(...) with known class resolves as 'direct' (not silently dropped as noise)",
+          resolved_update and resolved_update[0] == ("update", "direct", ["k"]), str(resolved_update))
+
+    tv_event = TestFeatureVisitor({}, {}, [])
+    tv_event.visit(ast.parse("def test_x():\n    assert len(entity.domain_events) == 1\n").body[0])
+    check("bare attribute read `entity.domain_events` inside assert sets has_event_assert",
+          tv_event.has_event_assert)
+
+    tv_audit = TestFeatureVisitor({}, {}, [])
+    tv_audit.visit(ast.parse("def test_y():\n    assert entity.audit_log[-1].action == 'CREATE'\n").body[0])
+    check("bare attribute read `entity.audit_log` inside assert sets has_audit_assert",
+          tv_audit.has_audit_assert)
+
+    tv_realcalls = TestFeatureVisitor({}, {}, [])
+    tv_realcalls.visit(ast.parse(
+        "def test_z():\n"
+        "    result = handler.execute(cmd)\n"
+        "    assert exc_info.value.args[0] == 'boom'\n"
+    ).body[0])
+    check("explicit_call_names only contains real Call (not attribute reads from assert)",
+          tv_realcalls.explicit_call_names == ["execute"], str(tv_realcalls.explicit_call_names))
+    check("raw_calls (used for resolution) includes both real calls and attribute reads",
+          len(tv_realcalls.raw_calls) > len(tv_realcalls.explicit_call_names), str(tv_realcalls.raw_calls))
+
+    tf_repeat = TestFunction(key="k", name="test_idempotent_call", file="f.py", lineno=1, end_lineno=5,
+                              line_count=5, calls=["execute", "execute"])
+    check("TestFunction with same call repeated 2x is available for idempotency repeated-call detection",
+          tf_repeat.calls.count("execute") >= 2)
+
     if verbose:
         _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed == 0 else '❌'}")
     return failed == 0
@@ -2564,6 +3003,14 @@ def main() -> int:
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--ignore-metrics", default="", help="Comma-separated metric names to ignore")
     parser.add_argument("--full", action="store_true", help="Cetak laporan super lengkap (semua daftar, tanpa batasan)")
+    # MODIFIKASI: tambahkan opsi --per-file
+    parser.add_argument("--per-file", type=int, nargs="?", const=8, default=0,
+                         help="Tampilkan laporan per file (Tier 1-6 + baris) untuk N file teratas. "
+                              "Panggil tanpa angka untuk TOP 8 (default). 0/tidak dipakai = nonaktif.")
+    parser.add_argument("--per-file-threshold", type=float, default=70.0,
+                         help="Ambang skor (0-100) untuk laporan --per-file. Metrik dengan skor DI BAWAH "
+                              "nilai ini dianggap masih bermasalah; metrik yang sudah >= nilai ini dianggap "
+                              "sudah diperbaiki dan tidak akan muncul lagi. Default: 70.0")
     parser.add_argument("--version", action="version", version=f"pytest_checker v{__version__}")
 
     args = parser.parse_args()
@@ -2598,6 +3045,10 @@ def main() -> int:
 
     report = checker.scan(progress_callback=progress)
     print_report(report, verbose=args.verbose, show_rca=not args.no_rca, full=args.full)
+
+    # MODIFIKASI: cetak laporan per file jika diminta
+    if args.per_file > 0:
+        print_by_file_report(report, limit=args.per_file, threshold=args.per_file_threshold)
 
     if not args.dry_run:
         if args.json:

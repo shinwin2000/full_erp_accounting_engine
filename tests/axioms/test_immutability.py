@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -33,7 +33,6 @@ from axioms.immutability import (
     record_type_from_string,
     state_from_string,
 )
-
 
 # ============================================================================
 # HELPER FUNCTIONS

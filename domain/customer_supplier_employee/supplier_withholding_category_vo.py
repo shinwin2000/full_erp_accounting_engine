@@ -1,547 +1,525 @@
-#!/usr/bin/env python3
+# tests/domain/customer_supplier_employee/test_supplier_withholding_category_vo.py
 """
-Module: supplier_withholding_category_vo.py
+Comprehensive tests for supplier_withholding_category_vo.py.
 
-Layer: Domain / Customer, Supplier, Employee
-
-Responsibility:
-    Value object for PPh withholding category (Pasal 21, 22, 23, 26, 4(2)).
-    Immutable. Determines the tax withholding rules for payments to suppliers.
-
-Business rules:
-    - Article determines the type of withholding tax.
-    - Rate must be between 0 and 100 (percentage).
-    - For article NONE, rate must be 0.
-    - Final tax (is_final) means no further tax calculation.
-    - Provides methods to calculate withholding amount.
-    - Supports multiple special rates based on transaction type.
-    - Immutable: all changes create new instances.
-
-Dependencies:
-    - Python standard library (decimal, dataclass, enum, typing, datetime)
-
-Audit:
-    Pure value object; no I/O. Caller should log withholding category changes.
+FIXES:
+- All datetime/date.today() replaced with FIXED_DATE.
+- Negative path tests for all exceptions.
+- Parametrized tests to eliminate structural duplication.
+- Tests for all domain-sensitive functions (factory methods, calculate, with_article, etc.).
+- Helper functions tested with realistic data.
+- Added more assertions for precision (Tier 4).
 """
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
-from datetime import date
-from decimal import ROUND_HALF_EVEN, Decimal
-from enum import Enum
-from typing import Any
+import uuid
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
-logger = logging.getLogger(__name__)
+import pytest
+
+from domain.customer_supplier_employee.supplier_withholding_category_vo import (
+    InvalidWithholdingRateError,
+    SupplierWithholdingCategoryVO,
+    WithholdingArticle,
+    WithholdingCategoryError,
+    WithholdingRate,
+    calculate_withholding_for_supplier,
+    get_default_withholding_for_transaction,
+)
+
+# ============================================================================
+# FIXED DATE (untuk menghindari flaky tests)
+# ============================================================================
+
+FIXED_DATE = date(2026, 1, 1)
+FIXED_FUTURE = FIXED_DATE + timedelta(days=30)
+FIXED_PAST = FIXED_DATE - timedelta(days=30)
+
+
+@pytest.fixture(autouse=True)
+def mock_date_today():
+    """Mock date.today() to return FIXED_DATE."""
+    with patch("domain.customer_supplier_employee.supplier_withholding_category_vo.date") as mock_date:
+        mock_date.today.return_value = FIXED_DATE
+        yield mock_date
 
 
 # ============================================================================
-# Enums
+# TESTS FOR ENUMS
 # ============================================================================
 
+class TestWithholdingArticle:
+    def test_members(self):
+        expected = ["NONE", "PPH_21", "PPH_22", "PPH_23", "PPH_26", "PPH_4_2"]
+        for name in expected:
+            assert hasattr(WithholdingArticle, name)
 
-class WithholdingArticle(Enum):
-    """PPh withholding article for supplier payments."""
+    def test_display_name(self):
+        assert WithholdingArticle.NONE.display_name() == "Tidak Dipotong"
+        assert WithholdingArticle.PPH_23.display_name() == "PPh Pasal 23"
+        assert WithholdingArticle.PPH_4_2.display_name() == "PPh Pasal 4(2)"
 
-    NONE = "none"  # No withholding
-    PPH_21 = "21"  # PPh Pasal 21 (for services from individuals)
-    PPH_22 = "22"  # PPh Pasal 22 (imports, purchases)
-    PPH_23 = "23"  # PPh Pasal 23 (services, rent, royalties)
-    PPH_26 = "26"  # PPh Pasal 26 (foreign entities)
-    PPH_4_2 = "4(2)"  # PPh Pasal 4 ayat 2 (final)
+    @pytest.mark.parametrize("article,expected", [
+        (WithholdingArticle.PPH_4_2, True),
+        (WithholdingArticle.PPH_23, False),
+        (WithholdingArticle.NONE, False),
+    ])
+    def test_is_final_by_default(self, article, expected):
+        assert article.is_final_by_default() == expected
 
-    def display_name(self) -> str:
-        names = {
-            WithholdingArticle.NONE: "Tidak Dipotong",
-            WithholdingArticle.PPH_21: "PPh Pasal 21",
-            WithholdingArticle.PPH_22: "PPh Pasal 22",
-            WithholdingArticle.PPH_23: "PPh Pasal 23",
-            WithholdingArticle.PPH_26: "PPh Pasal 26",
-            WithholdingArticle.PPH_4_2: "PPh Pasal 4(2) Final",
-        }
-        return names.get(self, self.value)
+    @pytest.mark.parametrize("article,expected", [
+        (WithholdingArticle.PPH_23, True),
+        (WithholdingArticle.PPH_22, True),
+        (WithholdingArticle.NONE, False),
+    ])
+    def test_requires_npwp(self, article, expected):
+        assert article.requires_npwp() == expected
 
-    def is_final_by_default(self) -> bool:
-        """Check if this article is typically final tax."""
-        return self == WithholdingArticle.PPH_4_2
+    @pytest.mark.parametrize("article,expected", [
+        (WithholdingArticle.PPH_22, True),
+        (WithholdingArticle.PPH_23, True),
+        (WithholdingArticle.PPH_21, False),
+    ])
+    def test_requires_invoice(self, article, expected):
+        assert article.requires_invoice() == expected
 
-    def requires_npwp(self) -> bool:
-        """Check if this article requires supplier NPWP."""
-        return self not in (WithholdingArticle.NONE,)
-
-    def requires_invoice(self) -> bool:
-        """Check if this article requires a tax invoice."""
-        return self in (WithholdingArticle.PPH_22, WithholdingArticle.PPH_23)
-
-    @classmethod
-    def from_string(cls, value: str) -> WithholdingArticle | None:
-        value_lower = value.lower().strip()
-        if value_lower in ("none", "0", "tidak"):
-            return WithholdingArticle.NONE
-        if value_lower in ("21", "pph21", "pph 21"):
-            return WithholdingArticle.PPH_21
-        if value_lower in ("22", "pph22", "pph 22"):
-            return WithholdingArticle.PPH_22
-        if value_lower in ("23", "pph23", "pph 23"):
-            return WithholdingArticle.PPH_23
-        if value_lower in ("26", "pph26", "pph 26"):
-            return WithholdingArticle.PPH_26
-        if value_lower in ("4(2)", "42", "pph42", "pph 4(2)"):
-            return WithholdingArticle.PPH_4_2
-        return None
+    @pytest.mark.parametrize("input_str,expected", [
+        ("23", WithholdingArticle.PPH_23),
+        ("pph 23", WithholdingArticle.PPH_23),
+        ("none", WithholdingArticle.NONE),
+        ("4(2)", WithholdingArticle.PPH_4_2),
+        ("unknown", None),
+        ("", None),
+    ])
+    def test_from_string(self, input_str, expected):
+        assert WithholdingArticle.from_string(input_str) == expected
 
 
-class WithholdingRate(Enum):
-    """Standard PPh withholding rates (for reference, not used for calculation)."""
+class TestWithholdingRate:
+    def test_members(self):
+        expected = ["RATE_0", "RATE_0_5", "RATE_1", "RATE_1_5", "RATE_2",
+                    "RATE_2_5", "RATE_3", "RATE_4", "RATE_5", "RATE_6",
+                    "RATE_10", "RATE_15", "RATE_20", "RATE_25"]
+        for name in expected:
+            assert hasattr(WithholdingRate, name)
 
-    RATE_0 = 0
-    RATE_0_5 = 0.5
-    RATE_1 = 1
-    RATE_1_5 = 1.5
-    RATE_2 = 2
-    RATE_2_5 = 2.5
-    RATE_3 = 3
-    RATE_4 = 4
-    RATE_5 = 5
-    RATE_6 = 6
-    RATE_10 = 10
-    RATE_15 = 15
-    RATE_20 = 20
-    RATE_25 = 25
+    @pytest.mark.parametrize("rate_enum,expected_decimal", [
+        (WithholdingRate.RATE_0, Decimal("0")),
+        (WithholdingRate.RATE_0_5, Decimal("0.5")),
+        (WithholdingRate.RATE_1, Decimal("1")),
+        (WithholdingRate.RATE_1_5, Decimal("1.5")),
+        (WithholdingRate.RATE_2, Decimal("2")),
+        (WithholdingRate.RATE_2_5, Decimal("2.5")),
+        (WithholdingRate.RATE_3, Decimal("3")),
+        (WithholdingRate.RATE_4, Decimal("4")),
+        (WithholdingRate.RATE_5, Decimal("5")),
+        (WithholdingRate.RATE_6, Decimal("6")),
+        (WithholdingRate.RATE_10, Decimal("10")),
+        (WithholdingRate.RATE_15, Decimal("15")),
+        (WithholdingRate.RATE_20, Decimal("20")),
+        (WithholdingRate.RATE_25, Decimal("25")),
+    ])
+    def test_as_decimal(self, rate_enum, expected_decimal):
+        assert rate_enum.as_decimal() == expected_decimal
 
-    def as_decimal(self) -> Decimal:
-        return Decimal(str(self.value))
-
-    def display_name(self) -> str:
-        return f"{self.value}%"
-
-
-# ============================================================================
-# Exceptions
-# ============================================================================
-
-
-class WithholdingCategoryError(ValueError):
-    """Base exception for withholding category errors."""
-    pass
-
-
-class InvalidWithholdingRateError(WithholdingCategoryError):
-    """Raised when rate is invalid for the given article."""
-    pass
+    @pytest.mark.parametrize("rate_enum,expected_display", [
+        (WithholdingRate.RATE_0, "0%"),
+        (WithholdingRate.RATE_1_5, "1.5%"),
+        (WithholdingRate.RATE_25, "25%"),
+    ])
+    def test_display_name(self, rate_enum, expected_display):
+        assert rate_enum.display_name() == expected_display
 
 
 # ============================================================================
-# Helper Functions
+# TESTS FOR EXCEPTIONS (NEGATIVE PATH)
 # ============================================================================
 
+class TestExceptions:
+    def test_withholding_category_error(self):
+        with pytest.raises(WithholdingCategoryError, match="test error"):
+            raise WithholdingCategoryError("test error")
 
-def _validate_rate(rate: Decimal, article: WithholdingArticle) -> Decimal:
-    """Validate rate is between 0 and 100 and round to 2 decimal places."""
-    if rate < 0 or rate > 100:
-        raise InvalidWithholdingRateError(f"Rate must be between 0 and 100, got {rate}")
-    if article == WithholdingArticle.NONE and rate != 0:
-        raise InvalidWithholdingRateError(f"Rate must be 0 for article NONE, got {rate}")
-    return rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+    def test_invalid_withholding_rate_error(self):
+        with pytest.raises(InvalidWithholdingRateError, match="invalid rate"):
+            raise InvalidWithholdingRateError("invalid rate")
 
 
 # ============================================================================
-# Value Object: SupplierWithholdingCategoryVO
+# TESTS FOR SUPPLIER WITHHOLDING CATEGORY VO
 # ============================================================================
 
-
-@dataclass(frozen=True)
-class SupplierWithholdingCategoryVO:
-    """
-    Immutable value object for PPh withholding category.
-
-    Attributes:
-        article: WithholdingArticle enum
-        rate: Withholding rate (as Decimal, 0-100)
-        is_final: Whether the tax is final (no further calculation)
-        effective_date: Date when this category becomes effective
-        notes: Additional notes
-        special_rates: Dict of transaction type to custom rate (Decimal)
-
-    Examples:
-        >>> category = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal('2'))
-        >>> category.should_withhold
-        True
-        >>> category.calculate_withholding(Decimal('10000000'))
-        Decimal('200000.00')
-        >>> category.to_dict()
-        {...}
-    """
-
-    article: WithholdingArticle
-    rate: Decimal
-    is_final: bool = False
-    effective_date: date | None = None
-    notes: str = ""
-    special_rates: dict[str, Decimal] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        """Validate withholding category."""
-        if not isinstance(self.article, WithholdingArticle):
-            raise WithholdingCategoryError(f"Invalid article: {self.article}")
-
-        # Validate rate (ensure Decimal)
-        if not isinstance(self.rate, Decimal):
-            raise WithholdingCategoryError(f"rate must be Decimal, got {type(self.rate).__name__}")
-        normalized_rate = _validate_rate(self.rate, self.article)
-        if normalized_rate != self.rate:
-            object.__setattr__(self, "rate", normalized_rate)
-
-        # Set is_final default based on article if not explicitly set
-        if not self.is_final and self.article.is_final_by_default():
-            object.__setattr__(self, "is_final", True)
-
-        # Validate effective_date
-        if self.effective_date is not None and self.effective_date > date.today():
-            raise WithholdingCategoryError("Effective date cannot be in the future")
-
-        # Clean notes
-        if self.notes:
-            object.__setattr__(self, "notes", self.notes.strip())
-
-        # Validate special_rates values
-        for txn_type, sp_rate in self.special_rates.items():
-            if not isinstance(sp_rate, Decimal):
-                raise WithholdingCategoryError(
-                    f"Special rate for {txn_type} must be Decimal, got {type(sp_rate).__name__}"
-                )
-            if sp_rate < 0 or sp_rate > 100:
-                raise InvalidWithholdingRateError(
-                    f"Special rate for {txn_type} must be 0-100, got {sp_rate}"
-                )
-
+class TestSupplierWithholdingCategoryVO:
     # ------------------------------------------------------------------------
-    # Factory Methods
+    # Construction and validation
     # ------------------------------------------------------------------------
 
-    @classmethod
-    def create_none(cls, notes: str = "") -> SupplierWithholdingCategoryVO:
-        """Create a category with no withholding."""
-        return cls(
-            article=WithholdingArticle.NONE,
-            rate=Decimal("0"),
-            is_final=False,
-            notes=notes or "No withholding",
-        )
-
-    @classmethod
-    def create_pph21(
-        cls, rate: Decimal = Decimal("5"), is_final: bool = False
-    ) -> SupplierWithholdingCategoryVO:
-        """Create PPh Pasal 21 category."""
-        return cls(
-            article=WithholdingArticle.PPH_21,
-            rate=rate,
-            is_final=is_final,
-            notes="PPh Pasal 21 - Jasa Perorangan",
-        )
-
-    @classmethod
-    def create_pph22(
-        cls, rate: Decimal = Decimal("1.5"), is_final: bool = False
-    ) -> SupplierWithholdingCategoryVO:
-        """Create PPh Pasal 22 category."""
-        return cls(
-            article=WithholdingArticle.PPH_22,
-            rate=rate,
-            is_final=is_final,
-            notes="PPh Pasal 22 - Impor/Pembelian",
-        )
-
-    @classmethod
-    def create_pph23(
-        cls, rate: Decimal = Decimal("2"), is_final: bool = False
-    ) -> SupplierWithholdingCategoryVO:
-        """Create PPh Pasal 23 category."""
-        return cls(
+    def test_create_valid(self):
+        category = SupplierWithholdingCategoryVO(
             article=WithholdingArticle.PPH_23,
-            rate=rate,
-            is_final=is_final,
-            notes="PPh Pasal 23 - Jasa/Sewa/Royalti",
+            rate=Decimal("2"),
+            is_final=False,
+            effective_date=FIXED_DATE,
+            notes="Test",
+            special_rates={"service": Decimal("1.5")},
         )
+        assert category.article == WithholdingArticle.PPH_23
+        assert category.rate == Decimal("2")
+        assert category.is_final is False
+        assert category.effective_date == FIXED_DATE
+        assert category.notes == "Test"
+        assert category.special_rates == {"service": Decimal("1.5")}
 
-    @classmethod
-    def create_pph26(
-        cls, rate: Decimal = Decimal("20"), is_final: bool = False
-    ) -> SupplierWithholdingCategoryVO:
-        """Create PPh Pasal 26 category for foreign entities."""
-        return cls(
-            article=WithholdingArticle.PPH_26,
-            rate=rate,
-            is_final=is_final,
-            notes="PPh Pasal 26 - WPLN",
-        )
+    @pytest.mark.parametrize("invalid_rate,expected_msg", [
+        (Decimal("-1"), "between 0 and 100"),
+        (Decimal("101"), "between 0 and 100"),
+    ])
+    def test_validate_rate_out_of_range_raises(self, invalid_rate, expected_msg):
+        with pytest.raises(InvalidWithholdingRateError, match=expected_msg):
+            SupplierWithholdingCategoryVO(
+                article=WithholdingArticle.PPH_23,
+                rate=invalid_rate,
+            )
 
-    @classmethod
-    def create_pph4_2(
-        cls, rate: Decimal = Decimal("10"), is_final: bool = True
-    ) -> SupplierWithholdingCategoryVO:
-        """Create PPh Pasal 4 ayat 2 final category."""
-        return cls(
+    def test_validate_rate_for_none_must_be_zero(self):
+        with pytest.raises(InvalidWithholdingRateError, match="Rate must be 0 for article NONE"):
+            SupplierWithholdingCategoryVO(
+                article=WithholdingArticle.NONE,
+                rate=Decimal("5"),
+            )
+
+    def test_validate_effective_date_future_raises(self):
+        with pytest.raises(WithholdingCategoryError, match="Effective date cannot be in the future"):
+            SupplierWithholdingCategoryVO(
+                article=WithholdingArticle.PPH_23,
+                rate=Decimal("2"),
+                effective_date=FIXED_FUTURE,
+            )
+
+    @pytest.mark.parametrize("invalid_special_rate", [
+        Decimal("-5"),
+        Decimal("150"),
+    ])
+    def test_validate_special_rate_invalid_raises(self, invalid_special_rate):
+        with pytest.raises(InvalidWithholdingRateError, match="0-100"):
+            SupplierWithholdingCategoryVO(
+                article=WithholdingArticle.PPH_23,
+                rate=Decimal("2"),
+                special_rates={"service": invalid_special_rate},
+            )
+
+    def test_validate_special_rate_not_decimal_raises(self):
+        with pytest.raises(WithholdingCategoryError, match="must be Decimal"):
+            SupplierWithholdingCategoryVO(
+                article=WithholdingArticle.PPH_23,
+                rate=Decimal("2"),
+                special_rates={"service": "not_decimal"},
+            )
+
+    def test_validate_rate_not_decimal_raises(self):
+        with pytest.raises(WithholdingCategoryError, match="rate must be Decimal"):
+            SupplierWithholdingCategoryVO(
+                article=WithholdingArticle.PPH_23,
+                rate=2,  # int, not Decimal
+            )
+
+    def test_validate_article_invalid_raises(self):
+        with pytest.raises(WithholdingCategoryError, match="Invalid article"):
+            SupplierWithholdingCategoryVO(
+                article="invalid",  # type: ignore
+                rate=Decimal("2"),
+            )
+
+    def test_is_final_default_for_pph4_2(self):
+        category = SupplierWithholdingCategoryVO(
             article=WithholdingArticle.PPH_4_2,
-            rate=rate,
-            is_final=True,
-            notes="PPh Pasal 4(2) Final",
+            rate=Decimal("10"),
         )
+        assert category.is_final is True  # automatically set
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SupplierWithholdingCategoryVO:
-        """Reconstruct from dictionary."""
-        article = WithholdingArticle.from_string(data.get("article", "none"))
-        if article is None:
-            article = WithholdingArticle.NONE
-        rate = Decimal(str(data.get("rate", 0)))
-        is_final = data.get("is_final", article.is_final_by_default())
-        effective_date = data.get("effective_date")
-        if isinstance(effective_date, str):
-            effective_date = date.fromisoformat(effective_date)
-        special_rates = data.get("special_rates", {})
-        if special_rates:
-            special_rates = {k: Decimal(str(v)) for k, v in special_rates.items()}
-        return cls(
-            article=article,
-            rate=rate,
-            is_final=is_final,
-            effective_date=effective_date,
-            notes=data.get("notes", ""),
-            special_rates=special_rates,
-        )
+    # ------------------------------------------------------------------------
+    # Factory methods
+    # ------------------------------------------------------------------------
+
+    @pytest.mark.parametrize("factory_method,expected_article,expected_rate,expected_final", [
+        ("create_none", WithholdingArticle.NONE, Decimal("0"), False),
+        ("create_pph21", WithholdingArticle.PPH_21, Decimal("5"), False),
+        ("create_pph22", WithholdingArticle.PPH_22, Decimal("1.5"), False),
+        ("create_pph23", WithholdingArticle.PPH_23, Decimal("2"), False),
+        ("create_pph26", WithholdingArticle.PPH_26, Decimal("20"), False),
+        ("create_pph4_2", WithholdingArticle.PPH_4_2, Decimal("10"), True),
+    ])
+    def test_factory_methods(self, factory_method, expected_article, expected_rate, expected_final):
+        method = getattr(SupplierWithholdingCategoryVO, factory_method)
+        if factory_method == "create_pph21":
+            cat = method(rate=Decimal("5"))
+        else:
+            cat = method()
+        assert cat.article == expected_article
+        assert cat.rate == expected_rate
+        assert cat.is_final == expected_final
+        if factory_method == "create_none":
+            assert cat.notes == "No withholding"
+
+    def test_from_dict(self):
+        data = {
+            "article": "23",
+            "rate": "2.5",
+            "is_final": False,
+            "effective_date": FIXED_DATE.isoformat(),
+            "notes": "Test",
+            "special_rates": {"rental": "10"},
+        }
+        cat = SupplierWithholdingCategoryVO.from_dict(data)
+        assert cat.article == WithholdingArticle.PPH_23
+        assert cat.rate == Decimal("2.5")
+        assert cat.is_final is False
+        assert cat.effective_date == FIXED_DATE
+        assert cat.notes == "Test"
+        assert cat.special_rates == {"rental": Decimal("10")}
+
+    def test_from_dict_with_unknown_article_falls_back_to_none(self):
+        data = {"article": "unknown"}
+        cat = SupplierWithholdingCategoryVO.from_dict(data)
+        assert cat.article == WithholdingArticle.NONE
+        assert cat.rate == Decimal("0")
 
     # ------------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------------
 
-    @property
-    def should_withhold(self) -> bool:
-        """Whether withholding should be applied."""
-        return self.article != WithholdingArticle.NONE and self.rate > 0
+    @pytest.mark.parametrize("article,rate,expected_should_withhold", [
+        (WithholdingArticle.PPH_23, Decimal("2"), True),
+        (WithholdingArticle.NONE, Decimal("0"), False),
+        (WithholdingArticle.PPH_23, Decimal("0"), False),
+    ])
+    def test_should_withhold(self, article, rate, expected_should_withhold):
+        cat = SupplierWithholdingCategoryVO(article=article, rate=rate)
+        assert cat.should_withhold == expected_should_withhold
 
-    @property
-    def rate_percentage(self) -> float:
-        """Rate as float percentage (for display only, not for calculation)."""
-        return float(self.rate)
+    @pytest.mark.parametrize("rate,expected_percentage", [
+        (Decimal("2"), 2.0),
+        (Decimal("2.5"), 2.5),
+        (Decimal("0"), 0.0),
+    ])
+    def test_rate_percentage(self, rate, expected_percentage):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=rate)
+        assert cat.rate_percentage == expected_percentage
 
-    @property
-    def rate_decimal(self) -> Decimal:
-        """Rate as Decimal factor (rate / 100)."""
-        return self.rate / Decimal("100")
+    @pytest.mark.parametrize("rate,expected_decimal", [
+        (Decimal("2"), Decimal("0.02")),
+        (Decimal("2.5"), Decimal("0.025")),
+        (Decimal("0"), Decimal("0")),
+    ])
+    def test_rate_decimal(self, rate, expected_decimal):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=rate)
+        assert cat.rate_decimal == expected_decimal
 
-    @property
-    def display_name(self) -> str:
-        """Full display name with rate."""
-        if not self.should_withhold:
-            return self.article.display_name()
-        return f"{self.article.display_name()} - {self.rate}%"
+    def test_display_name(self):
+        cat = SupplierWithholdingCategoryVO.create_none()
+        assert cat.display_name == "Tidak Dipotong"
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        assert cat.display_name == "PPh Pasal 23 - 2%"
 
     # ------------------------------------------------------------------------
-    # Business Logic
+    # calculate_withholding
     # ------------------------------------------------------------------------
 
-    def calculate_withholding(self, amount: Decimal, transaction_type: str = "default") -> Decimal:
-        """
-        Calculate withholding amount.
+    @pytest.mark.parametrize("article,rate,amount,expected", [
+        (WithholdingArticle.NONE, Decimal("0"), Decimal("1000000"), Decimal("0")),
+        (WithholdingArticle.PPH_23, Decimal("2"), Decimal("1000000"), Decimal("20000.00")),
+        (WithholdingArticle.PPH_23, Decimal("2"), Decimal("999.99"), Decimal("20.00")),
+    ])
+    def test_calculate_withholding(self, article, rate, amount, expected):
+        cat = SupplierWithholdingCategoryVO(article=article, rate=rate)
+        result = cat.calculate_withholding(amount)
+        assert result == expected
 
-        Args:
-            amount: Gross amount (positive Decimal)
-            transaction_type: Type of transaction ('service', 'rental', 'royalty', 'import', 'default')
+    def test_calculate_withholding_with_special_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        cat = cat.add_special_rate("service", Decimal("1.5"))
+        result = cat.calculate_withholding(Decimal("1000000"), transaction_type="service")
+        assert result == Decimal("15000.00")
+        result_default = cat.calculate_withholding(Decimal("1000000"), transaction_type="unknown")
+        assert result_default == Decimal("20000.00")
 
-        Returns:
-            Withholding amount (rounded to nearest currency unit)
-        """
-        if not self.should_withhold:
-            return Decimal("0")
-        if amount < 0:
-            raise ValueError(f"Amount cannot be negative: {amount}")
+    def test_calculate_withholding_negative_amount_raises(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        with pytest.raises(ValueError, match="Amount cannot be negative"):
+            cat.calculate_withholding(Decimal("-100"))
 
-        # Check for special rate based on transaction type
-        rate = self.special_rates.get(transaction_type, self.rate)
-        result = amount * rate / Decimal("100")
-        return result.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+    # ------------------------------------------------------------------------
+    # is_applicable
+    # ------------------------------------------------------------------------
 
-    def is_applicable(self, transaction_date: date | None = None) -> bool:
-        """Check if this category is applicable on the given date."""
-        if self.effective_date is None:
-            return True
-        check_date = transaction_date or date.today()
-        return check_date >= self.effective_date
+    def test_is_applicable_no_effective_date(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23()
+        assert cat.is_applicable() is True
+        assert cat.is_applicable(FIXED_DATE) is True
 
-    def with_rate(
-        self, new_rate: Decimal, updated_by: str = "system"
-    ) -> SupplierWithholdingCategoryVO:
-        """Create a new category with updated rate."""
-        return SupplierWithholdingCategoryVO(
-            article=self.article,
-            rate=new_rate,
-            is_final=self.is_final,
-            effective_date=date.today(),
-            notes=f"{self.notes} | Rate changed from {self.rate} to {new_rate} by {updated_by}",
-            special_rates=self.special_rates,
-        )
+    def test_is_applicable_with_effective_date(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23().effective_from(FIXED_DATE)
+        assert cat.is_applicable(FIXED_DATE) is True
+        assert cat.is_applicable(FIXED_PAST) is False
 
-    def with_article(
-        self, new_article: WithholdingArticle, updated_by: str = "system"
-    ) -> SupplierWithholdingCategoryVO:
-        """Create a new category with updated article."""
-        default_rates = {
-            WithholdingArticle.PPH_21: Decimal("5"),
-            WithholdingArticle.PPH_22: Decimal("1.5"),
-            WithholdingArticle.PPH_23: Decimal("2"),
-            WithholdingArticle.PPH_26: Decimal("20"),
-            WithholdingArticle.PPH_4_2: Decimal("10"),
-            WithholdingArticle.NONE: Decimal("0"),
-        }
-        new_rate = default_rates.get(new_article, Decimal("0"))
-        return SupplierWithholdingCategoryVO(
-            article=new_article,
-            rate=new_rate,
-            is_final=new_article.is_final_by_default(),
-            effective_date=date.today(),
-            notes=f"{self.notes} | Article changed from {self.article.value} to {new_article.value} by {updated_by}",
-            special_rates=self.special_rates,
-        )
+    # ------------------------------------------------------------------------
+    # with_rate, with_article, add_special_rate, remove_special_rate, effective_from
+    # ------------------------------------------------------------------------
 
-    def add_special_rate(
-        self, transaction_type: str, rate: Decimal
-    ) -> SupplierWithholdingCategoryVO:
-        """Add or update special rate for a transaction type."""
-        if rate < 0 or rate > 100:
-            raise InvalidWithholdingRateError(f"Rate must be 0-100, got {rate}")
-        new_special = dict(self.special_rates)
-        new_special[transaction_type] = rate
-        return SupplierWithholdingCategoryVO(
-            article=self.article,
-            rate=self.rate,
-            is_final=self.is_final,
-            effective_date=self.effective_date,
-            notes=f"{self.notes} | Added special rate {rate}% for {transaction_type}",
-            special_rates=new_special,
-        )
+    def test_with_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        new_cat = cat.with_rate(Decimal("3"), "admin")
+        assert new_cat.rate == Decimal("3")
+        assert new_cat.article == WithholdingArticle.PPH_23
+        assert new_cat.effective_date == FIXED_DATE
+        assert "Rate changed" in new_cat.notes
 
-    def remove_special_rate(self, transaction_type: str) -> SupplierWithholdingCategoryVO:
-        """Remove special rate for a transaction type."""
-        if transaction_type not in self.special_rates:
-            return self
-        new_special = dict(self.special_rates)
-        del new_special[transaction_type]
-        return SupplierWithholdingCategoryVO(
-            article=self.article,
-            rate=self.rate,
-            is_final=self.is_final,
-            effective_date=self.effective_date,
-            notes=f"{self.notes} | Removed special rate for {transaction_type}",
-            special_rates=new_special,
-        )
+    @pytest.mark.parametrize("target_article,expected_rate,expected_final", [
+        (WithholdingArticle.PPH_4_2, Decimal("10"), True),
+        (WithholdingArticle.NONE, Decimal("0"), False),
+        (WithholdingArticle.PPH_23, Decimal("2"), False),
+    ])
+    def test_with_article(self, target_article, expected_rate, expected_final):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        new_cat = cat.with_article(target_article, "admin")
+        assert new_cat.article == target_article
+        assert new_cat.rate == expected_rate
+        assert new_cat.is_final == expected_final
+        assert "Article changed" in new_cat.notes
 
-    def effective_from(self, new_date: date) -> SupplierWithholdingCategoryVO:
-        """Change effective date."""
-        return SupplierWithholdingCategoryVO(
-            article=self.article,
-            rate=self.rate,
-            is_final=self.is_final,
-            effective_date=new_date,
-            notes=self.notes,
-            special_rates=self.special_rates,
-        )
+    def test_add_special_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        new_cat = cat.add_special_rate("service", Decimal("1.5"))
+        assert new_cat.special_rates == {"service": Decimal("1.5")}
+        assert "Added special rate" in new_cat.notes
+
+    def test_add_special_rate_invalid_raises(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        with pytest.raises(InvalidWithholdingRateError, match="0-100"):
+            cat.add_special_rate("service", Decimal("101"))
+
+    def test_remove_special_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        cat = cat.add_special_rate("service", Decimal("1.5"))
+        cat = cat.add_special_rate("rental", Decimal("10"))
+        new_cat = cat.remove_special_rate("service")
+        assert new_cat.special_rates == {"rental": Decimal("10")}
+        assert "Removed special rate" in new_cat.notes
+
+    def test_remove_special_rate_not_found_returns_self(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        new_cat = cat.remove_special_rate("service")
+        assert new_cat is cat  # returns self when not found
+
+    def test_effective_from(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23()
+        new_cat = cat.effective_from(FIXED_FUTURE)
+        assert new_cat.effective_date == FIXED_FUTURE
 
     # ------------------------------------------------------------------------
     # Serialization
     # ------------------------------------------------------------------------
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to JSON-serializable dict."""
-        return {
-            "article": self.article.value,
-            "article_display": self.article.display_name(),
-            "rate": str(self.rate),
-            "rate_percentage": self.rate_percentage,
-            "is_final": self.is_final,
-            "should_withhold": self.should_withhold,
-            "effective_date": self.effective_date.isoformat() if self.effective_date else None,
-            "notes": self.notes,
-            "special_rates": {k: str(v) for k, v in self.special_rates.items()},
-        }
-
-    def to_db_record(self) -> dict[str, Any]:
-        """Convert to database-friendly format."""
-        return {
-            "withholding_article": self.article.value,
-            "withholding_rate": self.rate,
-            "withholding_is_final": self.is_final,
-            "withholding_effective_date": self.effective_date,
-            "withholding_notes": self.notes,
-            "withholding_special_rates": ",".join(
-                [f"{k}:{v}" for k, v in self.special_rates.items()]
-            )
-            if self.special_rates
-            else None,
-        }
-
-    # ------------------------------------------------------------------------
-    # Dunder Methods
-    # ------------------------------------------------------------------------
-
-    def __str__(self) -> str:
-        return self.display_name
-
-    def __repr__(self) -> str:
-        return f"SupplierWithholdingCategoryVO(article={self.article.value}, rate={self.rate}, final={self.is_final})"
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, SupplierWithholdingCategoryVO):
-            return False
-        return (
-            self.article == other.article
-            and self.rate == other.rate
-            and self.is_final == other.is_final
-            and self.effective_date == other.effective_date
+    def test_to_dict(self):
+        cat = SupplierWithholdingCategoryVO(
+            article=WithholdingArticle.PPH_23,
+            rate=Decimal("2.5"),
+            is_final=False,
+            effective_date=FIXED_DATE,
+            notes="Test",
+            special_rates={"service": Decimal("1.5")},
         )
+        d = cat.to_dict()
+        assert d["article"] == "23"
+        assert d["article_display"] == "PPh Pasal 23"
+        assert d["rate"] == "2.5"
+        assert d["rate_percentage"] == 2.5
+        assert d["is_final"] is False
+        assert d["should_withhold"] is True
+        assert d["effective_date"] == FIXED_DATE.isoformat()
+        assert d["notes"] == "Test"
+        assert d["special_rates"] == {"service": "1.5"}
 
-    def __hash__(self) -> int:
-        return hash((self.article, self.rate, self.is_final, self.effective_date))
+    def test_to_db_record(self):
+        cat = SupplierWithholdingCategoryVO(
+            article=WithholdingArticle.PPH_23,
+            rate=Decimal("2.5"),
+            is_final=False,
+            effective_date=FIXED_DATE,
+            notes="Test",
+            special_rates={"service": Decimal("1.5")},
+        )
+        rec = cat.to_db_record()
+        assert rec["withholding_article"] == "23"
+        assert rec["withholding_rate"] == Decimal("2.5")
+        assert rec["withholding_is_final"] is False
+        assert rec["withholding_effective_date"] == FIXED_DATE
+        assert rec["withholding_notes"] == "Test"
+        assert rec["withholding_special_rates"] == "service:1.5"
+
+    def test_to_db_record_no_special_rates(self):
+        cat = SupplierWithholdingCategoryVO.create_none()
+        rec = cat.to_db_record()
+        assert rec["withholding_special_rates"] is None
+
+    def test_from_dict_with_no_effective_date(self):
+        data = {"article": "23", "rate": "2"}
+        cat = SupplierWithholdingCategoryVO.from_dict(data)
+        assert cat.effective_date is None
+
+    # ------------------------------------------------------------------------
+    # Dunder methods
+    # ------------------------------------------------------------------------
+
+    def test_equality(self):
+        cat1 = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        cat2 = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        assert cat1 == cat2
+        cat3 = SupplierWithholdingCategoryVO.create_pph21(rate=Decimal("5"))
+        assert cat1 != cat3
+        assert cat1 != "string"
+
+    def test_hash(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23()
+        assert hash(cat) is not None
+
+    def test_repr(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        assert repr(cat) == "SupplierWithholdingCategoryVO(article=23, rate=2, final=False)"
+
+    def test_str(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        assert str(cat) == "PPh Pasal 23 - 2%"
 
 
 # ============================================================================
-# Helper Functions
+# TESTS FOR HELPER FUNCTIONS
 # ============================================================================
 
+class TestHelperFunctions:
+    @pytest.mark.parametrize("transaction_type,expected_article,expected_rate", [
+        ("service", WithholdingArticle.PPH_23, Decimal("2")),
+        ("rental", WithholdingArticle.PPH_23, Decimal("10")),
+        ("sale", WithholdingArticle.PPH_22, Decimal("1.5")),
+        ("unknown", WithholdingArticle.NONE, Decimal("0")),
+    ])
+    def test_get_default_withholding_for_transaction(self, transaction_type, expected_article, expected_rate):
+        cat = get_default_withholding_for_transaction(transaction_type)
+        assert cat.article == expected_article
+        assert cat.rate == expected_rate
 
-def get_default_withholding_for_transaction(transaction_type: str) -> SupplierWithholdingCategoryVO:
-    """Get default withholding category based on transaction type."""
-    defaults = {
-        "service": SupplierWithholdingCategoryVO.create_pph23(Decimal("2")),
-        "rental": SupplierWithholdingCategoryVO.create_pph23(Decimal("10")),
-        "royalty": SupplierWithholdingCategoryVO.create_pph23(Decimal("15")),
-        "import": SupplierWithholdingCategoryVO.create_pph22(Decimal("7.5")),
-        "construction": SupplierWithholdingCategoryVO.create_pph4_2(Decimal("2")),
-    }
-    return defaults.get(transaction_type, SupplierWithholdingCategoryVO.create_none())
-
-
-def calculate_withholding_for_supplier(
-    supplier_category: SupplierWithholdingCategoryVO,
-    amount: Decimal,
-    transaction_type: str = "default",
-) -> Decimal:
-    """Convenience function to calculate withholding."""
-    return supplier_category.calculate_withholding(amount, transaction_type)
-
-
-# ============================================================================
-# Exports
-# ============================================================================
-
-__all__ = [
-    "InvalidWithholdingRateError",
-    "SupplierWithholdingCategoryVO",
-    "WithholdingArticle",
-    "WithholdingCategoryError",
-    "WithholdingRate",
-    "calculate_withholding_for_supplier",
-    "get_default_withholding_for_transaction",
-]
+    def test_calculate_withholding_for_supplier(self):
+        cat = SupplierWithholdingCategoryVO.create_pph23(rate=Decimal("2"))
+        result = calculate_withholding_for_supplier(cat, Decimal("1000000"))
+        assert result == Decimal("20000.00")
+        # with special rate
+        cat = cat.add_special_rate("service", Decimal("1.5"))
+        result = calculate_withholding_for_supplier(cat, Decimal("1000000"), "service")
+        assert result == Decimal("15000.00")
+        # with None category
+        cat = SupplierWithholdingCategoryVO.create_none()
+        result = calculate_withholding_for_supplier(cat, Decimal("1000000"))
+        assert result == Decimal("0")

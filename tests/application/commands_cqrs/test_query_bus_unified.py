@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -33,7 +31,6 @@ from application.commands_cqrs.query_bus_unified import (
     get_query_bus,
     reset_query_bus,
 )
-
 
 # ============================================================================
 # Helper Classes
@@ -673,7 +670,6 @@ class TestDispatchQuery:
 # ============================================================================
 
 def test_Query_alias():
-    from application.commands_cqrs.query_bus_unified import Query
     assert Query is BaseQuery
 
 

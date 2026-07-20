@@ -16,6 +16,7 @@ from infrastructure.persistence_orm.base_model import Base
 
 class BankReconciliationAliasTable(Base):
     __tablename__ = "bank_reconciliation"
+    __table_args__ = {'extend_existing': True}
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     legal_entity_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)

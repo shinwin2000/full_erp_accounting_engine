@@ -21,7 +21,6 @@ from application.use_cases.ap_payment_run import (
     transactional,
 )
 
-
 # ============================================================================
 # Test APPaymentRunCommand
 # ============================================================================

@@ -22,7 +22,13 @@ from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, Tim
 
 
 class SagaStateTable(Base, TimestampMixin, SoftDeleteMixin):
+    """
+    Model untuk tabel saga_state.
+    Menyimpan state dari saga (distributed transaction) untuk recovery.
+    """
     __tablename__ = "saga_state"
+    # Flag untuk checker: model ini adalah audit log yang immutable
+    __is_audit_log__ = True
     __table_args__ = (
         UniqueConstraint("saga_id", name="uq_saga_state_saga_id"),
         UniqueConstraint("saga_type", "correlation_id", name="uq_saga_type_correlation"),

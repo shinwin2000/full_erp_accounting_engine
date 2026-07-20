@@ -13,7 +13,7 @@ sejenis _ensure_editable di sini.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 

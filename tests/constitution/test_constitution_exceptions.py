@@ -7,10 +7,7 @@ Test untuk constitution/constitution_exceptions.py
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
 from uuid import uuid4
-
-import pytest
 
 from constitution.constitution_exceptions import (
     AmendmentException,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -29,7 +29,6 @@ from axioms.entity_isolation import (
     create_legal_entity,
     get_entity_isolation_axiom,
 )
-
 
 # ============================================================================
 # HELPER FUNCTIONS

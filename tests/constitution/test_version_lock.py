@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,7 +24,6 @@ from constitution.version_lock import (
     VersionLockEventType,
     VersionLockRecord,
     VersionLockService,
-    VersionLockSeverity,
     VersionLockState,
     VersionLockViolationError,
     VersionMetadata,
