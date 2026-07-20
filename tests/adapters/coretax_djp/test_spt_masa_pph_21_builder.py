@@ -3,6 +3,7 @@
 # diganti dengan assertion yang memeriksa nilai aktual,
 # efek samping, atau interaksi mock.
 
+from datetime import datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -655,10 +656,12 @@ class TestSPTMasaPPH21Builder:
         assert result["spt_number"] == "SPT001"
         assert result["tracking_id"] == "TRK123"
         assert result["status"] == SPTStatus.SUBMITTED.value
-        mock_client.post.assert_awaited_once_with(CORETAX_SPT_PPH21_ENDPOINT, {
-            "spt_xml": result["tracking_id"]?  # tidak perlu periksa konten XML
-        })
-        # karena kita tidak bisa memeriksa XML, cukup periksa bahwa method dipanggil
+        # Perbaikan: assert bahwa client.post dipanggil, dan argumen spt_xml tidak None
+        mock_client.post.assert_awaited_once()
+        call_args = mock_client.post.call_args
+        assert call_args[0][0] == CORETAX_SPT_PPH21_ENDPOINT
+        assert "spt_xml" in call_args[0][1]
+        assert call_args[0][1]["spt_xml"] is not None
 
     async def test_submit_spt_auth_failure(self, builder: SPTMasaPPH21Builder, mock_repo: AsyncMock, spt: SPTMasaPPH21):
         mock_repo.get_by_id.return_value = spt
@@ -697,7 +700,7 @@ class TestSPTMasaPPH21Builder:
         assert result["status"] == SPTStatus.APPROVED.value
         assert result["coretax_status"] == "approved"
         assert result["approval_date"] == "2024-01-01"
-        mock_client.get.assert_awaited_once_with(f"/api/v1/spt/status/TRK123")
+        mock_client.get.assert_awaited_once_with("/api/v1/spt/status/TRK123")
 
     async def test_cancel_spt(self, builder: SPTMasaPPH21Builder, mock_repo: AsyncMock, spt: SPTMasaPPH21):
         mock_repo.get_by_id.return_value = spt
@@ -748,6 +751,7 @@ class TestSPTMasaPPH21Builder:
 # ============================================================================
 # Module-level getter
 # ============================================================================
+@pytest.mark.asyncio
 async def test_get_spt_pph21_builder():
     builder = await get_spt_pph21_builder(config={})
     assert isinstance(builder, SPTMasaPPH21Builder)

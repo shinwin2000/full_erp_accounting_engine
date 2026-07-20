@@ -43,7 +43,7 @@ def movements(item_id, warehouse_id):
         MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-001",
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=Decimal("100"),
@@ -60,7 +60,7 @@ def movements(item_id, warehouse_id):
         MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-002",
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=Decimal("50"),
@@ -77,7 +77,7 @@ def movements(item_id, warehouse_id):
         MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-003",
-            movement_type=MovementType.OUTBOUND,
+            movement_type=MovementType.OUTGOING,
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=Decimal("30"),
@@ -94,7 +94,7 @@ def movements(item_id, warehouse_id):
         MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-004",
-            movement_type=MovementType.OUTBOUND,
+            movement_type=MovementType.OUTGOING,
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=Decimal("20"),
@@ -135,7 +135,7 @@ class TestStockCardEntry:
         entry = StockCardEntry(
             entry_id=entry_id,
             movement_id=movement_id,
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             movement_number="MOV-001",
             date=now,
             reference_document_type="PO",
@@ -163,7 +163,7 @@ class TestStockCardEntry:
         entry = StockCardEntry(
             entry_id=entry_id,
             movement_id=movement_id,
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             movement_number="MOV-001",
             date=now,
             reference_document_type="PO",
@@ -276,7 +276,7 @@ class TestStockCardProjectionAddEntry:
         movement = MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-005",
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=Decimal("40"),
@@ -299,7 +299,7 @@ class TestStockCardProjectionAddEntry:
         movement = MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-006",
-            movement_type=MovementType.OUTBOUND,
+            movement_type=MovementType.OUTGOING,
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=Decimal("10"),
@@ -322,7 +322,7 @@ class TestStockCardProjectionAddEntry:
         movement = MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-007",
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             item_id=uuid4(),  # different
             warehouse_id=stock_card.warehouse_id,
             quantity=Decimal("10"),
@@ -344,7 +344,7 @@ class TestStockCardProjectionAddEntry:
         movement = MovementEntity(
             movement_id=uuid4(),
             movement_number="MOV-008",
-            movement_type=MovementType.INBOUND,
+            movement_type=MovementType.INCOMING,
             item_id=item_id,
             warehouse_id=uuid4(),  # different
             quantity=Decimal("10"),
@@ -550,7 +550,7 @@ def _trigger_all_stock_card_methods():
     movement = MovementEntity(
         movement_id=uuid4(),
         movement_number="MOV-TEST",
-        movement_type=MovementType.INBOUND,
+        movement_type=MovementType.INCOMING,
         item_id=item_id,
         warehouse_id=warehouse_id,
         quantity=Decimal("10"),

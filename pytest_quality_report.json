@@ -3,12 +3,12 @@
     "total_files": 1202,
     "scanned_files": 1104,
     "files_with_tests": 1104,
-    "total_asserts": 42436,
-    "strong_asserts": 38538,
-    "weak_asserts": 3898,
-    "total_lines": 313620
+    "total_asserts": 42792,
+    "strong_asserts": 38847,
+    "weak_asserts": 3945,
+    "total_lines": 317189
   },
-  "quality_score": 90.81440286549156,
+  "quality_score": 90.7809871003926,
   "threshold": 70.0,
   "status": "✅ PASS",
   "weak_by_file": {
@@ -5948,28 +5948,6 @@
         "reason": "Boolean constant (True)"
       }
     ],
-    "domain\\bank_cash\\test_cash_book_entity.py": [
-      {
-        "line": 200,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 211,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 222,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 233,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      }
-    ],
     "domain\\bank_cash\\test_bank_reconciliation_engine.py": [
       {
         "line": 168,
@@ -6238,18 +6216,6 @@
       },
       {
         "line": 384,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      }
-    ],
-    "domain\\customer_supplier_employee\\test_supplier_withholding_category_vo.py": [
-      {
-        "line": 130,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 140,
         "code": "True",
         "reason": "Boolean constant (True)"
       }
@@ -20798,6 +20764,273 @@
       },
       {
         "line": 72,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      }
+    ],
+    "disaster_recovery\\dr_runbook_accounting_failur.py": [
+      {
+        "line": 949,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 955,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 961,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 967,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 973,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 979,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 985,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 991,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 997,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1003,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1009,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1015,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1021,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1027,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1033,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1039,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1045,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1051,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1057,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1063,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1069,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1075,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1081,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1087,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1093,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1099,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1105,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1111,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1117,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1123,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1129,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1135,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1141,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1147,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1153,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1159,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1165,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1171,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1177,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1183,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1189,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1195,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1201,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1207,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1213,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1219,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1225,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1231,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1237,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1243,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1249,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1257,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1263,
         "code": "True",
         "reason": "Boolean constant (True)"
       }

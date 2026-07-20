@@ -1,6 +1,7 @@
 # tests/policy_engine/psak/test_psak_72_revenue.py
 # Perbaikan kualitas assertions: mengganti semua assert True dengan
 # assertion yang memeriksa nilai aktual, efek samping, dan validasi bisnis.
+# FIX: import yang salah (ALLOCATION_ERROR, CONTRACT_NOT_VALID_ERROR, dan konstanta yang tidak ada) dihapus.
 
 import json
 from datetime import UTC, date, datetime, timedelta
@@ -11,17 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from policy_engine.psak.psak_72_revenue import (
-    ALLOCATION_ERROR,
-    CONTRACT_NOT_VALID_ERROR,
     PSAK72,
-    PSAK72_COMPLIANCE_LEVEL,
-    PSAK72_CONTRACT_ASSET_LIABILITY,
-    PSAK72_CONTRACT_TYPE,
-    PSAK72_LICENCE_TYPE,
-    PSAK72_PERFORMANCE_OBLIGATION_TIMING,
-    PSAK72_PROGRESS_MEASURE_METHOD,
-    PSAK72_TRANSACTION_PRICE_ALLOCATION_METHOD,
-    PSAK72_VARIABLE_CONSIDERATION_METHOD,
     AllocationError,
     ContractNotValidError,
     PerformanceObligationStatus,

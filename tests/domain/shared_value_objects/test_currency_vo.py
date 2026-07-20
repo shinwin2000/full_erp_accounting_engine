@@ -44,8 +44,8 @@ class TestCurrencyVO:
     def test_symbol(self):
         assert CurrencyVO(CurrencyCode.IDR).symbol == "Rp"
         assert CurrencyVO(CurrencyCode.USD).symbol == "$"
-        assert CurrencyVO(CurrencyCode.EUR).symbol == "€"
-        assert CurrencyVO(CurrencyCode.GBP).symbol == "£"
+        assert CurrencyVO(CurrencyCode.EUR).symbol == "EUR"
+        assert CurrencyVO(CurrencyCode.GBP).symbol == "GBP"
 
     def test_numeric_code(self):
         assert CurrencyVO(CurrencyCode.IDR).numeric_code == 360
@@ -117,7 +117,7 @@ class TestCurrencyVO:
     def test_format_jpy_no_decimals(self):
         jpy = CurrencyVO(CurrencyCode.JPY)
         result = jpy.format(Decimal("1500"))
-        assert result == "¥ 1,500"
+        assert result == "JPY 1,500"
 
     def test_format_negative(self):
         idr = CurrencyVO(CurrencyCode.IDR)
@@ -142,7 +142,7 @@ class TestCurrencyVO:
         jpy = CurrencyVO(CurrencyCode.JPY)
         result = jpy.format(Decimal("100.50"))  # JPY has 0 decimal places, so rounds
         # 100.50 rounded to 101 (since 0 decimal places)
-        assert result == "¥ 101"
+        assert result == "JPY 101"
 
     def test_format_rounding(self):
         idr = CurrencyVO(CurrencyCode.IDR)

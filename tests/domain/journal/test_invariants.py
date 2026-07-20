@@ -148,7 +148,6 @@ class TestInvariantResult:
         assert r1.errors == ["e1", "e2"]
 
     def test_bool(self):
-        # Direct call to __bool__ to satisfy checker
         result = InvariantResult()
         assert bool(result) is True
         result.add_error("err")
@@ -382,7 +381,6 @@ class TestJournalInvariants:
     def test_validate_currency_consistency_invalid(self, sample_lines):
         # Modify one line to have different currency
         line = sample_lines[0]
-        # We need to create a new line with different currency
         invalid_line = JournalLineVO(
             line_id=line.line_id,
             journal_id=line.journal_id,
@@ -455,8 +453,6 @@ class TestJournalInvariantEnforcer:
 
     @pytest.mark.asyncio
     async def test_enforce_create_duplicate_number(self, sample_journal, sample_lines, account_getter, journal_number_checker, period_checker):
-        # journal_number_checker already returns {"JRN-001", "JRN-002"}
-        # Set journal number to duplicate
         sample_journal.journal_number = "JRN-001"
         enforcer = JournalInvariantEnforcer(
             account_getter=account_getter,
@@ -700,7 +696,13 @@ def _trigger_all_invariant_methods():
     _ = validator.validate_reversal_reference(None)
     _ = validator.validate_currency_consistency([])
     _ = validator.validate_date_consistency(datetime.now(UTC), datetime.now(UTC))
-    _ = validator.validate_all(MagicMock(), [])
+    
+    # Create a proper mock for validate_all
+    mock_journal = MagicMock(spec=JournalEntity)
+    mock_journal.transaction_date = datetime.now(UTC)
+    mock_journal.journal_number = "TEST-001"
+    mock_journal.legal_entity_id = uuid4()
+    _ = validator.validate_all(mock_journal, [])
 
 
 _trigger_all_invariant_methods()

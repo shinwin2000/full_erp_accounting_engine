@@ -20,6 +20,16 @@ from security_hardening.security_exceptions import AuthorizationError
 
 
 # ============================================================================
+# Helper function to get user by username
+# ============================================================================
+def get_user_by_username(acm: AccessControlMatrix, username: str):
+    for user in acm._users.values():
+        if user.username == username:
+            return user
+    return None
+
+
+# ============================================================================
 # Enum tests
 # ============================================================================
 class TestPermissionType:
@@ -583,43 +593,39 @@ class TestAccessControlMatrix:
 
     # ---- Permission resolution ----
     def test_get_user_permissions(self, acm):
-        user = acm.get_user_by_username("alice")  # we'll define helper
-        # Alice has Viewer and Editor roles
-        perms = acm.get_user_permissions(user.id)
-        # Viewer: read journal; Editor: read, create journal
-        # Expected: (journal, read), (journal, create)
+        alice = get_user_by_username(acm, "alice")
+        assert alice is not None
+        perms = acm.get_user_permissions(alice.id)
         perm_types = {(rt, perm) for rt, perm, rid, attrs in perms}
         assert ("journal", "read") in perm_types
         assert ("journal", "create") in perm_types
         # Bob has Approver: read, approve
-        bob = acm.get_user_by_username("bob")
+        bob = get_user_by_username(acm, "bob")
+        assert bob is not None
         perms_bob = acm.get_user_permissions(bob.id)
         perm_types_bob = {(rt, perm) for rt, perm, rid, attrs in perms_bob}
         assert ("journal", "read") in perm_types_bob
         assert ("journal", "approve") in perm_types_bob
 
-    def test_get_user_permissions_inheritance(self, acm):
-        # Editor inherits from Viewer, so should have read from Viewer, plus create.
-        # Already tested.
-
     def test_has_permission(self, acm):
-        alice = acm.get_user_by_username("alice")
-        # Alice has read and create on journal
+        alice = get_user_by_username(acm, "alice")
+        assert alice is not None
         assert acm.has_permission(alice.id, ResourceType.JOURNAL, PermissionType.READ) is True
         assert acm.has_permission(alice.id, ResourceType.JOURNAL, PermissionType.CREATE) is True
         assert acm.has_permission(alice.id, ResourceType.JOURNAL, PermissionType.APPROVE) is False
         # Bob has read and approve
-        bob = acm.get_user_by_username("bob")
+        bob = get_user_by_username(acm, "bob")
+        assert bob is not None
         assert acm.has_permission(bob.id, ResourceType.JOURNAL, PermissionType.READ) is True
         assert acm.has_permission(bob.id, ResourceType.JOURNAL, PermissionType.APPROVE) is True
         assert acm.has_permission(bob.id, ResourceType.JOURNAL, PermissionType.CREATE) is False
 
     def test_has_permission_with_resource_id(self, acm):
-        # Add a permission with resource_id
         role = acm.get_role_by_name("Approver")
         p = Permission(ResourceType.JOURNAL, PermissionType.READ, resource_id="123")
         acm.add_permission_to_role(role.id, p)
-        bob = acm.get_user_by_username("bob")
+        bob = get_user_by_username(acm, "bob")
+        assert bob is not None
         assert acm.has_permission(bob.id, ResourceType.JOURNAL, PermissionType.READ, "123") is True
         assert acm.has_permission(bob.id, ResourceType.JOURNAL, PermissionType.READ, "456") is False
 
@@ -628,8 +634,10 @@ class TestAccessControlMatrix:
         role = acm.get_role_by_name("Editor")
         p = Permission(ResourceType.JOURNAL, PermissionType.CREATE, attributes={"department": "finance"})
         acm.add_permission_to_role(role.id, p)
-        alice = acm.get_user_by_username("alice")  # department: finance
-        bob = acm.get_user_by_username("bob")      # department: hr
+        alice = get_user_by_username(acm, "alice")  # department: finance
+        bob = get_user_by_username(acm, "bob")      # department: hr
+        assert alice is not None
+        assert bob is not None
         # Alice should have create
         assert acm.has_permission(alice.id, ResourceType.JOURNAL, PermissionType.CREATE,
                                   context_attributes={"department": "finance"}) is True
@@ -637,21 +645,23 @@ class TestAccessControlMatrix:
         assert acm.has_permission(bob.id, ResourceType.JOURNAL, PermissionType.CREATE,
                                   context_attributes={"department": "finance"}) is False
         # Also test fallback to user attributes
-        # Remove context_attributes, should fallback to user attributes
         assert acm.has_permission(alice.id, ResourceType.JOURNAL, PermissionType.CREATE) is True
 
     def test_enforce_success(self, acm):
-        alice = acm.get_user_by_username("alice")
+        alice = get_user_by_username(acm, "alice")
+        assert alice is not None
         # Should not raise
         acm.enforce(alice.id, ResourceType.JOURNAL, PermissionType.READ)
 
     def test_enforce_failure(self, acm):
-        alice = acm.get_user_by_username("alice")
+        alice = get_user_by_username(acm, "alice")
+        assert alice is not None
         with pytest.raises(AuthorizationError, match="does not have approve permission"):
             acm.enforce(alice.id, ResourceType.JOURNAL, PermissionType.APPROVE)
 
     def test_get_effective_permissions_for_resource(self, acm):
-        alice = acm.get_user_by_username("alice")
+        alice = get_user_by_username(acm, "alice")
+        assert alice is not None
         perms = acm.get_effective_permissions_for_resource(alice.id, ResourceType.JOURNAL)
         perm_names = {p.value for p in perms}
         assert "read" in perm_names
@@ -770,28 +780,3 @@ class TestAccessControlMatrix:
         assert acm._history == []
         assert acm.version() == 1
         assert acm.audit_trail() == []
-
-    # ---- Helper to get user by username ----
-    def get_user_by_username(self, username):
-        # Helper method for tests
-        for user in self._users.values():
-            if user.username == username:
-                return user
-        return None
-
-    # We'll need to monkeypatch the above helper into the class or use a function
-    # For simplicity, we'll add a method to the test class
-
-
-# Add helper method to AccessControlMatrix? We'll do it in tests:
-# Since we can't modify source, we'll use a function inside test.
-
-def get_user_by_username(acm, username):
-    for user in acm._users.values():
-        if user.username == username:
-            return user
-    return None
-
-
-# Patch the test method to use this function
-TestAccessControlMatrix.get_user_by_username = lambda self, username: get_user_by_username(self.acm, username)

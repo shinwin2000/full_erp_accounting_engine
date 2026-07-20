@@ -11,8 +11,9 @@ from uuid import uuid4
 
 import pytest
 
-from domain.umkm_simplified.domain_events import DomainEvent
+from domain.umkm_simplified.domain_events import DomainEvent, DomainEventType
 from domain.umkm_simplified.simplified_journal_entity import (
+    JournalStatus,
     PaymentMethod,
     SimplifiedJournalEntity,
     TransactionType,
@@ -225,16 +226,16 @@ class TestUMKMTransactionAggregate:
         assert restored.status == UMKMStatus.ACTIVE
         assert restored.version == deleted.version + 1
 
-    def test_activate(self, agg):
-        # Already active
+    def test_activate(self):
         agg = UMKMTransactionAggregate.create(uuid4(), "Biz")
+        # Already active
         activated = agg.activate("admin")
         assert activated is agg  # no change
         deleted = agg.delete("admin")
         activated2 = deleted.activate("admin2")
         assert activated2.status == UMKMStatus.ACTIVE
 
-    def test_deactivate(self, agg):
+    def test_deactivate(self):
         agg = UMKMTransactionAggregate.create(uuid4(), "Biz")
         deactivated = agg.deactivate("admin", "reason")
         assert deactivated.status == UMKMStatus.INACTIVE
@@ -248,10 +249,6 @@ class TestUMKMTransactionAggregate:
 
     def test_validate(self):
         agg = UMKMTransactionAggregate.create(uuid4(), "Biz")
-        # Add a negative cash balance (can't happen normally, but we can force)
-        # We'll test with negative cash_balance by setting directly? Not possible via public API,
-        # but validate checks for negative balance.
-        # We can manually set? Not needed.
         result = agg.validate()
         assert result["is_valid"] is True
 

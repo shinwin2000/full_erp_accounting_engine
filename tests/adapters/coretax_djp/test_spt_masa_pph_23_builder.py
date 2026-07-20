@@ -744,12 +744,13 @@ class TestSPTMasaPPH23Builder:
         assert result["spt_number"] == "SPT001"
         assert result["tracking_id"] == "TRK123"
         assert result["status"] == SPTStatus.SUBMITTED.value
-        mock_client.post.assert_awaited_once_with(
-            CORETAX_SPT_PPH23_ENDPOINT,
-            {
-                "spt_xml": result["tracking_id"]?  # kita tidak periksa konten XML secara detail
-            }
-        )
+
+        # Perbaikan: periksa bahwa client.post dipanggil dengan endpoint yang benar dan payload mengandung spt_xml
+        mock_client.post.assert_awaited_once()
+        call_args = mock_client.post.call_args
+        assert call_args[0][0] == CORETAX_SPT_PPH23_ENDPOINT
+        assert "spt_xml" in call_args[0][1]
+        assert call_args[0][1]["spt_xml"] is not None
 
     async def test_submit_spt_auth_failure(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
@@ -882,6 +883,7 @@ class TestSPTMasaPPH23Builder:
 # ============================================================================
 # Module-level getter
 # ============================================================================
+@pytest.mark.asyncio
 async def test_get_spt_pph23_builder():
     builder = await get_spt_pph23_builder(config={})
     assert isinstance(builder, SPTMasaPPH23Builder)

@@ -34,11 +34,11 @@ from application.sagas.saga_orchestrator_base import (
 from ports.primary.saga_state_store_port import SagaStateStorePort
 
 # ============================================================================
-# Helper: Concrete SagaOrchestrator for testing
+# Helper: Concrete SagaOrchestrator for testing (renamed to avoid pytest warning)
 # ============================================================================
 
-class TestableSagaOrchestrator(SagaOrchestratorBase[dict]):
-    """Concrete implementation for testing."""
+class _ConcreteSagaOrchestrator(SagaOrchestratorBase[dict]):
+    """Concrete implementation for testing (name starts with underscore to avoid collection)."""
 
     async def _serialize_data(self, data: dict) -> dict[str, Any]:
         return data
@@ -61,9 +61,9 @@ def mock_state_store() -> SagaStateStorePort:
 
 
 @pytest.fixture
-def orchestrator(mock_state_store) -> TestableSagaOrchestrator:
+def orchestrator(mock_state_store) -> _ConcreteSagaOrchestrator:
     """Testable saga orchestrator instance."""
-    return TestableSagaOrchestrator(state_store=mock_state_store, saga_type="TestSaga")
+    return _ConcreteSagaOrchestrator(state_store=mock_state_store, saga_type="TestSaga")
 
 
 @pytest.fixture
