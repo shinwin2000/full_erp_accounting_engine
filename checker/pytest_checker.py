@@ -1271,22 +1271,38 @@ class QualityAnalyzer:
                 file_scores[file].append(score)
 
         elif metric_name == "database_verification":
+            relevant_keys, _ = self._relevant_test_keys_for(lambda f: f.has_transaction)
             for t in self.test_funcs.values():
+                if t.key not in relevant_keys:
+                    continue
                 score = 100.0 if (t.has_db or t.has_commit or t.has_rollback) else 0.0
                 file_scores[t.file].append(score)
 
         elif metric_name == "domain_event_verification":
+            relevant_keys, _ = self._relevant_test_keys_for(
+                lambda f: f.has_outbox or f.has_kafka_publish or "event" in f.name.lower()
+            )
             for t in self.test_funcs.values():
+                if t.key not in relevant_keys:
+                    continue
                 score = 100.0 if t.has_event_assert else 0.0
                 file_scores[t.file].append(score)
 
         elif metric_name == "audit_log_verification":
+            relevant_keys, _ = self._relevant_test_keys_for(lambda f: "audit" in f.name.lower())
             for t in self.test_funcs.values():
+                if t.key not in relevant_keys:
+                    continue
                 score = 100.0 if t.has_audit_assert else 0.0
                 file_scores[t.file].append(score)
 
         elif metric_name == "idempotency_verification":
+            relevant_keys, _ = self._relevant_test_keys_for(
+                lambda f: f.has_transaction or f.has_outbox or f.has_kafka_publish or f.has_retry_logic
+            )
             for t in self.test_funcs.values():
+                if t.key not in relevant_keys:
+                    continue
                 has_id = "twice" in t.source.lower() or "idempotent" in t.source.lower() or "duplicate" in t.name.lower()
                 score = 100.0 if has_id else 0.0
                 file_scores[t.file].append(score)
@@ -1502,34 +1518,99 @@ class QualityAnalyzer:
         score = (count_aaa / max(1, total)) * 100
         return {"score": round(score, 1), "count": count_aaa, "total": total, "confidence": "heuristic"}
 
+    def _relevant_test_keys_for(self, predicate) -> tuple[set[str], list]:
+        """Sama seperti pola yang sudah benar di _domain_metric (Tier 4): saring
+        dulu ke source function yang predicate-nya True, lalu ambil test yang
+        BENAR-BENAR ter-link ke fungsi itu (tested_by_direct/unique). Dipakai
+        untuk memperbaiki Tier 3 (database/event/audit/idempotency) yang
+        sebelumnya menilai SEMUA test tanpa pandang bulu -- termasuk test DTO/
+        value-object yang memang tidak seharusnya menyentuh DB/event/audit sama
+        sekali, sehingga skor Tier 3 turun bukan karena kualitas test buruk,
+        tapi karena metrik diterapkan ke tempat yang tidak relevan.
+        """
+        relevant_sources = [f for f in self.source_funcs.values() if predicate(f)]
+        relevant_keys: set[str] = set()
+        for sf in relevant_sources:
+            relevant_keys |= sf.tested_by_direct | sf.tested_by_unique
+        return relevant_keys, relevant_sources
+
     @_memoize_analyzer_method
     def database_verification(self) -> dict:
-        has_db = sum(1 for t in self.test_funcs.values() if t.has_db or t.has_commit or t.has_rollback)
-        total = len(self.test_funcs)
-        result = {"score": round((has_db / max(1, total)) * 100, 1), "has_db": has_db, "total": total, "confidence": "heuristic"}
+        relevant_keys, relevant_sources = self._relevant_test_keys_for(lambda f: f.has_transaction)
+        if not relevant_sources:
+            return {"score": 100.0, "has_db": 0, "total": 0, "confidence": "confirmed",
+                     "note": "Tidak ada source function dengan operasi transaksi/DB (has_transaction) -- N/A untuk scope ini.",
+                     "file_scores": {}}
+        relevant_tests = [self.test_funcs[k] for k in relevant_keys if k in self.test_funcs]
+        if not relevant_tests:
+            return {"score": 0.0, "has_db": 0, "total": 0, "confidence": "heuristic",
+                     "note": f"{len(relevant_sources)} source function melakukan operasi DB, tapi tidak ada test yang ter-link ke fungsi tersebut.",
+                     "file_scores": {}}
+        has_db = sum(1 for t in relevant_tests if t.has_db or t.has_commit or t.has_rollback)
+        total = len(relevant_tests)
+        result = {"score": round((has_db / total) * 100, 1), "has_db": has_db, "total": total,
+                   "relevant_source_functions": len(relevant_sources), "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("database_verification")
         return result
 
     @_memoize_analyzer_method
     def domain_event_verification(self) -> dict:
-        has_event = sum(1 for t in self.test_funcs.values() if t.has_event_assert)
-        total = len(self.test_funcs)
-        result = {"score": round((has_event / max(1, total)) * 100, 1), "has_event": has_event, "total": total, "confidence": "heuristic"}
+        pred = lambda f: f.has_outbox or f.has_kafka_publish or "event" in f.name.lower()
+        relevant_keys, relevant_sources = self._relevant_test_keys_for(pred)
+        if not relevant_sources:
+            return {"score": 100.0, "has_event": 0, "total": 0, "confidence": "confirmed",
+                     "note": "Tidak ada source function terkait domain event (outbox/kafka/nama mengandung 'event') -- N/A untuk scope ini.",
+                     "file_scores": {}}
+        relevant_tests = [self.test_funcs[k] for k in relevant_keys if k in self.test_funcs]
+        if not relevant_tests:
+            return {"score": 0.0, "has_event": 0, "total": 0, "confidence": "heuristic",
+                     "note": f"{len(relevant_sources)} source function terkait domain event, tapi tidak ada test yang ter-link ke fungsi tersebut.",
+                     "file_scores": {}}
+        has_event = sum(1 for t in relevant_tests if t.has_event_assert)
+        total = len(relevant_tests)
+        result = {"score": round((has_event / total) * 100, 1), "has_event": has_event, "total": total,
+                   "relevant_source_functions": len(relevant_sources), "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("domain_event_verification")
         return result
 
     @_memoize_analyzer_method
     def audit_log_verification(self) -> dict:
-        has_audit = sum(1 for t in self.test_funcs.values() if t.has_audit_assert)
-        total = len(self.test_funcs)
-        result = {"score": round((has_audit / max(1, total)) * 100, 1), "has_audit": has_audit, "total": total, "confidence": "heuristic"}
+        pred = lambda f: "audit" in f.name.lower()
+        relevant_keys, relevant_sources = self._relevant_test_keys_for(pred)
+        if not relevant_sources:
+            return {"score": 100.0, "has_audit": 0, "total": 0, "confidence": "confirmed",
+                     "note": "Tidak ada source function terkait audit (nama mengandung 'audit') -- N/A untuk scope ini.",
+                     "file_scores": {}}
+        relevant_tests = [self.test_funcs[k] for k in relevant_keys if k in self.test_funcs]
+        if not relevant_tests:
+            return {"score": 0.0, "has_audit": 0, "total": 0, "confidence": "heuristic",
+                     "note": f"{len(relevant_sources)} source function terkait audit, tapi tidak ada test yang ter-link ke fungsi tersebut.",
+                     "file_scores": {}}
+        has_audit = sum(1 for t in relevant_tests if t.has_audit_assert)
+        total = len(relevant_tests)
+        result = {"score": round((has_audit / total) * 100, 1), "has_audit": has_audit, "total": total,
+                   "relevant_source_functions": len(relevant_sources), "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("audit_log_verification")
         return result
 
     @_memoize_analyzer_method
     def idempotency_verification(self) -> dict:
+        # Idempotency paling relevan untuk operasi yang mutasi state & bisa
+        # di-retry/di-replay: transaksi DB, outbox, publish kafka, dan apa pun
+        # yang sudah punya retry logic.
+        pred = lambda f: f.has_transaction or f.has_outbox or f.has_kafka_publish or f.has_retry_logic
+        relevant_keys, relevant_sources = self._relevant_test_keys_for(pred)
+        if not relevant_sources:
+            return {"score": 100.0, "count": 0, "total": 0, "confidence": "confirmed",
+                     "note": "Tidak ada source function yang mutasi state / retry-sensitive -- N/A untuk scope ini.",
+                     "file_scores": {}}
+        relevant_tests = [self.test_funcs[k] for k in relevant_keys if k in self.test_funcs]
+        if not relevant_tests:
+            return {"score": 0.0, "count": 0, "total": 0, "confidence": "heuristic",
+                     "note": f"{len(relevant_sources)} source function retry/mutasi-sensitive, tapi tidak ada test yang ter-link ke fungsi tersebut.",
+                     "file_scores": {}}
         count = 0
-        for t in self.test_funcs.values():
+        for t in relevant_tests:
             has_keyword = ("twice" in t.source.lower() or "idempotent" in t.source.lower()
                             or "duplicate" in t.name.lower())
             has_repeated_call = False
@@ -1540,8 +1621,9 @@ class QualityAnalyzer:
                 has_repeated_call = any(n >= 2 for c, n in seen.items() if c not in ("assert_called", "raises"))
             if has_keyword or has_repeated_call:
                 count += 1
-        total = len(self.test_funcs)
-        result = {"score": round((count / max(1, total)) * 100, 1), "count": count, "total": total, "confidence": "heuristic"}
+        total = len(relevant_tests)
+        result = {"score": round((count / total) * 100, 1), "count": count, "total": total,
+                   "relevant_source_functions": len(relevant_sources), "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("idempotency_verification")
         return result
 
