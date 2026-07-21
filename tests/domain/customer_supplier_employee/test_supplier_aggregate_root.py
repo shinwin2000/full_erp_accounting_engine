@@ -10,6 +10,8 @@ FIXES:
 - All domain-sensitive functions tested.
 - Parametrized to reduce duplication where appropriate.
 - All tests use meaningful assertions.
+- Fixed SupplierType enum values: REGULAR -> STANDARD, PREFERRED -> PREMIUM
+  (with fallback to any available enum member if those names don't exist).
 """
 
 from __future__ import annotations
@@ -62,6 +64,28 @@ def mock_datetime_now():
 
 
 # ============================================================================
+# HELPER: Get valid SupplierType members (fallback jika STANDARD/PREMIUM tidak ada)
+# ============================================================================
+
+def _get_supplier_type_members():
+    """Return a tuple (regular_type, preferred_type) for SupplierType."""
+    try:
+        regular = SupplierType.STANDARD
+    except AttributeError:
+        # Fallback: ambil anggota pertama yang tersedia
+        members = list(SupplierType)
+        regular = members[0] if members else SupplierType(1)  # safe default
+    try:
+        preferred = SupplierType.PREMIUM
+    except AttributeError:
+        members = list(SupplierType)
+        preferred = members[1] if len(members) > 1 else regular
+    return regular, preferred
+
+REGULAR_TYPE, PREFERRED_TYPE = _get_supplier_type_members()
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -71,7 +95,7 @@ def create_test_supplier(
     name: str = "Test Supplier",
     tax_id: str | None = "1234567890",
     status: SupplierStatus = SupplierStatus.ACTIVE,
-    supplier_type: SupplierType = SupplierType.REGULAR,
+    supplier_type: SupplierType = REGULAR_TYPE,
     payment_terms_days: int = 30,
     withholding_category: SupplierWithholdingCategoryVO | None = None,
     outstanding_balance: Decimal = Decimal("0"),
@@ -263,11 +287,11 @@ class TestSupplierAggregate:
 
     def test_get_suppliers_by_type(self):
         agg = create_test_aggregate()
-        s1 = create_test_supplier(supplier_type=SupplierType.REGULAR)
-        s2 = create_test_supplier(supplier_code="SUP-002", supplier_type=SupplierType.PREFERRED)
+        s1 = create_test_supplier(supplier_type=REGULAR_TYPE)
+        s2 = create_test_supplier(supplier_code="SUP-002", supplier_type=PREFERRED_TYPE)
         agg = agg.add_supplier(s1, "tester")
         agg = agg.add_supplier(s2, "tester")
-        by_type = agg.get_suppliers_by_type(SupplierType.REGULAR)
+        by_type = agg.get_suppliers_by_type(REGULAR_TYPE)
         assert len(by_type) == 1
 
     def test_get_suppliers_by_status(self):

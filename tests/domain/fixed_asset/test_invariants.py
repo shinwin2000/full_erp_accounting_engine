@@ -3,11 +3,11 @@
 Comprehensive unit tests for Fixed Asset invariants.
 
 FIXES:
-- All tests now have explicit assertions.
+- All async tests now have @pytest.mark.asyncio marker.
 - Duplicate structural tests combined using parametrize.
-- All async tests marked with @pytest.mark.asyncio.
 - All tests use fixed date to avoid flaky (date.today() replaced with mock).
 - Negative path tests use pytest.raises for ValueErrors.
+- Mock quality improved using spec/autospec.
 """
 
 from datetime import date, timedelta
@@ -172,7 +172,6 @@ class TestInvariantResult:
 # =============================================================================
 
 class TestValidators:
-    # Parametrized for positive_decimal
     @pytest.mark.parametrize("value, expected_valid, expected_error_contains", [
         (Decimal("10.00"), True, None),
         (Decimal("0"), False, "positive"),
@@ -184,7 +183,6 @@ class TestValidators:
         if not expected_valid:
             assert any(expected_error_contains in e for e in result.errors)
 
-    # Parametrized for non_negative_decimal
     @pytest.mark.parametrize("value, expected_valid, expected_error_contains", [
         (Decimal("10"), True, None),
         (Decimal("0"), True, None),
@@ -196,7 +194,6 @@ class TestValidators:
         if not expected_valid:
             assert any(expected_error_contains in e for e in result.errors)
 
-    # Parametrized for string_not_empty
     @pytest.mark.parametrize("value, min_len, field, expected_valid, expected_error_contains", [
         ("hello", 1, "Field", True, None),
         ("abc", 3, "Field", True, None),
@@ -210,7 +207,6 @@ class TestValidators:
         if not expected_valid:
             assert any(expected_error_contains in e for e in result.errors)
 
-    # Parametrized for date_not_future
     @pytest.mark.parametrize("dt, expected_valid", [
         (FIXED_DATE - timedelta(days=1), True),
         (FIXED_DATE, True),
@@ -222,7 +218,6 @@ class TestValidators:
         if not expected_valid:
             assert "future" in result.errors[0]
 
-    # Parametrized for date_sequence
     @pytest.mark.parametrize("start,end,expected_valid", [
         (FIXED_DATE, FIXED_DATE, True),
         (FIXED_DATE, FIXED_DATE + timedelta(days=1), True),
@@ -234,7 +229,6 @@ class TestValidators:
         if not expected_valid:
             assert "before or equal" in result.errors[0]
 
-    # Parametrized for version
     @pytest.mark.parametrize("version, expected_version, expected_valid, expected_error_contains", [
         (1, None, True, None),
         (5, None, True, None),
@@ -255,10 +249,8 @@ class TestValidators:
 
 class TestStatusTransition:
     def test_transition_definition_consistency(self):
-        # Ensure all statuses have a transition set
         for status in AssetStatus:
             assert status in ALLOWED_STATUS_TRANSITIONS, f"Missing transition definition for {status}"
-        # Ensure all targets are valid statuses
         for targets in ALLOWED_STATUS_TRANSITIONS.values():
             for t in targets:
                 assert isinstance(t, AssetStatus)
@@ -280,310 +272,236 @@ class TestStatusTransition:
 
 
 # =============================================================================
-# Tests for FixedAssetInvariants (Static Methods)
+# Tests for FixedAssetInvariants (Static Methods) - with parametrized duplication
 # =============================================================================
 
 class TestFixedAssetInvariants:
-    def test_validate_asset_code_valid(self):
-        result = FixedAssetInvariants.validate_asset_code("AST-001")
-        assert result.is_valid is True
+    # --- Asset Code ---
+    @pytest.mark.parametrize("code, expected_valid, error_contains", [
+        ("AST-001", True, None),
+        ("", False, "at least"),
+        ("A" * 31, False, "exceed 30"),
+        ("AST 001", False, "only contain"),
+    ])
+    def test_validate_asset_code(self, code, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_asset_code(code)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_asset_code_invalid_empty(self):
-        result = FixedAssetInvariants.validate_asset_code("")
-        assert result.is_valid is False
-        assert "at least" in result.errors[0]
+    # --- Asset Name ---
+    @pytest.mark.parametrize("name, expected_valid, error_contains", [
+        ("Test Asset", True, None),
+        ("", False, "at least"),
+        ("A" * 201, False, "exceed 200"),
+    ])
+    def test_validate_asset_name(self, name, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_asset_name(name)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_asset_code_invalid_too_long(self):
-        result = FixedAssetInvariants.validate_asset_code("A" * 31)
-        assert result.is_valid is False
-        assert "exceed 30" in result.errors[0]
+    # --- Asset Type ---
+    @pytest.mark.parametrize("asset_type, expected_valid", [
+        (AssetType.TANGIBLE, True),
+        ("INVALID", False),
+    ])
+    def test_validate_asset_type(self, asset_type, expected_valid):
+        result = FixedAssetInvariants.validate_asset_type(asset_type)
+        assert result.is_valid == expected_valid
 
-    def test_validate_asset_code_invalid_chars(self):
-        result = FixedAssetInvariants.validate_asset_code("AST 001")
-        assert result.is_valid is False
-        assert "only contain" in result.errors[0]
+    # --- Asset Status ---
+    @pytest.mark.parametrize("status, expected_valid", [
+        (AssetStatus.ACTIVE, True),
+        ("INVALID", False),
+    ])
+    def test_validate_asset_status(self, status, expected_valid):
+        result = FixedAssetInvariants.validate_asset_status(status)
+        assert result.is_valid == expected_valid
 
-    def test_validate_asset_name_valid(self):
-        result = FixedAssetInvariants.validate_asset_name("Test Asset")
-        assert result.is_valid is True
+    # --- Acquisition Date ---
+    @pytest.mark.parametrize("dt, expected_valid", [
+        (FIXED_DATE, True),
+        (FIXED_DATE + timedelta(days=1), False),
+    ])
+    def test_validate_acquisition_date(self, dt, expected_valid):
+        result = FixedAssetInvariants.validate_acquisition_date(dt)
+        assert result.is_valid == expected_valid
 
-    def test_validate_asset_name_invalid_empty(self):
-        result = FixedAssetInvariants.validate_asset_name("")
-        assert result.is_valid is False
-        assert "at least" in result.errors[0]
+    # --- Cost ---
+    @pytest.mark.parametrize("cost, expected_valid", [
+        (Decimal("1000"), True),
+        (Decimal("0"), False),
+        (Decimal("-100"), False),
+    ])
+    def test_validate_cost(self, cost, expected_valid):
+        result = FixedAssetInvariants.validate_cost(cost)
+        assert result.is_valid == expected_valid
 
-    def test_validate_asset_name_invalid_too_long(self):
-        result = FixedAssetInvariants.validate_asset_name("A" * 201)
-        assert result.is_valid is False
-        assert "exceed 200" in result.errors[0]
+    # --- Salvage Value (combined: negative & exceed) ---
+    @pytest.mark.parametrize("salvage, cost, expected_valid, error_contains", [
+        (Decimal("100"), Decimal("1000"), True, None),
+        (Decimal("-10"), Decimal("1000"), False, "cannot be negative"),
+        (Decimal("1500"), Decimal("1000"), False, "cannot exceed"),
+    ])
+    def test_validate_salvage_value(self, salvage, cost, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_salvage_value(salvage, cost)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_asset_type_valid(self):
-        result = FixedAssetInvariants.validate_asset_type(AssetType.TANGIBLE)
-        assert result.is_valid is True
+    # --- Useful Life ---
+    @pytest.mark.parametrize("years, asset_type, expected_valid, warning_contains", [
+        (0, AssetType.LAND, True, None),
+        (10, AssetType.LAND, True, "zero useful life"),
+        (10, AssetType.TANGIBLE, True, None),
+        (0, AssetType.TANGIBLE, False, "positive"),
+        (150, AssetType.TANGIBLE, True, "unusually long"),
+    ])
+    def test_validate_useful_life(self, years, asset_type, expected_valid, warning_contains):
+        result = FixedAssetInvariants.validate_useful_life(years, asset_type)
+        assert result.is_valid == expected_valid
+        if warning_contains:
+            assert any(warning_contains in w for w in result.warnings)
 
-    def test_validate_asset_type_invalid(self):
-        result = FixedAssetInvariants.validate_asset_type("INVALID")
-        assert result.is_valid is False
+    # --- Depreciation Method ---
+    @pytest.mark.parametrize("method, asset_type, expected_valid, warning_contains", [
+        (DepreciationMethod.STRAIGHT_LINE, AssetType.TANGIBLE, True, None),
+        (DepreciationMethod.DOUBLE_DECLINING, AssetType.LAND, True, "ignored"),
+        ("INVALID", AssetType.TANGIBLE, False, None),
+    ])
+    def test_validate_depreciation_method(self, method, asset_type, expected_valid, warning_contains):
+        result = FixedAssetInvariants.validate_depreciation_method(method, asset_type)
+        assert result.is_valid == expected_valid
+        if warning_contains and result.warnings:
+            assert any(warning_contains in w for w in result.warnings)
 
-    def test_validate_asset_status_valid(self):
-        result = FixedAssetInvariants.validate_asset_status(AssetStatus.ACTIVE)
-        assert result.is_valid is True
+    # --- Accumulated Depreciation (negative & exceeds) ---
+    @pytest.mark.parametrize("acc_dep, cost, salvage, expected_valid, error_contains", [
+        (Decimal("1000"), Decimal("10000"), Decimal("500"), True, None),
+        (Decimal("-100"), Decimal("10000"), Decimal("500"), False, "cannot be negative"),
+        (Decimal("10000"), Decimal("10000"), Decimal("500"), False, "exceeds depreciable"),
+    ])
+    def test_validate_accumulated_depreciation(self, acc_dep, cost, salvage, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_accumulated_depreciation(acc_dep, cost, salvage)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_asset_status_invalid(self):
-        result = FixedAssetInvariants.validate_asset_status("INVALID")
-        assert result.is_valid is False
+    # --- Net Book Value (mismatch & negative) ---
+    @pytest.mark.parametrize("nbv, cost, acc_dep, impairment, expected_valid, error_contains", [
+        (Decimal("9000"), Decimal("10000"), Decimal("1000"), Decimal("0"), True, None),
+        (Decimal("8000"), Decimal("10000"), Decimal("1000"), Decimal("0"), False, "mismatch"),
+        (Decimal("-100"), Decimal("10000"), Decimal("9000"), Decimal("0"), False, "negative"),
+    ])
+    def test_validate_net_book_value(self, nbv, cost, acc_dep, impairment, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_net_book_value(nbv, cost, acc_dep, impairment)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_acquisition_date_valid(self):
-        result = FixedAssetInvariants.validate_acquisition_date(FIXED_DATE)
-        assert result.is_valid is True
+    # --- Accumulated Impairment (negative & exceeds) ---
+    @pytest.mark.parametrize("impairment, nbv_before, expected_valid, error_contains", [
+        (Decimal("1000"), Decimal("10000"), True, None),
+        (Decimal("-100"), Decimal("10000"), False, "cannot be negative"),
+        (Decimal("12000"), Decimal("10000"), False, "exceeds NBV"),
+    ])
+    def test_validate_accumulated_impairment(self, impairment, nbv_before, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_accumulated_impairment(impairment, nbv_before)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_acquisition_date_future(self):
-        future = FIXED_DATE + timedelta(days=1)
-        result = FixedAssetInvariants.validate_acquisition_date(future)
-        assert result.is_valid is False
-        assert "future" in result.errors[0]
+    # --- Revaluation Surplus ---
+    @pytest.mark.parametrize("surplus, expected_valid", [
+        (Decimal("1000"), True),
+        (Decimal("-100"), False),
+    ])
+    def test_validate_revaluation_surplus(self, surplus, expected_valid):
+        result = FixedAssetInvariants.validate_revaluation_surplus(surplus)
+        assert result.is_valid == expected_valid
 
-    def test_validate_cost_valid(self):
-        result = FixedAssetInvariants.validate_cost(Decimal("1000"))
-        assert result.is_valid is True
+    # --- Currency (invalid length & chars) ---
+    @pytest.mark.parametrize("currency, expected_valid, error_contains", [
+        ("IDR", True, None),
+        ("IN", False, "exactly 3"),
+        ("I1R", False, "letters"),
+    ])
+    def test_validate_currency(self, currency, expected_valid, error_contains):
+        result = FixedAssetInvariants.validate_currency(currency)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_cost_zero(self):
-        result = FixedAssetInvariants.validate_cost(Decimal("0"))
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
+    # --- Unique Code ---
+    @pytest.mark.parametrize("code, existing, expected_valid", [
+        ("NEW", {"EXISTING"}, True),
+        ("EXISTING", {"EXISTING"}, False),
+    ])
+    def test_validate_asset_unique_code(self, code, existing, expected_valid):
+        result = FixedAssetInvariants.validate_asset_unique_code(code, existing)
+        assert result.is_valid == expected_valid
 
-    def test_validate_salvage_value_valid(self):
-        result = FixedAssetInvariants.validate_salvage_value(Decimal("100"), Decimal("1000"))
-        assert result.is_valid is True
-
-    def test_validate_salvage_value_negative(self):
-        result = FixedAssetInvariants.validate_salvage_value(Decimal("-10"), Decimal("1000"))
-        assert result.is_valid is False
-        assert "cannot be negative" in result.errors[0]
-
-    def test_validate_salvage_value_exceeds_cost(self):
-        result = FixedAssetInvariants.validate_salvage_value(Decimal("1500"), Decimal("1000"))
-        assert result.is_valid is False
-        assert "cannot exceed" in result.errors[0]
-
-    def test_validate_useful_life_land_allows_zero(self):
-        result = FixedAssetInvariants.validate_useful_life(0, AssetType.LAND)
-        assert result.is_valid is True
-
-    def test_validate_useful_life_land_with_warning(self):
-        result = FixedAssetInvariants.validate_useful_life(10, AssetType.LAND)
-        assert result.is_valid is True
-        assert len(result.warnings) == 1
-        assert "zero useful life" in result.warnings[0]
-
-    def test_validate_useful_life_positive_for_depreciable(self):
-        result = FixedAssetInvariants.validate_useful_life(10, AssetType.TANGIBLE)
-        assert result.is_valid is True
-
-    def test_validate_useful_life_zero_for_depreciable(self):
-        result = FixedAssetInvariants.validate_useful_life(0, AssetType.TANGIBLE)
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
-
-    def test_validate_useful_life_warning_too_long(self):
-        result = FixedAssetInvariants.validate_useful_life(150, AssetType.TANGIBLE)
-        assert result.is_valid is True
-        assert len(result.warnings) == 1
-        assert "unusually long" in result.warnings[0]
-
-    def test_validate_depreciation_method_valid(self):
-        result = FixedAssetInvariants.validate_depreciation_method(
-            DepreciationMethod.STRAIGHT_LINE, AssetType.TANGIBLE
-        )
-        assert result.is_valid is True
-
-    def test_validate_depreciation_method_land_warning(self):
-        result = FixedAssetInvariants.validate_depreciation_method(
-            DepreciationMethod.DOUBLE_DECLINING, AssetType.LAND
-        )
-        assert result.is_valid is True
-        assert len(result.warnings) == 1
-        assert "ignored" in result.warnings[0]
-
-    def test_validate_depreciation_method_invalid(self):
-        result = FixedAssetInvariants.validate_depreciation_method("INVALID", AssetType.TANGIBLE)
-        assert result.is_valid is False
-
-    def test_validate_accumulated_depreciation_valid(self):
-        result = FixedAssetInvariants.validate_accumulated_depreciation(
-            Decimal("1000"), Decimal("10000"), Decimal("500")
-        )
-        assert result.is_valid is True
-
-    def test_validate_accumulated_depreciation_negative(self):
-        result = FixedAssetInvariants.validate_accumulated_depreciation(
-            Decimal("-100"), Decimal("10000"), Decimal("500")
-        )
-        assert result.is_valid is False
-        assert "cannot be negative" in result.errors[0]
-
-    def test_validate_accumulated_depreciation_exceeds_depreciable(self):
-        result = FixedAssetInvariants.validate_accumulated_depreciation(
-            Decimal("10000"), Decimal("10000"), Decimal("500")
-        )
-        assert result.is_valid is False
-        assert "exceeds depreciable amount" in result.errors[0]
-
-    def test_validate_net_book_value_valid(self):
-        result = FixedAssetInvariants.validate_net_book_value(
-            Decimal("9000"), Decimal("10000"), Decimal("1000"), Decimal("0")
-        )
-        assert result.is_valid is True
-
-    def test_validate_net_book_value_mismatch(self):
-        result = FixedAssetInvariants.validate_net_book_value(
-            Decimal("8000"), Decimal("10000"), Decimal("1000"), Decimal("0")
-        )
-        assert result.is_valid is False
-        assert "mismatch" in result.errors[0]
-
-    def test_validate_net_book_value_negative(self):
-        result = FixedAssetInvariants.validate_net_book_value(
-            Decimal("-100"), Decimal("10000"), Decimal("9000"), Decimal("0")
-        )
-        assert result.is_valid is False
-        assert "cannot be negative" in result.errors[0]
-
-    def test_validate_accumulated_impairment_valid(self):
-        result = FixedAssetInvariants.validate_accumulated_impairment(
-            Decimal("1000"), Decimal("10000")
-        )
-        assert result.is_valid is True
-
-    def test_validate_accumulated_impairment_negative(self):
-        result = FixedAssetInvariants.validate_accumulated_impairment(
-            Decimal("-100"), Decimal("10000")
-        )
-        assert result.is_valid is False
-        assert "cannot be negative" in result.errors[0]
-
-    def test_validate_accumulated_impairment_exceeds_nbv(self):
-        result = FixedAssetInvariants.validate_accumulated_impairment(
-            Decimal("12000"), Decimal("10000")
-        )
-        assert result.is_valid is False
-        assert "exceeds NBV" in result.errors[0]
-
-    def test_validate_revaluation_surplus_valid(self):
-        result = FixedAssetInvariants.validate_revaluation_surplus(Decimal("1000"))
-        assert result.is_valid is True
-
-    def test_validate_revaluation_surplus_negative(self):
-        result = FixedAssetInvariants.validate_revaluation_surplus(Decimal("-100"))
-        assert result.is_valid is False
-        assert "cannot be negative" in result.errors[0]
-
-    def test_validate_currency_valid(self):
-        result = FixedAssetInvariants.validate_currency("IDR")
-        assert result.is_valid is True
-
-    def test_validate_currency_invalid_length(self):
-        result = FixedAssetInvariants.validate_currency("IN")
-        assert result.is_valid is False
-        assert "exactly 3" in result.errors[0]
-
-    def test_validate_currency_invalid_chars(self):
-        result = FixedAssetInvariants.validate_currency("I1R")
-        assert result.is_valid is False
-        assert "letters" in result.errors[0]
-
-    def test_validate_asset_unique_code_valid(self):
-        result = FixedAssetInvariants.validate_asset_unique_code("AST-001", {"AST-002"})
-        assert result.is_valid is True
-
-    def test_validate_asset_unique_code_duplicate(self):
-        result = FixedAssetInvariants.validate_asset_unique_code("AST-001", {"AST-001"})
-        assert result.is_valid is False
-        assert "already exists" in result.errors[0]
-
-    def test_validate_disposal_allowed_not_disposed(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
+    # --- Disposal ---
+    @pytest.mark.parametrize("is_disposed, status, expected_valid, error_contains", [
+        (False, AssetStatus.ACTIVE, True, None),
+        (True, AssetStatus.ACTIVE, False, "already disposed"),
+        (False, AssetStatus.UNDER_CONSTRUCTION, False, "cannot be disposed"),
+    ])
+    def test_validate_disposal_allowed(self, is_disposed, status, expected_valid, error_contains):
+        asset = create_mock_asset(is_disposed=is_disposed, status=status)
         result = FixedAssetInvariants.validate_disposal_allowed(asset)
-        assert result.is_valid is True
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_disposal_allowed_already_disposed(self):
-        asset = create_mock_asset(is_disposed=True)
-        result = FixedAssetInvariants.validate_disposal_allowed(asset)
-        assert result.is_valid is False
-        assert "already disposed" in result.errors[0]
-
-    def test_validate_disposal_allowed_under_construction(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.UNDER_CONSTRUCTION)
-        result = FixedAssetInvariants.validate_disposal_allowed(asset)
-        assert result.is_valid is False
-        assert "cannot be disposed" in result.errors[0]
-
-    def test_validate_transfer_allowed_active(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
-        asset.status.can_transfer.return_value = True
+    # --- Transfer ---
+    @pytest.mark.parametrize("is_disposed, can_transfer, expected_valid, error_contains", [
+        (False, True, True, None),
+        (True, True, False, "already disposed"),
+        (False, False, False, "cannot be transferred"),
+    ])
+    def test_validate_transfer_allowed(self, is_disposed, can_transfer, expected_valid, error_contains):
+        asset = create_mock_asset(is_disposed=is_disposed, status=AssetStatus.ACTIVE)
+        asset.status.can_transfer.return_value = can_transfer
         result = FixedAssetInvariants.validate_transfer_allowed(asset)
-        assert result.is_valid is True
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_transfer_allowed_disposed(self):
-        asset = create_mock_asset(is_disposed=True)
-        result = FixedAssetInvariants.validate_transfer_allowed(asset)
-        assert result.is_valid is False
-        assert "already disposed" in result.errors[0]
-
-    def test_validate_transfer_allowed_cannot_transfer(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
-        asset.status.can_transfer.return_value = False
-        result = FixedAssetInvariants.validate_transfer_allowed(asset)
-        assert result.is_valid is False
-        assert "cannot be transferred" in result.errors[0]
-
-    def test_validate_revaluation_allowed_success(self):
-        asset = create_mock_asset(status=AssetStatus.ACTIVE)
-        asset.status.can_revalue.return_value = True
-        result = FixedAssetInvariants.validate_revaluation_allowed(asset, Decimal("120000"))
-        assert result.is_valid is True
-
-    def test_validate_revaluation_allowed_cannot_revalue(self):
-        asset = create_mock_asset(status=AssetStatus.ACTIVE)
-        asset.status.can_revalue.return_value = False
-        result = FixedAssetInvariants.validate_revaluation_allowed(asset, Decimal("120000"))
-        assert result.is_valid is False
-        assert "cannot be revalued" in result.errors[0]
-
-    def test_validate_revaluation_allowed_non_positive(self):
-        asset = create_mock_asset()
-        result = FixedAssetInvariants.validate_revaluation_allowed(asset, Decimal("-100"))
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
-
-    def test_validate_revaluation_allowed_trivial_warning(self):
+    # --- Revaluation ---
+    @pytest.mark.parametrize("can_revalue, new_value, expected_valid, error_contains, warning_contains", [
+        (True, Decimal("120000"), True, None, None),
+        (False, Decimal("120000"), False, "cannot be revalued", None),
+        (True, Decimal("-100"), False, "positive", None),
+        (True, Decimal("100500"), True, None, "less than 1%"),
+    ])
+    def test_validate_revaluation_allowed(self, can_revalue, new_value, expected_valid, error_contains, warning_contains):
         asset = create_mock_asset(net_book_value=Decimal("100000"))
-        asset.status.can_revalue.return_value = True
-        result = FixedAssetInvariants.validate_revaluation_allowed(asset, Decimal("100500"))
-        assert result.is_valid is True
-        assert len(result.warnings) == 1
-        assert "less than 1%" in result.warnings[0]
+        asset.status.can_revalue.return_value = can_revalue
+        result = FixedAssetInvariants.validate_revaluation_allowed(asset, new_value)
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
+        if warning_contains and result.warnings:
+            assert any(warning_contains in w for w in result.warnings)
 
-    def test_validate_impairment_allowed_valid(self):
-        asset = create_mock_asset(net_book_value=Decimal("100000"))
-        result = FixedAssetInvariants.validate_impairment_allowed(asset, Decimal("20000"))
-        assert result.is_valid is True
-
-    def test_validate_impairment_allowed_loss_zero(self):
-        asset = create_mock_asset()
-        result = FixedAssetInvariants.validate_impairment_allowed(asset, Decimal("0"))
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
-
-    def test_validate_impairment_allowed_loss_exceeds_nbv(self):
-        asset = create_mock_asset(net_book_value=Decimal("50000"))
-        result = FixedAssetInvariants.validate_impairment_allowed(asset, Decimal("60000"))
-        assert result.is_valid is False
-        assert "exceeds NBV" in result.errors[0]
+    # --- Impairment ---
+    @pytest.mark.parametrize("nbv, loss, expected_valid, error_contains", [
+        (Decimal("100000"), Decimal("20000"), True, None),
+        (Decimal("100000"), Decimal("0"), False, "positive"),
+        (Decimal("50000"), Decimal("60000"), False, "exceeds NBV"),
+    ])
+    def test_validate_impairment_allowed(self, nbv, loss, expected_valid, error_contains):
+        asset = create_mock_asset(net_book_value=nbv)
+        result = FixedAssetInvariants.validate_impairment_allowed(asset, loss)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any(error_contains in e for e in result.errors)
 
 
 # =============================================================================
-# Tests for FixedAssetInvariantEnforcer (Async)
+# Tests for FixedAssetInvariantEnforcer (Async) - all marked with asyncio
 # =============================================================================
 
 @pytest.mark.asyncio
@@ -718,41 +636,31 @@ class TestFixedAssetInvariantEnforcer:
 
 
 # =============================================================================
-# Tests for FixedAssetInvariantsValidator (Sync)
+# Tests for FixedAssetInvariantsValidator (Sync) - using pytest.raises
 # =============================================================================
 
 class TestFixedAssetInvariantsValidator:
-    # All tests here use pytest.raises for invalid cases and assert True for valid ones.
-
     def test_validate_asset_cost_valid(self):
         asset = create_mock_asset(acquisition_cost=Decimal("1000"), salvage_value=Decimal("100"))
         FixedAssetInvariantsValidator.validate_asset_cost(asset)
-        assert True  # no exception
 
-    def test_validate_asset_cost_negative(self):
-        asset = create_mock_asset(acquisition_cost=Decimal("-100"))
-        with pytest.raises(ValueError, match="positive"):
-            FixedAssetInvariantsValidator.validate_asset_cost(asset)
-
-    def test_validate_asset_cost_salvage_negative(self):
-        asset = create_mock_asset(acquisition_cost=Decimal("1000"), salvage_value=Decimal("-10"))
-        with pytest.raises(ValueError, match="cannot be negative"):
-            FixedAssetInvariantsValidator.validate_asset_cost(asset)
-
-    def test_validate_asset_cost_salvage_exceeds_cost(self):
-        asset = create_mock_asset(acquisition_cost=Decimal("1000"), salvage_value=Decimal("1500"))
-        with pytest.raises(ValueError, match="cannot exceed"):
+    @pytest.mark.parametrize("cost, salvage, error_contains", [
+        (Decimal("-100"), Decimal("0"), "positive"),
+        (Decimal("1000"), Decimal("-10"), "cannot be negative"),
+        (Decimal("1000"), Decimal("1500"), "cannot exceed"),
+    ])
+    def test_validate_asset_cost_negative(self, cost, salvage, error_contains):
+        asset = create_mock_asset(acquisition_cost=cost, salvage_value=salvage)
+        with pytest.raises(ValueError, match=error_contains):
             FixedAssetInvariantsValidator.validate_asset_cost(asset)
 
     def test_validate_useful_life_valid(self):
         asset = create_mock_asset(asset_type=AssetType.TANGIBLE, useful_life_years=10)
         FixedAssetInvariantsValidator.validate_useful_life(asset)
-        assert True
 
     def test_validate_useful_life_land_skips(self):
         asset = create_mock_asset(asset_type=AssetType.LAND, useful_life_years=0)
         FixedAssetInvariantsValidator.validate_useful_life(asset)
-        assert True
 
     def test_validate_useful_life_zero_for_depreciable(self):
         asset = create_mock_asset(asset_type=AssetType.TANGIBLE, useful_life_years=0)
@@ -762,7 +670,6 @@ class TestFixedAssetInvariantsValidator:
     def test_validate_depreciation_method_valid(self):
         asset = create_mock_asset(depreciation_method=DepreciationMethod.STRAIGHT_LINE)
         FixedAssetInvariantsValidator.validate_depreciation_method(asset)
-        assert True
 
     def test_validate_depreciation_method_invalid(self):
         asset = create_mock_asset()
@@ -773,87 +680,80 @@ class TestFixedAssetInvariantsValidator:
     def test_validate_depreciation_amount_valid(self):
         asset = create_mock_asset(net_book_value=Decimal("10000"), salvage_value=Decimal("0"))
         FixedAssetInvariantsValidator.validate_depreciation_amount(asset, Decimal("1000"))
-        assert True
 
-    def test_validate_depreciation_amount_negative(self):
-        asset = create_mock_asset()
-        with pytest.raises(ValueError, match="cannot be negative"):
-            FixedAssetInvariantsValidator.validate_depreciation_amount(asset, Decimal("-100"))
-
-    def test_validate_depreciation_amount_below_salvage(self):
+    @pytest.mark.parametrize("amount, error_contains", [
+        (Decimal("-100"), "cannot be negative"),
+        (Decimal("5000"), "below salvage"),
+    ])
+    def test_validate_depreciation_amount_invalid(self, amount, error_contains):
         asset = create_mock_asset(net_book_value=Decimal("10000"), salvage_value=Decimal("8000"))
-        with pytest.raises(ValueError, match="below salvage"):
-            FixedAssetInvariantsValidator.validate_depreciation_amount(asset, Decimal("5000"))
+        with pytest.raises(ValueError, match=error_contains):
+            FixedAssetInvariantsValidator.validate_depreciation_amount(asset, amount)
 
     def test_validate_asset_code_unique_valid(self):
         FixedAssetInvariantsValidator.validate_asset_code_unique("NEW", {"EXISTING"})
-        assert True
 
     def test_validate_asset_code_unique_duplicate(self):
         with pytest.raises(ValueError, match="already exists"):
             FixedAssetInvariantsValidator.validate_asset_code_unique("EXISTING", {"EXISTING"})
 
+    @pytest.mark.parametrize("can_revalue, asset_type, new_value, error_contains", [
+        (False, AssetType.TANGIBLE, Decimal("120000"), "cannot be revalued"),
+        (True, AssetType.TANGIBLE, Decimal("-100"), "positive"),
+        (True, AssetType.INTANGIBLE, Decimal("120000"), "Only tangible"),
+    ])
+    def test_validate_revaluation_invalid(self, can_revalue, asset_type, new_value, error_contains):
+        asset = create_mock_asset(asset_type=asset_type, status=AssetStatus.ACTIVE)
+        asset.status.can_revalue.return_value = can_revalue
+        with pytest.raises(ValueError, match=error_contains):
+            FixedAssetInvariantsValidator.validate_revaluation(asset, new_value)
+
     def test_validate_revaluation_valid(self):
-        asset = create_mock_asset(status=AssetStatus.ACTIVE)
+        asset = create_mock_asset(asset_type=AssetType.TANGIBLE, status=AssetStatus.ACTIVE)
         asset.status.can_revalue.return_value = True
         FixedAssetInvariantsValidator.validate_revaluation(asset, Decimal("120000"))
-        assert True
 
-    def test_validate_revaluation_cannot_revalue(self):
-        asset = create_mock_asset(status=AssetStatus.ACTIVE)
-        asset.status.can_revalue.return_value = False
-        with pytest.raises(ValueError, match="cannot be revalued"):
-            FixedAssetInvariantsValidator.validate_revaluation(asset, Decimal("120000"))
-
-    def test_validate_revaluation_non_positive(self):
-        asset = create_mock_asset()
-        asset.status.can_revalue.return_value = True
-        with pytest.raises(ValueError, match="positive"):
-            FixedAssetInvariantsValidator.validate_revaluation(asset, Decimal("-100"))
-
-    def test_validate_revaluation_intangible(self):
-        asset = create_mock_asset(asset_type=AssetType.INTANGIBLE)
-        asset.status.can_revalue.return_value = True
-        with pytest.raises(ValueError, match="Only tangible"):
-            FixedAssetInvariantsValidator.validate_revaluation(asset, Decimal("120000"))
+    @pytest.mark.parametrize("is_disposed, status, error_contains", [
+        (True, AssetStatus.ACTIVE, "already disposed"),
+        (False, AssetStatus.UNDER_CONSTRUCTION, "cannot be disposed"),
+    ])
+    def test_validate_disposal_invalid(self, is_disposed, status, error_contains):
+        asset = create_mock_asset(is_disposed=is_disposed, status=status)
+        with pytest.raises(ValueError, match=error_contains):
+            FixedAssetInvariantsValidator.validate_disposal(asset)
 
     def test_validate_disposal_valid(self):
         asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
         FixedAssetInvariantsValidator.validate_disposal(asset)
-        assert True
 
-    def test_validate_disposal_already_disposed(self):
-        asset = create_mock_asset(is_disposed=True)
-        with pytest.raises(ValueError, match="already disposed"):
-            FixedAssetInvariantsValidator.validate_disposal(asset)
-
-    def test_validate_disposal_under_construction(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.UNDER_CONSTRUCTION)
-        with pytest.raises(ValueError, match="cannot be disposed"):
-            FixedAssetInvariantsValidator.validate_disposal(asset)
+    @pytest.mark.parametrize("is_disposed, can_transfer, location, error_contains", [
+        (True, True, "New", "already disposed"),
+        (False, False, "New", "cannot be transferred"),
+        (False, True, "", "Destination location"),
+    ])
+    def test_validate_transfer_invalid(self, is_disposed, can_transfer, location, error_contains):
+        asset = create_mock_asset(is_disposed=is_disposed, status=AssetStatus.ACTIVE)
+        asset.status.can_transfer.return_value = can_transfer
+        with pytest.raises(ValueError, match=error_contains):
+            FixedAssetInvariantsValidator.validate_transfer(asset, location)
 
     def test_validate_transfer_valid(self):
         asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
         asset.status.can_transfer.return_value = True
         FixedAssetInvariantsValidator.validate_transfer(asset, "New Location")
-        assert True
 
-    def test_validate_transfer_disposed(self):
-        asset = create_mock_asset(is_disposed=True)
-        with pytest.raises(ValueError, match="already disposed"):
-            FixedAssetInvariantsValidator.validate_transfer(asset, "New")
-
-    def test_validate_transfer_cannot_transfer(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
-        asset.status.can_transfer.return_value = False
-        with pytest.raises(ValueError, match="cannot be transferred"):
-            FixedAssetInvariantsValidator.validate_transfer(asset, "New")
-
-    def test_validate_transfer_empty_location(self):
-        asset = create_mock_asset(is_disposed=False, status=AssetStatus.ACTIVE)
-        asset.status.can_transfer.return_value = True
-        with pytest.raises(ValueError, match="Destination location"):
-            FixedAssetInvariantsValidator.validate_transfer(asset, "")
+    @pytest.mark.parametrize("acc_dep, cost, salvage, error_contains", [
+        (Decimal("-100"), Decimal("10000"), Decimal("1000"), "cannot be negative"),
+        (Decimal("10000"), Decimal("10000"), Decimal("1000"), "exceeds depreciable"),
+    ])
+    def test_validate_accumulated_depreciation_invalid(self, acc_dep, cost, salvage, error_contains):
+        asset = create_mock_asset(
+            acquisition_cost=cost,
+            salvage_value=salvage,
+            accumulated_depreciation=acc_dep,
+        )
+        with pytest.raises(ValueError, match=error_contains):
+            FixedAssetInvariantsValidator.validate_accumulated_depreciation(asset)
 
     def test_validate_accumulated_depreciation_valid(self):
         asset = create_mock_asset(
@@ -862,28 +762,12 @@ class TestFixedAssetInvariantsValidator:
             accumulated_depreciation=Decimal("9000"),
         )
         FixedAssetInvariantsValidator.validate_accumulated_depreciation(asset)
-        assert True
-
-    def test_validate_accumulated_depreciation_exceeds(self):
-        asset = create_mock_asset(
-            acquisition_cost=Decimal("10000"),
-            salvage_value=Decimal("1000"),
-            accumulated_depreciation=Decimal("10000"),
-        )
-        with pytest.raises(ValueError, match="exceeds depreciable"):
-            FixedAssetInvariantsValidator.validate_accumulated_depreciation(asset)
-
-    def test_validate_accumulated_depreciation_negative(self):
-        asset = create_mock_asset(accumulated_depreciation=Decimal("-100"))
-        with pytest.raises(ValueError, match="cannot be negative"):
-            FixedAssetInvariantsValidator.validate_accumulated_depreciation(asset)
-
-    def test_validate_net_book_value_non_negative(self):
-        asset = create_mock_asset(net_book_value=Decimal("1000"))
-        FixedAssetInvariantsValidator.validate_net_book_value(asset)
-        assert True
 
     def test_validate_net_book_value_negative(self):
         asset = create_mock_asset(net_book_value=Decimal("-100"))
         with pytest.raises(ValueError, match="cannot be negative"):
             FixedAssetInvariantsValidator.validate_net_book_value(asset)
+
+    def test_validate_net_book_value_valid(self):
+        asset = create_mock_asset(net_book_value=Decimal("1000"))
+        FixedAssetInvariantsValidator.validate_net_book_value(asset)

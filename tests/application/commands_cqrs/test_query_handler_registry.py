@@ -263,6 +263,7 @@ class TestRegistration:
     def setup_method(self):
         reset_query_handler_registry()
 
+    @pytest.mark.asyncio
     async def test_register_decorator(self):
         registry = get_query_handler_registry()
 
@@ -283,6 +284,7 @@ class TestRegistration:
         result = await h(DummyQuery())
         assert result == {"ok": True}
 
+    @pytest.mark.asyncio
     async def test_wildcard_decorator(self):
         registry = get_query_handler_registry()
 
@@ -296,6 +298,7 @@ class TestRegistration:
         assert wildcards[0][3].name == "log_all"
         assert wildcards[0][3].description == "log all"
 
+    @pytest.mark.asyncio
     async def test_register_handler(self):
         registry = get_query_handler_registry()
         async def handler(query: DummyQuery) -> dict:
@@ -306,6 +309,7 @@ class TestRegistration:
         assert registry.has_handler("Test") is True
         assert registry.get_handler_metadata("Test") is meta
 
+    @pytest.mark.asyncio
     async def test_register_handler_already_registered(self):
         registry = get_query_handler_registry()
         async def handler1(query): return {}
@@ -314,6 +318,7 @@ class TestRegistration:
         with pytest.raises(QueryHandlerAlreadyRegisteredError, match="already registered"):
             registry.register_handler("Test", handler2, override=False)
 
+    @pytest.mark.asyncio
     async def test_register_handler_override(self):
         registry = get_query_handler_registry()
         async def old_handler(query): return {"old": True}
@@ -322,6 +327,7 @@ class TestRegistration:
         registry.register_handler("Test", new_handler, override=True)
         assert registry.get_specific_handler("Test") is new_handler
 
+    @pytest.mark.asyncio
     async def test_register_handler_invalid_signature(self):
         registry = get_query_handler_registry()
         def sync_handler(query):
@@ -336,7 +342,10 @@ class TestRegistration:
 
         async def valid(query): return {}
         registry.register_handler("Test", valid)
+        # Assert handler is registered
+        assert registry.has_handler("Test") is True
 
+    @pytest.mark.asyncio
     async def test_register_wildcard(self):
         registry = get_query_handler_registry()
         async def wc(query): return None
@@ -356,11 +365,13 @@ class TestHandlerRetrieval:
     def setup_method(self):
         reset_query_handler_registry()
 
+    @pytest.mark.asyncio
     async def test_get_handler_no_specific_no_wildcard(self):
         registry = get_query_handler_registry()
         h = registry.get_handler("NonExistent")
         assert h is None
 
+    @pytest.mark.asyncio
     async def test_get_handler_with_specific(self):
         registry = get_query_handler_registry()
         async def handler(query): return {"ok": True}
@@ -370,6 +381,7 @@ class TestHandlerRetrieval:
         result = await h(DummyQuery())
         assert result == {"ok": True}
 
+    @pytest.mark.asyncio
     async def test_get_handler_with_wildcard(self):
         registry = get_query_handler_registry()
         wc_called = False
@@ -384,6 +396,7 @@ class TestHandlerRetrieval:
         await h(DummyQuery())
         assert wc_called is True
 
+    @pytest.mark.asyncio
     async def test_get_handler_wildcard_returns_result(self):
         registry = get_query_handler_registry()
         async def wc(query):
@@ -395,6 +408,7 @@ class TestHandlerRetrieval:
         result = await h(DummyQuery())
         assert result == {"wildcard": "result"}
 
+    @pytest.mark.asyncio
     async def test_get_handler_wildcard_error_propagates(self):
         registry = get_query_handler_registry()
         async def wc(query):
@@ -404,6 +418,7 @@ class TestHandlerRetrieval:
         with pytest.raises(QueryHandlerRegistryError, match="Wildcard handler error"):
             await h(DummyQuery())
 
+    @pytest.mark.asyncio
     async def test_get_handler_specific_error_propagates(self):
         registry = get_query_handler_registry()
         async def handler(query):
@@ -600,6 +615,7 @@ class TestConvenienceFunctions:
     def setup_method(self):
         reset_query_handler_registry()
 
+    @pytest.mark.asyncio
     async def test_get_query_handler(self):
         registry = get_query_handler_registry()
         async def handler(q): return {"ok": True}
@@ -668,11 +684,13 @@ class TestDefaultWildcards:
     def setup_method(self):
         reset_query_handler_registry()
 
+    @pytest.mark.asyncio
     async def test_default_logging_wildcard(self):
         query = DummyQuery()
         result = await default_logging_wildcard(query)
         assert result is None
 
+    @pytest.mark.asyncio
     async def test_default_metrics_wildcard(self):
         query = DummyQuery()
         result = await default_metrics_wildcard(query)
@@ -680,10 +698,8 @@ class TestDefaultWildcards:
 
     def test_register_default_query_wildcards(self):
         registry = get_query_handler_registry()
-        # Initially no wildcards
         assert len(registry._wildcard_handlers) == 0
         register_default_query_wildcards()
-        # Should register two wildcards
         assert len(registry._wildcard_handlers) == 2
         # Calling again should not duplicate
         register_default_query_wildcards()
@@ -691,7 +707,6 @@ class TestDefaultWildcards:
 
     def test_register_default_query_wildcards_when_already_present(self):
         registry = get_query_handler_registry()
-        # Buat wildcard dummy
         async def dummy(q): return None
         registry.register_wildcard(dummy, metadata=QueryHandlerMetadata(name="dummy"), priority=1)
         assert len(registry._wildcard_handlers) == 1
@@ -712,6 +727,8 @@ class TestValidation:
         registry = get_query_handler_registry()
         async def valid(q): return {}
         registry.register_handler("Test", valid)
+        # Assert that registration succeeded
+        assert registry.has_handler("Test") is True
 
     def test_validate_handler_signature_sync_raises(self):
         registry = get_query_handler_registry()
@@ -729,6 +746,8 @@ class TestValidation:
         registry = get_query_handler_registry()
         async def valid(q): return None
         registry.register_wildcard(valid)
+        # Assert that registration succeeded
+        assert len(registry._wildcard_handlers) == 1
 
     def test_validate_wildcard_signature_sync_raises(self):
         registry = get_query_handler_registry()
@@ -766,15 +785,11 @@ class TestDirectMethodCalls:
 
     def test_register_direct_call(self):
         registry = get_query_handler_registry()
-        # Panggil register sebagai fungsi yang mengembalikan decorator, lalu panggil decoratornya
         async def handler(q):
             return {"ok": True}
         decorator = registry.register("DirectQuery", name="direct", description="desc", version="2.0", tags=["x"])
-        # Terapkan decorator ke handler
         decorated = decorator(handler)
-        # decorated adalah handler yang sama
         assert decorated is handler
-        # Pastikan terdaftar
         assert registry.has_handler("DirectQuery") is True
         meta = registry.get_handler_metadata("DirectQuery")
         assert meta.name == "direct"
@@ -787,7 +802,6 @@ class TestDirectMethodCalls:
         decorator = registry.wildcard(priority=99, name="wc_direct", description="wc desc")
         decorated = decorator(wc)
         assert decorated is wc
-        # Periksa wildcard terdaftar
         wildcards = registry._wildcard_handlers
         assert len(wildcards) == 1
         assert wildcards[0][0] == 99
@@ -814,6 +828,7 @@ class TestDirectMethodCalls:
         assert wildcards[0][0] == 55
         assert wildcards[0][3] is meta
 
+    @pytest.mark.asyncio
     async def test_get_handler_direct_call(self):
         registry = get_query_handler_registry()
         async def handler(q):

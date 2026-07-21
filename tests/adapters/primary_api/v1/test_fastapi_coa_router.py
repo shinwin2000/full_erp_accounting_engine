@@ -2,16 +2,11 @@
 """
 Comprehensive unit tests for FastAPI Chart of Accounts Router.
 
-Covers:
-- IdempotencyManager (cache, expiration, serialization)
-- All enum classes
-- All request/response schemas (valid & invalid cases)
-- ping_coa endpoint
-- All endpoint functions (with mocked service layer)
-- Negative paths: validation errors, not found, permission errors, generic errors
-- Bulk operations, export/import, history, audit
-- Idempotency key handling
-- Async markers and mocked datetime to avoid flakiness
+Perbaikan:
+- Semua async test diberi @pytest.mark.asyncio
+- Flaky tests menggunakan mock datetime
+- Duplikasi struktural digabung dengan parametrize
+- Semua assertion bermakna, tidak ada assert True kosong
 """
 
 from datetime import datetime, timedelta, timezone
@@ -63,6 +58,20 @@ from adapters.primary_api.v1.fastapi_coa_router import (
     validate_account_code,
 )
 
+# ============================================================================
+# FIXED DATETIME - untuk menghindari flaky tests
+# ============================================================================
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now() untuk menghindari flaky tests."""
+    with patch("adapters.primary_api.v1.fastapi_coa_router.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_NOW
+        yield mock_dt
+
+
 # ---------- Helper fixtures ----------
 
 @pytest.fixture
@@ -103,8 +112,8 @@ def mock_coa_service():
             "current_balance": Decimal("0"),
             "category": "Cash",
             "budget_control": False,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "created_at": FIXED_NOW,
+            "updated_at": FIXED_NOW,
             "created_by": uuid4(),
             "created_by_name": "Admin",
             "version": 1,
@@ -152,7 +161,7 @@ def mock_coa_service():
         account_code="1-1000",
         account_name="Cash",
         journal_count=5,
-        last_used_at=datetime.now(timezone.utc),
+        last_used_at=FIXED_NOW,
         total_debit=Decimal("1500"),
         total_credit=Decimal("500"),
         is_used_in_journal=True,
@@ -204,7 +213,7 @@ def mock_coa_service():
     # History & Audit
     svc.get_account_history.return_value = [
         MagicMock(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=FIXED_NOW,
             action="update",
             field="account_name",
             old_value="Old Name",
@@ -216,7 +225,7 @@ def mock_coa_service():
     ]
     svc.get_account_audit_trail.return_value = [
         MagicMock(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=FIXED_NOW,
             event_type="MODIFY",
             event_data={"field": "account_name"},
             actor_id=uuid4(),
@@ -332,19 +341,15 @@ class TestAccountCreateSchema:
         )
         assert schema.account_code == "1-1000"
 
-    def test_account_code_invalid_characters(self):
-        with pytest.raises(ValueError, match="must contain digits and optional hyphens/periods"):
+    # Gabungkan test duplikat struktural dengan parametrize
+    @pytest.mark.parametrize("account_code, error_match", [
+        ("1A-1000", "must contain digits and optional hyphens/periods"),
+        ("2-1000", "Account code for Asset should start with 1"),
+    ])
+    def test_invalid_account_code(self, account_code, error_match):
+        with pytest.raises(ValueError, match=error_match):
             AccountCreateSchema(
-                account_code="1A-1000",
-                account_name="Test",
-                account_type=AccountType.ASSET,
-                normal_balance=NormalBalance.DEBIT,
-            )
-
-    def test_account_type_prefix_mismatch_asset(self):
-        with pytest.raises(ValueError, match="Account code for Asset should start with 1"):
-            AccountCreateSchema(
-                account_code="2-1000",
+                account_code=account_code,
                 account_name="Test",
                 account_type=AccountType.ASSET,
                 normal_balance=NormalBalance.DEBIT,
@@ -375,6 +380,42 @@ class TestAccountCreateSchema:
         )
         assert schema6.account_code == "6-1000"
 
+    def test_account_name_too_short(self):
+        with pytest.raises(ValueError):
+            AccountCreateSchema(
+                account_code="1-1000",
+                account_name="Ca",
+                account_type=AccountType.ASSET,
+                normal_balance=NormalBalance.DEBIT,
+            )
+
+    def test_missing_required_field(self):
+        with pytest.raises(ValueError):
+            AccountCreateSchema(
+                account_code="1-1000",
+                account_name="Cash",
+                normal_balance=NormalBalance.DEBIT,
+            )
+
+    def test_currency_code_wrong_length(self):
+        with pytest.raises(ValueError):
+            AccountCreateSchema(
+                account_code="1-1000",
+                account_name="Cash",
+                account_type=AccountType.ASSET,
+                normal_balance=NormalBalance.DEBIT,
+                currency_code="ID",
+            )
+
+    def test_empty_account_code(self):
+        with pytest.raises(ValueError, match="Account code is required"):
+            AccountCreateSchema(
+                account_code="",
+                account_name="Cash",
+                account_type=AccountType.ASSET,
+                normal_balance=NormalBalance.DEBIT,
+            )
+
 
 class TestAccountUpdateSchema:
     def test_valid_schema(self):
@@ -399,6 +440,18 @@ class TestAccountUpdateSchema:
         assert schema.account_name == "Only Name"
         assert schema.status is None
 
+    def test_account_name_too_short(self):
+        with pytest.raises(ValueError):
+            AccountUpdateSchema(account_name="Ab")
+
+    def test_currency_code_wrong_length(self):
+        with pytest.raises(ValueError):
+            AccountUpdateSchema(currency_code="USDX")
+
+    def test_parent_account_code_uppercased(self):
+        schema = AccountUpdateSchema(parent_account_code="1-0000")
+        assert schema.parent_account_code == "1-0000"
+
 
 # ---------- Ping Endpoint ----------
 
@@ -422,6 +475,7 @@ async def test_get_coa_service():
 
 @pytest.mark.asyncio
 class TestCreateAccount:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         request = AccountCreateSchema(
             account_code="1-1000",
@@ -441,6 +495,7 @@ class TestCreateAccount:
         assert result.account_code == "1-1000"
         mock_coa_service.create_account.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_idempotency_hit(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         request = AccountCreateSchema(
             account_code="1-1000",
@@ -449,7 +504,6 @@ class TestCreateAccount:
             normal_balance=NormalBalance.DEBIT,
         )
         with patch("adapters.primary_api.v1.fastapi_coa_router._idempotency_manager") as mock_im:
-            # Pre-cache a valid response
             cached = {
                 "id": str(uuid4()),
                 "account_code": "1-1000",
@@ -471,8 +525,8 @@ class TestCreateAccount:
                 "current_balance": "0",
                 "category": None,
                 "budget_control": False,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": FIXED_NOW.isoformat(),
+                "updated_at": FIXED_NOW.isoformat(),
                 "created_by": str(uuid4()),
                 "created_by_name": None,
                 "version": 1,
@@ -491,27 +545,27 @@ class TestCreateAccount:
             assert result.account_code == "1-1000"
             mock_coa_service.create_account.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_validation_error_schema(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        # Invalid account code (contains letter)
-        request = AccountCreateSchema(
-            account_code="1A-1000",
-            account_name="Test",
-            account_type=AccountType.ASSET,
-            normal_balance=NormalBalance.DEBIT,
-        )
-        with pytest.raises(HTTPException) as exc:
-            await create_account(
-                request=request,
-                idempotency_key=None,
-                _permission=None,
-                current_user=mock_token_payload,
-                legal_entity_id=mock_legal_entity_id,
-                coa_service=mock_coa_service,
+        # Invalid account code (contains letter) - this will raise ValueError from Pydantic validator
+        with pytest.raises(ValueError, match="must contain digits"):
+            AccountCreateSchema(
+                account_code="1A-1000",
+                account_name="Test",
+                account_type=AccountType.ASSET,
+                normal_balance=NormalBalance.DEBIT,
             )
-        assert exc.value.status_code == 422
 
-    async def test_service_value_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.create_account.side_effect = ValueError("Duplicate code")
+    # Gabungkan error handling test dengan parametrize
+    @pytest.mark.parametrize("side_effect, expected_status, expected_detail", [
+        (ValueError("Duplicate code"), 422, "Duplicate code"),
+        (PermissionError("Not allowed"), 403, "Not allowed"),
+        (Exception("DB error"), 500, "Internal server error"),
+    ])
+    @pytest.mark.asyncio
+    async def test_service_errors(self, mock_coa_service, mock_token_payload, mock_legal_entity_id,
+                                  side_effect, expected_status, expected_detail):
+        mock_coa_service.create_account.side_effect = side_effect
         request = AccountCreateSchema(
             account_code="1-1000",
             account_name="Cash",
@@ -527,49 +581,13 @@ class TestCreateAccount:
                 legal_entity_id=mock_legal_entity_id,
                 coa_service=mock_coa_service,
             )
-        assert exc.value.status_code == 422
-
-    async def test_service_permission_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.create_account.side_effect = PermissionError("Not allowed")
-        request = AccountCreateSchema(
-            account_code="1-1000",
-            account_name="Cash",
-            account_type=AccountType.ASSET,
-            normal_balance=NormalBalance.DEBIT,
-        )
-        with pytest.raises(HTTPException) as exc:
-            await create_account(
-                request=request,
-                idempotency_key=None,
-                _permission=None,
-                current_user=mock_token_payload,
-                legal_entity_id=mock_legal_entity_id,
-                coa_service=mock_coa_service,
-            )
-        assert exc.value.status_code == 403
-
-    async def test_service_generic_exception(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.create_account.side_effect = Exception("DB error")
-        request = AccountCreateSchema(
-            account_code="1-1000",
-            account_name="Cash",
-            account_type=AccountType.ASSET,
-            normal_balance=NormalBalance.DEBIT,
-        )
-        with pytest.raises(HTTPException) as exc:
-            await create_account(
-                request=request,
-                idempotency_key=None,
-                _permission=None,
-                current_user=mock_token_payload,
-                legal_entity_id=mock_legal_entity_id,
-                coa_service=mock_coa_service,
-            )
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == expected_status
+        assert expected_detail in str(exc.value.detail)
 
 
 @pytest.mark.asyncio
 class TestGetAccount:
+    @pytest.mark.asyncio
     async def test_by_id_success(self, mock_coa_service, mock_legal_entity_id):
         account_id = uuid4()
         result = await get_account_by_id(
@@ -582,6 +600,7 @@ class TestGetAccount:
         assert result.account_code == "1-1000"
         mock_coa_service.get_account_by_id.assert_called_once_with(account_id, mock_legal_entity_id)
 
+    @pytest.mark.asyncio
     async def test_by_id_not_found(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_by_id.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -593,6 +612,7 @@ class TestGetAccount:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_by_code_success(self, mock_coa_service, mock_legal_entity_id):
         result = await get_account_by_code(
             account_code="1-1000",
@@ -603,6 +623,7 @@ class TestGetAccount:
         assert isinstance(result, AccountResponseSchema)
         mock_coa_service.get_account_by_code.assert_called_once_with("1-1000", mock_legal_entity_id)
 
+    @pytest.mark.asyncio
     async def test_by_code_not_found(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_by_code.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -614,6 +635,7 @@ class TestGetAccount:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_by_code_generic_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_by_code.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:
@@ -625,9 +647,23 @@ class TestGetAccount:
             )
         assert exc.value.status_code == 500
 
+    @pytest.mark.asyncio
+    async def test_by_id_generic_error(self, mock_coa_service, mock_legal_entity_id):
+        mock_coa_service.get_account_by_id.side_effect = Exception("Boom")
+        with pytest.raises(HTTPException) as exc:
+            await get_account_by_id(
+                account_id=uuid4(),
+                _permission=None,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 500
+        assert exc.value.detail == "Internal server error"
+
 
 @pytest.mark.asyncio
 class TestUpdateAccount:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         request = AccountUpdateSchema(account_name="Updated Name")
@@ -643,6 +679,7 @@ class TestUpdateAccount:
         assert isinstance(result, AccountResponseSchema)
         mock_coa_service.update_account.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_idempotency_hit(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         request = AccountUpdateSchema()
@@ -661,6 +698,7 @@ class TestUpdateAccount:
             assert isinstance(result, AccountResponseSchema)
             mock_coa_service.update_account.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_not_found(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         mock_coa_service.update_account.return_value = None
         request = AccountUpdateSchema()
@@ -676,8 +714,15 @@ class TestUpdateAccount:
             )
         assert exc.value.status_code == 404
 
-    async def test_service_value_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.update_account.side_effect = ValueError("Invalid status")
+    @pytest.mark.parametrize("side_effect, expected_status", [
+        (ValueError("Invalid status"), 422),
+        (PermissionError("Not allowed"), 403),
+        (Exception("DB unavailable"), 500),
+    ])
+    @pytest.mark.asyncio
+    async def test_update_errors(self, mock_coa_service, mock_token_payload, mock_legal_entity_id,
+                                 side_effect, expected_status):
+        mock_coa_service.update_account.side_effect = side_effect
         request = AccountUpdateSchema(status=AccountStatus.ACTIVE)
         with pytest.raises(HTTPException) as exc:
             await update_account(
@@ -689,26 +734,12 @@ class TestUpdateAccount:
                 legal_entity_id=mock_legal_entity_id,
                 coa_service=mock_coa_service,
             )
-        assert exc.value.status_code == 422
-
-    async def test_permission_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.update_account.side_effect = PermissionError("Not allowed")
-        request = AccountUpdateSchema()
-        with pytest.raises(HTTPException) as exc:
-            await update_account(
-                account_id=uuid4(),
-                request=request,
-                idempotency_key=None,
-                _permission=None,
-                current_user=mock_token_payload,
-                legal_entity_id=mock_legal_entity_id,
-                coa_service=mock_coa_service,
-            )
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == expected_status
 
 
 @pytest.mark.asyncio
 class TestDeactivateAccount:
+    @pytest.mark.asyncio
     async def test_deactivate_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         result = await deactivate_account(
@@ -726,6 +757,7 @@ class TestDeactivateAccount:
             account_id, mock_token_payload.user_id, mock_legal_entity_id, "Not used"
         )
 
+    @pytest.mark.asyncio
     async def test_void_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         result = await deactivate_account(
@@ -743,6 +775,7 @@ class TestDeactivateAccount:
             account_id, mock_token_payload.user_id, mock_legal_entity_id, "Void"
         )
 
+    @pytest.mark.asyncio
     async def test_not_found(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         mock_coa_service.deactivate_account.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -758,6 +791,7 @@ class TestDeactivateAccount:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_idempotency_hit(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         with patch("adapters.primary_api.v1.fastapi_coa_router._idempotency_manager") as mock_im:
@@ -776,6 +810,7 @@ class TestDeactivateAccount:
             assert result == cached
             mock_coa_service.deactivate_account.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_value_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         mock_coa_service.deactivate_account.side_effect = ValueError("Cannot deactivate")
         with pytest.raises(HTTPException) as exc:
@@ -791,9 +826,27 @@ class TestDeactivateAccount:
             )
         assert exc.value.status_code == 422
 
+    @pytest.mark.asyncio
+    async def test_generic_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
+        mock_coa_service.deactivate_account.side_effect = Exception("DB down")
+        with pytest.raises(HTTPException) as exc:
+            await deactivate_account(
+                account_id=uuid4(),
+                permanent=False,
+                reason="",
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 500
+        assert exc.value.detail == "Internal server error"
+
 
 @pytest.mark.asyncio
 class TestActivateAccount:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         result = await activate_account(
@@ -809,6 +862,7 @@ class TestActivateAccount:
             account_id, mock_token_payload.user_id, mock_legal_entity_id
         )
 
+    @pytest.mark.asyncio
     async def test_not_found(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         mock_coa_service.activate_account.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -822,6 +876,7 @@ class TestActivateAccount:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_idempotency_hit(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         with patch("adapters.primary_api.v1.fastapi_coa_router._idempotency_manager") as mock_im:
             cached = {"id": str(uuid4()), "account_code": "1-1000"}
@@ -837,9 +892,38 @@ class TestActivateAccount:
             assert isinstance(result, AccountResponseSchema)
             mock_coa_service.activate_account.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_value_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
+        mock_coa_service.activate_account.side_effect = ValueError("Cannot activate")
+        with pytest.raises(HTTPException) as exc:
+            await activate_account(
+                account_id=uuid4(),
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_generic_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
+        mock_coa_service.activate_account.side_effect = Exception("DB down")
+        with pytest.raises(HTTPException) as exc:
+            await activate_account(
+                account_id=uuid4(),
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 500
+
 
 @pytest.mark.asyncio
 class TestLockUnlockAccount:
+    @pytest.mark.asyncio
     async def test_lock_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         result = await lock_account(
@@ -856,6 +940,7 @@ class TestLockUnlockAccount:
             account_id, mock_token_payload.user_id, mock_legal_entity_id, "Audit"
         )
 
+    @pytest.mark.asyncio
     async def test_lock_not_found(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         mock_coa_service.lock_account.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -870,6 +955,7 @@ class TestLockUnlockAccount:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_unlock_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         account_id = uuid4()
         result = await unlock_account(
@@ -885,6 +971,7 @@ class TestLockUnlockAccount:
             account_id, mock_token_payload.user_id, mock_legal_entity_id
         )
 
+    @pytest.mark.asyncio
     async def test_unlock_not_found(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         mock_coa_service.unlock_account.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -898,11 +985,51 @@ class TestLockUnlockAccount:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.parametrize("side_effect, expected_status", [
+        (ValueError("Cannot lock"), 422),
+        (Exception("DB down"), 500),
+    ])
+    @pytest.mark.asyncio
+    async def test_lock_errors(self, mock_coa_service, mock_token_payload, mock_legal_entity_id,
+                                side_effect, expected_status):
+        mock_coa_service.lock_account.side_effect = side_effect
+        with pytest.raises(HTTPException) as exc:
+            await lock_account(
+                account_id=uuid4(),
+                reason="Audit",
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == expected_status
+
+    @pytest.mark.parametrize("side_effect, expected_status", [
+        (ValueError("Cannot unlock"), 422),
+        (Exception("DB down"), 500),
+    ])
+    @pytest.mark.asyncio
+    async def test_unlock_errors(self, mock_coa_service, mock_token_payload, mock_legal_entity_id,
+                                  side_effect, expected_status):
+        mock_coa_service.unlock_account.side_effect = side_effect
+        with pytest.raises(HTTPException) as exc:
+            await unlock_account(
+                account_id=uuid4(),
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == expected_status
+
 
 # ---------- List and Tree Endpoints ----------
 
 @pytest.mark.asyncio
 class TestListAccounts:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_legal_entity_id):
         result = await list_accounts(
             account_type=AccountType.ASSET,
@@ -923,6 +1050,7 @@ class TestListAccounts:
         assert isinstance(result.items[0], AccountResponseSchema)
         mock_coa_service.list_accounts.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.list_accounts.side_effect = Exception("DB error")
         with pytest.raises(HTTPException) as exc:
@@ -933,9 +1061,23 @@ class TestListAccounts:
             )
         assert exc.value.status_code == 500
 
+    @pytest.mark.asyncio
+    async def test_empty_results(self, mock_coa_service, mock_legal_entity_id):
+        mock_coa_service.list_accounts.return_value = MagicMock(items=[], total=0)
+        result = await list_accounts(
+            search="nonexistent",
+            _permission=None,
+            legal_entity_id=mock_legal_entity_id,
+            coa_service=mock_coa_service,
+        )
+        assert isinstance(result, AccountListResponseSchema)
+        assert result.items == []
+        assert result.total == 0
+
 
 @pytest.mark.asyncio
 class TestGetAccountTree:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_legal_entity_id):
         result = await get_account_tree(
             include_inactive=True,
@@ -949,6 +1091,7 @@ class TestGetAccountTree:
         assert result.total_levels == 3
         mock_coa_service.get_account_hierarchy.assert_called_once_with(mock_legal_entity_id, True)
 
+    @pytest.mark.asyncio
     async def test_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_hierarchy.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:
@@ -965,9 +1108,10 @@ class TestGetAccountTree:
 
 @pytest.mark.asyncio
 class TestAccountBalance:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_legal_entity_id):
         account_id = uuid4()
-        as_of = datetime.now(timezone.utc)
+        as_of = FIXED_NOW
         result = await get_account_balance(
             account_id=account_id,
             as_of_date=as_of,
@@ -981,24 +1125,26 @@ class TestAccountBalance:
             account_id, mock_legal_entity_id, as_of
         )
 
+    @pytest.mark.asyncio
     async def test_not_found(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_balance.return_value = None
         with pytest.raises(HTTPException) as exc:
             await get_account_balance(
                 account_id=uuid4(),
-                as_of_date=datetime.now(timezone.utc),
+                as_of_date=FIXED_NOW,
                 _permission=None,
                 legal_entity_id=mock_legal_entity_id,
                 coa_service=mock_coa_service,
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_balance.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:
             await get_account_balance(
                 account_id=uuid4(),
-                as_of_date=datetime.now(timezone.utc),
+                as_of_date=FIXED_NOW,
                 _permission=None,
                 legal_entity_id=mock_legal_entity_id,
                 coa_service=mock_coa_service,
@@ -1008,6 +1154,7 @@ class TestAccountBalance:
 
 @pytest.mark.asyncio
 class TestAccountUsage:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_legal_entity_id):
         account_id = uuid4()
         result = await get_account_usage(
@@ -1020,6 +1167,7 @@ class TestAccountUsage:
         assert result.journal_count == 5
         mock_coa_service.get_account_usage.assert_called_once_with(account_id, mock_legal_entity_id)
 
+    @pytest.mark.asyncio
     async def test_not_found(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_usage.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -1031,11 +1179,24 @@ class TestAccountUsage:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_service_error(self, mock_coa_service, mock_legal_entity_id):
+        mock_coa_service.get_account_usage.side_effect = Exception("DB down")
+        with pytest.raises(HTTPException) as exc:
+            await get_account_usage(
+                account_id=uuid4(),
+                _permission=None,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 500
+
 
 # ---------- Validation Endpoints ----------
 
 @pytest.mark.asyncio
 class TestValidateAccount:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_legal_entity_id):
         account_id = uuid4()
         result = await validate_account(
@@ -1051,6 +1212,7 @@ class TestValidateAccount:
             account_id, mock_legal_entity_id, "delete"
         )
 
+    @pytest.mark.asyncio
     async def test_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.validate_account_modification.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:
@@ -1066,6 +1228,7 @@ class TestValidateAccount:
 
 @pytest.mark.asyncio
 class TestValidateAccountCode:
+    @pytest.mark.asyncio
     async def test_success(self, mock_coa_service, mock_legal_entity_id):
         result = await validate_account_code(
             account_code="1-1000",
@@ -1077,6 +1240,7 @@ class TestValidateAccountCode:
         assert result.is_valid is True
         mock_coa_service.validate_account_code.assert_called_once_with("1-1000", mock_legal_entity_id)
 
+    @pytest.mark.asyncio
     async def test_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.validate_account_code.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:
@@ -1093,6 +1257,7 @@ class TestValidateAccountCode:
 
 @pytest.mark.asyncio
 class TestBulkOperations:
+    @pytest.mark.asyncio
     async def test_bulk_update_status_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         request = BulkStatusUpdateSchema(
             account_ids=[uuid4(), uuid4()],
@@ -1117,6 +1282,7 @@ class TestBulkOperations:
             legal_entity_id=mock_legal_entity_id,
         )
 
+    @pytest.mark.asyncio
     async def test_bulk_update_status_idempotency(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         request = BulkStatusUpdateSchema(account_ids=[uuid4()], status=AccountStatus.ACTIVE)
         with patch("adapters.primary_api.v1.fastapi_coa_router._idempotency_manager") as mock_im:
@@ -1133,6 +1299,7 @@ class TestBulkOperations:
             assert result == cached
             mock_coa_service.bulk_update_status.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_bulk_update_parent_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         request = BulkParentUpdateSchema(
             account_ids=[uuid4()],
@@ -1154,6 +1321,7 @@ class TestBulkOperations:
             legal_entity_id=mock_legal_entity_id,
         )
 
+    @pytest.mark.asyncio
     async def test_bulk_update_parent_idempotency(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         request = BulkParentUpdateSchema(account_ids=[uuid4()], parent_account_code="1-0000")
         with patch("adapters.primary_api.v1.fastapi_coa_router._idempotency_manager") as mock_im:
@@ -1170,55 +1338,73 @@ class TestBulkOperations:
             assert result == cached
             mock_coa_service.bulk_update_parent.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_bulk_update_status_service_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
+        mock_coa_service.bulk_update_status.side_effect = Exception("DB down")
+        request = BulkStatusUpdateSchema(account_ids=[uuid4()], status=AccountStatus.ACTIVE)
+        with pytest.raises(HTTPException) as exc:
+            await bulk_update_status(
+                request=request,
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 500
+        assert exc.value.detail == "Internal server error"
+
+    @pytest.mark.asyncio
+    async def test_bulk_update_parent_service_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
+        mock_coa_service.bulk_update_parent.side_effect = Exception("DB down")
+        request = BulkParentUpdateSchema(account_ids=[uuid4()], parent_account_code="1-0000")
+        with pytest.raises(HTTPException) as exc:
+            await bulk_update_parent(
+                request=request,
+                idempotency_key=None,
+                _permission=None,
+                current_user=mock_token_payload,
+                legal_entity_id=mock_legal_entity_id,
+                coa_service=mock_coa_service,
+            )
+        assert exc.value.status_code == 500
+        assert exc.value.detail == "Internal server error"
+
 
 # ---------- Export and Import ----------
 
 @pytest.mark.asyncio
 class TestExportImport:
-    async def test_export_json(self, mock_coa_service, mock_legal_entity_id):
+    # Gabungkan export test dengan parametrize
+    @pytest.mark.parametrize("format, expected_media", [
+        ("json", "application/json"),
+        ("csv", "text/csv"),
+        ("excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ])
+    @pytest.mark.asyncio
+    async def test_export_formats(self, mock_coa_service, mock_legal_entity_id, format, expected_media):
+        if format == "json":
+            mock_coa_service.export_coa.return_value = b'{"accounts": []}'
+        elif format == "csv":
+            mock_coa_service.export_coa.return_value = b"csv data"
+        else:
+            mock_coa_service.export_coa.return_value = b"excel data"
+
         response = await export_coa(
-            format="json",
+            format=format,
             include_inactive=False,
             _permission=None,
             legal_entity_id=mock_legal_entity_id,
             coa_service=mock_coa_service,
         )
         assert isinstance(response, Response)
-        assert response.body == b'{"accounts": []}'
-        assert response.media_type == "application/json"
+        assert response.media_type == expected_media
         assert "attachment" in response.headers["Content-Disposition"]
         mock_coa_service.export_coa.assert_called_once_with(
-            mock_legal_entity_id, "json", False
+            mock_legal_entity_id, format, False
         )
 
-    async def test_export_csv(self, mock_coa_service, mock_legal_entity_id):
-        mock_coa_service.export_coa.return_value = b"csv data"
-        response = await export_coa(
-            format="csv",
-            include_inactive=True,
-            _permission=None,
-            legal_entity_id=mock_legal_entity_id,
-            coa_service=mock_coa_service,
-        )
-        assert response.media_type == "text/csv"
-        mock_coa_service.export_coa.assert_called_once_with(
-            mock_legal_entity_id, "csv", True
-        )
-
-    async def test_export_excel(self, mock_coa_service, mock_legal_entity_id):
-        mock_coa_service.export_coa.return_value = b"excel data"
-        response = await export_coa(
-            format="excel",
-            include_inactive=False,
-            _permission=None,
-            legal_entity_id=mock_legal_entity_id,
-            coa_service=mock_coa_service,
-        )
-        assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        mock_coa_service.export_coa.assert_called_once_with(
-            mock_legal_entity_id, "excel", False
-        )
-
+    @pytest.mark.asyncio
     async def test_export_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.export_coa.side_effect = Exception("Export fail")
         with pytest.raises(HTTPException) as exc:
@@ -1231,6 +1417,7 @@ class TestExportImport:
             )
         assert exc.value.status_code == 500
 
+    @pytest.mark.asyncio
     async def test_import_success(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         file = MagicMock(spec=UploadFile)
         file.filename = "accounts.json"
@@ -1250,6 +1437,7 @@ class TestExportImport:
         assert result.imported_count == 3
         mock_coa_service.import_coa.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_import_idempotency(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
         file = MagicMock(spec=UploadFile)
         file.filename = "accounts.json"
@@ -1270,8 +1458,14 @@ class TestExportImport:
             assert result.message == "cached"
             mock_coa_service.import_coa.assert_not_called()
 
-    async def test_import_value_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.import_coa.side_effect = ValueError("Invalid format")
+    @pytest.mark.parametrize("side_effect, expected_status", [
+        (ValueError("Invalid format"), 422),
+        (Exception("Import error"), 500),
+    ])
+    @pytest.mark.asyncio
+    async def test_import_errors(self, mock_coa_service, mock_token_payload, mock_legal_entity_id,
+                                 side_effect, expected_status):
+        mock_coa_service.import_coa.side_effect = side_effect
         file = MagicMock(spec=UploadFile)
         file.filename = "accounts.json"
         file.read = AsyncMock(return_value=b'{}')
@@ -1286,35 +1480,18 @@ class TestExportImport:
                 legal_entity_id=mock_legal_entity_id,
                 coa_service=mock_coa_service,
             )
-        assert exc.value.status_code == 422
-
-    async def test_import_generic_error(self, mock_coa_service, mock_token_payload, mock_legal_entity_id):
-        mock_coa_service.import_coa.side_effect = Exception("Import error")
-        file = MagicMock(spec=UploadFile)
-        file.filename = "accounts.json"
-        file.read = AsyncMock(return_value=b'{}')
-        with pytest.raises(HTTPException) as exc:
-            await import_coa(
-                file=file,
-                mode="merge",
-                validate_only=False,
-                idempotency_key=None,
-                _permission=None,
-                current_user=mock_token_payload,
-                legal_entity_id=mock_legal_entity_id,
-                coa_service=mock_coa_service,
-            )
-        assert exc.value.status_code == 500
+        assert exc.value.status_code == expected_status
 
 
 # ---------- History and Audit ----------
 
 @pytest.mark.asyncio
 class TestHistoryAudit:
+    @pytest.mark.asyncio
     async def test_get_account_history(self, mock_coa_service, mock_legal_entity_id):
         account_id = uuid4()
-        start = datetime.now(timezone.utc)
-        end = datetime.now(timezone.utc)
+        start = FIXED_NOW
+        end = FIXED_NOW
         result = await get_account_history(
             account_id=account_id,
             start_date=start,
@@ -1331,6 +1508,7 @@ class TestHistoryAudit:
             account_id, mock_legal_entity_id, start, end
         )
 
+    @pytest.mark.asyncio
     async def test_get_account_history_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_history.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:
@@ -1344,6 +1522,7 @@ class TestHistoryAudit:
             )
         assert exc.value.status_code == 500
 
+    @pytest.mark.asyncio
     async def test_get_account_audit_trail(self, mock_coa_service, mock_legal_entity_id):
         account_id = uuid4()
         result = await get_account_audit_trail(
@@ -1360,6 +1539,7 @@ class TestHistoryAudit:
             account_id, mock_legal_entity_id, 10
         )
 
+    @pytest.mark.asyncio
     async def test_get_account_audit_trail_service_error(self, mock_coa_service, mock_legal_entity_id):
         mock_coa_service.get_account_audit_trail.side_effect = Exception("Error")
         with pytest.raises(HTTPException) as exc:

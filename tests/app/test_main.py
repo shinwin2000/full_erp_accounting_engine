@@ -36,7 +36,6 @@ warnings.filterwarnings(
 # ============================================================
 # GUARD: PASTIKAN SQLALCHEMY ASLI SEBELUM IMPORT APP.MAIN
 # ============================================================
-# Hapus semua entri sqlalchemy.* yang mungkin masih berupa Mock dari test lain
 for mod_name in list(sys.modules.keys()):
     if mod_name.startswith("sqlalchemy"):
         del sys.modules[mod_name]
@@ -62,7 +61,6 @@ opentelemetry_mock.exporter.otlp = MagicMock()
 opentelemetry_mock.exporter.otlp.proto = MagicMock()
 opentelemetry_mock.exporter.otlp.proto.grpc = MagicMock()
 opentelemetry_mock.exporter.otlp.proto.grpc.trace_exporter = MagicMock()
-opentelemetry_mock.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter = MagicMock()
 opentelemetry_mock.instrumentation = MagicMock()
 opentelemetry_mock.instrumentation.fastapi = MagicMock()
 opentelemetry_mock.instrumentation.fastapi.FastAPIInstrumentor = MagicMock()
@@ -134,6 +132,11 @@ sys.modules["bootstrap"] = bootstrap_mock
 sys.modules["bootstrap.dependency_container"] = dependency_container
 sys.modules["bootstrap.dependency_container.ioc_container"] = ioc_container
 
+# Mock bootstrap.iam_setup
+iam_setup = MagicMock()
+iam_setup.setup_iam_service = MagicMock()
+sys.modules["bootstrap.iam_setup"] = iam_setup
+
 # Mock prometheus_client
 prometheus_mock = MagicMock()
 prometheus_mock.CollectorRegistry = MagicMock()
@@ -158,6 +161,7 @@ from starlette.requests import Request
 _cleanup_names = [
     "kernel", "kernel.error_analysis",
     "bootstrap", "bootstrap.dependency_container", "bootstrap.dependency_container.ioc_container",
+    "bootstrap.iam_setup",
     "opentelemetry", "opentelemetry.sdk", "opentelemetry.sdk.resources",
     "opentelemetry.sdk.trace", "opentelemetry.sdk.trace.export",
     "opentelemetry.exporter", "opentelemetry.exporter.otlp",
@@ -332,7 +336,6 @@ class TestSettings:
         assert settings.cors_origins == ["http://localhost:3000", "http://localhost:8000"]
         with patch.dict(os.environ, {"ALLOWED_ORIGINS": "https://example.com ,https://test.com "}):
             s = Settings()
-            # strip() akan menghapus spasi di awal/akhir
             assert s.cors_origins == ["https://example.com", "https://test.com"]
 
     def test_is_production(self, settings):
@@ -356,10 +359,7 @@ async def test_get_db_session_success():
 
 @pytest.mark.asyncio
 async def test_get_db_session_rollback_on_exception():
-    """
-    Simulasikan kegagalan commit dengan memicu exception pada session.commit().
-    Ini sesuai implementasi get_db_session yang melakukan commit setelah yield.
-    """
+    """Simulasikan kegagalan commit dengan memicu exception pada session.commit()."""
     mock_session = MagicMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock()

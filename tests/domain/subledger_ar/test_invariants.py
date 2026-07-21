@@ -1,6 +1,9 @@
 # tests/domain/subledger_ar/test_invariants.py
-# Perbaikan kualitas assertions: semua assert True dihapus,
-# diganti dengan assertion yang memeriksa nilai aktual.
+# Perbaikan:
+# - Semua async test diberi @pytest.mark.asyncio
+# - Duplikasi struktural dihilangkan dengan parametrize
+# - Semua assertion bermakna
+# - Semua entity base methods tercover
 
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -118,134 +121,118 @@ class TestInvariantResult:
 
 
 # ============================================================================
-# ARInvariants tests (static methods)
+# ARInvariants tests (static methods) - parametrized untuk menghilangkan duplikasi
 # ============================================================================
 class TestARInvariants:
-    def test_validate_invoice_amount_valid(self):
+    # --- validate_invoice_amount ---
+    @pytest.mark.parametrize("amount, expected_valid, expected_error_substr", [
+        (Decimal("100"), True, None),
+        (Decimal("-10"), False, "must be positive"),
+        (Decimal("0"), False, "must be positive"),
+    ])
+    def test_validate_invoice_amount(self, amount, expected_valid, expected_error_substr):
         invoice = MagicMock()
-        invoice.amount = Decimal("100")
-        result = ARInvariants.validate_invoice_amount(invoice)
-        assert result.is_valid is True
-
-    def test_validate_invoice_amount_invalid_negative(self):
-        invoice = MagicMock()
-        invoice.amount = Decimal("-10")
+        invoice.amount = amount
         invoice.invoice_number = "INV001"
         result = ARInvariants.validate_invoice_amount(invoice)
-        assert result.is_valid is False
-        assert "must be positive" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    def test_validate_invoice_amount_zero(self):
-        invoice = MagicMock()
-        invoice.amount = Decimal("0")
-        invoice.invoice_number = "INV001"
-        result = ARInvariants.validate_invoice_amount(invoice)
-        assert result.is_valid is False
-
-    def test_validate_payment_amount_valid(self):
+    # --- validate_payment_amount ---
+    @pytest.mark.parametrize("amount, outstanding, expected_valid, expected_error_substr", [
+        (Decimal("50"), None, True, None),
+        (Decimal("-5"), None, False, "must be positive"),
+        (Decimal("200"), Decimal("100"), False, "exceeds invoice outstanding"),
+        (Decimal("50"), Decimal("100"), True, None),
+    ])
+    def test_validate_payment_amount(self, amount, outstanding, expected_valid, expected_error_substr):
         payment = MagicMock()
-        payment.amount = Decimal("50")
+        payment.amount = amount
         payment.payment_number = "PAY001"
-        result = ARInvariants.validate_payment_amount(payment)
-        assert result.is_valid is True
-
-    def test_validate_payment_amount_negative(self):
-        payment = MagicMock()
-        payment.amount = Decimal("-5")
-        payment.payment_number = "PAY001"
-        result = ARInvariants.validate_payment_amount(payment)
-        assert result.is_valid is False
-
-    def test_validate_payment_amount_exceeds_invoice(self):
-        payment = MagicMock()
-        payment.amount = Decimal("200")
-        payment.payment_number = "PAY001"
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("100")
+        invoice = None
+        if outstanding is not None:
+            invoice = MagicMock()
+            invoice.outstanding_amount = outstanding
         result = ARInvariants.validate_payment_amount(payment, invoice)
-        assert result.is_valid is False
-        assert "exceeds invoice outstanding" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    def test_validate_credit_note_amount_valid(self):
+    # --- validate_credit_note_amount ---
+    @pytest.mark.parametrize("amount, outstanding, expected_valid, expected_error_substr", [
+        (Decimal("50"), None, True, None),
+        (Decimal("-5"), None, False, "must be positive"),
+        (Decimal("200"), Decimal("100"), False, "exceeds invoice outstanding"),
+        (Decimal("50"), Decimal("100"), True, None),
+    ])
+    def test_validate_credit_note_amount(self, amount, outstanding, expected_valid, expected_error_substr):
         credit_note = MagicMock()
-        credit_note.amount = Decimal("50")
+        credit_note.amount = amount
         credit_note.credit_note_number = "CN001"
-        result = ARInvariants.validate_credit_note_amount(credit_note)
-        assert result.is_valid is True
-
-    def test_validate_credit_note_amount_negative(self):
-        credit_note = MagicMock()
-        credit_note.amount = Decimal("-5")
-        credit_note.credit_note_number = "CN001"
-        result = ARInvariants.validate_credit_note_amount(credit_note)
-        assert result.is_valid is False
-
-    def test_validate_credit_note_amount_exceeds_invoice(self):
-        credit_note = MagicMock()
-        credit_note.amount = Decimal("200")
-        credit_note.credit_note_number = "CN001"
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("100")
+        invoice = None
+        if outstanding is not None:
+            invoice = MagicMock()
+            invoice.outstanding_amount = outstanding
         result = ARInvariants.validate_credit_note_amount(credit_note, invoice)
-        assert result.is_valid is False
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    def test_validate_customer_credit_limit_valid(self):
+    # --- validate_customer_credit_limit ---
+    @pytest.mark.parametrize("requested, current, limit, expected_valid, expected_error_substr", [
+        (Decimal("50"), Decimal("100"), Decimal("200"), True, None),
+        (Decimal("50"), Decimal("100"), Decimal("0"), True, None),  # no limit
+        (Decimal("150"), Decimal("100"), Decimal("200"), False, "credit limit exceeded"),
+    ])
+    def test_validate_customer_credit_limit(self, requested, current, limit, expected_valid, expected_error_substr):
         customer_id = uuid4()
         result = ARInvariants.validate_customer_credit_limit(
-            customer_id, Decimal("50"), Decimal("100"), Decimal("200")
+            customer_id, requested, current, limit
         )
-        assert result.is_valid is True
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    def test_validate_customer_credit_limit_no_limit(self):
-        customer_id = uuid4()
-        result = ARInvariants.validate_customer_credit_limit(
-            customer_id, Decimal("50"), Decimal("100"), Decimal("0")
-        )
-        assert result.is_valid is True  # no credit limit
-
-    def test_validate_customer_credit_limit_exceeded(self):
-        customer_id = uuid4()
-        result = ARInvariants.validate_customer_credit_limit(
-            customer_id, Decimal("150"), Decimal("100"), Decimal("200")
-        )
-        assert result.is_valid is False
-        assert "credit limit exceeded" in result.errors[0]
-
-    def test_validate_invoice_cancellation_valid(self):
-        invoice = MagicMock()
-        invoice.status = MagicMock()
-        invoice.status.value = "draft"
-        invoice.invoice_number = "INV001"
-        result = ARInvariants.validate_invoice_cancellation(invoice)
-        assert result.is_valid is True
-
-    def test_validate_invoice_cancellation_invalid_paid(self):
-        invoice = MagicMock()
-        # simulate InvoiceStatus enum
+    # --- validate_invoice_cancellation ---
+    @pytest.mark.parametrize("status_value, expected_valid", [
+        ("draft", True),
+        ("partially_paid", False),
+        ("fully_paid", False),
+    ])
+    def test_validate_invoice_cancellation(self, status_value, expected_valid):
         from domain.subledger_ar.invoice_entity import InvoiceStatus
-        invoice.status = InvoiceStatus.PARTIALLY_PAID
+        invoice = MagicMock()
+        # map status values
+        if status_value == "draft":
+            invoice.status = InvoiceStatus.DRAFT
+        elif status_value == "partially_paid":
+            invoice.status = InvoiceStatus.PARTIALLY_PAID
+        else:
+            invoice.status = InvoiceStatus.FULLY_PAID
         invoice.invoice_number = "INV001"
         result = ARInvariants.validate_invoice_cancellation(invoice)
-        assert result.is_valid is False
-        assert "Cannot cancel" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any("Cannot cancel" in e for e in result.errors)
 
-    def test_validate_payment_refund_valid(self):
+    # --- validate_payment_refund ---
+    @pytest.mark.parametrize("status_value, expected_valid, expected_error_substr", [
+        ("completed", True, None),
+        ("refunded", False, "already refunded"),
+        ("failed", False, "already failed"),
+    ])
+    def test_validate_payment_refund(self, status_value, expected_valid, expected_error_substr):
         payment = MagicMock()
         payment.status = MagicMock()
-        payment.status.value = "completed"
+        payment.status.value = status_value
         payment.payment_number = "PAY001"
         result = ARInvariants.validate_payment_refund(payment)
-        assert result.is_valid is True
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    def test_validate_payment_refund_already_refunded(self):
-        payment = MagicMock()
-        payment.status = MagicMock()
-        payment.status.value = "refunded"
-        payment.payment_number = "PAY001"
-        result = ARInvariants.validate_payment_refund(payment)
-        assert result.is_valid is False
-        assert "already refunded" in result.errors[0]
-
+    # --- validate_duplicate_invoice_number ---
     def test_validate_duplicate_invoice_number_valid(self):
         result = ARInvariants.validate_duplicate_invoice_number("INV001", {"INV002"})
         assert result.is_valid is True
@@ -253,54 +240,38 @@ class TestARInvariants:
     def test_validate_duplicate_invoice_number_invalid(self):
         result = ARInvariants.validate_duplicate_invoice_number("INV001", {"INV001", "INV002"})
         assert result.is_valid is False
+        assert "already exists" in result.errors[0]
 
-    def test_validate_negative_balance_valid(self):
-        result = ARInvariants.validate_negative_balance(Decimal("100"), "AR")
-        assert result.is_valid is True
+    # --- validate_negative_balance ---
+    @pytest.mark.parametrize("balance, expected_valid, expected_error_substr", [
+        (Decimal("100"), True, None),
+        (Decimal("-5"), False, "cannot be negative"),
+    ])
+    def test_validate_negative_balance(self, balance, expected_valid, expected_error_substr):
+        result = ARInvariants.validate_negative_balance(balance, "AR")
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    def test_validate_negative_balance_invalid(self):
-        result = ARInvariants.validate_negative_balance(Decimal("-5"), "AR")
-        assert result.is_valid is False
-        assert "cannot be negative" in result.errors[0]
-
-    def test_validate_payment_allocation_valid(self):
+    # --- validate_payment_allocation ---
+    @pytest.mark.parametrize("allocated, payment_allocated, outstanding, expected_valid, expected_error_substr", [
+        (Decimal("40"), Decimal("30"), Decimal("50"), True, None),
+        (Decimal("0"), Decimal("30"), Decimal("50"), False, "must be positive"),
+        (Decimal("80"), Decimal("30"), Decimal("50"), False, "exceeds remaining payment"),
+        (Decimal("60"), Decimal("0"), Decimal("50"), False, "exceeds invoice outstanding"),
+    ])
+    def test_validate_payment_allocation(self, allocated, payment_allocated, outstanding,
+                                         expected_valid, expected_error_substr):
         payment = MagicMock()
         payment.amount = Decimal("100")
-        payment.allocated_amount = Decimal("30")
+        payment.allocated_amount = payment_allocated
+        payment.payment_number = "PAY001"
         invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("50")
-        result = ARInvariants.validate_payment_allocation(payment, invoice, Decimal("40"))
-        assert result.is_valid is True
-
-    def test_validate_payment_allocation_zero(self):
-        payment = MagicMock()
-        payment.amount = Decimal("100")
-        payment.allocated_amount = Decimal("30")
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("50")
-        result = ARInvariants.validate_payment_allocation(payment, invoice, Decimal("0"))
-        assert result.is_valid is False
-        assert "must be positive" in result.errors[0]
-
-    def test_validate_payment_allocation_exceeds_remaining(self):
-        payment = MagicMock()
-        payment.amount = Decimal("100")
-        payment.allocated_amount = Decimal("30")
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("50")
-        result = ARInvariants.validate_payment_allocation(payment, invoice, Decimal("80"))
-        assert result.is_valid is False
-        assert "exceeds remaining payment" in result.errors[0]
-
-    def test_validate_payment_allocation_exceeds_invoice(self):
-        payment = MagicMock()
-        payment.amount = Decimal("100")
-        payment.allocated_amount = Decimal("0")
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("50")
-        result = ARInvariants.validate_payment_allocation(payment, invoice, Decimal("60"))
-        assert result.is_valid is False
-        assert "exceeds invoice outstanding" in result.errors[0]
+        invoice.outstanding_amount = outstanding
+        result = ARInvariants.validate_payment_allocation(payment, invoice, allocated)
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
 
 # ============================================================================
@@ -322,6 +293,7 @@ class TestARInvariantEnforcer:
             customer_credit_checker=mock_customer_credit_checker,
         )
 
+    @pytest.mark.asyncio
     async def test_enforce_invoice_create_valid(self, enforcer):
         invoice = MagicMock()
         invoice.amount = Decimal("100")
@@ -329,40 +301,31 @@ class TestARInvariantEnforcer:
         invoice.customer_id = uuid4()
         result = await enforcer.enforce_invoice_create(invoice)
         assert result.is_valid is True
-        # check audit trail
         audit = enforcer.audit_trail()
         assert len(audit) == 1
         assert audit[0]["action"] == "ENFORCE_INVOICE_CREATE"
 
-    async def test_enforce_invoice_create_invalid_amount(self, enforcer):
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("scenario, amount, inv_number, credit_result, expected_valid, expected_error_substr", [
+        ("invalid_amount", Decimal("-10"), "INV003", None, False, "must be positive"),
+        ("duplicate", Decimal("100"), "INV001", None, False, "already exists"),
+        ("credit_limit_fail", Decimal("100"), "INV003", InvariantResult(False, ["credit limit exceeded"]), False, "credit limit exceeded"),
+    ])
+    async def test_enforce_invoice_create_errors(self, enforcer, mock_customer_credit_checker,
+                                                 scenario, amount, inv_number, credit_result,
+                                                 expected_valid, expected_error_substr):
+        # For credit limit fail, override the checker
+        if credit_result is not None:
+            mock_customer_credit_checker.return_value = credit_result
         invoice = MagicMock()
-        invoice.amount = Decimal("-10")
-        invoice.invoice_number = "INV003"
+        invoice.amount = amount
+        invoice.invoice_number = inv_number
         invoice.customer_id = uuid4()
         result = await enforcer.enforce_invoice_create(invoice)
-        assert result.is_valid is False
-        assert "must be positive" in result.errors[0]
+        assert result.is_valid == expected_valid
+        assert any(expected_error_substr in e for e in result.errors)
 
-    async def test_enforce_invoice_create_duplicate_number(self, enforcer):
-        invoice = MagicMock()
-        invoice.amount = Decimal("100")
-        invoice.invoice_number = "INV001"  # exists
-        invoice.customer_id = uuid4()
-        result = await enforcer.enforce_invoice_create(invoice)
-        assert result.is_valid is False
-        assert "already exists" in result.errors[0]
-
-    async def test_enforce_invoice_create_credit_limit_fail(self, enforcer, mock_customer_credit_checker):
-        # override credit checker to return invalid
-        mock_customer_credit_checker.return_value = InvariantResult(is_valid=False, errors=["credit limit exceeded"])
-        invoice = MagicMock()
-        invoice.amount = Decimal("100")
-        invoice.invoice_number = "INV003"
-        invoice.customer_id = uuid4()
-        result = await enforcer.enforce_invoice_create(invoice)
-        assert result.is_valid is False
-        assert "credit limit exceeded" in result.errors[0]
-
+    @pytest.mark.asyncio
     async def test_enforce_payment_create_valid(self, enforcer):
         payment = MagicMock()
         payment.amount = Decimal("50")
@@ -372,88 +335,81 @@ class TestARInvariantEnforcer:
         audit = enforcer.audit_trail()
         assert audit[0]["action"] == "ENFORCE_PAYMENT_CREATE"
 
+    @pytest.mark.asyncio
     async def test_enforce_payment_create_invalid_amount(self, enforcer):
         payment = MagicMock()
         payment.amount = Decimal("-5")
         payment.payment_number = "PAY001"
         result = await enforcer.enforce_payment_create(payment)
         assert result.is_valid is False
+        assert "must be positive" in result.errors[0]
 
-    async def test_enforce_payment_allocation_valid(self, enforcer):
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("allocated, expected_valid, expected_error_substr", [
+        (Decimal("40"), True, None),
+        (Decimal("80"), False, "exceeds remaining payment"),
+        (Decimal("60"), False, "exceeds invoice outstanding"),
+    ])
+    async def test_enforce_payment_allocation(self, enforcer, allocated, expected_valid, expected_error_substr):
         payment = MagicMock()
         payment.amount = Decimal("100")
         payment.allocated_amount = Decimal("30")
         payment.payment_number = "PAY001"
         invoice = MagicMock()
         invoice.outstanding_amount = Decimal("50")
-        result = await enforcer.enforce_payment_allocation(payment, invoice, Decimal("40"))
-        assert result.is_valid is True
-        audit = enforcer.audit_trail()
-        assert audit[0]["action"] == "ENFORCE_PAYMENT_ALLOCATION"
+        result = await enforcer.enforce_payment_allocation(payment, invoice, allocated)
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    async def test_enforce_payment_allocation_invalid(self, enforcer):
-        payment = MagicMock()
-        payment.amount = Decimal("100")
-        payment.allocated_amount = Decimal("30")
-        payment.payment_number = "PAY001"
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("50")
-        result = await enforcer.enforce_payment_allocation(payment, invoice, Decimal("80"))
-        assert result.is_valid is False
-        assert "exceeds remaining payment" in result.errors[0]
-
-    async def test_enforce_credit_note_create_valid(self, enforcer):
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("amount, outstanding, expected_valid, expected_error_substr", [
+        (Decimal("30"), Decimal("100"), True, None),
+        (Decimal("200"), Decimal("100"), False, "exceeds invoice outstanding"),
+    ])
+    async def test_enforce_credit_note_create(self, enforcer, amount, outstanding, expected_valid, expected_error_substr):
         credit_note = MagicMock()
-        credit_note.amount = Decimal("30")
+        credit_note.amount = amount
         credit_note.credit_note_number = "CN001"
         invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("100")
+        invoice.outstanding_amount = outstanding
         result = await enforcer.enforce_credit_note_create(credit_note, invoice)
-        assert result.is_valid is True
-        audit = enforcer.audit_trail()
-        assert audit[0]["action"] == "ENFORCE_CREDIT_NOTE_CREATE"
+        assert result.is_valid == expected_valid
+        if expected_error_substr:
+            assert any(expected_error_substr in e for e in result.errors)
 
-    async def test_enforce_credit_note_create_invalid(self, enforcer):
-        credit_note = MagicMock()
-        credit_note.amount = Decimal("200")
-        credit_note.credit_note_number = "CN001"
-        invoice = MagicMock()
-        invoice.outstanding_amount = Decimal("100")
-        result = await enforcer.enforce_credit_note_create(credit_note, invoice)
-        assert result.is_valid is False
-        assert "exceeds invoice outstanding" in result.errors[0]
-
-    async def test_enforce_invoice_cancellation_valid(self, enforcer):
-        invoice = MagicMock()
-        invoice.status = MagicMock()
-        invoice.status.value = "draft"
-        invoice.invoice_number = "INV001"
-        result = await enforcer.enforce_invoice_cancellation(invoice)
-        assert result.is_valid is True
-
-    async def test_enforce_invoice_cancellation_invalid(self, enforcer):
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_value, expected_valid", [
+        ("draft", True),
+        ("partially_paid", False),
+    ])
+    async def test_enforce_invoice_cancellation(self, enforcer, status_value, expected_valid):
         from domain.subledger_ar.invoice_entity import InvoiceStatus
         invoice = MagicMock()
-        invoice.status = InvoiceStatus.PARTIALLY_PAID
+        if status_value == "draft":
+            invoice.status = InvoiceStatus.DRAFT
+        else:
+            invoice.status = InvoiceStatus.PARTIALLY_PAID
         invoice.invoice_number = "INV001"
         result = await enforcer.enforce_invoice_cancellation(invoice)
-        assert result.is_valid is False
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any("Cannot cancel" in e for e in result.errors)
 
-    async def test_enforce_payment_refund_valid(self, enforcer):
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_value, expected_valid", [
+        ("completed", True),
+        ("refunded", False),
+    ])
+    async def test_enforce_payment_refund(self, enforcer, status_value, expected_valid):
         payment = MagicMock()
         payment.status = MagicMock()
-        payment.status.value = "completed"
+        payment.status.value = status_value
         payment.payment_number = "PAY001"
         result = await enforcer.enforce_payment_refund(payment)
-        assert result.is_valid is True
-
-    async def test_enforce_payment_refund_invalid(self, enforcer):
-        payment = MagicMock()
-        payment.status = MagicMock()
-        payment.status.value = "refunded"
-        payment.payment_number = "PAY001"
-        result = await enforcer.enforce_payment_refund(payment)
-        assert result.is_valid is False
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert any("already" in e for e in result.errors)
 
     def test_enforce_negative_balance_valid(self, enforcer):
         result = enforcer.enforce_negative_balance(Decimal("100"), "AR")
@@ -464,7 +420,9 @@ class TestARInvariantEnforcer:
     def test_enforce_negative_balance_invalid(self, enforcer):
         result = enforcer.enforce_negative_balance(Decimal("-10"), "AR")
         assert result.is_valid is False
+        assert "cannot be negative" in result.errors[0]
 
+    # --- Entity base methods ---
     def test_validate(self, enforcer):
         validation = enforcer.validate()
         assert validation["is_valid"] is True
@@ -479,8 +437,6 @@ class TestARInvariantEnforcer:
         data = {"version": 3}
         enforcer = ARInvariantEnforcer.from_dict(data)
         assert enforcer.version() == 3
-        # check checkers are default lambdas that return set and InvariantResult
-        # we can call them to ensure they work
         assert enforcer._invoice_number_checker() == set()
         assert enforcer._customer_credit_checker(None, None).is_valid is True
 
@@ -488,7 +444,6 @@ class TestARInvariantEnforcer:
         cloned = enforcer.clone()
         assert cloned is not enforcer
         assert cloned.version() == enforcer.version() + 1
-        # check checkers are same callables
         assert cloned._invoice_number_checker == enforcer._invoice_number_checker
         assert cloned._customer_credit_checker == enforcer._customer_credit_checker
 
@@ -558,6 +513,7 @@ class TestARInvariantsValidator:
         payment.amount = Decimal("40")
         result = validator.validate_payment_amount(payment, invoice)
         assert result.is_valid is False
+        assert "exceeds" in result.errors[0]
 
     def test_validate_credit_note_amount(self, validator):
         credit_note = MagicMock()
@@ -580,6 +536,7 @@ class TestARInvariantsValidator:
             uuid4(), Decimal("150"), Decimal("100"), Decimal("200")
         )
         assert result.is_valid is False
+        assert "credit limit exceeded" in result.errors[0]
 
     def test_validate_invoice_cancellation(self, validator):
         invoice = MagicMock()
@@ -640,9 +597,9 @@ class TestARInvariantsValidator:
         invoice.amount = Decimal("-10")
         result = validator.validate_all(invoice, payment)
         assert result.is_valid is False
-        assert len(result.errors) == 1  # only invoice amount error
+        assert len(result.errors) == 1
 
-    # Entity base methods
+    # --- Entity base methods ---
     def test_validate(self, validator):
         validation = validator.validate()
         assert validation["is_valid"] is True

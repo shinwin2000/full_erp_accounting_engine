@@ -37,7 +37,7 @@ from domain.iam.session_entity import SessionEntity, SessionStatus
 from domain.iam.user_entity import UserEntity, UserStatus
 
 # =============================================================================
-# Helper: create mock objects
+# Helper: create mock objects (with spec/autospec for better mocking quality)
 # =============================================================================
 
 def create_mock_user(
@@ -175,100 +175,90 @@ class TestInvariantResult:
 
 
 # =============================================================================
-# Tests for Validator Functions
+# Tests for Validator Functions (parametrized to reduce duplication)
 # =============================================================================
 
 class TestValidators:
-    # validate_username
-    def test_validate_username_valid(self):
-        result = validate_username("john_doe")
-        assert result.is_valid is True
+    # ---- validate_username ----
+    @pytest.mark.parametrize(
+        "username, expected_valid, error_contains",
+        [
+            ("john_doe", True, None),
+            ("ab", False, "at least 3"),
+            ("a" * 51, False, "exceed 50"),
+            ("john-doe", False, "only letters"),
+            ("", False, "non-empty"),
+            (None, False, "non-empty"),
+        ],
+    )
+    def test_validate_username(self, username, expected_valid, error_contains):
+        result = validate_username(username)
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_username_too_short(self):
-        result = validate_username("ab")
-        assert result.is_valid is False
-        assert "at least 3" in result.errors[0]
+    # ---- validate_email ----
+    @pytest.mark.parametrize(
+        "email, expected_valid, error_contains",
+        [
+            ("test@example.com", True, None),
+            ("test@example", False, "Invalid email"),
+            ("", False, "non-empty"),
+            (None, False, "non-empty"),
+        ],
+    )
+    def test_validate_email(self, email, expected_valid, error_contains):
+        result = validate_email(email)
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_username_too_long(self):
-        result = validate_username("a" * 51)
-        assert result.is_valid is False
-        assert "exceed 50" in result.errors[0]
+    # ---- validate_full_name ----
+    @pytest.mark.parametrize(
+        "name, expected_valid, error_contains",
+        [
+            ("John Doe", True, None),
+            ("A", False, "at least 2"),
+            ("A" * 201, False, "exceed 200"),
+            ("", False, "non-empty"),
+            (None, False, "non-empty"),
+        ],
+    )
+    def test_validate_full_name(self, name, expected_valid, error_contains):
+        result = validate_full_name(name)
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_username_invalid_chars(self):
-        result = validate_username("john-doe")  # hyphen not allowed
-        assert result.is_valid is False
-        assert "only letters, numbers, and underscores" in result.errors[0]
+    # ---- validate_version ----
+    @pytest.mark.parametrize(
+        "version, expected_version, expected_valid, error_contains",
+        [
+            (1, None, True, None),
+            (2, 2, True, None),
+            (0, None, False, ">= 1"),
+            (1, 2, False, "mismatch"),
+        ],
+    )
+    def test_validate_version(self, version, expected_version, expected_valid, error_contains):
+        result = validate_version(version, expected_version)
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_username_empty(self):
-        result = validate_username("")
-        assert result.is_valid is False
-        assert "non-empty" in result.errors[0]
-
-    def test_validate_username_none(self):
-        result = validate_username(None)
-        assert result.is_valid is False
-
-    # validate_email
-    def test_validate_email_valid(self):
-        result = validate_email("test@example.com")
-        assert result.is_valid is True
-
-    def test_validate_email_invalid_format(self):
-        result = validate_email("test@example")
-        assert result.is_valid is False
-        assert "Invalid email" in result.errors[0]
-
-    def test_validate_email_empty(self):
-        result = validate_email("")
-        assert result.is_valid is False
-
-    # validate_full_name
-    def test_validate_full_name_valid(self):
-        result = validate_full_name("John Doe")
-        assert result.is_valid is True
-
-    def test_validate_full_name_too_short(self):
-        result = validate_full_name("A")
-        assert result.is_valid is False
-        assert "at least 2" in result.errors[0]
-
-    def test_validate_full_name_too_long(self):
-        result = validate_full_name("A" * 201)
-        assert result.is_valid is False
-        assert "exceed 200" in result.errors[0]
-
-    def test_validate_full_name_empty(self):
-        result = validate_full_name("")
-        assert result.is_valid is False
-
-    # validate_version
-    def test_validate_version_valid(self):
-        result = validate_version(1)
-        assert result.is_valid is True
-        result = validate_version(2, expected_version=2)
-        assert result.is_valid is True
-
-    def test_validate_version_zero(self):
-        result = validate_version(0)
-        assert result.is_valid is False
-        assert ">= 1" in result.errors[0]
-
-    def test_validate_version_mismatch(self):
-        result = validate_version(1, expected_version=2)
-        assert result.is_valid is False
-        assert "mismatch" in result.errors[0]
-
-    # validate_date_not_future
-    def test_validate_date_not_future_past(self):
-        dt = datetime(2025, 1, 1, tzinfo=UTC)
+    # ---- validate_date_not_future ----
+    @pytest.mark.parametrize(
+        "dt, expected_valid",
+        [
+            (datetime(2025, 1, 1, tzinfo=UTC), True),
+            (datetime(2030, 1, 1, tzinfo=UTC), False),
+        ],
+    )
+    def test_validate_date_not_future(self, dt, expected_valid):
         result = validate_date_not_future(dt, "Date")
-        assert result.is_valid is True
-
-    def test_validate_date_not_future_future(self):
-        dt = datetime(2030, 1, 1, tzinfo=UTC)
-        result = validate_date_not_future(dt, "Date")
-        assert result.is_valid is False
-        assert "cannot be in the future" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "cannot be in the future" in result.errors[0]
 
 
 # =============================================================================
@@ -286,38 +276,24 @@ class TestUserInvariants:
         )
         assert result.is_valid is True
 
-    def test_validate_on_create_duplicate_username(self):
+    @pytest.mark.parametrize(
+        "username, email, existing_usernames, existing_emails, expected_error",
+        [
+            ("john_doe", "john@example.com", {"john_doe"}, set(), "already exists"),
+            ("john_doe", "john@example.com", set(), {"john@example.com"}, "already exists"),
+            ("john-doe", "john@example.com", set(), set(), "only letters"),
+        ],
+    )
+    def test_validate_on_create_errors(self, username, email, existing_usernames, existing_emails, expected_error):
         result = UserInvariants.validate_on_create(
-            username="john_doe",
-            email="john@example.com",
+            username=username,
+            email=email,
             full_name="John Doe",
-            existing_usernames={"john_doe"},
-            existing_emails=set(),
+            existing_usernames=existing_usernames,
+            existing_emails=existing_emails,
         )
         assert result.is_valid is False
-        assert "already exists" in result.errors[0]
-
-    def test_validate_on_create_duplicate_email(self):
-        result = UserInvariants.validate_on_create(
-            username="john_doe",
-            email="john@example.com",
-            full_name="John Doe",
-            existing_usernames=set(),
-            existing_emails={"john@example.com"},
-        )
-        assert result.is_valid is False
-        assert "already exists" in result.errors[0]
-
-    def test_validate_on_create_invalid_username(self):
-        result = UserInvariants.validate_on_create(
-            username="john-doe",  # invalid
-            email="john@example.com",
-            full_name="John Doe",
-            existing_usernames=set(),
-            existing_emails=set(),
-        )
-        assert result.is_valid is False
-        assert "only letters" in result.errors[0]
+        assert any(expected_error in e for e in result.errors)
 
     def test_validate_on_update_valid(self):
         user = create_mock_user(username="john_doe", email="john@example.com")
@@ -328,7 +304,7 @@ class TestUserInvariants:
         )
         assert result.is_valid is True
 
-    def test_validate_on_update_duplicate_username(self):
+    def test_validate_on_update_duplicate(self):
         user = create_mock_user(username="john_doe")
         result = UserInvariants.validate_on_update(
             user=user,
@@ -338,70 +314,32 @@ class TestUserInvariants:
         assert result.is_valid is False
         assert "already exists" in result.errors[0]
 
-    def test_validate_status_transition_valid(self):
+    # ---- validate_status_transition ----
+    @pytest.mark.parametrize(
+        "current, new, is_self, expected_valid, error_contains",
+        [
+            (UserStatus.PENDING_ACTIVATION, UserStatus.ACTIVE, False, True, None),
+            (UserStatus.PENDING_ACTIVATION, UserStatus.ACTIVE, True, False, "cannot activate own"),
+            (UserStatus.SUSPENDED, UserStatus.ACTIVE, False, False, "unsuspended first"),
+            (UserStatus.LOCKED, UserStatus.ACTIVE, False, False, "unlocked first"),
+            (UserStatus.ACTIVE, UserStatus.INACTIVE, True, False, "cannot deactivate"),
+            (UserStatus.ACTIVE, UserStatus.SUSPENDED, True, False, "cannot deactivate"),
+            (UserStatus.ACTIVE, UserStatus.INACTIVE, False, True, None),
+            (UserStatus.ACTIVE, UserStatus.SUSPENDED, False, True, None),
+            (UserStatus.DELETED, UserStatus.ACTIVE, False, False, "Cannot transition"),
+        ],
+    )
+    def test_validate_status_transition(self, current, new, is_self, expected_valid, error_contains):
         result = UserInvariants.validate_status_transition(
-            current_status=UserStatus.PENDING_ACTIVATION,
-            new_status=UserStatus.ACTIVE,
+            current_status=current,
+            new_status=new,
             user_id="user1",
-            acting_user_id="admin",
-            is_self=False,
+            acting_user_id="admin" if not is_self else "user1",
+            is_self=is_self,
         )
-        assert result.is_valid is True
-
-    def test_validate_status_transition_self_activation(self):
-        result = UserInvariants.validate_status_transition(
-            current_status=UserStatus.PENDING_ACTIVATION,
-            new_status=UserStatus.ACTIVE,
-            user_id="user1",
-            acting_user_id="user1",
-            is_self=True,
-        )
-        assert result.is_valid is False
-        assert "cannot activate own account" in result.errors[0]
-
-    def test_validate_status_transition_self_deactivation(self):
-        result = UserInvariants.validate_status_transition(
-            current_status=UserStatus.ACTIVE,
-            new_status=UserStatus.INACTIVE,
-            user_id="user1",
-            acting_user_id="user1",
-            is_self=True,
-        )
-        assert result.is_valid is False
-        assert "cannot deactivate or suspend own account" in result.errors[0]
-
-    def test_validate_status_transition_suspended_to_active(self):
-        result = UserInvariants.validate_status_transition(
-            current_status=UserStatus.SUSPENDED,
-            new_status=UserStatus.ACTIVE,
-            user_id="user1",
-            acting_user_id="admin",
-            is_self=False,
-        )
-        assert result.is_valid is False
-        assert "must be unsuspended first" in result.errors[0]
-
-    def test_validate_status_transition_locked_to_active(self):
-        result = UserInvariants.validate_status_transition(
-            current_status=UserStatus.LOCKED,
-            new_status=UserStatus.ACTIVE,
-            user_id="user1",
-            acting_user_id="admin",
-            is_self=False,
-        )
-        assert result.is_valid is False
-        assert "must be unlocked first" in result.errors[0]
-
-    def test_validate_status_transition_invalid(self):
-        result = UserInvariants.validate_status_transition(
-            current_status=UserStatus.DELETED,
-            new_status=UserStatus.ACTIVE,
-            user_id="user1",
-            acting_user_id="admin",
-            is_self=False,
-        )
-        assert result.is_valid is False
-        assert "Cannot transition from" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
 
 # =============================================================================
@@ -417,31 +355,23 @@ class TestRoleInvariants:
         )
         assert result.is_valid is True
 
-    def test_validate_on_create_duplicate(self):
+    @pytest.mark.parametrize(
+        "role_name, existing, expected_error",
+        [
+            ("a", set(), "at least 2"),
+            ("a" * 51, set(), "exceed 50"),
+            ("admin-role", set(), "only letters"),
+            ("admin", {"admin"}, "already exists"),
+        ],
+    )
+    def test_validate_on_create_errors(self, role_name, existing, expected_error):
         result = RoleInvariants.validate_on_create(
-            role_name="admin",
-            existing_role_names={"admin"},
+            role_name=role_name,
+            existing_role_names=existing,
             parent_role_id=None,
         )
         assert result.is_valid is False
-        assert "already exists" in result.errors[0]
-
-    def test_validate_on_create_invalid_name(self):
-        result = RoleInvariants.validate_on_create(
-            role_name="admin-role",  # hyphen not allowed
-            existing_role_names=set(),
-            parent_role_id=None,
-        )
-        assert result.is_valid is False
-        assert "only letters" in result.errors[0]
-
-    def test_validate_on_create_too_short(self):
-        result = RoleInvariants.validate_on_create(
-            role_name="a",
-            existing_role_names=set(),
-        )
-        assert result.is_valid is False
-        assert "at least 2" in result.errors[0]
+        assert any(expected_error in e for e in result.errors)
 
     def test_validate_on_update_system_role(self):
         role = create_mock_role(role_name="admin", is_system=True)
@@ -460,28 +390,22 @@ class TestRoleInvariants:
         )
         assert result.is_valid is True
 
-    def test_validate_on_delete_system_role(self):
-        role = create_mock_role(role_name="admin", is_system=True)
-        result = RoleInvariants.validate_on_delete(role, assigned_user_count=0)
-        assert result.is_valid is False
-        assert "Cannot delete system role" in result.errors[0]
-
-    def test_validate_on_delete_default_role(self):
-        role = create_mock_role(role_name="default", is_default=True, is_system=False)
-        result = RoleInvariants.validate_on_delete(role, assigned_user_count=0)
-        assert result.is_valid is False
-        assert "Cannot delete default role" in result.errors[0]
-
-    def test_validate_on_delete_assigned_users(self):
-        role = create_mock_role(role_name="custom", is_system=False, is_default=False)
-        result = RoleInvariants.validate_on_delete(role, assigned_user_count=5)
-        assert result.is_valid is False
-        assert "assigned to 5 user(s)" in result.errors[0]
-
-    def test_validate_on_delete_valid(self):
-        role = create_mock_role(role_name="custom", is_system=False, is_default=False)
-        result = RoleInvariants.validate_on_delete(role, assigned_user_count=0)
-        assert result.is_valid is True
+    # ---- validate_on_delete ----
+    @pytest.mark.parametrize(
+        "is_system, is_default, assigned_count, expected_valid, error_contains",
+        [
+            (True, False, 0, False, "Cannot delete system role"),
+            (False, True, 0, False, "Cannot delete default role"),
+            (False, False, 5, False, "assigned to 5 user(s)"),
+            (False, False, 0, True, None),
+        ],
+    )
+    def test_validate_on_delete(self, is_system, is_default, assigned_count, expected_valid, error_contains):
+        role = create_mock_role(role_name="custom", is_system=is_system, is_default=is_default)
+        result = RoleInvariants.validate_on_delete(role, assigned_count)
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
     def test_validate_parent_valid(self):
         role = create_mock_role()
@@ -489,22 +413,22 @@ class TestRoleInvariants:
         result = RoleInvariants.validate_parent(role, parent)
         assert result.is_valid is True
 
-    def test_validate_parent_inactive(self):
+    @pytest.mark.parametrize(
+        "parent_status, is_self, expected_error",
+        [
+            (RoleStatus.INACTIVE, False, "not active"),
+            (RoleStatus.ACTIVE, True, "cannot be its own parent"),
+        ],
+    )
+    def test_validate_parent_errors(self, parent_status, is_self, expected_error):
         role = create_mock_role()
-        parent = create_mock_role(status=RoleStatus.INACTIVE)
+        parent = create_mock_role(status=parent_status) if not is_self else role
         result = RoleInvariants.validate_parent(role, parent)
         assert result.is_valid is False
-        assert "is not active" in result.errors[0]
-
-    def test_validate_parent_self(self):
-        role = create_mock_role(role_id=uuid4())
-        result = RoleInvariants.validate_parent(role, role)
-        assert result.is_valid is False
-        assert "cannot be its own parent" in result.errors[0]
+        assert any(expected_error in e for e in result.errors)
 
     def test_validate_hierarchy_cycle_detection(self):
         def get_parent(role_id):
-            # Simulate a cycle
             if role_id == UUID("11111111-1111-1111-1111-111111111111"):
                 return create_mock_role(role_id=UUID("22222222-2222-2222-2222-222222222222"))
             elif role_id == UUID("22222222-2222-2222-2222-222222222222"):
@@ -532,45 +456,43 @@ class TestRoleInvariants:
 # =============================================================================
 
 class TestSessionInvariants:
-    def test_validate_session_creation_valid(self):
-        user = create_mock_user(status=UserStatus.ACTIVE, is_locked=False)
-        result = SessionInvariants.validate_session_creation(user, "mobile")
-        assert result.is_valid is True
+    @pytest.mark.parametrize(
+        "status, is_locked, expected_valid, error_contains",
+        [
+            (UserStatus.ACTIVE, False, True, None),
+            (UserStatus.INACTIVE, False, False, "Cannot create session"),
+            (UserStatus.ACTIVE, True, False, "locked"),
+        ],
+    )
+    def test_validate_session_creation(self, status, is_locked, expected_valid, error_contains):
+        user = create_mock_user(status=status, is_locked=is_locked)
+        result = SessionInvariants.validate_session_creation(user, "web")
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
-    def test_validate_session_creation_inactive_user(self):
-        user = create_mock_user(status=UserStatus.INACTIVE, is_locked=False)
-        result = SessionInvariants.validate_session_creation(user, "mobile")
-        assert result.is_valid is False
-        assert "Cannot create session for user with status" in result.errors[0]
-
-    def test_validate_session_creation_locked_user(self):
-        user = create_mock_user(status=UserStatus.ACTIVE, is_locked=True)
-        result = SessionInvariants.validate_session_creation(user, "mobile")
-        assert result.is_valid is False
-        assert "User account is locked" in result.errors[0]
-
-    def test_validate_session_renewal_valid(self):
-        session = create_mock_session(can_refresh=True)
+    @pytest.mark.parametrize(
+        "can_refresh, is_expired, is_refresh_expired, status, expected_valid, error_contains",
+        [
+            (True, False, False, SessionStatus.ACTIVE, True, None),
+            (False, True, False, SessionStatus.ACTIVE, False, "expired"),
+            (False, False, True, SessionStatus.ACTIVE, False, "Refresh token has expired"),
+            (False, False, False, SessionStatus.REVOKED, False, "Cannot refresh"),
+        ],
+    )
+    def test_validate_session_renewal(
+        self, can_refresh, is_expired, is_refresh_expired, status, expected_valid, error_contains
+    ):
+        session = create_mock_session(
+            status=status,
+            can_refresh=can_refresh,
+            is_expired=is_expired,
+            is_refresh_expired=is_refresh_expired,
+        )
         result = SessionInvariants.validate_session_renewal(session)
-        assert result.is_valid is True
-
-    def test_validate_session_renewal_expired(self):
-        session = create_mock_session(can_refresh=False, is_expired=True)
-        result = SessionInvariants.validate_session_renewal(session)
-        assert result.is_valid is False
-        assert "Session has expired" in result.errors[0]
-
-    def test_validate_session_renewal_refresh_expired(self):
-        session = create_mock_session(can_refresh=False, is_expired=False, is_refresh_expired=True)
-        result = SessionInvariants.validate_session_renewal(session)
-        assert result.is_valid is False
-        assert "Refresh token has expired" in result.errors[0]
-
-    def test_validate_session_renewal_invalid_status(self):
-        session = create_mock_session(can_refresh=False, status=SessionStatus.REVOKED)
-        result = SessionInvariants.validate_session_renewal(session)
-        assert result.is_valid is False
-        assert "Cannot refresh session" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if not expected_valid and error_contains:
+            assert any(error_contains in e for e in result.errors)
 
     def test_validate_session_revocation_active(self):
         session = create_mock_session(status=SessionStatus.ACTIVE)
@@ -586,7 +508,7 @@ class TestSessionInvariants:
 
 
 # =============================================================================
-# Tests for IAMInvariantEnforcer (Async)
+# Tests for IAMInvariantEnforcer (Async) - all marked with asyncio
 # =============================================================================
 
 @pytest.mark.asyncio
@@ -603,6 +525,7 @@ class TestIAMInvariantEnforcer:
             get_parent_role_func=AsyncMock(return_value=None),
         )
 
+    # ---- enforce_user_create ----
     async def test_enforce_user_create_valid(self, enforcer):
         result = await enforcer.enforce_user_create(
             username="new_user",
@@ -611,41 +534,35 @@ class TestIAMInvariantEnforcer:
         )
         assert result.is_valid is True
 
-    async def test_enforce_user_create_duplicate_username(self, enforcer):
+    @pytest.mark.parametrize(
+        "username, email, expected_error",
+        [
+            ("john_doe", "new@example.com", "already exists"),
+            ("new_user", "existing@example.com", "already exists"),
+        ],
+    )
+    async def test_enforce_user_create_duplicate(self, enforcer, username, email, expected_error):
         result = await enforcer.enforce_user_create(
-            username="john_doe",
-            email="new@example.com",
-            full_name="John Doe",
+            username=username,
+            email=email,
+            full_name="Some Name",
         )
         assert result.is_valid is False
-        assert "already exists" in result.errors[0]
+        assert any(expected_error in e for e in result.errors)
 
-    async def test_enforce_user_create_duplicate_email(self, enforcer):
-        result = await enforcer.enforce_user_create(
-            username="new_user",
-            email="existing@example.com",
-            full_name="New User",
-        )
-        assert result.is_valid is False
-        assert "already exists" in result.errors[0]
-
+    # ---- enforce_user_update ----
     async def test_enforce_user_update_valid(self, enforcer):
         user = create_mock_user(username="new_user", email="new@example.com")
-        # Providers return existing set but we discard user's own data in enforcer
         result = await enforcer.enforce_user_update(user)
         assert result.is_valid is True
 
     async def test_enforce_user_update_duplicate(self, enforcer):
-        # We need to simulate that the provider returns duplicates but the enforcer discards user's own.
-        # Since the enforcer discards the user's own username/email, we need to mock that the provider
-        # returns a set that includes the user's own data and another duplicate.
-        # But in the test, the provider returns static sets; we can override by patching.
-        # Better: test with a user whose data is not in the provider's set.
+        # This should not error because the enforcer discards the user's own data.
         user = create_mock_user(username="existing_user", email="other@example.com")
         result = await enforcer.enforce_user_update(user)
-        # The enforcer will discard existing_user from the set, so no error.
         assert result.is_valid is True
 
+    # ---- enforce_user_status_transition ----
     async def test_enforce_user_status_transition_valid(self, enforcer):
         result = await enforcer.enforce_user_status_transition(
             current_status=UserStatus.ACTIVE,
@@ -667,6 +584,7 @@ class TestIAMInvariantEnforcer:
         assert result.is_valid is False
         assert "cannot deactivate or suspend" in result.errors[0]
 
+    # ---- enforce_role_create ----
     async def test_enforce_role_create_valid(self, enforcer):
         result = await enforcer.enforce_role_create(role_name="manager")
         assert result.is_valid is True
@@ -676,6 +594,7 @@ class TestIAMInvariantEnforcer:
         assert result.is_valid is False
         assert "already exists" in result.errors[0]
 
+    # ---- enforce_role_update ----
     async def test_enforce_role_update_valid(self, enforcer):
         role = create_mock_role(role_name="manager", is_system=False)
         result = await enforcer.enforce_role_update(role)
@@ -686,6 +605,7 @@ class TestIAMInvariantEnforcer:
         result = await enforcer.enforce_role_update(role)
         assert result.is_valid is False
 
+    # ---- enforce_role_delete ----
     async def test_enforce_role_delete_valid(self, enforcer):
         role = create_mock_role(role_name="custom", is_system=False, is_default=False)
         result = await enforcer.enforce_role_delete(role, assigned_user_count=0)
@@ -696,6 +616,7 @@ class TestIAMInvariantEnforcer:
         result = await enforcer.enforce_role_delete(role, assigned_user_count=0)
         assert result.is_valid is False
 
+    # ---- enforce_role_parent ----
     async def test_enforce_role_parent_valid(self, enforcer):
         role = create_mock_role()
         parent = create_mock_role(status=RoleStatus.ACTIVE)
@@ -710,6 +631,7 @@ class TestIAMInvariantEnforcer:
         result = await enforcer.enforce_role_parent(role, parent)
         assert result.is_valid is False
 
+    # ---- enforce_session_creation ----
     async def test_enforce_session_creation_valid(self, enforcer):
         user = create_mock_user(status=UserStatus.ACTIVE, is_locked=False)
         result = await enforcer.enforce_session_creation(user, "web")
@@ -720,6 +642,7 @@ class TestIAMInvariantEnforcer:
         result = await enforcer.enforce_session_creation(user, "web")
         assert result.is_valid is False
 
+    # ---- enforce_session_renewal ----
     async def test_enforce_session_renewal_valid(self, enforcer):
         session = create_mock_session(can_refresh=True)
         result = await enforcer.enforce_session_renewal(session)
@@ -730,6 +653,7 @@ class TestIAMInvariantEnforcer:
         result = await enforcer.enforce_session_renewal(session)
         assert result.is_valid is False
 
+    # ---- enforce_session_revocation ----
     async def test_enforce_session_revocation_valid(self, enforcer):
         session = create_mock_session(status=SessionStatus.ACTIVE)
         result = await enforcer.enforce_session_revocation(session)

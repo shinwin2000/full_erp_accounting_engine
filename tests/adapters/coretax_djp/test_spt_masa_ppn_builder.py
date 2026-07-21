@@ -3,14 +3,20 @@
 tests/unit/test_spt_masa_ppn_builder.py
 Test untuk adapters/coretax_djp/spt_masa_ppn_builder.py
 Mencakup semua kelas dan metode secara exhaustive dengan mocking.
+
+Perbaikan:
+- Semua async test diberi @pytest.mark.asyncio
+- Flaky tests menggunakan mock datetime (fixture mock_datetime_now)
+- Semua assertion bermakna
 """
 
 from __future__ import annotations
 
+import unittest
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,6 +40,24 @@ from adapters.coretax_djp.spt_masa_ppn_builder import (
     _FallbackSPTRepository,
     get_spt_ppn_builder,
 )
+
+# ============================================================================
+# Fixtures - datetime mocking untuk menghindari flaky tests
+# ============================================================================
+
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0)
+FIXED_TODAY = date(2026, 1, 1)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now() dan date.today() untuk menghindari flaky tests."""
+    with patch("adapters.coretax_djp.spt_masa_ppn_builder.datetime") as mock_dt, \
+         patch("adapters.coretax_djp.spt_masa_ppn_builder.date") as mock_date:
+        mock_dt.now.return_value = FIXED_NOW
+        mock_date.today.return_value = FIXED_TODAY
+        yield
+
 
 # ============================================================================
 # Fixtures
@@ -70,13 +94,9 @@ def sample_spt(sample_spt_data) -> SPTMasaPPN:
 def sample_builder() -> SPTMasaPPNBuilder:
     with patch("adapters.coretax_djp.spt_masa_ppn_builder.SPTMasaPPNBuilder._init_file_storage"):
         builder = SPTMasaPPNBuilder(config={})
-        # Mock repository
         builder._repository = AsyncMock(spec=_FallbackSPTRepository)
-        # Mock tax service
         builder._tax_service = AsyncMock()
-        # Mock coretax client
         builder._coretax_client = AsyncMock()
-        # Mock file storage
         builder._file_storage = AsyncMock()
         return builder
 
@@ -154,8 +174,8 @@ class TestSPTMasaPPN:
         assert sample_spt.pk_count == 0
         assert sample_spt.pm_count == 0
         assert sample_spt.retur_count == 0
-        assert sample_spt.created_at is not None
-        assert sample_spt.updated_at is not None
+        assert sample_spt.created_at == FIXED_NOW
+        assert sample_spt.updated_at == FIXED_NOW
         assert sample_spt.submitted_at is None
         assert sample_spt.approved_at is None
         assert sample_spt.rejected_at is None
@@ -175,7 +195,7 @@ class TestSPTMasaPPN:
         result = sample_spt.create(created_by)
         assert result is sample_spt
         assert sample_spt.status == SPTStatus.DRAFT
-        assert sample_spt.version == 2  # version incremented
+        assert sample_spt.version == 2
         assert len(sample_spt._events) == 1
         assert sample_spt._events[0]["event_type"] == "spt_ppn_created"
 
@@ -190,7 +210,7 @@ class TestSPTMasaPPN:
         assert result._events[0]["event_type"] == "spt_ppn_updated"
 
     def test_update_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.update({}, uuid.uuid4())
 
@@ -209,10 +229,10 @@ class TestSPTMasaPPN:
         # permanent delete
         result = sample_spt.delete(deleted_by, permanent=True)
         assert result.status == SPTStatus.VOID
-        assert result.cancelled_at is not None
+        assert result.cancelled_at == FIXED_NOW
 
     def test_delete_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.delete(uuid.uuid4())
 
@@ -255,17 +275,17 @@ class TestSPTMasaPPN:
         result = sample_spt.lock(locked_by, "test")
         assert result.is_locked
         assert result.locked_by == locked_by
-        assert result.locked_at is not None
+        assert result.locked_at == FIXED_NOW
         assert result.status == SPTStatus.LOCKED
         assert result.version == 2
 
     def test_lock_already_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="already locked"):
             sample_spt.lock(uuid.uuid4())
 
     def test_unlock(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         sample_spt._locked_by = uuid.uuid4()
         unlocked_by = uuid.uuid4()
         result = sample_spt.unlock(unlocked_by)
@@ -311,7 +331,7 @@ class TestSPTMasaPPN:
             sample_spt.validate(uuid.uuid4())
 
     def test_validate_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.validate(uuid.uuid4())
 
@@ -325,7 +345,7 @@ class TestSPTMasaPPN:
         approver_id = uuid.uuid4()
         result = sample_spt.approve(approver_id, "approved")
         assert result.status == SPTStatus.APPROVED
-        assert result.approved_at is not None
+        assert result.approved_at == FIXED_NOW
         assert result.version == 2
 
     def test_approve_invalid_status_raises(self, sample_spt):
@@ -337,7 +357,7 @@ class TestSPTMasaPPN:
         rejector_id = uuid.uuid4()
         result = sample_spt.reject(rejector_id, "invalid data")
         assert result.status == SPTStatus.REJECTED
-        assert result.rejected_at is not None
+        assert result.rejected_at == FIXED_NOW
         assert result.rejection_reason == "invalid data"
         assert result.version == 2
 
@@ -375,7 +395,7 @@ class TestSPTMasaPPN:
         assert result.ppn_lebih_bayar == Decimal("4000000")
 
     def test_calculate_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.calculate(uuid.uuid4())
 
@@ -390,7 +410,7 @@ class TestSPTMasaPPN:
         with patch.object(sample_spt, "_generate_xml", return_value="<xml/>"):
             result = sample_spt.submit(submitted_by)
         assert result.status == SPTStatus.SUBMITTED
-        assert result.submitted_at is not None
+        assert result.submitted_at == FIXED_NOW
         assert result.version == 2
         assert result._events[0]["event_type"] == "spt_ppn_submitted"
 
@@ -403,7 +423,7 @@ class TestSPTMasaPPN:
         cancelled_by = uuid.uuid4()
         result = sample_spt.cancel(cancelled_by, "test")
         assert result.status == SPTStatus.CANCELLED
-        assert result.cancelled_at is not None
+        assert result.cancelled_at == FIXED_NOW
         assert result.cancellation_reason == "test"
         assert result.version == 2
 
@@ -416,12 +436,12 @@ class TestSPTMasaPPN:
         voided_by = uuid.uuid4()
         result = sample_spt.void(voided_by, "void reason")
         assert result.status == SPTStatus.VOID
-        assert result.cancelled_at is not None
+        assert result.cancelled_at == FIXED_NOW
         assert result.cancellation_reason == "void reason"
         assert result.version == 2
 
     def test_void_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.void(uuid.uuid4(), "reason")
 
@@ -666,7 +686,7 @@ class TestFallbackSPTRepository:
 
 @pytest.mark.asyncio
 class TestSPTMasaPPNBuilder:
-    async def test_create_new_spt(self, sample_builder, sample_spt):
+    async def test_create_new_spt(self, sample_builder):
         sample_builder._repository.exists = AsyncMock(return_value=False)
         sample_builder._repository.add = AsyncMock()
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=None)
@@ -871,7 +891,7 @@ class TestSPTMasaPPNBuilder:
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
         assert not result["success"]
         assert "Coretax authentication failed" in result["error"]
-        mock_spt.transition.assert_called_with(SPTStatus.ERROR, unittest.mock.ANY, unittest.mock.ANY)
+        mock_spt.transition.assert_called_with(SPTStatus.ERROR, ANY, ANY)
 
     async def test_submit_spt_retry_success(self, sample_builder):
         mock_spt = MagicMock()

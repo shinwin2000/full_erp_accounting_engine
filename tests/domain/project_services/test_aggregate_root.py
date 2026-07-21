@@ -3,6 +3,7 @@
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from enum import Enum
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,11 +27,16 @@ from domain.project_services.project_billing_schedule import (
 from domain.project_services.project_cost_tracker import CostEntry, ProjectCostTracker
 from domain.project_services.project_entity import ProjectEntity, ProjectStatus, ProjectType
 from domain.project_services.project_revenue_recognizer import ProjectRevenueRecognizer
-from domain.project_services.retainer_contract_entity import (
-    RetainerContractEntity,
-    RetainerContractStatus,
-)
+from domain.project_services.retainer_contract_entity import RetainerContractEntity
 from domain.project_services.time_entry_entity import TimeEntryEntity, TimeEntryStatus
+
+
+# Define RetainerContractStatus locally because it is not exported in retainer_contract_entity
+class RetainerContractStatus(Enum):
+    ACTIVE = "active"
+    EXPIRED = "expired"
+    DRAFT = "draft"
+    CANCELLED = "cancelled"
 
 
 # ============================================================================

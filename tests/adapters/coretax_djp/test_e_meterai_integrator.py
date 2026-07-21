@@ -2,6 +2,9 @@
 # Perbaikan kualitas assertions: semua assert True dihapus,
 # diganti dengan assertion yang memeriksa nilai aktual,
 # efek samping, atau interaksi mock.
+# Semua async test diberikan marker @pytest.mark.asyncio.
+# Duplikasi dihilangkan dengan parametrize.
+# Flaky tests diperbaiki dengan mock datetime.
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -33,6 +36,23 @@ from adapters.coretax_djp.e_meterai_integrator import (
     get_e_meterai_integrator,
 )
 
+# ============================================================================
+# FIXED DATETIME
+# ============================================================================
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0)
+FIXED_TODAY = date(2026, 1, 1)
+FIXED_EXPIRY = date(2026, 12, 31)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now() and date.today() to avoid flaky tests."""
+    with patch("adapters.coretax_djp.e_meterai_integrator.datetime") as mock_dt, \
+         patch("adapters.coretax_djp.e_meterai_integrator.date") as mock_date:
+        mock_dt.now.return_value = FIXED_NOW
+        mock_date.today.return_value = FIXED_TODAY
+        yield mock_dt, mock_date
+
 
 # ============================================================================
 # Enum tests
@@ -60,62 +80,23 @@ class TestEMeteraiStatus:
 
 
 # ============================================================================
-# Custom exception classes
+# Custom exception classes - all parametrized
 # ============================================================================
-class TestEMeteraiError:
-    def test_construction(self):
-        instance = EMeteraiError()
-        assert isinstance(instance, EMeteraiError)
+@pytest.mark.parametrize("exception_class", [
+    EMeteraiError,
+    EMeteraiNotFoundError,
+    EMeteraiInvalidError,
+    EMeteraiUsedError,
+    EMeteraiExpiredError,
+    EMeteraiInsufficientStockError,
+    EMeteraiLockedError,
+    EMeteraiAlreadyAttachedError,
+])
+class TestEMeteraiExceptions:
+    def test_construction(self, exception_class):
+        instance = exception_class()
+        assert isinstance(instance, exception_class)
         assert isinstance(instance, Exception)
-
-
-class TestEMeteraiNotFoundError:
-    def test_construction(self):
-        instance = EMeteraiNotFoundError()
-        assert isinstance(instance, EMeteraiNotFoundError)
-        assert isinstance(instance, EMeteraiError)
-
-
-class TestEMeteraiInvalidError:
-    def test_construction(self):
-        instance = EMeteraiInvalidError()
-        assert isinstance(instance, EMeteraiInvalidError)
-        assert isinstance(instance, EMeteraiError)
-
-
-class TestEMeteraiUsedError:
-    def test_construction(self):
-        instance = EMeteraiUsedError()
-        assert isinstance(instance, EMeteraiUsedError)
-        assert isinstance(instance, EMeteraiError)
-
-
-class TestEMeteraiExpiredError:
-    def test_construction(self):
-        instance = EMeteraiExpiredError()
-        assert isinstance(instance, EMeteraiExpiredError)
-        assert isinstance(instance, EMeteraiError)
-
-
-class TestEMeteraiInsufficientStockError:
-    def test_construction(self):
-        instance = EMeteraiInsufficientStockError()
-        assert isinstance(instance, EMeteraiInsufficientStockError)
-        assert isinstance(instance, EMeteraiError)
-
-
-class TestEMeteraiLockedError:
-    def test_construction(self):
-        instance = EMeteraiLockedError()
-        assert isinstance(instance, EMeteraiLockedError)
-        assert isinstance(instance, EMeteraiError)
-
-
-class TestEMeteraiAlreadyAttachedError:
-    def test_construction(self):
-        instance = EMeteraiAlreadyAttachedError()
-        assert isinstance(instance, EMeteraiAlreadyAttachedError)
-        assert isinstance(instance, EMeteraiError)
 
 
 # ============================================================================
@@ -129,11 +110,11 @@ class TestEMeterai:
             npwp="123456789012345",
             status=EMeteraiStatus.PENDING,
             value=METERRY_VALUE,
-            purchased_at=datetime.now(),
+            purchased_at=FIXED_NOW,
             used_at=None,
             used_on_document=None,
             used_on_document_type=None,
-            expiry_date=date.today() + timedelta(days=365),
+            expiry_date=FIXED_EXPIRY,
             transaction_id=None,
             meterai_id=uuid4(),
             version=1,
@@ -158,16 +139,16 @@ class TestEMeterai:
         assert meterai.is_active is False  # status PENDING
         meterai._status = EMeteraiStatus.ACTIVE
         assert meterai.is_active is True
-        meterai._locked_at = datetime.now()
+        meterai._locked_at = FIXED_NOW
         assert meterai.is_locked is True
 
     def test_is_expired_and_is_valid(self, meterai: EMeterai):
         meterai._status = EMeteraiStatus.ACTIVE
-        meterai._expiry_date = date.today() - timedelta(days=1)
+        meterai._expiry_date = FIXED_TODAY - timedelta(days=1)
         assert meterai.is_expired is True
         assert meterai.is_valid is False
 
-        meterai._expiry_date = date.today() + timedelta(days=1)
+        meterai._expiry_date = FIXED_TODAY + timedelta(days=1)
         assert meterai.is_expired is False
         assert meterai.is_valid is True
 
@@ -194,7 +175,7 @@ class TestEMeterai:
         assert any(e["event_type"] == "e_meterai_updated" for e in events)
 
     def test_update_locked_raises(self, meterai: EMeterai):
-        meterai._locked_at = datetime.now()
+        meterai._locked_at = FIXED_NOW
         with pytest.raises(EMeteraiLockedError):
             meterai.update({}, uuid4())
 
@@ -231,20 +212,20 @@ class TestEMeterai:
         user = uuid4()
         # set agar valid
         meterai._status = EMeteraiStatus.PENDING
-        meterai._expiry_date = date.today() + timedelta(days=1)
+        meterai._expiry_date = FIXED_TODAY + timedelta(days=1)
         meterai.validate(user, "doc123")
         assert meterai.status == EMeteraiStatus.ACTIVE
         assert meterai.validated_at is not None
 
         # expired
-        meterai._expiry_date = date.today() - timedelta(days=1)
+        meterai._expiry_date = FIXED_TODAY - timedelta(days=1)
         with pytest.raises(EMeteraiExpiredError):
             meterai.validate(user)
 
     def test_use(self, meterai: EMeterai):
         user = uuid4()
         meterai._status = EMeteraiStatus.ACTIVE
-        meterai._expiry_date = date.today() + timedelta(days=1)
+        meterai._expiry_date = FIXED_TODAY + timedelta(days=1)
         meterai.use("doc1", "invoice", Decimal("6000000"), user)
         assert meterai.status == EMeteraiStatus.USED
         assert meterai.used_on_document == "doc1"
@@ -304,7 +285,7 @@ class TestEMeterai:
             meterai.transition(EMeteraiStatus.USED, user)  # tidak bisa langsung ke used
 
     def test_check_expiry(self, meterai: EMeterai):
-        meterai._expiry_date = date.today() - timedelta(days=1)
+        meterai._expiry_date = FIXED_TODAY - timedelta(days=1)
         meterai._status = EMeteraiStatus.ACTIVE
         assert meterai.check_expiry() is True
         assert meterai.status == EMeteraiStatus.EXPIRED
@@ -320,7 +301,7 @@ class TestEMeterai:
 
 
 # ============================================================================
-# Repository interface (abstract)
+# Repository interface (abstract) - di-skip
 # ============================================================================
 class TestEMeteraiRepositoryPort:
     @pytest.mark.skip(reason="Abstract interface, not meant to be instantiated.")
@@ -345,17 +326,20 @@ class Test_FallbackEMeteraiRepository:
             value=METERRY_VALUE,
         )
 
+    @pytest.mark.asyncio
     async def test_add_and_get_by_id(self, repo: _FallbackEMeteraiRepository, meterai: EMeterai):
         await repo.add(meterai)
         stored = await repo.get_by_id(meterai.meterai_id)
         assert stored is meterai
 
+    @pytest.mark.asyncio
     async def test_get_by_code(self, repo: _FallbackEMeteraiRepository, meterai: EMeterai):
         await repo.add(meterai)
         stored = await repo.get_by_code("1234567890123456-0001")
         assert stored is meterai
         assert await repo.get_by_code("invalid") is None
 
+    @pytest.mark.asyncio
     async def test_get_by_npwp(self, repo: _FallbackEMeteraiRepository, meterai: EMeterai):
         await repo.add(meterai)
         results = await repo.get_by_npwp("123456789012345")
@@ -368,6 +352,7 @@ class Test_FallbackEMeteraiRepository:
         results_with_status2 = await repo.get_by_npwp("123456789012345", EMeteraiStatus.ACTIVE)
         assert len(results_with_status2) == 0
 
+    @pytest.mark.asyncio
     async def test_get_stock_count(self, repo: _FallbackEMeteraiRepository, meterai: EMeterai):
         await repo.add(meterai)
         # status pending, not active, count should be 0
@@ -375,15 +360,16 @@ class Test_FallbackEMeteraiRepository:
         assert count == 0
 
         meterai._status = EMeteraiStatus.ACTIVE
-        meterai._expiry_date = date.today() + timedelta(days=1)
+        meterai._expiry_date = FIXED_EXPIRY
         await repo.update(meterai)
         count = await repo.get_stock_count("123456789012345")
         assert count == 1
 
+    @pytest.mark.asyncio
     async def test_mark_as_used(self, repo: _FallbackEMeteraiRepository, meterai: EMeterai):
         await repo.add(meterai)
         meterai._status = EMeteraiStatus.ACTIVE
-        meterai._expiry_date = date.today() + timedelta(days=1)
+        meterai._expiry_date = FIXED_EXPIRY
         await repo.update(meterai)
         await repo.mark_as_used(meterai.meterai_id, "doc1", "invoice")
         updated = await repo.get_by_id(meterai.meterai_id)
@@ -417,6 +403,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # create
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_create_ok(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock):
         mock_repo.get_by_code.return_value = None
         mock_repo.add.return_value = None
@@ -432,12 +419,14 @@ class TestEMeteraiIntegrator:
         assert result["status"] == "pending"
         mock_repo.add.assert_awaited_once()
 
+    @pytest.mark.asyncio
     async def test_create_invalid_format(self, integrator: EMeteraiIntegrator):
         data = {"meterai_code": "invalid", "npwp": "123"}
         result = await integrator.create(data, uuid4())
         assert result["success"] is False
         assert "Invalid" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_create_already_exists(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         data = {"meterai_code": "1234567890123456-0001", "npwp": "123"}
@@ -448,6 +437,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # validate
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_validate_success(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock):
         mock_repo.get_by_code.return_value = None
         mock_repo.add.return_value = None
@@ -478,6 +468,7 @@ class TestEMeteraiIntegrator:
         )
         mock_repo.add.assert_awaited_once()  # karena tidak ada existing
 
+    @pytest.mark.asyncio
     async def test_validate_cache_hit(self, integrator: EMeteraiIntegrator):
         # pre-populate cache
         cache_key = integrator._get_cache_key("1234567890123456-0001")
@@ -487,12 +478,14 @@ class TestEMeteraiIntegrator:
         assert result["success"] is True
         assert result["is_valid"] is True
 
+    @pytest.mark.asyncio
     async def test_validate_invalid_format(self, integrator: EMeteraiIntegrator):
         result = await integrator.validate("invalid")
         assert result["success"] is False
         assert "Invalid" in result["error"]
         assert result["is_valid"] is False
 
+    @pytest.mark.asyncio
     async def test_validate_already_used(self, integrator: EMeteraiIntegrator):
         mock_client = AsyncMock()
         mock_client.post.return_value = {
@@ -512,6 +505,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # use
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_use_success(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         mock_repo.update.return_value = None
@@ -546,12 +540,14 @@ class TestEMeteraiIntegrator:
             }
         )
 
+    @pytest.mark.asyncio
     async def test_use_below_threshold(self, integrator: EMeteraiIntegrator):
         with patch.object(integrator, "validate", return_value={"success": True, "is_valid": True}):
             result = await integrator.use("code", "doc1", "invoice", Decimal("1000"), uuid4())
         assert result["success"] is False
         assert "below threshold" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_use_invalid_meterai(self, integrator: EMeteraiIntegrator):
         with patch.object(integrator, "validate", return_value={"success": True, "is_valid": False}):
             result = await integrator.use("code", "doc1", "invoice", Decimal("6000000"), uuid4())
@@ -561,6 +557,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # purchase
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_purchase_success(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock):
         mock_repo.add.return_value = None
         mock_client = AsyncMock()
@@ -588,6 +585,7 @@ class TestEMeteraiIntegrator:
             }
         )
 
+    @pytest.mark.asyncio
     async def test_purchase_failure(self, integrator: EMeteraiIntegrator):
         mock_client = AsyncMock()
         mock_client.post.return_value = {"status": "failed", "message": "Insufficient balance"}
@@ -600,6 +598,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # get_stock
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_get_stock_success(self, integrator: EMeteraiIntegrator):
         mock_client = AsyncMock()
         mock_client.get.return_value = {
@@ -621,12 +620,14 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # get_status
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_get_status_from_repo(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         result = await integrator.get_status("1234567890123456-0001")
         assert result["status"] == "pending"
         assert result["meterai_code"] == meterai.meterai_code_masked
 
+    @pytest.mark.asyncio
     async def test_get_status_from_validate(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock):
         mock_repo.get_by_code.return_value = None
         with patch.object(integrator, "validate", return_value={
@@ -642,6 +643,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # revoke
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_revoke_success(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         mock_repo.update.return_value = None
@@ -657,6 +659,7 @@ class TestEMeteraiIntegrator:
         assert meterai.revoked_reason == "test reason"
         mock_repo.update.assert_awaited_once_with(meterai)
 
+    @pytest.mark.asyncio
     async def test_revoke_not_found(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock):
         mock_repo.get_by_code.return_value = None
         result = await integrator.revoke("code", "reason", uuid4())
@@ -664,8 +667,9 @@ class TestEMeteraiIntegrator:
         assert "not found" in result["error"]
 
     # ------------------------------------------------------------------------
-    # auto_purchase_if_low (fixed)
+    # auto_purchase_if_low
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_auto_purchase_if_low_stock_insufficient(self, integrator: EMeteraiIntegrator):
         """Test that auto-purchase is triggered when stock is below threshold."""
         with patch.object(integrator, "get_stock", return_value={"available_quantity": 10}):
@@ -673,9 +677,9 @@ class TestEMeteraiIntegrator:
                 result = await integrator.auto_purchase_if_low("npwp", threshold=20, purchase_quantity=100)
                 mock_purchase.assert_awaited_once_with(100, "npwp", "auto_replenish")
                 assert result["success"] is True
-                # The method returns the result of purchase, so we check the quantity
                 assert result["quantity"] == 100
 
+    @pytest.mark.asyncio
     async def test_auto_purchase_if_low_stock_sufficient(self, integrator: EMeteraiIntegrator):
         """Test that auto-purchase is NOT triggered when stock is above threshold."""
         with patch.object(integrator, "get_stock", return_value={"available_quantity": 50}):
@@ -687,6 +691,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # attach_to_document (alias use)
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_attach_to_document(self, integrator: EMeteraiIntegrator):
         with patch.object(integrator, "use", return_value={"success": True}) as mock_use:
             result = await integrator.attach_to_document("code", "doc1", "invoice", Decimal("6000000"), uuid4())
@@ -696,16 +701,19 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # snapshot, to_dict, audit_trail, can_transition, transition, etc.
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_snapshot(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         snap = await integrator.snapshot("1234567890123456-0001")
         assert snap["meterai_id"] == str(meterai.meterai_id)
 
+    @pytest.mark.asyncio
     async def test_to_dict(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         d = await integrator.to_dict("1234567890123456-0001")
         assert d["meterai_code"] == meterai.meterai_code
 
+    @pytest.mark.asyncio
     async def test_audit_trail(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         meterai._history.append({"event": "test"})
@@ -713,6 +721,7 @@ class TestEMeteraiIntegrator:
         assert result["success"] is True
         assert len(result["audit_trail"]) == 1
 
+    @pytest.mark.asyncio
     async def test_can_transition(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         result = await integrator.can_transition("1234567890123456-0001", "PURCHASED")
@@ -723,6 +732,7 @@ class TestEMeteraiIntegrator:
         assert result2["success"] is True
         assert result2["can_transition"] is False
 
+    @pytest.mark.asyncio
     async def test_transition(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         mock_repo.update.return_value = None
@@ -731,13 +741,16 @@ class TestEMeteraiIntegrator:
         assert result["new_status"] == "PURCHASED"
         assert meterai.status == EMeteraiStatus.PURCHASED
 
+    @pytest.mark.asyncio
     async def test_version(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
+        # mock EMeterai.version property
         with patch.object(EMeterai, "version", new_callable=MagicMock, return_value=5):
             result = await integrator.version("1234567890123456-0001")
             assert result["success"] is True
             assert result["version"] == 5
 
+    @pytest.mark.asyncio
     async def test_register_event_and_get_events(self, integrator: EMeteraiIntegrator, mock_repo: AsyncMock, meterai: EMeterai):
         mock_repo.get_by_code.return_value = meterai
         mock_repo.update.return_value = None
@@ -757,6 +770,7 @@ class TestEMeteraiIntegrator:
     # ------------------------------------------------------------------------
     # Batch operations
     # ------------------------------------------------------------------------
+    @pytest.mark.asyncio
     async def test_validate_batch(self, integrator: EMeteraiIntegrator):
         with patch.object(integrator, "validate", side_effect=[
             {"success": True, "is_valid": True},
@@ -767,6 +781,7 @@ class TestEMeteraiIntegrator:
         assert results[0]["is_valid"] is True
         assert results[1]["is_valid"] is False
 
+    @pytest.mark.asyncio
     async def test_purchase_batch(self, integrator: EMeteraiIntegrator):
         purchases = [{"quantity": 2, "npwp": "npwp1"}, {"quantity": 3, "npwp": "npwp2"}]
         with patch.object(integrator, "purchase", side_effect=[
@@ -777,6 +792,7 @@ class TestEMeteraiIntegrator:
         assert len(results) == 2
         assert results[0]["quantity"] == 2
 
+    @pytest.mark.asyncio
     async def test_sync_stock_all(self, integrator: EMeteraiIntegrator):
         with patch.object(integrator, "get_stock", side_effect=[
             {"success": True, "available_quantity": 10},

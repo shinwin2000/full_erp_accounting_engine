@@ -4,6 +4,11 @@ Unit tests for disaster_recovery/dr_runbook_accounting_failure.py
 
 Covers all classes and methods, including private helpers.
 Uses mocked datetime and requests to avoid flakiness.
+Perbaikan:
+- Semua assertion diganti dengan pemeriksaan state / nilai yang bermakna.
+- Setiap private method yang dilaporkan "untested" kini memiliki test dengan assertion.
+- Test untuk _run_with_timeout mencakup timeout dan error.
+- Test untuk _execute_rollback memverifikasi perubahan status step.
 """
 
 from __future__ import annotations
@@ -125,13 +130,15 @@ class TestNotificationSeverity:
 class TestRunbookStep:
     def test_constructor_calls_take_snapshot(self):
         step = RunbookStep("test", success_action)
+        # Snapshot diambil di init, jadi minimal 1
         assert len(step._snapshots) == 1
         assert step._snapshots[0]["name"] == "test"
         assert step._snapshots[0]["version"] == 1
-        # Test _take_snapshot directly
+        # Panggil _take_snapshot langsung
+        old_len = len(step._snapshots)
         step._take_snapshot()
-        assert len(step._snapshots) == 2
-        # Test snapshot limit (max 10)
+        assert len(step._snapshots) == old_len + 1
+        # Batas snapshot 10
         for _ in range(20):
             step._take_snapshot()
         assert len(step._snapshots) == 10
@@ -142,6 +149,7 @@ class TestRunbookStep:
         assert len(step._audit_trail) == 1
         assert step._audit_trail[0]["action"] == "TEST"
         assert step._audit_trail[0]["performed_by"] == "tester"
+        assert step._audit_trail[0]["details"] == {"detail": "value"}
 
     def test_constructor(self):
         step = RunbookStep(
@@ -238,9 +246,9 @@ class TestRunbookStep:
 
     def test_clone_calls_record_audit(self):
         step = RunbookStep("test", success_action)
-        with patch.object(step, "_record_audit") as mock_record:
-            cloned = step.clone()
-            mock_record.assert_called_once_with("CLONE", "system", {"source": "test"})
+        cloned = step.clone()
+        # Audit trail harus punya CLONE
+        assert any(entry["action"] == "CLONE" for entry in step.audit_trail())
         assert cloned.name == step.name
         assert cloned.version() == step.version() + 1
 
@@ -263,10 +271,10 @@ class TestRunbookStep:
 
     def test_touch_calls_record_audit(self):
         step = RunbookStep("test", success_action)
-        with patch.object(step, "_record_audit") as mock_record:
-            step.touch("tester")
-            mock_record.assert_called_once_with("TOUCH", "tester", {})
-        assert step.version() == 2
+        old_version = step.version()
+        step.touch("tester")
+        assert step.version() == old_version + 1
+        assert any(entry["action"] == "TOUCH" for entry in step.audit_trail())
 
 
 # ============================================================================
@@ -285,9 +293,11 @@ class TestRunbookExecution:
         assert exec_obj._snapshots[0]["execution_id"] == str(exec_id)
         assert exec_obj._hash != ""
 
-        # Test _take_snapshot directly
+        # Panggil _take_snapshot langsung
+        old_len = len(exec_obj._snapshots)
         exec_obj._take_snapshot()
-        assert len(exec_obj._snapshots) == 2
+        assert len(exec_obj._snapshots) == old_len + 1
+        # Batas snapshot
         for _ in range(20):
             exec_obj._take_snapshot()
         assert len(exec_obj._snapshots) == 10
@@ -297,6 +307,7 @@ class TestRunbookExecution:
         exec_obj._record_audit("TEST", "tester", {"detail": "value"})
         assert len(exec_obj._audit_trail) == 1
         assert exec_obj._audit_trail[0]["action"] == "TEST"
+        assert exec_obj._audit_trail[0]["details"] == {"detail": "value"}
 
     def test_constructor(self):
         exec_id = uuid.uuid4()
@@ -375,14 +386,13 @@ class TestRunbookExecution:
 
     def test_clone_calls_record_audit(self):
         exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
-        with patch.object(exec_obj, "_record_audit") as mock_record:
-            cloned = exec_obj.clone()
-            mock_record.assert_called_once_with("CLONE", "system", {"source": str(exec_obj.id)})
+        cloned = exec_obj.clone()
         assert cloned.id != exec_obj.id
         assert cloned.scenario == exec_obj.scenario
         assert cloned.started_by == exec_obj.started_by
         assert cloned.status == RunbookStatus.NOT_STARTED
         assert cloned.version() == exec_obj.version() + 1
+        assert any(entry["action"] == "CLONE" for entry in exec_obj.audit_trail())
 
     def test_snapshot(self):
         exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
@@ -401,10 +411,10 @@ class TestRunbookExecution:
 
     def test_touch_calls_record_audit(self):
         exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
-        with patch.object(exec_obj, "_record_audit") as mock_record:
-            exec_obj.touch("tester")
-            mock_record.assert_called_once_with("TOUCH", "tester", {})
-        assert exec_obj.version() == 2
+        old_version = exec_obj.version()
+        exec_obj.touch("tester")
+        assert exec_obj.version() == old_version + 1
+        assert any(entry["action"] == "TOUCH" for entry in exec_obj.audit_trail())
 
     def test_compute_hash(self):
         exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
@@ -427,12 +437,16 @@ class TestNotificationManager:
         assert mgr._snapshots[0]["webhook_count"] == 0
         mgr._take_snapshot()
         assert len(mgr._snapshots) == 2
+        for _ in range(20):
+            mgr._take_snapshot()
+        assert len(mgr._snapshots) == 10
 
     def test_record_audit_direct(self):
         mgr = NotificationManager()
         mgr._record_audit("TEST", "tester", {"detail": "value"})
         assert len(mgr._audit_trail) == 1
         assert mgr._audit_trail[0]["action"] == "TEST"
+        assert mgr._audit_trail[0]["details"] == {"detail": "value"}
 
     def test_constructor_default(self):
         mgr = NotificationManager()
@@ -475,6 +489,7 @@ class TestNotificationManager:
             with patch("disaster_recovery.dr_runbook_accounting_failure.HAS_REQUESTS", False):
                 # Should not raise
                 mgr._send_webhook(NotificationSeverity.INFO, "Test", "Message")
+                # Tidak ada assertion, tapi kita hanya pastikan tidak raise
 
     def test_send_webhook_exception(self):
         mgr = NotificationManager(webhook_urls=["https://webhook.com"])
@@ -574,10 +589,10 @@ class TestNotificationManager:
 
     def test_touch_calls_record_audit(self):
         mgr = NotificationManager()
-        with patch.object(mgr, "_record_audit") as mock_record:
-            mgr.touch("tester")
-            mock_record.assert_called_once_with("TOUCH", "tester", {})
-        assert mgr.version() == 2
+        old_version = mgr.version()
+        mgr.touch("tester")
+        assert mgr.version() == old_version + 1
+        assert any(entry["action"] == "TOUCH" for entry in mgr.audit_trail())
 
     def test_reset(self):
         mgr = NotificationManager(smtp_config={"host": "smtp.example.com"}, webhook_urls=["url"])
@@ -600,8 +615,9 @@ class TestAccountingFailureRunbook:
         assert len(runbook._snapshots) == 1
         assert runbook._snapshots[0]["scenario"] == "database_primary_down"
         assert len(runbook._steps) > 0
+        old_len = len(runbook._snapshots)
         runbook._take_snapshot()
-        assert len(runbook._snapshots) == 2
+        assert len(runbook._snapshots) == old_len + 1
         for _ in range(20):
             runbook._take_snapshot()
         assert len(runbook._snapshots) == 10
@@ -611,6 +627,7 @@ class TestAccountingFailureRunbook:
         runbook._record_audit("TEST", "tester", {"detail": "value"})
         assert len(runbook._audit_trail) == 1
         assert runbook._audit_trail[0]["action"] == "TEST"
+        assert runbook._audit_trail[0]["details"] == {"detail": "value"}
 
     def test_constructor(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
@@ -658,7 +675,6 @@ class TestAccountingFailureRunbook:
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
         with patch.object(runbook.notification_manager, "send"):
             execution = runbook.execute(started_by="admin")
-            # All actions return dicts, no errors, so runbook should complete
             assert execution.status == RunbookStatus.COMPLETED
             assert all(s.status == StepStatus.SUCCESS for s in execution.steps)
 
@@ -806,10 +822,10 @@ class TestAccountingFailureRunbook:
 
     def test_touch_calls_record_audit(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-        with patch.object(runbook, "_record_audit") as mock_record:
-            runbook.touch("tester")
-            mock_record.assert_called_once_with("TOUCH", "tester", {})
-        assert runbook.version() == 2
+        old_version = runbook.version()
+        runbook.touch("tester")
+        assert runbook.version() == old_version + 1
+        assert any(entry["action"] == "TOUCH" for entry in runbook.audit_trail())
 
     def test_reset(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
@@ -825,6 +841,9 @@ class TestAccountingFailureRunbook:
         assert runbook._snapshots == []
         assert runbook._steps[0].status == StepStatus.PENDING
 
+    # ------------------------------------------------------------------------
+    # TESTS FOR ACTION METHODS (semua private action methods)
+    # ------------------------------------------------------------------------
     def test_action_methods_return_correct_defaults(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
 
@@ -878,6 +897,9 @@ class TestAccountingFailureRunbook:
         assert runbook_gen._auto_recover() == {"auto_recovered": False}
         assert runbook_gen._escalate() == {"escalated_to": "level-2-support"}
 
+    # ------------------------------------------------------------------------
+    # TESTS FOR _run_with_timeout
+    # ------------------------------------------------------------------------
     def test_run_with_timeout_success(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
         result = runbook._run_with_timeout(success_action, timeout=10)
@@ -893,6 +915,9 @@ class TestAccountingFailureRunbook:
         with pytest.raises(RuntimeError, match="Test error"):
             runbook._run_with_timeout(fail_action, timeout=10)
 
+    # ------------------------------------------------------------------------
+    # TESTS FOR _should_rollback
+    # ------------------------------------------------------------------------
     def test_should_rollback_true_for_supported_scenarios(self):
         supported = [
             FailureScenario.DATABASE_PRIMARY_DOWN,
@@ -917,13 +942,20 @@ class TestAccountingFailureRunbook:
             runbook = AccountingFailureRunbook(scenario)
             assert runbook._should_rollback() is False
 
+    # ------------------------------------------------------------------------
+    # TESTS FOR _get_recipients
+    # ------------------------------------------------------------------------
     def test_get_recipients_default(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
         recipients = runbook._get_recipients()
         assert recipients == ["dr-team@erp.com", "oncall@erp.com"]
 
+    # ------------------------------------------------------------------------
+    # TESTS FOR _execute_rollback
+    # ------------------------------------------------------------------------
     def test_execute_rollback_calls_rollback(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
+        # Set up steps where first succeeds, second fails, both have rollback
         for idx, step in enumerate(runbook._steps):
             if idx == 0:
                 step.action = success_action
@@ -936,328 +968,200 @@ class TestAccountingFailureRunbook:
                 step.rollback = success_action
         with patch.object(runbook.notification_manager, "send"):
             execution = runbook.execute(started_by="admin")
+            # Step 0 success, step 1 failed, then rollback executed for step 0
+            # Check that step 0 is rolled back
             assert execution.steps[0].status == StepStatus.ROLLED_BACK
+            # Step 1's rollback also called but status remains FAILED? Actually _execute_rollback only rolls back successful steps.
+            # Step 1 is FAILED, not rolled back.
+            assert execution.steps[1].status == StepStatus.FAILED
+            # Step 2 and others should be SKIPPED or not run
+            # Ensure rollback_executed True
+            assert execution.rollback_executed is True
 
 
 # ============================================================================
-# DIRECT PRIVATE METHOD COVERAGE (explicit calls to satisfy checker)
+# DIRECT PRIVATE METHOD COVERAGE (explicit calls with state verification)
 # ============================================================================
 
 def test_private_runbookstep_take_snapshot():
     step = RunbookStep("test", success_action)
+    old_len = len(step._snapshots)
     step._take_snapshot()
-    assert True
+    assert len(step._snapshots) == old_len + 1
 
 
 def test_private_runbookstep_record_audit():
     step = RunbookStep("test", success_action)
-    step._record_audit("ACTION", "tester", {})
-    assert True
+    step._record_audit("ACTION", "tester", {"key": "val"})
+    assert len(step._audit_trail) == 1
+    assert step._audit_trail[0]["action"] == "ACTION"
 
 
 def test_private_runbookexecution_take_snapshot():
     exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
+    old_len = len(exec_obj._snapshots)
     exec_obj._take_snapshot()
-    assert True
+    assert len(exec_obj._snapshots) == old_len + 1
 
 
 def test_private_runbookexecution_record_audit():
     exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
-    exec_obj._record_audit("ACTION", "tester", {})
-    assert True
+    exec_obj._record_audit("ACTION", "tester", {"key": "val"})
+    assert len(exec_obj._audit_trail) == 1
+    assert exec_obj._audit_trail[0]["action"] == "ACTION"
 
 
 def test_private_runbookexecution_compute_hash():
     exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
-    exec_obj._compute_hash()
-    assert True
+    h = exec_obj._compute_hash()
+    assert isinstance(h, str)
+    assert len(h) > 0
 
 
 def test_private_notification_take_snapshot():
     mgr = NotificationManager()
+    old_len = len(mgr._snapshots)
     mgr._take_snapshot()
-    assert True
+    assert len(mgr._snapshots) == old_len + 1
 
 
 def test_private_notification_record_audit():
     mgr = NotificationManager()
-    mgr._record_audit("ACTION", "tester", {})
-    assert True
+    mgr._record_audit("ACTION", "tester", {"key": "val"})
+    assert len(mgr._audit_trail) == 1
+    assert mgr._audit_trail[0]["action"] == "ACTION"
 
 
 def test_private_notification_send_webhook():
     mgr = NotificationManager(webhook_urls=["https://example.com"])
-    mgr._send_webhook(NotificationSeverity.INFO, "title", "msg")
-    assert True
+    # Mock requests to avoid real network
+    with patch("disaster_recovery.dr_runbook_accounting_failure.requests") as mock_requests:
+        mock_requests.post.return_value = MagicMock()
+        mgr._send_webhook(NotificationSeverity.INFO, "title", "msg")
+        mock_requests.post.assert_called_once()
 
 
 def test_private_notification_send_email():
     mgr = NotificationManager(smtp_config={"host": "localhost", "port": 25})
-    mgr._send_email(NotificationSeverity.INFO, "title", "msg", ["a@b.com"])
-    assert True
+    with patch("smtplib.SMTP") as mock_smtp:
+        mock_server = MagicMock()
+        mock_smtp.return_value.__enter__.return_value = mock_server
+        mgr._send_email(NotificationSeverity.INFO, "title", "msg", ["a@b.com"])
+        mock_smtp.assert_called_once_with("localhost", 25)
 
 
 def test_private_runbook_take_snapshot():
     runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
+    old_len = len(runbook._snapshots)
     runbook._take_snapshot()
-    assert True
+    assert len(runbook._snapshots) == old_len + 1
 
 
 def test_private_runbook_record_audit():
     runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._record_audit("ACTION", "tester", {})
-    assert True
+    runbook._record_audit("ACTION", "tester", {"key": "val"})
+    assert len(runbook._audit_trail) == 1
+    assert runbook._audit_trail[0]["action"] == "ACTION"
 
 
 def test_private_runbook_build_runbook():
     runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
     runbook._build_runbook()
-    assert True
+    assert len(runbook._steps) > 0
 
 
 def test_private_runbook_build_db_failover():
     runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._build_db_failover_runbook()
-    assert True
+    steps = runbook._build_db_failover_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "detect_failure"
 
 
 def test_private_runbook_build_event_store_replay():
     runbook = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
-    runbook._build_event_store_replay_runbook()
-    assert True
+    steps = runbook._build_event_store_replay_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "stop_event_ingestion"
 
 
 def test_private_runbook_build_kafka_failover():
     runbook = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
-    runbook._build_kafka_failover_runbook()
-    assert True
+    steps = runbook._build_kafka_failover_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "switch_to_dlq"
 
 
 def test_private_runbook_build_s3_backup():
     runbook = AccountingFailureRunbook(FailureScenario.S3_BACKUP_UNAVAILABLE)
-    runbook._build_s3_backup_runbook()
-    assert True
+    steps = runbook._build_s3_backup_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "check_alternative_region"
 
 
 def test_private_runbook_build_network_partition():
     runbook = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
-    runbook._build_network_partition_runbook()
-    assert True
+    steps = runbook._build_network_partition_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "detect_partition"
 
 
 def test_private_runbook_build_cross_region_sync():
     runbook = AccountingFailureRunbook(FailureScenario.CROSS_REGION_SYNC_FAILURE)
-    runbook._build_cross_region_sync_runbook()
-    assert True
+    steps = runbook._build_cross_region_sync_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "check_sync_status"
 
 
 def test_private_runbook_build_generic():
     runbook = AccountingFailureRunbook(FailureScenario.APPLICATION_CRASH)
-    runbook._build_generic_runbook()
-    assert True
+    steps = runbook._build_generic_runbook()
+    assert len(steps) > 0
+    assert steps[0].name == "notify_team"
 
 
-def test_private_runbook_check_db_health():
+def test_private_runbook_action_methods_check_state():
+    # Semua action methods sudah diuji di test_action_methods_return_correct_defaults,
+    # tapi kita tambahkan test terpisah untuk memastikan tidak ada exception.
     runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._check_db_health()
-    assert True
-
-
-def test_private_runbook_promote_standby():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._promote_standby()
-    assert True
-
-
-def test_private_runbook_demote_standby():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._demote_standby()
-    assert True
-
-
-def test_private_runbook_repoint_connections():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._repoint_connections()
-    assert True
-
-
-def test_private_runbook_verify_db_recovery():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._verify_db_recovery()
-    assert True
-
-
-def test_private_runbook_send_alert():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._send_alert()
-    assert True
-
-
-def test_private_runbook_stop_ingestion():
-    runbook = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
-    runbook._stop_ingestion()
-    assert True
-
-
-def test_private_runbook_validate_corruption_scope():
-    runbook = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
-    runbook._validate_corruption_scope()
-    assert True
-
-
-def test_private_runbook_replay_event_store():
-    runbook = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
-    runbook._replay_event_store()
-    assert True
-
-
-def test_private_runbook_verify_event_store_consistency():
-    runbook = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
-    runbook._verify_event_store_consistency()
-    assert True
-
-
-def test_private_runbook_restart_ingestion():
-    runbook = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
-    runbook._restart_ingestion()
-    assert True
-
-
-def test_private_runbook_enable_dead_letter_queue():
-    runbook = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
-    runbook._enable_dead_letter_queue()
-    assert True
-
-
-def test_private_runbook_promote_kafka_broker():
-    runbook = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
-    runbook._promote_kafka_broker()
-    assert True
-
-
-def test_private_runbook_demote_kafka_broker():
-    runbook = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
-    runbook._demote_kafka_broker()
-    assert True
-
-
-def test_private_runbook_replay_dead_letter_queue():
-    runbook = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
-    runbook._replay_dead_letter_queue()
-    assert True
-
-
-def test_private_runbook_verify_kafka_messages():
-    runbook = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
-    runbook._verify_kafka_messages()
-    assert True
-
-
-def test_private_runbook_check_s3_alternative_region():
-    runbook = AccountingFailureRunbook(FailureScenario.S3_BACKUP_UNAVAILABLE)
-    runbook._check_s3_alternative_region()
-    assert True
-
-
-def test_private_runbook_use_local_backup_cache():
-    runbook = AccountingFailureRunbook(FailureScenario.S3_BACKUP_UNAVAILABLE)
-    runbook._use_local_backup_cache()
-    assert True
-
-
-def test_private_runbook_restore_from_alternative_s3():
-    runbook = AccountingFailureRunbook(FailureScenario.S3_BACKUP_UNAVAILABLE)
-    runbook._restore_from_alternative_s3()
-    assert True
-
-
-def test_private_runbook_detect_network_partition():
-    runbook = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
-    runbook._detect_network_partition()
-    assert True
-
-
-def test_private_runbook_isolate_split_brain():
-    runbook = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
-    runbook._isolate_split_brain()
-    assert True
-
-
-def test_private_runbook_switch_to_read_only_mode():
-    runbook = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
-    runbook._switch_to_read_only_mode()
-    assert True
-
-
-def test_private_runbook_wait_for_network_healing():
-    runbook = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
-    runbook._wait_for_network_healing()
-    assert True
-
-
-def test_private_runbook_restore_full_operation():
-    runbook = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
-    runbook._restore_full_operation()
-    assert True
-
-
-def test_private_runbook_check_cross_region_sync():
-    runbook = AccountingFailureRunbook(FailureScenario.CROSS_REGION_SYNC_FAILURE)
-    runbook._check_cross_region_sync()
-    assert True
-
-
-def test_private_runbook_initiate_resync():
-    runbook = AccountingFailureRunbook(FailureScenario.CROSS_REGION_SYNC_FAILURE)
-    runbook._initiate_resync()
-    assert True
-
-
-def test_private_runbook_verify_sync_complete():
-    runbook = AccountingFailureRunbook(FailureScenario.CROSS_REGION_SYNC_FAILURE)
-    runbook._verify_sync_complete()
-    assert True
-
-
-def test_private_runbook_isolate():
-    runbook = AccountingFailureRunbook(FailureScenario.APPLICATION_CRASH)
-    runbook._isolate()
-    assert True
-
-
-def test_private_runbook_auto_recover():
-    runbook = AccountingFailureRunbook(FailureScenario.APPLICATION_CRASH)
-    runbook._auto_recover()
-    assert True
-
-
-def test_private_runbook_escalate():
-    runbook = AccountingFailureRunbook(FailureScenario.APPLICATION_CRASH)
-    runbook._escalate()
-    assert True
-
-
-def test_private_runbook_run_with_timeout():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._run_with_timeout(lambda: {"ok": True}, 1)
-    assert True
-
-
-def test_private_runbook_should_rollback():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._should_rollback()
-    assert True
-
-
-def test_private_runbook_execute_rollback():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    execution = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
-    execution.steps = runbook._steps
-    runbook._execute_rollback(execution)
-    assert True
-
-
-def test_private_runbook_get_recipients():
-    runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-    runbook._get_recipients()
-    assert True
+    assert isinstance(runbook._check_db_health(), dict)
+    assert isinstance(runbook._promote_standby(), dict)
+    assert isinstance(runbook._demote_standby(), dict)
+    assert isinstance(runbook._repoint_connections(), dict)
+    assert isinstance(runbook._verify_db_recovery(), dict)
+    assert isinstance(runbook._send_alert(), dict)
+
+    runbook_es = AccountingFailureRunbook(FailureScenario.EVENT_STORE_CORRUPTION)
+    assert isinstance(runbook_es._stop_ingestion(), dict)
+    assert isinstance(runbook_es._validate_corruption_scope(), dict)
+    assert isinstance(runbook_es._replay_event_store(), dict)
+    assert isinstance(runbook_es._verify_event_store_consistency(), dict)
+    assert isinstance(runbook_es._restart_ingestion(), dict)
+
+    runbook_kafka = AccountingFailureRunbook(FailureScenario.KAFKA_BROKER_FAILURE)
+    assert isinstance(runbook_kafka._enable_dead_letter_queue(), dict)
+    assert isinstance(runbook_kafka._promote_kafka_broker(), dict)
+    assert isinstance(runbook_kafka._demote_kafka_broker(), dict)
+    assert isinstance(runbook_kafka._replay_dead_letter_queue(), dict)
+    assert isinstance(runbook_kafka._verify_kafka_messages(), dict)
+
+    runbook_s3 = AccountingFailureRunbook(FailureScenario.S3_BACKUP_UNAVAILABLE)
+    assert isinstance(runbook_s3._check_s3_alternative_region(), dict)
+    assert isinstance(runbook_s3._use_local_backup_cache(), dict)
+    assert isinstance(runbook_s3._restore_from_alternative_s3(), dict)
+
+    runbook_net = AccountingFailureRunbook(FailureScenario.NETWORK_PARTITION)
+    assert isinstance(runbook_net._detect_network_partition(), dict)
+    assert isinstance(runbook_net._isolate_split_brain(), dict)
+    assert isinstance(runbook_net._switch_to_read_only_mode(), dict)
+    assert isinstance(runbook_net._wait_for_network_healing(), dict)
+    assert isinstance(runbook_net._restore_full_operation(), dict)
+
+    runbook_cross = AccountingFailureRunbook(FailureScenario.CROSS_REGION_SYNC_FAILURE)
+    assert isinstance(runbook_cross._check_cross_region_sync(), dict)
+    assert isinstance(runbook_cross._initiate_resync(), dict)
+    assert isinstance(runbook_cross._verify_sync_complete(), dict)
+
+    runbook_gen = AccountingFailureRunbook(FailureScenario.APPLICATION_CRASH)
+    assert isinstance(runbook_gen._isolate(), dict)
+    assert isinstance(runbook_gen._auto_recover(), dict)
+    assert isinstance(runbook_gen._escalate(), dict)

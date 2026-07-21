@@ -355,9 +355,10 @@ class TestDatabaseAuditStorage:
 class TestKafkaAuditStorage:
     @pytest.fixture
     def kafka_available(self):
-        # We'll mock the KafkaProducer in tests, but we need to set HAS_KAFKA to True
+        # Mock both HAS_KAFKA and KafkaProducer for all tests in this class
         with patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True):
-            yield
+            with patch("infrastructure.security.audit_log_security_events.KafkaProducer"):
+                yield
 
     def test_init_requires_kafka(self):
         # When HAS_KAFKA is False, import should raise ImportError
@@ -366,6 +367,7 @@ class TestKafkaAuditStorage:
                 KafkaAuditStorage("localhost:9092", "topic")
 
     @patch("infrastructure.security.audit_log_security_events.KafkaProducer")
+    @patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True)
     def test_init_success(self, mock_kafka_producer):
         storage = KafkaAuditStorage("localhost:9092", "topic")
         assert storage.topic == "topic"
@@ -376,6 +378,7 @@ class TestKafkaAuditStorage:
         )
 
     @patch("infrastructure.security.audit_log_security_events.KafkaProducer")
+    @patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True)
     def test_write(self, mock_kafka_producer):
         storage = KafkaAuditStorage("localhost:9092", "topic")
         event = {"event_id": "123", "type": "login"}
@@ -384,12 +387,14 @@ class TestKafkaAuditStorage:
 
     def test_query_returns_empty(self):
         # We need to mock producer, but query doesn't use it
-        with patch("infrastructure.security.audit_log_security_events.KafkaProducer"):
-            storage = KafkaAuditStorage("localhost:9092", "topic")
-            results = storage.query({}, 10)
-            assert results == []
+        with patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True):
+            with patch("infrastructure.security.audit_log_security_events.KafkaProducer"):
+                storage = KafkaAuditStorage("localhost:9092", "topic")
+                results = storage.query({}, 10)
+                assert results == []
 
     @patch("infrastructure.security.audit_log_security_events.KafkaProducer")
+    @patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True)
     def test_to_dict(self, mock_kafka_producer):
         storage = KafkaAuditStorage("localhost:9092", "topic")
         storage._version = 3
@@ -399,14 +404,21 @@ class TestKafkaAuditStorage:
         assert d["topic"] == "topic"
 
     @patch("infrastructure.security.audit_log_security_events.KafkaProducer")
+    @patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True)
     def test_from_dict(self, mock_kafka_producer):
-        data = {"name": "kafka:topic", "version": 5, "topic": "topic", "bootstrap_servers": "localhost:9092"}
+        data = {
+            "name": "kafka:topic",
+            "version": 5,
+            "topic": "topic",
+            "bootstrap_servers": "localhost:9092",
+        }
         storage = KafkaAuditStorage.from_dict(data)
         assert storage.topic == "topic"
         assert storage.version() == 5
         # bootstrap_servers is not stored in instance, but from_dict uses it to instantiate
 
     @patch("infrastructure.security.audit_log_security_events.KafkaProducer")
+    @patch("infrastructure.security.audit_log_security_events.HAS_KAFKA", True)
     def test_clone(self, mock_kafka_producer):
         storage = KafkaAuditStorage("localhost:9092", "topic")
         storage._version = 3

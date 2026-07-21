@@ -14,7 +14,6 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 
 from adapters.primary_api.v1.fastapi_purchase_sales_router import (
-    DeliveryMethod,
     DeliveryOrderCreateSchema,
     DeliveryOrderResponseSchema,
     DeliveryOrderStatus,

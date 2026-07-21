@@ -186,7 +186,7 @@ class TestRequestIDMiddleware:
         )
 
     @pytest.fixture
-    def request(self):
+    def mock_request(self):
         req = MagicMock(spec=Request)
         req.headers = {}
         req.method = "GET"
@@ -200,28 +200,28 @@ class TestRequestIDMiddleware:
             return Response("ok")
         return next_
 
-    async def test_dispatch_extract_from_header(self, middleware, request, call_next):
-        request.headers = {HEADER_REQUEST_ID: "from-header"}
-        response = await middleware.dispatch(request, call_next)
+    async def test_dispatch_extract_from_header(self, middleware, mock_request, call_next):
+        mock_request.headers = {HEADER_REQUEST_ID: "from-header"}
+        response = await middleware.dispatch(mock_request, call_next)
         assert response.status_code == 200
         # check context
         assert RequestIDContext.get() == "from-header"
-        assert request.state.request_id == "from-header"
+        assert mock_request.state.request_id == "from-header"
         # response header
         assert response.headers.get(HEADER_REQUEST_ID) == "from-header"
         # after dispatch, context cleared
         assert RequestIDContext.get() is None
 
-    async def test_dispatch_extract_correlation_header(self, middleware, request, call_next):
-        request.headers = {HEADER_CORRELATION_ID: "corr-123"}
-        response = await middleware.dispatch(request, call_next)
+    async def test_dispatch_extract_correlation_header(self, middleware, mock_request, call_next):
+        mock_request.headers = {HEADER_CORRELATION_ID: "corr-123"}
+        response = await middleware.dispatch(mock_request, call_next)
         assert RequestIDContext.get() == "corr-123"
         assert response.headers.get(HEADER_REQUEST_ID) == "corr-123"
 
-    async def test_dispatch_generate_if_missing(self, middleware, request, call_next):
-        request.headers = {}
+    async def test_dispatch_generate_if_missing(self, middleware, mock_request, call_next):
+        mock_request.headers = {}
         with patch.object(RequestIDGenerator, "generate_uuid", return_value="generated-123"):
-            response = await middleware.dispatch(request, call_next)
+            response = await middleware.dispatch(mock_request, call_next)
         assert RequestIDContext.get() == "generated-123"
         assert response.headers.get(HEADER_REQUEST_ID) == "generated-123"
 
@@ -233,13 +233,13 @@ class TestRequestIDMiddleware:
             inject_to_logging=False,
             inject_to_telemetry=False,
         )
-        request = MagicMock(spec=Request)
-        request.headers = {}
-        request.state = MagicMock()
+        mock_request = MagicMock(spec=Request)
+        mock_request.headers = {}
+        mock_request.state = MagicMock()
         call_next = AsyncMock(return_value=Response("ok"))
-        response = await middleware.dispatch(request, call_next)
+        response = await middleware.dispatch(mock_request, call_next)
         assert RequestIDContext.get() is None
-        assert request.state.request_id is None
+        assert mock_request.state.request_id is None
         assert HEADER_REQUEST_ID not in response.headers
 
     async def test_dispatch_response_header_custom(self, app):
@@ -252,12 +252,12 @@ class TestRequestIDMiddleware:
             inject_to_telemetry=False,
             generator=RequestIDGenerator.generate_uuid,
         )
-        request = MagicMock(spec=Request)
-        request.headers = {}
-        request.state = MagicMock()
+        mock_request = MagicMock(spec=Request)
+        mock_request.headers = {}
+        mock_request.state = MagicMock()
         call_next = AsyncMock(return_value=Response("ok"))
         with patch.object(RequestIDGenerator, "generate_uuid", return_value="custom-456"):
-            response = await middleware.dispatch(request, call_next)
+            response = await middleware.dispatch(mock_request, call_next)
         assert response.headers.get("X-Custom-ID") == "custom-456"
 
     async def test_dispatch_no_response_header(self, app):
@@ -269,18 +269,18 @@ class TestRequestIDMiddleware:
             inject_to_telemetry=False,
             generator=RequestIDGenerator.generate_uuid,
         )
-        request = MagicMock(spec=Request)
-        request.headers = {}
-        request.state = MagicMock()
+        mock_request = MagicMock(spec=Request)
+        mock_request.headers = {}
+        mock_request.state = MagicMock()
         call_next = AsyncMock(return_value=Response("ok"))
         with patch.object(RequestIDGenerator, "generate_uuid", return_value="no-header"):
-            response = await middleware.dispatch(request, call_next)
+            response = await middleware.dispatch(mock_request, call_next)
         assert HEADER_REQUEST_ID not in response.headers
 
-    async def test_dispatch_preserves_existing_request_id(self, middleware, request, call_next):
-        request.headers = {HEADER_REQUEST_ID: "existing"}
+    async def test_dispatch_preserves_existing_request_id(self, middleware, mock_request, call_next):
+        mock_request.headers = {HEADER_REQUEST_ID: "existing"}
         with patch.object(RequestIDGenerator, "generate_uuid", return_value="should-not-use"):
-            response = await middleware.dispatch(request, call_next)
+            response = await middleware.dispatch(mock_request, call_next)
         assert RequestIDContext.get() == "existing"
         assert response.headers.get(HEADER_REQUEST_ID) == "existing"
 
@@ -300,14 +300,14 @@ class TestRequestIDMiddleware:
                     inject_to_logging=False,
                     inject_to_telemetry=True,
                 )
-                request = MagicMock(spec=Request)
-                request.headers = {}
-                request.state = MagicMock()
-                request.method = "POST"
-                request.url = "http://test.com"
+                mock_request = MagicMock(spec=Request)
+                mock_request.headers = {}
+                mock_request.state = MagicMock()
+                mock_request.method = "POST"
+                mock_request.url = "http://test.com"
                 call_next = AsyncMock(return_value=Response("ok"))
                 with patch.object(RequestIDGenerator, "generate_uuid", return_value="tele-123"):
-                    response = await middleware.dispatch(request, call_next)
+                    response = await middleware.dispatch(mock_request, call_next)
         # check span started
         mock_tracer.start_span.assert_called_once_with(
             "http_request",
@@ -335,12 +335,12 @@ class TestRequestIDMiddleware:
                 )
                 assert middleware.inject_to_telemetry is False  # disabled after failure
 
-    async def test_dispatch_exception_handling(self, middleware, request):
+    async def test_dispatch_exception_handling(self, middleware, mock_request):
         # simulate error in call_next
         async def failing_next(req):
             raise ValueError("test error")
         with pytest.raises(ValueError, match="test error"):
-            await middleware.dispatch(request, failing_next)
+            await middleware.dispatch(mock_request, failing_next)
         # context should be cleared even on error
         assert RequestIDContext.get() is None
 

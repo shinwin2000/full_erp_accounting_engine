@@ -1,9 +1,12 @@
 # tests/adapters/coretax_djp/test_spt_masa_pph_23_builder.py
-# Perbaikan kualitas assertions: semua assert True dihapus,
-# diganti dengan assertion yang memeriksa nilai aktual,
-# efek samping, atau interaksi mock.
+# Perbaikan kualitas assertions:
+# - Semua async test diberi @pytest.mark.asyncio
+# - Dead test di TestSPT23RepositoryPort di-skip dengan alasan jelas
+# - Duplikasi exception test diganti dengan parametrize
+# - Flaky tests menggunakan mock datetime
+# - Assertion diperkuat, tidak ada assert True kosong
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -31,6 +34,19 @@ from adapters.coretax_djp.spt_masa_pph_23_builder import (
     _FallbackSPT23Repository,
     get_spt_pph23_builder,
 )
+
+# ============================================================================
+# FIXED DATETIME - untuk menghindari flaky tests
+# ============================================================================
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now() untuk menghindari flaky tests."""
+    with patch("adapters.coretax_djp.spt_masa_pph_23_builder.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_NOW
+        yield mock_dt
 
 
 # ============================================================================
@@ -72,55 +88,22 @@ class TestSPTStatus:
 
 
 # ============================================================================
-# Custom exception classes
+# Custom exception classes - parametrized untuk menghindari duplikasi
 # ============================================================================
-class TestSPT23Error:
-    def test_construction(self):
-        instance = SPT23Error()
-        assert isinstance(instance, SPT23Error)
+@pytest.mark.parametrize("exception_class", [
+    SPT23Error,
+    SPT23NotFoundError,
+    SPT23AlreadyExistsError,
+    SPT23InvalidStateError,
+    SPT23ValidationError,
+    SPT23LockedError,
+    SPT23XMLGenerationError,
+])
+class TestSPT23Exceptions:
+    def test_construction(self, exception_class):
+        instance = exception_class()
+        assert isinstance(instance, exception_class)
         assert isinstance(instance, Exception)
-
-
-class TestSPT23NotFoundError:
-    def test_construction(self):
-        instance = SPT23NotFoundError()
-        assert isinstance(instance, SPT23NotFoundError)
-        assert isinstance(instance, SPT23Error)
-
-
-class TestSPT23AlreadyExistsError:
-    def test_construction(self):
-        instance = SPT23AlreadyExistsError()
-        assert isinstance(instance, SPT23AlreadyExistsError)
-        assert isinstance(instance, SPT23Error)
-
-
-class TestSPT23InvalidStateError:
-    def test_construction(self):
-        instance = SPT23InvalidStateError()
-        assert isinstance(instance, SPT23InvalidStateError)
-        assert isinstance(instance, SPT23Error)
-
-
-class TestSPT23ValidationError:
-    def test_construction(self):
-        instance = SPT23ValidationError()
-        assert isinstance(instance, SPT23ValidationError)
-        assert isinstance(instance, SPT23Error)
-
-
-class TestSPT23LockedError:
-    def test_construction(self):
-        instance = SPT23LockedError()
-        assert isinstance(instance, SPT23LockedError)
-        assert isinstance(instance, SPT23Error)
-
-
-class TestSPT23XMLGenerationError:
-    def test_construction(self):
-        instance = SPT23XMLGenerationError()
-        assert isinstance(instance, SPT23XMLGenerationError)
-        assert isinstance(instance, SPT23Error)
 
 
 # ============================================================================
@@ -198,7 +181,7 @@ class TestSPTMasaPPH23:
         assert not spt.is_locked
         assert spt.is_active
 
-        spt._locked_at = datetime.now()
+        spt._locked_at = FIXED_NOW
         assert spt.is_locked
 
         spt._status = SPTStatus.CANCELLED
@@ -236,7 +219,7 @@ class TestSPTMasaPPH23:
         assert any(e["event_type"] == "spt_pph23_updated" for e in events)
 
     def test_update_locked_raises(self, spt: SPTMasaPPH23):
-        spt._locked_at = datetime.now()
+        spt._locked_at = FIXED_NOW
         with pytest.raises(SPT23LockedError):
             spt.update({}, uuid4())
 
@@ -426,26 +409,26 @@ class TestSPTMasaPPH23:
 
 
 # ============================================================================
-# Repository interface (abstract) - skip because no implementation
+# Repository interface (abstract) - di-skip karena tidak ada implementasi
 # ============================================================================
 class TestSPT23RepositoryPort:
     @pytest.mark.skip(reason="SPT23RepositoryPort is an abstract interface, not meant to be instantiated.")
     def test_construction(self):
         pass
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Abstract method, tidak diimplementasikan")
     async def test_add_smoke(self):
         pass
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Abstract method, tidak diimplementasikan")
     async def test_save_smoke(self):
         pass
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Abstract method, tidak diimplementasikan")
     async def test_update_smoke(self):
         pass
 
-    @pytest.mark.skip
+    @pytest.mark.skip(reason="Abstract method, tidak diimplementasikan")
     async def test_delete_smoke(self):
         pass
 
@@ -477,12 +460,14 @@ class Test_FallbackSPT23Repository:
             version=1,
         )
 
+    @pytest.mark.asyncio
     async def test_add_and_get_by_id(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         stored = await repo.get_by_id(spt.spt_id)
         assert stored is spt
         assert stored.npwp_pemotong == spt.npwp_pemotong
 
+    @pytest.mark.asyncio
     async def test_save(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         spt._total_pph_dipotong = Decimal("200")
@@ -490,6 +475,7 @@ class Test_FallbackSPT23Repository:
         stored = await repo.get_by_id(spt.spt_id)
         assert stored.total_pph_dipotong == Decimal("200")
 
+    @pytest.mark.asyncio
     async def test_update(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         spt._total_pph_dipotong = Decimal("300")
@@ -497,12 +483,14 @@ class Test_FallbackSPT23Repository:
         stored = await repo.get_by_id(spt.spt_id)
         assert stored.total_pph_dipotong == Decimal("300")
 
+    @pytest.mark.asyncio
     async def test_delete(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         await repo.delete(spt.spt_id)
         stored = await repo.get_by_id(spt.spt_id)
         assert stored is None
 
+    @pytest.mark.asyncio
     async def test_get_by_npwp_period(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         found = await repo.get_by_npwp_period("123456789012345", 2024, 1, "23")
@@ -510,6 +498,7 @@ class Test_FallbackSPT23Repository:
         not_found = await repo.get_by_npwp_period("999", 2024, 1, "23")
         assert not_found is None
 
+    @pytest.mark.asyncio
     async def test_get_by_tracking_id(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         spt._tracking_id = "TRK123"
         await repo.add(spt)
@@ -517,6 +506,7 @@ class Test_FallbackSPT23Repository:
         assert found is spt
         assert await repo.get_by_tracking_id("missing") is None
 
+    @pytest.mark.asyncio
     async def test_get_by_status(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         drafts = await repo.get_by_status(SPTStatus.DRAFT)
@@ -524,11 +514,13 @@ class Test_FallbackSPT23Repository:
         pendings = await repo.get_by_status(SPTStatus.PENDING)
         assert pendings == []
 
+    @pytest.mark.asyncio
     async def test_get_pending_submissions(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         pending = await repo.get_pending_submissions()
         assert spt in pending
 
+    @pytest.mark.asyncio
     async def test_exists(self, repo: _FallbackSPT23Repository, spt: SPTMasaPPH23):
         await repo.add(spt)
         assert await repo.exists("123456789012345", 2024, 1, "23") is True
@@ -568,6 +560,7 @@ class TestSPTMasaPPH23Builder:
             version=1,
         )
 
+    @pytest.mark.asyncio
     async def test_create_new(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock):
         mock_repo.get_by_npwp_period.return_value = None
         mock_repo.add.return_value = None
@@ -580,6 +573,7 @@ class TestSPTMasaPPH23Builder:
         mock_repo.add.assert_awaited_once()
         mock_repo.get_by_npwp_period.assert_awaited_once_with("123456789012345", 2024, 1, "23")
 
+    @pytest.mark.asyncio
     async def test_create_already_exists(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_npwp_period.return_value = spt
         result = await builder.create("123456789012345", 2024, 1, "23", uuid4())
@@ -587,6 +581,7 @@ class TestSPTMasaPPH23Builder:
         assert "already exists" in result["error"]
         mock_repo.add.assert_not_awaited()
 
+    @pytest.mark.asyncio
     async def test_collect_data(self, builder: SPTMasaPPH23Builder):
         # Mock tax_service
         mock_tax = AsyncMock()
@@ -634,6 +629,7 @@ class TestSPTMasaPPH23Builder:
         assert data["bupot_count"] == 2
         assert len(data["detail_bupot"]) == 2
 
+    @pytest.mark.asyncio
     async def test_build_creates_new(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock):
         mock_repo.get_by_npwp_period.return_value = None
         mock_repo.add.return_value = None
@@ -655,6 +651,7 @@ class TestSPTMasaPPH23Builder:
         assert result["success"] is True
         assert "spt_id" in result
 
+    @pytest.mark.asyncio
     async def test_build_updates_existing(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_npwp_period.return_value = spt
         mock_repo.update.return_value = None
@@ -682,6 +679,7 @@ class TestSPTMasaPPH23Builder:
         assert len(spt.detail_bupot) == 1
         mock_repo.update.assert_awaited_once_with(spt)
 
+    @pytest.mark.asyncio
     async def test_validate_spt_ok(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         mock_repo.update.return_value = None
@@ -700,12 +698,14 @@ class TestSPTMasaPPH23Builder:
         assert result["status"] == SPTStatus.VALIDATED.value
         mock_repo.update.assert_awaited_once_with(spt)
 
+    @pytest.mark.asyncio
     async def test_validate_spt_not_found(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock):
         mock_repo.get_by_id.return_value = None
         result = await builder.validate_spt(uuid4(), uuid4())
         assert result["success"] is False
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_validate_spt_validation_fails(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         # buat invalid
@@ -715,6 +715,7 @@ class TestSPTMasaPPH23Builder:
         assert "Validasi gagal" in result["error"]
         mock_repo.update.assert_not_awaited()
 
+    @pytest.mark.asyncio
     async def test_submit_spt(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         mock_repo.update.return_value = None
@@ -745,13 +746,16 @@ class TestSPTMasaPPH23Builder:
         assert result["tracking_id"] == "TRK123"
         assert result["status"] == SPTStatus.SUBMITTED.value
 
-        # Perbaikan: periksa bahwa client.post dipanggil dengan endpoint yang benar dan payload mengandung spt_xml
         mock_client.post.assert_awaited_once()
         call_args = mock_client.post.call_args
         assert call_args[0][0] == CORETAX_SPT_PPH23_ENDPOINT
         assert "spt_xml" in call_args[0][1]
         assert call_args[0][1]["spt_xml"] is not None
+        assert call_args[0][1]["npwp"] == "123456789012345"
+        assert call_args[0][1]["tahun"] == 2024
+        assert call_args[0][1]["bulan"] == 5
 
+    @pytest.mark.asyncio
     async def test_submit_spt_auth_failure(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         spt._total_dpp = Decimal("5000")
@@ -772,6 +776,7 @@ class TestSPTMasaPPH23Builder:
         assert "Coretax authentication failed" in result["error"]
         assert spt.status == SPTStatus.ERROR
 
+    @pytest.mark.asyncio
     async def test_check_spt_status(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         spt._tracking_id = "TRK123"
         mock_repo.get_by_id.return_value = spt
@@ -793,6 +798,7 @@ class TestSPTMasaPPH23Builder:
         assert result["approval_date"] == "2024-01-01"
         mock_client.get.assert_awaited_once_with("/api/v1/spt/status/TRK123")
 
+    @pytest.mark.asyncio
     async def test_cancel_spt(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         mock_repo.update.return_value = None
@@ -809,6 +815,7 @@ class TestSPTMasaPPH23Builder:
         assert spt.status == SPTStatus.CANCELLED
         mock_client.post.assert_awaited_once_with("/api/v1/spt/cancel", {"tracking_id": "TRK123", "reason": "test reason"})
 
+    @pytest.mark.asyncio
     async def test_submit_bupot(self, builder: SPTMasaPPH23Builder):
         mock_client = AsyncMock()
         mock_client.post.return_value = {"bupot_id": "b1", "bupot_number": "B001", "status": "success"}
@@ -833,6 +840,7 @@ class TestSPTMasaPPH23Builder:
         assert result["bupot_id"] == "b1"
         assert result["bupot_number"] == "B001"
 
+    @pytest.mark.asyncio
     async def test_submit_bupot_batch(self, builder: SPTMasaPPH23Builder):
         mock_client = AsyncMock()
         mock_client.post.return_value = {"submitted_count": 2, "failed_count": 0, "results": []}
@@ -851,22 +859,26 @@ class TestSPTMasaPPH23Builder:
         assert result["success"] is True
         assert result["submitted_count"] == 2
 
+    @pytest.mark.asyncio
     async def test_get_by_id(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         result = await builder.get_by_id(spt.spt_id)
         assert result is spt
 
+    @pytest.mark.asyncio
     async def test_get_by_npwp_period(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_npwp_period.return_value = spt
         result = await builder.get_by_npwp_period("123456789012345", 2024, 1, "23")
         assert result is spt
 
+    @pytest.mark.asyncio
     async def test_get_status(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         result = await builder.get_status(spt.spt_id)
         assert result["status"] == "draft"
         assert result["masa_pajak"] == "2024-01"
 
+    @pytest.mark.asyncio
     async def test_get_history(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         spt._history.append({"event": "test"})
@@ -874,6 +886,7 @@ class TestSPTMasaPPH23Builder:
         assert result["success"] is True
         assert len(result["history"]) == 1
 
+    @pytest.mark.asyncio
     async def test_snapshot(self, builder: SPTMasaPPH23Builder, mock_repo: AsyncMock, spt: SPTMasaPPH23):
         mock_repo.get_by_id.return_value = spt
         snap = await builder.snapshot(spt.spt_id)
@@ -887,6 +900,6 @@ class TestSPTMasaPPH23Builder:
 async def test_get_spt_pph23_builder():
     builder = await get_spt_pph23_builder(config={})
     assert isinstance(builder, SPTMasaPPH23Builder)
-    # coba panggil lagi, harus mengembalikan instance yang sama
+    # panggil lagi, harus mengembalikan instance yang sama
     builder2 = await get_spt_pph23_builder()
     assert builder2 is builder

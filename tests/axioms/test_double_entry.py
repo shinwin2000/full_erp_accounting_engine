@@ -9,8 +9,9 @@ DoubleEntryAxiom, DoubleEntryValidator, helper functions
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 
@@ -32,6 +33,23 @@ from axioms.double_entry import (
     create_journal_line_dict,
     get_double_entry_axiom,
 )
+
+# ============================================================================
+# FIXED DATETIME (untuk menghindari flaky)
+# ============================================================================
+
+FIXED_DATETIME = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+FIXED_DATETIME_STR = FIXED_DATETIME.isoformat()
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now(UTC) to return fixed datetime."""
+    with patch("axioms.double_entry.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_DATETIME
+        mock_dt.UTC = UTC
+        yield mock_dt
+
 
 # ============================================================================
 # Helper Functions
@@ -81,12 +99,12 @@ def create_test_journal(
         journal_id=journal_id,
         journal_number="JRN-202601-000001",
         journal_type=journal_type,
-        transaction_date=datetime.now(UTC),
+        transaction_date=FIXED_DATETIME,
         posting_date=None,
         description="Test journal",
         lines=lines,
         created_by="tester",
-        created_at=datetime.now(UTC),
+        created_at=FIXED_DATETIME,
         approved_by=[],
         status=status,
         reference_id=None,
@@ -99,12 +117,12 @@ def create_test_record(is_balanced: bool = True) -> DoubleEntryVerificationRecor
     return DoubleEntryVerificationRecord(
         record_id=uuid.uuid4(),
         journal_id=uuid.uuid4(),
-        verified_at=datetime.now(UTC),
+        verified_at=FIXED_DATETIME,
         verified_by="tester",
         is_balanced=is_balanced,
         total_debit=Decimal("1000"),
         total_credit=Decimal("1000"),
-        difference=Decimal("0"),
+        difference=Decimal("0") if is_balanced else Decimal("100"),
         tolerance=Decimal("0.0001"),
         severity=DoubleEntryViolationSeverity.INFO,
         violation_message=None,
@@ -131,58 +149,29 @@ class TestJournalLine:
         assert line.version == 1
         assert line.cryptographic_hash != ""
 
-    def test_validate_amount_positive(self):
-        with pytest.raises(InvalidJournalEntryError, match="Amount must be positive"):
-            create_test_line(amount=Decimal("-100"))
-
-    def test_validate_account_code_required(self):
-        with pytest.raises(InvalidJournalEntryError, match="Account code required"):
+    # Parametrized negative path for invalid amount, account, currency
+    @pytest.mark.parametrize(
+        "amount, account_code, currency, expected_error, match",
+        [
+            (Decimal("-100"), "1100", "IDR", InvalidJournalEntryError, "Amount must be positive"),
+            (Decimal("100"), "", "IDR", InvalidJournalEntryError, "Account code required"),
+            (Decimal("100"), "1100", "XX", InvalidJournalEntryError, "Invalid currency"),
+            (Decimal("100"), "1100", "IDR", ValueError, "Version must be >= 1"),
+        ]
+    )
+    def test_validation_errors(self, amount, account_code, currency, expected_error, match):
+        with pytest.raises(expected_error, match=match):
             JournalLine(
                 line_id=uuid.uuid4(),
                 journal_id=uuid.uuid4(),
-                account_code="",
+                account_code=account_code,
                 side=Side.DEBIT,
-                amount=Decimal("100"),
-                currency="IDR",
+                amount=amount,
+                currency=currency,
                 description="test",
                 legal_entity_id=uuid.uuid4(),
+                version=0 if currency == "IDR" and amount == "100" and account_code == "1100" else 1,
             )
-
-    def test_validate_currency_length(self):
-        with pytest.raises(InvalidJournalEntryError, match="Invalid currency"):
-            JournalLine(
-                line_id=uuid.uuid4(),
-                journal_id=uuid.uuid4(),
-                account_code="1100",
-                side=Side.DEBIT,
-                amount=Decimal("100"),
-                currency="XX",
-                description="test",
-                legal_entity_id=uuid.uuid4(),
-            )
-
-    def test_private_validate_called(self):
-        line = create_test_line()
-        result = line.validate()
-        assert result["is_valid"]
-        assert result["line_id"] == str(line.line_id)
-
-    def test_private_ensure_hash_called(self):
-        line = create_test_line()
-        assert line.cryptographic_hash != ""
-
-    def test_private_take_snapshot_called(self):
-        line = create_test_line()
-        assert len(line._snapshots) == 1
-
-    def test_private_record_audit_called(self):
-        line = create_test_line()
-        assert len(line._audit_trail) == 1
-
-    def test_private_copy_called(self):
-        line = create_test_line()
-        updated = line.update("admin", amount=Decimal("200"))
-        assert updated.amount == Decimal("200")
 
     def test_compute_hash_consistent(self):
         l1 = create_test_line()
@@ -208,18 +197,18 @@ class TestJournalLine:
         assert updated.amount == Decimal("200")
         assert updated.version == line.version + 1
 
-    def test_update_cannot_change_line_id_and_journal_id(self):
+    def test_update_cannot_change_immutable_fields(self):
         line = create_test_line()
         original_id = line.line_id
         original_journal = line.journal_id
-        updated = line.update("admin", amount=Decimal("200"))
+        updated = line.update("admin", line_id=uuid.uuid4(), journal_id=uuid.uuid4())
         assert updated.line_id == original_id
         assert updated.journal_id == original_journal
 
     def test_delete_marks_deleted(self):
         line = create_test_line()
         deleted = line.delete("admin", "test")
-        assert deleted.deleted_at is not None
+        assert deleted.deleted_at == FIXED_DATETIME
         assert deleted.deleted_by == "admin"
         assert deleted.version == line.version + 1
 
@@ -229,6 +218,7 @@ class TestJournalLine:
         restored = deleted.restore("admin")
         assert restored.deleted_at is None
         assert restored.deleted_by is None
+        assert restored.version == deleted.version + 1
 
     def test_restore_not_deleted_raises(self):
         line = create_test_line()
@@ -260,12 +250,24 @@ class TestJournalLine:
         result = line.create("admin")
         assert result is line
 
+    def test_validate_valid_returns_true(self):
+        line = create_test_line()
+        result = line.validate()
+        assert result["is_valid"] is True
+        assert result["line_id"] == str(line.line_id)
+
     def test_validate_errors_on_hash_mismatch(self):
         line = create_test_line()
         object.__setattr__(line, "cryptographic_hash", "fake")
         result = line.validate()
-        assert not result["is_valid"]
+        assert result["is_valid"] is False
         assert "Hash mismatch" in result["errors"]
+
+    def test_validate_errors_on_invalid_amount(self):
+        line = create_test_line(amount=Decimal("-10"))
+        result = line.validate()
+        assert result["is_valid"] is False
+        assert "Amount must be positive" in result["errors"]
 
     def test_to_dict_contains_fields(self):
         line = create_test_line()
@@ -332,35 +334,29 @@ class TestJournalEntry:
         assert journal.version == 1
         assert journal.cryptographic_hash != ""
 
-    def test_validate_at_least_one_line(self):
-        with pytest.raises(InvalidJournalEntryError, match="at least one line"):
+    @pytest.mark.parametrize(
+        "lines, expected_error, match",
+        [
+            ([], InvalidJournalEntryError, "at least one line"),
+            (
+                [create_test_line(journal_id=uuid.uuid4())],
+                InvalidJournalEntryError,
+                "mismatched journal_id",
+            ),
+        ]
+    )
+    def test_validation_errors(self, lines, expected_error, match):
+        with pytest.raises(expected_error, match=match):
             JournalEntry(
                 journal_id=uuid.uuid4(),
                 journal_number="JRN-001",
                 journal_type=JournalType.GENERAL,
-                transaction_date=datetime.now(UTC),
+                transaction_date=FIXED_DATETIME,
                 posting_date=None,
                 description="test",
-                lines=[],
+                lines=lines,
                 created_by="tester",
-                created_at=datetime.now(UTC),
-                approved_by=[],
-                status=JournalStatus.DRAFT,
-            )
-
-    def test_validate_line_journal_id_mismatch(self):
-        line = create_test_line(journal_id=uuid.uuid4())
-        with pytest.raises(InvalidJournalEntryError, match="mismatched journal_id"):
-            JournalEntry(
-                journal_id=uuid.uuid4(),
-                journal_number="JRN-001",
-                journal_type=JournalType.GENERAL,
-                transaction_date=datetime.now(UTC),
-                posting_date=None,
-                description="test",
-                lines=[line],
-                created_by="tester",
-                created_at=datetime.now(UTC),
+                created_at=FIXED_DATETIME,
                 approved_by=[],
                 status=JournalStatus.DRAFT,
             )
@@ -388,14 +384,10 @@ class TestJournalEntry:
         assert not journal.is_posted()
 
     def test_is_mutable(self):
-        journal = create_test_journal(status=JournalStatus.DRAFT)
-        assert journal.is_mutable()
-        journal = create_test_journal(status=JournalStatus.SUBMITTED)
-        assert journal.is_mutable()
-        journal = create_test_journal(status=JournalStatus.APPROVED)
-        assert not journal.is_mutable()
-        journal = create_test_journal(status=JournalStatus.POSTED)
-        assert not journal.is_mutable()
+        assert create_test_journal(status=JournalStatus.DRAFT).is_mutable() is True
+        assert create_test_journal(status=JournalStatus.SUBMITTED).is_mutable() is True
+        assert create_test_journal(status=JournalStatus.APPROVED).is_mutable() is False
+        assert create_test_journal(status=JournalStatus.POSTED).is_mutable() is False
 
     def test_update_works_in_mutable_state(self):
         journal = create_test_journal()
@@ -411,7 +403,7 @@ class TestJournalEntry:
     def test_delete_works_in_mutable_state(self):
         journal = create_test_journal()
         deleted = journal.delete("admin", "test")
-        assert deleted.deleted_at is not None
+        assert deleted.deleted_at == FIXED_DATETIME
         assert deleted.deleted_by == "admin"
 
     def test_delete_fails_in_immutable_state(self):
@@ -425,6 +417,7 @@ class TestJournalEntry:
         restored = deleted.restore("admin")
         assert restored.deleted_at is None
         assert restored.deleted_by is None
+        assert restored.version == deleted.version + 1
 
     def test_restore_not_deleted_raises(self):
         journal = create_test_journal()
@@ -466,14 +459,14 @@ class TestJournalEntry:
     def test_validate_returns_valid(self):
         journal = create_test_journal()
         result = journal.validate()
-        assert result["is_valid"]
+        assert result["is_valid"] is True
         assert result["journal_id"] == str(journal.journal_id)
 
     def test_validate_errors_on_hash_mismatch(self):
         journal = create_test_journal()
         object.__setattr__(journal, "cryptographic_hash", "fake")
         result = journal.validate()
-        assert not result["is_valid"]
+        assert result["is_valid"] is False
         assert "Hash mismatch" in result["errors"]
 
     def test_validate_errors_on_unbalanced(self):
@@ -481,7 +474,7 @@ class TestJournalEntry:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("800"))
         journal = create_test_journal(lines=[debit, credit])
         result = journal.validate()
-        assert not result["is_valid"]
+        assert result["is_valid"] is False
         assert "Journal not balanced" in " ".join(result["errors"])
 
     def test_to_dict_contains_fields(self):
@@ -544,17 +537,16 @@ class TestDoubleEntryVerificationRecord:
         record = create_test_record()
         assert record.record_id is not None
         assert record.journal_id is not None
-        assert record.is_balanced
+        assert record.is_balanced is True
         assert record.severity == DoubleEntryViolationSeverity.INFO
         assert record.version == 1
-        assert record.cryptographic_hash == ""  # Will be set in __post_init__
 
     def test_validate_raises_on_version_zero(self):
         with pytest.raises(ValueError, match="Version must be >= 1"):
             DoubleEntryVerificationRecord(
                 record_id=uuid.uuid4(),
                 journal_id=uuid.uuid4(),
-                verified_at=datetime.now(UTC),
+                verified_at=FIXED_DATETIME,
                 verified_by="tester",
                 is_balanced=True,
                 total_debit=Decimal("1000"),
@@ -637,21 +629,28 @@ class TestDoubleEntryVerificationRecord:
         record = create_test_record()
         record.cryptographic_hash = record.compute_hash()
         result = record.validate()
-        assert result["is_valid"]
+        assert result["is_valid"] is True
         assert result["record_id"] == str(record.record_id)
 
     def test_validate_errors_on_hash_mismatch(self):
         record = create_test_record()
         record.cryptographic_hash = "fake"
         result = record.validate()
-        assert not result["is_valid"]
+        assert result["is_valid"] is False
         assert "Hash mismatch" in result["errors"]
+
+    def test_validate_errors_on_version_zero(self):
+        record = create_test_record()
+        record.version = 0
+        result = record.validate()
+        assert result["is_valid"] is False
+        assert "Version must be >= 1" in result["errors"]
 
     def test_to_dict_contains_fields(self):
         record = create_test_record()
         record.cryptographic_hash = record.compute_hash()
         d = record.to_dict()
-        assert d["is_balanced"]
+        assert d["is_balanced"] is True
         assert d["total_debit"] == "1000"
         assert d["total_credit"] == "1000"
 
@@ -708,6 +707,8 @@ class TestDoubleEntryAxiom:
         assert num1 != num2
         assert num1.startswith("JRN-")
         assert num2.startswith("JRN-")
+        # Check sequence incremented
+        assert int(num1.split("-")[-1]) < int(num2.split("-")[-1])
 
     def test_create_journal(self):
         axiom = DoubleEntryAxiom()
@@ -715,7 +716,7 @@ class TestDoubleEntryAxiom:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("1000"))
         journal = axiom.create_journal(
             journal_type=JournalType.GENERAL,
-            transaction_date=datetime.now(UTC),
+            transaction_date=FIXED_DATETIME,
             description="Test",
             lines=[debit, credit],
             created_by="tester",
@@ -737,7 +738,7 @@ class TestDoubleEntryAxiom:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("500"))
         journal = axiom.create_journal(
             journal_type=JournalType.ADJUSTING,
-            transaction_date=datetime.now(UTC),
+            transaction_date=FIXED_DATETIME,
             description="Test",
             lines=[debit, credit],
             created_by="tester",
@@ -750,7 +751,7 @@ class TestDoubleEntryAxiom:
         with pytest.raises(InvalidJournalEntryError, match="at least one line"):
             axiom.create_journal(
                 journal_type=JournalType.GENERAL,
-                transaction_date=datetime.now(UTC),
+                transaction_date=FIXED_DATETIME,
                 description="Test",
                 lines=[],
                 created_by="tester",
@@ -762,7 +763,7 @@ class TestDoubleEntryAxiom:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("1000"))
         journal = axiom.create_journal(
             journal_type=JournalType.GENERAL,
-            transaction_date=datetime.now(UTC),
+            transaction_date=FIXED_DATETIME,
             description="Test",
             lines=[debit, credit],
             created_by="tester",
@@ -770,8 +771,13 @@ class TestDoubleEntryAxiom:
         submitted = axiom.submit_journal(journal.journal_id, "admin")
         assert submitted is not None
         assert submitted.status == JournalStatus.SUBMITTED
-        # Try submit again -> should fail
+        # Try submit again -> should return None
         result = axiom.submit_journal(journal.journal_id, "admin")
+        assert result is None
+
+    def test_submit_journal_not_found(self):
+        axiom = DoubleEntryAxiom()
+        result = axiom.submit_journal(uuid.uuid4(), "admin")
         assert result is None
 
     def test_approve_journal(self):
@@ -780,7 +786,7 @@ class TestDoubleEntryAxiom:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("1000"))
         journal = axiom.create_journal(
             journal_type=JournalType.GENERAL,
-            transaction_date=datetime.now(UTC),
+            transaction_date=FIXED_DATETIME,
             description="Test",
             lines=[debit, credit],
             created_by="tester",
@@ -790,8 +796,13 @@ class TestDoubleEntryAxiom:
         assert approved is not None
         assert approved.status == JournalStatus.APPROVED
         assert "approver" in approved.approved_by
-        # Try approve again -> should fail
+        # Try approve again -> should return None
         result = axiom.approve_journal(journal.journal_id, "approver2")
+        assert result is None
+
+    def test_approve_journal_not_found(self):
+        axiom = DoubleEntryAxiom()
+        result = axiom.approve_journal(uuid.uuid4(), "admin")
         assert result is None
 
     def test_save_and_get_journal(self):
@@ -816,8 +827,13 @@ class TestDoubleEntryAxiom:
         journal = create_test_journal()
         axiom.save_journal(journal)
         result = axiom.delete_journal(journal.journal_id)
-        assert result
+        assert result is True
         assert axiom.get_journal(journal.journal_id) is None
+
+    def test_delete_journal_not_found(self):
+        axiom = DoubleEntryAxiom()
+        result = axiom.delete_journal(uuid.uuid4())
+        assert result is False
 
     def test_save_verification_and_get_verifications(self):
         axiom = DoubleEntryAxiom()
@@ -866,13 +882,26 @@ class TestDoubleEntryAxiom:
         assert len(result) == 1
         assert result[0].severity == DoubleEntryViolationSeverity.CRITICAL
 
+    def test_get_violations_filter_by_journal(self):
+        axiom = DoubleEntryAxiom()
+        journal_id = uuid.uuid4()
+        r1 = create_test_record(is_balanced=False)
+        r1.journal_id = journal_id
+        r2 = create_test_record(is_balanced=False)
+        r2.journal_id = uuid.uuid4()
+        axiom.save_verification(r1)
+        axiom.save_verification(r2)
+        result = axiom.get_violations(journal_id=journal_id)
+        assert len(result) == 1
+        assert result[0].journal_id == journal_id
+
     def test_enforce_balanced_journal(self):
         axiom = DoubleEntryAxiom()
         journal = create_test_journal()
         is_balanced, record = axiom.enforce(journal, raise_on_violation=False)
-        assert is_balanced
+        assert is_balanced is True
         assert record is not None
-        assert record.is_balanced
+        assert record.is_balanced is True
         # Check record saved
         verifications = axiom.get_verifications(journal_id=journal.journal_id)
         assert len(verifications) >= 1
@@ -883,9 +912,9 @@ class TestDoubleEntryAxiom:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("800"))
         journal = create_test_journal(lines=[debit, credit])
         is_balanced, record = axiom.enforce(journal, raise_on_violation=False)
-        assert not is_balanced
+        assert is_balanced is False
         assert record is not None
-        assert not record.is_balanced
+        assert record.is_balanced is False
         assert record.difference == Decimal("200")
 
     def test_enforce_unbalanced_raises(self):
@@ -986,7 +1015,7 @@ class TestDoubleEntryValidator:
     def test_validate_journal_balanced(self):
         journal = create_test_journal()
         is_valid, msg = DoubleEntryValidator.validate_journal(journal)
-        assert is_valid
+        assert is_valid is True
         assert msg is None
 
     def test_validate_journal_unbalanced(self):
@@ -994,7 +1023,7 @@ class TestDoubleEntryValidator:
         credit = create_test_line(side=Side.CREDIT, amount=Decimal("800"))
         journal = create_test_journal(lines=[debit, credit])
         is_valid, msg = DoubleEntryValidator.validate_journal(journal)
-        assert not is_valid
+        assert is_valid is False
         assert "not balanced" in msg
 
     def test_validate_lines_valid(self):
@@ -1003,34 +1032,34 @@ class TestDoubleEntryValidator:
             create_test_line(side=Side.CREDIT, amount=Decimal("100")),
         ]
         is_valid, msg = DoubleEntryValidator.validate_lines(lines)
-        assert is_valid
+        assert is_valid is True
         assert msg is None
 
     def test_validate_lines_negative_amount(self):
         line = create_test_line(amount=Decimal("-100"))
         is_valid, msg = DoubleEntryValidator.validate_lines([line])
-        assert not is_valid
+        assert is_valid is False
         assert "non-positive" in msg
 
     def test_validate_lines_empty_account(self):
         line = create_test_line()
         line.account_code = ""
         is_valid, msg = DoubleEntryValidator.validate_lines([line])
-        assert not is_valid
+        assert is_valid is False
         assert "empty account" in msg
 
     def test_validate_balance_balanced(self):
         is_valid, diff = DoubleEntryValidator.validate_balance(
             debit=Decimal("1000"), credit=Decimal("1000")
         )
-        assert is_valid
+        assert is_valid is True
         assert diff == Decimal("0")
 
     def test_validate_balance_unbalanced(self):
         is_valid, diff = DoubleEntryValidator.validate_balance(
             debit=Decimal("1000"), credit=Decimal("800")
         )
-        assert not is_valid
+        assert is_valid is False
         assert diff == Decimal("200")
 
 
@@ -1062,6 +1091,15 @@ class TestHelpers:
             side="credit",
             amount=Decimal("100"),
         )
+        assert line.side == Side.CREDIT
+
+    def test_create_journal_line_invalid_string_side(self):
+        line = create_journal_line(
+            account_code="1100",
+            side="invalid",
+            amount=Decimal("100"),
+        )
+        # Should default to CREDIT because "invalid" not "debit"
         assert line.side == Side.CREDIT
 
     def test_create_debit_line(self):

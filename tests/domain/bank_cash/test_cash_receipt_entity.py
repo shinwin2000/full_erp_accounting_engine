@@ -1,8 +1,12 @@
-# test_cash_receipt_entity.py
-# Comprehensive tests for cash_receipt_entity.py
+# tests/domain/bank_cash/test_cash_receipt_entity.py
+"""
+Comprehensive unit tests for cash_receipt_entity.py.
+Covers all public methods with strong assertions, no flaky tests, negative paths.
+"""
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -16,6 +20,23 @@ from domain.bank_cash.cash_receipt_entity import (
     ReceiptAllocation,
     ReceiptSignature,
 )
+
+# ============================================================================
+# FIXED DATETIME (untuk menghindari flaky)
+# ============================================================================
+
+FIXED_DATETIME = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+FIXED_DATE = FIXED_DATETIME
+FUTURE_DATETIME = FIXED_DATETIME + timedelta(days=1)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now(UTC) to return fixed datetime."""
+    with patch("domain.bank_cash.cash_receipt_entity.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_DATETIME
+        mock_dt.UTC = UTC
+        yield mock_dt
 
 
 # ============================================================================
@@ -43,7 +64,7 @@ def valid_receipt_data(legal_entity_id):
         "receipt_id": uuid4(),
         "receipt_number": "CR-001",
         "receipt_type": CashReceiptType.CUSTOMER_PAYMENT,
-        "receipt_date": datetime.now(UTC),
+        "receipt_date": FIXED_DATETIME,
         "amount": Decimal("1000.00"),
         "currency": "IDR",
         "status": CashReceiptStatus.DRAFT,
@@ -69,13 +90,17 @@ def submitted_receipt(valid_receipt):
 
 
 @pytest.fixture
-def verified_receipt(valid_receipt):
-    # Need to go through workflow: submit, then manually set to PENDING_VERIFICATION, then verify
+def pending_verification_receipt(valid_receipt):
+    # Submit then transition to pending
     submitted = valid_receipt.submit("submitter")
     data = submitted.to_dict()
     data["status"] = CashReceiptStatus.PENDING_VERIFICATION.value
-    pending = CashReceiptEntity.from_dict(data)
-    return pending.verify("verifier", "Verified")
+    return CashReceiptEntity.from_dict(data)
+
+
+@pytest.fixture
+def verified_receipt(pending_verification_receipt):
+    return pending_verification_receipt.verify("verifier", "Verified")
 
 
 @pytest.fixture
@@ -95,18 +120,11 @@ def rejected_receipt(submitted_receipt):
 
 @pytest.fixture
 def receipt_with_allocation(valid_receipt):
-    alloc = ReceiptAllocation(
-        allocation_id=uuid4(),
+    return valid_receipt.add_allocation(
         invoice_id=uuid4(),
         invoice_number="INV-002",
         allocated_amount=Decimal("300.00"),
-        remaining_invoice_amount=Decimal("700.00"),
-    )
-    return valid_receipt.add_allocation(
-        invoice_id=alloc.invoice_id,
-        invoice_number=alloc.invoice_number,
-        allocated_amount=alloc.allocated_amount,
-        remaining_invoice=alloc.remaining_invoice_amount,
+        remaining_invoice=Decimal("700.00"),
     )
 
 
@@ -221,14 +239,13 @@ class TestReceiptAllocation:
     def test_to_dict(self):
         aid = uuid4()
         iid = uuid4()
-        now = datetime.now(UTC)
         alloc = ReceiptAllocation(
             allocation_id=aid,
             invoice_id=iid,
             invoice_number="INV-002",
             allocated_amount=Decimal("200.00"),
             remaining_invoice_amount=Decimal("800.00"),
-            created_at=now,
+            created_at=FIXED_DATETIME,
         )
         d = alloc.to_dict()
         assert d["allocation_id"] == str(aid)
@@ -236,7 +253,7 @@ class TestReceiptAllocation:
         assert d["invoice_number"] == "INV-002"
         assert d["allocated_amount"] == "200.00"
         assert d["remaining_invoice_amount"] == "800.00"
-        assert d["created_at"] == now.isoformat()
+        assert d["created_at"] == FIXED_DATETIME.isoformat()
 
 
 # ============================================================================
@@ -249,7 +266,7 @@ class TestReceiptSignature:
         assert signature.receipt_id == valid_receipt.receipt_id
         assert signature.version == valid_receipt.version
         assert signature.signed_by == "signer"
-        assert signature.signed_at.tzinfo is not None
+        assert signature.signed_at == FIXED_DATETIME
         assert signature.hash_value is not None
 
     def test_verify(self, valid_receipt):
@@ -262,7 +279,6 @@ class TestReceiptSignature:
 
     def test_verify_different_receipt(self, valid_receipt):
         signature = ReceiptSignature.create(valid_receipt, "signer")
-        # Create another receipt
         other = valid_receipt.clone()
         assert signature.verify(other) is False
 
@@ -279,74 +295,71 @@ class TestCashReceiptEntityConstruction:
         assert valid_receipt.version == 1
         assert valid_receipt._audit_trail is not None
 
-    def test_validation_receipt_number_too_short(self):
-        with pytest.raises(ValueError, match="at least 3 characters"):
+    @pytest.mark.parametrize(
+        "receipt_number, expected_error",
+        [
+            ("CR", "at least 3 characters"),
+            ("", "at least 3 characters"),
+        ]
+    )
+    def test_validation_receipt_number_too_short(self, receipt_number, expected_error):
+        with pytest.raises(ValueError, match=expected_error):
             CashReceiptEntity(
                 receipt_id=uuid4(),
-                receipt_number="CR",
+                receipt_number=receipt_number,
                 receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-                receipt_date=datetime.now(UTC),
+                receipt_date=FIXED_DATETIME,
                 amount=Decimal("1000.00"),
                 currency="IDR",
                 status=CashReceiptStatus.DRAFT,
             )
 
-    def test_validation_amount_zero_or_negative(self):
-        with pytest.raises(ValueError, match="positive"):
+    @pytest.mark.parametrize(
+        "amount, expected_error",
+        [
+            (Decimal("0"), "positive"),
+            (Decimal("-100"), "positive"),
+        ]
+    )
+    def test_validation_amount_zero_or_negative(self, amount, expected_error):
+        with pytest.raises(ValueError, match=expected_error):
             CashReceiptEntity(
                 receipt_id=uuid4(),
                 receipt_number="CR-001",
                 receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-                receipt_date=datetime.now(UTC),
-                amount=Decimal("0"),
-                currency="IDR",
-                status=CashReceiptStatus.DRAFT,
-            )
-        with pytest.raises(ValueError, match="positive"):
-            CashReceiptEntity(
-                receipt_id=uuid4(),
-                receipt_number="CR-001",
-                receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-                receipt_date=datetime.now(UTC),
-                amount=Decimal("-100"),
+                receipt_date=FIXED_DATETIME,
+                amount=amount,
                 currency="IDR",
                 status=CashReceiptStatus.DRAFT,
             )
 
-    def test_validation_confirmed_amount_negative(self):
-        with pytest.raises(ValueError, match="negative"):
+    @pytest.mark.parametrize(
+        "confirmed_amount, expected_error",
+        [
+            (Decimal("-100"), "negative"),
+            (Decimal("1500.00"), "exceeds total amount"),
+        ]
+    )
+    def test_validation_confirmed_amount_errors(self, confirmed_amount, expected_error):
+        with pytest.raises(ValueError, match=expected_error):
             CashReceiptEntity(
                 receipt_id=uuid4(),
                 receipt_number="CR-001",
                 receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-                receipt_date=datetime.now(UTC),
+                receipt_date=FIXED_DATETIME,
                 amount=Decimal("1000.00"),
                 currency="IDR",
                 status=CashReceiptStatus.DRAFT,
-                confirmed_amount=Decimal("-100"),
-            )
-
-    def test_validation_confirmed_amount_exceeds_amount(self):
-        with pytest.raises(ValueError, match="exceeds total amount"):
-            CashReceiptEntity(
-                receipt_id=uuid4(),
-                receipt_number="CR-001",
-                receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-                receipt_date=datetime.now(UTC),
-                amount=Decimal("1000.00"),
-                currency="IDR",
-                status=CashReceiptStatus.DRAFT,
-                confirmed_amount=Decimal("1500.00"),
+                confirmed_amount=confirmed_amount,
             )
 
     def test_validation_receipt_date_future(self):
-        future = datetime.now(UTC) + timedelta(days=1)
         with pytest.raises(ValueError, match="cannot be in the future"):
             CashReceiptEntity(
                 receipt_id=uuid4(),
                 receipt_number="CR-001",
                 receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-                receipt_date=future,
+                receipt_date=FUTURE_DATETIME,
                 amount=Decimal("1000.00"),
                 currency="IDR",
                 status=CashReceiptStatus.DRAFT,
@@ -389,7 +402,7 @@ class TestCashReceiptEntityBasicMethods:
         deleted = valid_receipt.delete("admin", "Test delete")
         assert deleted.status == CashReceiptStatus.CANCELLED
         assert deleted.cancelled_by == "admin"
-        assert deleted.cancelled_at is not None
+        assert deleted.cancelled_at == FIXED_DATETIME
         assert deleted.cancellation_reason == "Test delete"
         assert deleted.version == 2
         trail = deleted.audit_trail()
@@ -419,7 +432,7 @@ class TestCashReceiptEntityBasicMethods:
         activated = valid_receipt.activate("activator")
         assert activated.status == CashReceiptStatus.SUBMITTED
         assert activated.submitted_by == "activator"
-        assert activated.submitted_at is not None
+        assert activated.submitted_at == FIXED_DATETIME
         assert activated.version == 2
         trail = activated.audit_trail()
         assert trail[0]["action"] == "ACTIVATE"
@@ -464,7 +477,7 @@ class TestCashReceiptEntityBasicMethods:
         assert result["warnings"] == []
 
     def test_validate_with_allocation_exceeds(self, valid_receipt):
-        # add_allocation prevents exceeding, so we test by directly creating a receipt with allocations
+        # Test that allocations exceeding amount are detected
         alloc1 = ReceiptAllocation(
             allocation_id=uuid4(),
             invoice_id=uuid4(),
@@ -479,7 +492,6 @@ class TestCashReceiptEntityBasicMethods:
             allocated_amount=Decimal("500.00"),
             remaining_invoice_amount=Decimal("500.00"),
         )
-        # Create receipt with total allocated > amount
         data = valid_receipt.to_dict()
         data["allocations"] = [alloc1, alloc2]
         receipt = CashReceiptEntity.from_dict(data)
@@ -515,7 +527,7 @@ class TestCashReceiptEntityBasicMethods:
         assert cloned.confirmed_amount == Decimal("0")
         assert cloned.allocations == []
         assert cloned.version == 1
-        assert cloned.created_at > valid_receipt.created_at
+        assert cloned.created_at == FIXED_DATETIME
         trail = cloned.audit_trail()
         assert trail[0]["action"] == "CLONE"
 
@@ -576,7 +588,7 @@ class TestCashReceiptEntityStatusCheckers:
             receipt_id=uuid4(),
             receipt_number="CR-PARTIAL",
             receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
+            receipt_date=FIXED_DATETIME,
             amount=Decimal("1000.00"),
             currency="IDR",
             status=CashReceiptStatus.PARTIALLY_CONFIRMED,
@@ -590,7 +602,7 @@ class TestCashReceiptEntityStatusCheckers:
             receipt_id=uuid4(),
             receipt_number="CR-PEND",
             receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
+            receipt_date=FIXED_DATETIME,
             amount=Decimal("1000.00"),
             currency="IDR",
             status=CashReceiptStatus.PENDING_VERIFICATION,
@@ -602,7 +614,7 @@ class TestCashReceiptEntityStatusCheckers:
             receipt_id=uuid4(),
             receipt_number="CR-VER",
             receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
+            receipt_date=FIXED_DATETIME,
             amount=Decimal("1000.00"),
             currency="IDR",
             status=CashReceiptStatus.VERIFIED,
@@ -618,17 +630,8 @@ class TestCashReceiptEntityStatusCheckers:
         assert valid_receipt.can_submit() is True
         assert submitted_receipt.can_submit() is False
 
-    def test_can_verify(self):
-        pending = CashReceiptEntity(
-            receipt_id=uuid4(),
-            receipt_number="CR-PEND",
-            receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
-            amount=Decimal("1000.00"),
-            currency="IDR",
-            status=CashReceiptStatus.PENDING_VERIFICATION,
-        )
-        assert pending.can_verify() is True
+    def test_can_verify(self, pending_verification_receipt, valid_receipt):
+        assert pending_verification_receipt.can_verify() is True
         assert valid_receipt.can_verify() is False
 
     def test_can_confirm(self, verified_receipt, valid_receipt):
@@ -656,7 +659,7 @@ class TestCashReceiptEntityStatusCheckers:
             receipt_id=uuid4(),
             receipt_number="CR-PARTIAL",
             receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
+            receipt_date=FIXED_DATETIME,
             amount=Decimal("1000.00"),
             currency="IDR",
             status=CashReceiptStatus.PARTIALLY_CONFIRMED,
@@ -674,7 +677,7 @@ class TestCashReceiptEntityWorkflow:
         submitted = valid_receipt.submit("submitter")
         assert submitted.status == CashReceiptStatus.SUBMITTED
         assert submitted.submitted_by == "submitter"
-        assert submitted.submitted_at is not None
+        assert submitted.submitted_at == FIXED_DATETIME
         assert submitted.version == 2
         trail = submitted.audit_trail()
         assert trail[0]["action"] == "SUBMIT"
@@ -683,20 +686,11 @@ class TestCashReceiptEntityWorkflow:
         with pytest.raises(ValueError, match="Cannot submit receipt in status submitted"):
             submitted_receipt.submit("submitter")
 
-    def test_verify(self):
-        pending = CashReceiptEntity(
-            receipt_id=uuid4(),
-            receipt_number="CR-PEND",
-            receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
-            amount=Decimal("1000.00"),
-            currency="IDR",
-            status=CashReceiptStatus.PENDING_VERIFICATION,
-        )
-        verified = pending.verify("verifier", "Verified notes")
+    def test_verify(self, pending_verification_receipt):
+        verified = pending_verification_receipt.verify("verifier", "Verified notes")
         assert verified.status == CashReceiptStatus.VERIFIED
         assert verified.verified_by == "verifier"
-        assert verified.verified_at is not None
+        assert verified.verified_at == FIXED_DATETIME
         assert verified.verification_notes == "Verified notes"
         assert verified.version == 2
         trail = verified.audit_trail()
@@ -710,9 +704,9 @@ class TestCashReceiptEntityWorkflow:
         confirmed = verified_receipt.confirm("confirmer")
         assert confirmed.status == CashReceiptStatus.CONFIRMED
         assert confirmed.confirmed_amount == Decimal("1000.00")
-        assert confirmed.confirmed_date is not None
+        assert confirmed.confirmed_date == FIXED_DATETIME
         assert confirmed.confirmed_by == "confirmer"
-        assert confirmed.confirmed_at is not None
+        assert confirmed.confirmed_at == FIXED_DATETIME
         assert confirmed.version == verified_receipt.version + 1
         trail = confirmed.audit_trail()
         assert trail[0]["action"] == "CONFIRM"
@@ -741,7 +735,7 @@ class TestCashReceiptEntityWorkflow:
         rejected = submitted_receipt.reject("rejecter", "Invalid amount")
         assert rejected.status == CashReceiptStatus.REJECTED
         assert rejected.rejected_by == "rejecter"
-        assert rejected.rejected_at is not None
+        assert rejected.rejected_at == FIXED_DATETIME
         assert rejected.rejection_reason == "Invalid amount"
         assert rejected.version == 2
         trail = rejected.audit_trail()
@@ -756,7 +750,7 @@ class TestCashReceiptEntityWorkflow:
         cancelled = valid_receipt.cancel("canceller", "Test")
         assert cancelled.status == CashReceiptStatus.CANCELLED
         assert cancelled.cancelled_by == "canceller"
-        assert cancelled.cancelled_at is not None
+        assert cancelled.cancelled_at == FIXED_DATETIME
         assert cancelled.cancellation_reason == "Test"
         assert cancelled.version == 2
         trail = cancelled.audit_trail()
@@ -798,7 +792,7 @@ class TestCashReceiptEntityUpdateMethods:
             receipt_id=uuid4(),
             receipt_number="CR-PARTIAL",
             receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
+            receipt_date=FIXED_DATETIME,
             amount=Decimal("1000.00"),
             currency="IDR",
             status=CashReceiptStatus.PARTIALLY_CONFIRMED,
@@ -918,6 +912,7 @@ class TestCashReceiptEntityHelperMethods:
 # Tests for CashReceiptRepository
 # ============================================================================
 
+@pytest.mark.asyncio
 class TestCashReceiptRepository:
     async def test_save_and_get_by_id(self, valid_receipt, legal_entity_id):
         repo = CashReceiptRepository()
@@ -938,7 +933,6 @@ class TestCashReceiptRepository:
         assert len(retrieved) == 1
         assert retrieved[0] == valid_receipt
 
-        # Add another customer receipt
         other = valid_receipt.clone()
         other.customer_id = uuid4()
         await repo.save(other, legal_entity_id)
@@ -954,7 +948,6 @@ class TestCashReceiptRepository:
 
     async def test_get_by_cash_book(self, valid_receipt, legal_entity_id):
         repo = CashReceiptRepository()
-        # Set cash_book_id for receipt
         receipt = valid_receipt.update(updated_by="admin", cash_book_id=uuid4())
         await repo.save(receipt, legal_entity_id)
         retrieved = await repo.get_by_cash_book(receipt.cash_book_id, legal_entity_id)
@@ -966,11 +959,11 @@ class TestCashReceiptRepository:
         await repo.save(valid_receipt, legal_entity_id)
         draft = await repo.get_by_status(CashReceiptStatus.DRAFT, legal_entity_id)
         assert len(draft) == 1
-        # Submit another
+
         submitted = valid_receipt.clone().submit("submitter")
         await repo.save(submitted, legal_entity_id)
         draft2 = await repo.get_by_status(CashReceiptStatus.DRAFT, legal_entity_id)
-        assert len(draft2) == 1  # original only
+        assert len(draft2) == 1
         submitted_list = await repo.get_by_status(CashReceiptStatus.SUBMITTED, legal_entity_id)
         assert len(submitted_list) == 1
 
@@ -980,7 +973,7 @@ class TestCashReceiptRepository:
             receipt_id=uuid4(),
             receipt_number="CR-PEND",
             receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-            receipt_date=datetime.now(UTC),
+            receipt_date=FIXED_DATETIME,
             amount=Decimal("1000.00"),
             currency="IDR",
             status=CashReceiptStatus.PENDING_VERIFICATION,
@@ -997,20 +990,18 @@ class TestCashReceiptRepository:
         await repo.save(valid_receipt, legal_entity_id)
         results = await repo.get_by_date_range(legal_entity_id, start, end)
         assert len(results) == 1
-        # Outside range
+
         start2 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         results2 = await repo.get_by_date_range(legal_entity_id, start2, end)
         assert len(results2) == 0
 
     async def test_get_total_by_customer(self, valid_receipt, legal_entity_id):
         repo = CashReceiptRepository()
-        # Save as confirmed
         confirmed = valid_receipt.confirm("confirmer")
         await repo.save(confirmed, legal_entity_id)
         total = await repo.get_total_by_customer(confirmed.customer_id, legal_entity_id)
         assert total == Decimal("1000.00")
 
-        # Add another receipt for same customer
         other = valid_receipt.clone()
         other.customer_id = confirmed.customer_id
         other.amount = Decimal("500.00")
@@ -1072,3 +1063,5 @@ class TestCashReceiptRepository:
         repo = CashReceiptRepository()
         # Should not raise
         await repo.delete(uuid4(), legal_entity_id)
+        # Assert that storage remains unaffected (we need to verify)
+        assert await repo.count(legal_entity_id) == 0

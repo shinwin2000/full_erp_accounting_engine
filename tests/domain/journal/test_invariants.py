@@ -697,11 +697,13 @@ def _trigger_all_invariant_methods():
     _ = validator.validate_currency_consistency([])
     _ = validator.validate_date_consistency(datetime.now(UTC), datetime.now(UTC))
     
-    # Create a proper mock for validate_all
+    # Create a proper mock for validate_all with all required attributes
     mock_journal = MagicMock(spec=JournalEntity)
     mock_journal.transaction_date = datetime.now(UTC)
+    mock_journal.posting_date = datetime.now(UTC)   # <-- FIX: added posting_date
     mock_journal.journal_number = "TEST-001"
     mock_journal.legal_entity_id = uuid4()
+    mock_journal.status = JournalStatus.DRAFT
     _ = validator.validate_all(mock_journal, [])
 
 
