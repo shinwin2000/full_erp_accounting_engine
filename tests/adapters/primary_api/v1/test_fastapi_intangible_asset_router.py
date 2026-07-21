@@ -1,4 +1,4 @@
-# adapters/primary_api/v1/test_fastapi_intangible_asset_router.py
+# test_fastapi_intangible_asset_router.py
 """
 Comprehensive unit tests for FastAPI Intangible Asset Router.
 
@@ -474,6 +474,7 @@ class TestAssetCRUD:
         assert result.asset_code == "IA-001"
         mock_intangible_service.create_asset.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_create_idempotency(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         request = IntangibleAssetCreateSchema(
             asset_code="IA-001",
@@ -524,6 +525,7 @@ class TestAssetCRUD:
             assert isinstance(result, IntangibleAssetResponseSchema)
             mock_intangible_service.create_asset.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_create_value_error(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         mock_intangible_service.create_asset.side_effect = ValueError("Duplicate code")
         request = IntangibleAssetCreateSchema(
@@ -544,6 +546,7 @@ class TestAssetCRUD:
             )
         assert exc.value.status_code == 422
 
+    @pytest.mark.asyncio
     async def test_get_asset_success(self, mock_intangible_service, mock_legal_entity_id):
         asset_id = uuid4()
         result = await get_asset(
@@ -555,6 +558,7 @@ class TestAssetCRUD:
         assert isinstance(result, IntangibleAssetResponseSchema)
         mock_intangible_service.get_asset_by_id.assert_called_once_with(asset_id, mock_legal_entity_id)
 
+    @pytest.mark.asyncio
     async def test_get_asset_not_found(self, mock_intangible_service, mock_legal_entity_id):
         mock_intangible_service.get_asset_by_id.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -566,6 +570,7 @@ class TestAssetCRUD:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_get_asset_by_code_success(self, mock_intangible_service, mock_legal_entity_id):
         result = await get_asset_by_code(
             asset_code="IA-001",
@@ -576,6 +581,7 @@ class TestAssetCRUD:
         assert isinstance(result, IntangibleAssetResponseSchema)
         mock_intangible_service.get_asset_by_code.assert_called_once_with("IA-001", mock_legal_entity_id)
 
+    @pytest.mark.asyncio
     async def test_get_asset_by_code_not_found(self, mock_intangible_service, mock_legal_entity_id):
         mock_intangible_service.get_asset_by_code.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -587,6 +593,7 @@ class TestAssetCRUD:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_update_asset_success(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         asset_id = uuid4()
         request = IntangibleAssetUpdateSchema(asset_name="Updated Name")
@@ -602,6 +609,7 @@ class TestAssetCRUD:
         assert isinstance(result, IntangibleAssetResponseSchema)
         mock_intangible_service.update_asset.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_update_asset_not_found(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         mock_intangible_service.update_asset.return_value = None
         request = IntangibleAssetUpdateSchema()
@@ -617,6 +625,7 @@ class TestAssetCRUD:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_archive_asset_success(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         asset_id = uuid4()
         result = await archive_asset(
@@ -632,6 +641,7 @@ class TestAssetCRUD:
             asset_id, mock_token_payload.user_id, mock_legal_entity_id, "Obsolete"
         )
 
+    @pytest.mark.asyncio
     async def test_archive_asset_not_found(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         mock_intangible_service.archive_asset.return_value = None
         with pytest.raises(HTTPException) as exc:
@@ -645,6 +655,7 @@ class TestAssetCRUD:
             )
         assert exc.value.status_code == 404
 
+    @pytest.mark.asyncio
     async def test_activate_asset_success(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         asset_id = uuid4()
         result = await activate_asset(
@@ -659,6 +670,7 @@ class TestAssetCRUD:
             asset_id, mock_token_payload.user_id, mock_legal_entity_id
         )
 
+    @pytest.mark.asyncio
     async def test_lock_asset_success(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         asset_id = uuid4()
         result = await lock_asset(
@@ -674,6 +686,7 @@ class TestAssetCRUD:
             asset_id, mock_token_payload.user_id, mock_legal_entity_id, "Audit"
         )
 
+    @pytest.mark.asyncio
     async def test_unlock_asset_success(self, mock_intangible_service, mock_token_payload, mock_legal_entity_id):
         asset_id = uuid4()
         result = await unlock_asset(
@@ -688,6 +701,7 @@ class TestAssetCRUD:
             asset_id, mock_token_payload.user_id, mock_legal_entity_id
         )
 
+    @pytest.mark.asyncio
     async def test_list_assets(self, mock_intangible_service, mock_legal_entity_id):
         result = await list_assets(
             asset_category=IntangibleAssetCategory.PATENT,

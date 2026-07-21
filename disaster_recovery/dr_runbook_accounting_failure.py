@@ -610,79 +610,79 @@ class AccountingFailureRunbook:
 
     def _build_db_failover_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("detect_failure", self._check_db_health, timeout=10, retry_count=2),
+            RunbookStep("detect_failure", self._check_db_health, timeout_seconds=10, retry_count=2),
             RunbookStep(
                 "promote_standby",
                 self._promote_standby,
-                timeout=120,
+                timeout_seconds=120,
                 rollback=self._demote_standby,
                 retry_count=1,
             ),
             RunbookStep(
                 "repoint_applications",
                 self._repoint_connections,
-                timeout=30,
+                timeout_seconds=30,
                 depends_on=["promote_standby"],
             ),
-            RunbookStep("verify_recovery", self._verify_db_recovery, timeout=60),
-            RunbookStep("notify_team", self._send_alert, timeout=10),
+            RunbookStep("verify_recovery", self._verify_db_recovery, timeout_seconds=60),
+            RunbookStep("notify_team", self._send_alert, timeout_seconds=10),
         ]
 
     def _build_event_store_replay_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("stop_event_ingestion", self._stop_ingestion, timeout=10),
-            RunbookStep("validate_corruption", self._validate_corruption_scope, timeout=60),
+            RunbookStep("stop_event_ingestion", self._stop_ingestion, timeout_seconds=10),
+            RunbookStep("validate_corruption", self._validate_corruption_scope, timeout_seconds=60),
             RunbookStep(
-                "replay_from_snapshot", self._replay_event_store, timeout=600, retry_count=2
+                "replay_from_snapshot", self._replay_event_store, timeout_seconds=600, retry_count=2
             ),
-            RunbookStep("verify_consistency", self._verify_event_store_consistency, timeout=60),
-            RunbookStep("restart_ingestion", self._restart_ingestion, timeout=10),
+            RunbookStep("verify_consistency", self._verify_event_store_consistency, timeout_seconds=60),
+            RunbookStep("restart_ingestion", self._restart_ingestion, timeout_seconds=10),
         ]
 
     def _build_kafka_failover_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("switch_to_dlq", self._enable_dead_letter_queue, timeout=15),
+            RunbookStep("switch_to_dlq", self._enable_dead_letter_queue, timeout_seconds=15),
             RunbookStep(
                 "failover_kafka_broker",
                 self._promote_kafka_broker,
-                timeout=60,
+                timeout_seconds=60,
                 rollback=self._demote_kafka_broker,
             ),
-            RunbookStep("replay_dlq", self._replay_dead_letter_queue, timeout=300),
-            RunbookStep("verify_messages", self._verify_kafka_messages, timeout=60),
+            RunbookStep("replay_dlq", self._replay_dead_letter_queue, timeout_seconds=300),
+            RunbookStep("verify_messages", self._verify_kafka_messages, timeout_seconds=60),
         ]
 
     def _build_s3_backup_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("check_alternative_region", self._check_s3_alternative_region, timeout=30),
-            RunbookStep("use_local_cache", self._use_local_backup_cache, timeout=60),
-            RunbookStep("restore_from_alternative", self._restore_from_alternative_s3, timeout=300),
+            RunbookStep("check_alternative_region", self._check_s3_alternative_region, timeout_seconds=30),
+            RunbookStep("use_local_cache", self._use_local_backup_cache, timeout_seconds=60),
+            RunbookStep("restore_from_alternative", self._restore_from_alternative_s3, timeout_seconds=300),
         ]
 
     def _build_network_partition_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("detect_partition", self._detect_network_partition, timeout=10),
-            RunbookStep("isolate_split_brain", self._isolate_split_brain, timeout=30),
-            RunbookStep("switch_to_read_only", self._switch_to_read_only_mode, timeout=15),
+            RunbookStep("detect_partition", self._detect_network_partition, timeout_seconds=10),
+            RunbookStep("isolate_split_brain", self._isolate_split_brain, timeout_seconds=30),
+            RunbookStep("switch_to_read_only", self._switch_to_read_only_mode, timeout_seconds=15),
             RunbookStep(
-                "wait_for_healing", self._wait_for_network_healing, timeout=600, retry_count=0
+                "wait_for_healing", self._wait_for_network_healing, timeout_seconds=600, retry_count=0
             ),
-            RunbookStep("restore_full_operation", self._restore_full_operation, timeout=60),
+            RunbookStep("restore_full_operation", self._restore_full_operation, timeout_seconds=60),
         ]
 
     def _build_cross_region_sync_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("check_sync_status", self._check_cross_region_sync, timeout=30),
-            RunbookStep("initiate_resync", self._initiate_resync, timeout=300),
-            RunbookStep("verify_sync_complete", self._verify_sync_complete, timeout=120),
+            RunbookStep("check_sync_status", self._check_cross_region_sync, timeout_seconds=30),
+            RunbookStep("initiate_resync", self._initiate_resync, timeout_seconds=300),
+            RunbookStep("verify_sync_complete", self._verify_sync_complete, timeout_seconds=120),
         ]
 
     def _build_generic_runbook(self) -> list[RunbookStep]:
         return [
-            RunbookStep("notify_team", self._send_alert, timeout=10),
-            RunbookStep("isolate_failure", self._isolate, timeout=30),
-            RunbookStep("attempt_auto_recovery", self._auto_recover, timeout=180),
-            RunbookStep("escalate_if_needed", self._escalate, timeout=60),
+            RunbookStep("notify_team", self._send_alert, timeout_seconds=10),
+            RunbookStep("isolate_failure", self._isolate, timeout_seconds=30),
+            RunbookStep("attempt_auto_recovery", self._auto_recover, timeout_seconds=180),
+            RunbookStep("escalate_if_needed", self._escalate, timeout_seconds=60),
         ]
 
     # ------------------------------------------------------------------------
@@ -834,6 +834,7 @@ class AccountingFailureRunbook:
                         time.sleep(step.retry_delay)
             step.end_time = datetime.now(UTC)
             if not success:
+                step.status = StepStatus.FAILED
                 execution.failed_step_index = idx
                 execution.status = RunbookStatus.FAILED
                 self.notification_manager.send(

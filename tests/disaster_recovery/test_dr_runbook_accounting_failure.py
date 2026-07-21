@@ -43,11 +43,13 @@ FIXED_LATER = FIXED_NOW + timedelta(hours=1)
 
 @pytest.fixture(autouse=True)
 def mock_datetime_now():
-    """Mock datetime.now(UTC) to avoid flaky tests."""
+    """Mock datetime.now(UTC) to avoid flaky tests, while keeping fromisoformat real."""
     with patch("disaster_recovery.dr_runbook_accounting_failure.datetime") as mock_dt:
         mock_dt.now.return_value = FIXED_NOW
         mock_dt.UTC = UTC
+        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
         yield mock_dt
+
 
 
 # ============================================================================
@@ -247,8 +249,9 @@ class TestRunbookStep:
     def test_clone_calls_record_audit(self):
         step = RunbookStep("test", success_action)
         cloned = step.clone()
-        # Audit trail harus punya CLONE
-        assert any(entry["action"] == "CLONE" for entry in step.audit_trail())
+        # clone() records the CLONE audit entry on the new (cloned) object.
+        assert any(entry["action"] == "CLONE" for entry in cloned.audit_trail())
+        assert cloned.audit_trail()[-1]["details"] == {"source": step.name}
         assert cloned.name == step.name
         assert cloned.version() == step.version() + 1
 
@@ -333,7 +336,10 @@ class TestRunbookExecution:
         assert result["is_valid"] is True
 
     def test_validate_invalid(self):
-        exec_obj = RunbookExecution(uuid.uuid4(), "invalid", "admin")  # type: ignore
+        # Construct with a valid scenario first (the constructor computes a hash
+        # from self.scenario.value, so an invalid scenario must be set afterwards).
+        exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
+        exec_obj.scenario = "invalid"  # type: ignore
         result = exec_obj.validate()
         assert result["is_valid"] is False
         assert "invalid scenario" in result["errors"]
@@ -392,7 +398,8 @@ class TestRunbookExecution:
         assert cloned.started_by == exec_obj.started_by
         assert cloned.status == RunbookStatus.NOT_STARTED
         assert cloned.version() == exec_obj.version() + 1
-        assert any(entry["action"] == "CLONE" for entry in exec_obj.audit_trail())
+        # clone() records the CLONE audit entry on the new (cloned) object.
+        assert any(entry["action"] == "CLONE" for entry in cloned.audit_trail())
 
     def test_snapshot(self):
         exec_obj = RunbookExecution(uuid.uuid4(), FailureScenario.DATABASE_PRIMARY_DOWN, "admin")
@@ -733,17 +740,19 @@ class TestAccountingFailureRunbook:
             assert execution.status in (RunbookStatus.FAILED, RunbookStatus.ROLLBACK_COMPLETED)
 
     def test_execute_skips_dependencies(self):
+        # execute() returns as soon as a step genuinely fails, so a step only
+        # ends up SKIPPED when its dependency name never matches a successful
+        # step (not when an earlier step fails outright).
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
-        for idx, step in enumerate(runbook._steps):
-            if idx == 0:
-                step.action = fail_action
-            else:
-                step.action = success_action
-                step.depends_on = [runbook._steps[0].name]
+        for step in runbook._steps:
+            step.action = success_action
+        runbook._steps[1].depends_on = ["step_that_never_runs"]
         with patch.object(runbook.notification_manager, "send"):
             execution = runbook.execute(started_by="admin")
             skipped = [s for s in execution.steps if s.status == StepStatus.SKIPPED]
             assert len(skipped) > 0
+            assert execution.steps[1].status == StepStatus.SKIPPED
+            assert execution.steps[1].error == "Dependencies not met"
 
     def test_get_execution_status(self):
         runbook = AccountingFailureRunbook(FailureScenario.DATABASE_PRIMARY_DOWN)
@@ -837,7 +846,9 @@ class TestAccountingFailureRunbook:
         assert runbook.execution is None
         assert len(runbook._steps) > 0
         assert runbook.version() == 1
-        assert runbook._audit_trail == []
+        # reset() clears the audit trail then immediately records a RESET entry.
+        assert len(runbook._audit_trail) == 1
+        assert runbook._audit_trail[0]["action"] == "RESET"
         assert runbook._snapshots == []
         assert runbook._steps[0].status == StepStatus.PENDING
 

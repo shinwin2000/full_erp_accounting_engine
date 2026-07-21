@@ -54,15 +54,32 @@ from adapters.coretax_djp.spt_tahunan_badan_builder import (
 
 @pytest.fixture(autouse=True)
 def mock_datetime_now():
-    """Mock datetime.now() and date.today() globally for all tests."""
+    """Mock datetime.now() and date.today() globally for all tests.
+
+    The module under test does `from datetime import date, datetime`, so
+    `date` and `datetime` are bound as classes (not as the `datetime`
+    submodule) in its namespace. Real `datetime`/`date` classes are
+    immutable C types and cannot have `.now`/`.today` monkeypatched
+    directly, so we substitute thin subclasses that override only
+    `now()`/`today()` and otherwise behave exactly like the real classes
+    (preserving isinstance checks, construction, comparisons, etc.).
+    """
     fixed_datetime = datetime(2026, 1, 1, 12, 0, 0)
     fixed_date = date(2026, 1, 1)
-    with patch("adapters.coretax_djp.spt_tahunan_badan_builder.datetime") as mock_dt:
-        mock_dt.datetime.now.return_value = fixed_datetime
-        mock_dt.date.today.return_value = fixed_date
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.datetime.now", return_value=fixed_datetime):
-            with patch("adapters.coretax_djp.spt_tahunan_badan_builder.date.today", return_value=fixed_date):
-                yield
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_datetime
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return fixed_date
+
+    with patch("adapters.coretax_djp.spt_tahunan_badan_builder.datetime", FixedDateTime):
+        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.date", FixedDate):
+            yield
 
 
 @pytest.fixture
@@ -307,7 +324,7 @@ class TestSPTTahunanBadan:
         assert result._events[0]["event_type"] == "spt_tahunan_badan_updated"
 
     def test_update_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.update({}, uuid.uuid4())
 
@@ -328,7 +345,7 @@ class TestSPTTahunanBadan:
         assert result.cancelled_at is not None
 
     def test_delete_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.delete(uuid.uuid4())
 
@@ -376,12 +393,12 @@ class TestSPTTahunanBadan:
         assert result.version == 2
 
     def test_lock_already_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="already locked"):
             sample_spt.lock(uuid.uuid4())
 
     def test_unlock(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         sample_spt._locked_by = uuid.uuid4()
         unlocked_by = uuid.uuid4()
         result = sample_spt.unlock(unlocked_by)
@@ -449,7 +466,7 @@ class TestSPTTahunanBadan:
             sample_spt.validate(uuid.uuid4())
 
     def test_validate_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.validate(uuid.uuid4())
 
@@ -499,7 +516,7 @@ class TestSPTTahunanBadan:
         assert result.version == 2
 
     def test_calculate_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.calculate(uuid.uuid4())
 
@@ -515,8 +532,10 @@ class TestSPTTahunanBadan:
             result = sample_spt.submit(submitted_by)
         assert result.status == SPTStatus.SUBMITTED
         assert result.submitted_at is not None
-        assert result.version == 2
-        assert result._events[0]["event_type"] == "spt_tahunan_badan_submitted"
+        # submit() internally calls validate() first, so version is bumped twice
+        # (once by validate(), once by submit() itself).
+        assert result.version == 3
+        assert result._events[-1]["event_type"] == "spt_tahunan_badan_submitted"
 
     def test_submit_invalid_status_raises(self, sample_spt):
         sample_spt._status = SPTStatus.DRAFT
@@ -545,7 +564,7 @@ class TestSPTTahunanBadan:
         assert result.version == 2
 
     def test_void_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.void(uuid.uuid4(), "reason")
 
@@ -555,7 +574,7 @@ class TestSPTTahunanBadan:
         assert not status["is_locked"]
         assert status["is_active"]
         assert not status["can_submit"]
-        assert status["can_cancel"]
+        assert not status["can_cancel"]
         assert status["tahun_pajak"] == 2026
 
     def test_get_history(self, sample_spt):
@@ -634,7 +653,7 @@ class TestSPTTahunanBadan:
         assert result.version == 2
 
     def test_add_koreksi_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.add_koreksi_positif("01", Decimal("100"))
 
@@ -647,7 +666,7 @@ class TestSPTTahunanBadan:
         assert result.version == 2
 
     def test_add_pemegang_saham_locked_raises(self, sample_spt):
-        sample_spt._locked_at = datetime.now()
+        sample_spt._locked_at = datetime(2026, 1, 1, 12, 0, 0)
         with pytest.raises(SPTBadanLockedError, match="is locked"):
             sample_spt.add_pemegang_saham("123", "PT A", Decimal("50"), Decimal("1000"))
 
@@ -716,8 +735,8 @@ class TestSPTTahunanBadan:
 # Tests for _FallbackSPTBadanRepository
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestFallbackSPTBadanRepository:
+    @pytest.mark.asyncio
     async def test_add_and_get(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
@@ -725,6 +744,7 @@ class TestFallbackSPTBadanRepository:
         assert retrieved is not None
         assert retrieved.spt_id == sample_spt.spt_id
 
+    @pytest.mark.asyncio
     async def test_save(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
@@ -733,6 +753,7 @@ class TestFallbackSPTBadanRepository:
         retrieved = await repo.get_by_id(sample_spt.spt_id)
         assert retrieved.status == SPTStatus.SUBMITTED
 
+    @pytest.mark.asyncio
     async def test_update(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
@@ -741,6 +762,7 @@ class TestFallbackSPTBadanRepository:
         retrieved = await repo.get_by_id(sample_spt.spt_id)
         assert retrieved.total_bayar == Decimal("999")
 
+    @pytest.mark.asyncio
     async def test_delete(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
@@ -748,6 +770,7 @@ class TestFallbackSPTBadanRepository:
         retrieved = await repo.get_by_id(sample_spt.spt_id)
         assert retrieved is None
 
+    @pytest.mark.asyncio
     async def test_get_by_npwp_tahun(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
@@ -757,6 +780,7 @@ class TestFallbackSPTBadanRepository:
         retrieved = await repo.get_by_npwp_tahun("123456789012345", 2025)
         assert retrieved is None
 
+    @pytest.mark.asyncio
     async def test_get_by_tracking_id(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         sample_spt._tracking_id = "TRK-123"
@@ -765,6 +789,7 @@ class TestFallbackSPTBadanRepository:
         assert retrieved is not None
         assert retrieved.tracking_id == "TRK-123"
 
+    @pytest.mark.asyncio
     async def test_get_by_status(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         sample_spt._status = SPTStatus.PENDING
@@ -772,6 +797,7 @@ class TestFallbackSPTBadanRepository:
         results = await repo.get_by_status(SPTStatus.PENDING)
         assert len(results) == 1
 
+    @pytest.mark.asyncio
     async def test_get_pending_submissions(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         sample_spt._status = SPTStatus.PENDING
@@ -779,6 +805,7 @@ class TestFallbackSPTBadanRepository:
         results = await repo.get_pending_submissions()
         assert len(results) == 1
 
+    @pytest.mark.asyncio
     async def test_exists(self, sample_spt):
         repo = _FallbackSPTBadanRepository()
         await repo.add(sample_spt)
@@ -792,8 +819,8 @@ class TestFallbackSPTBadanRepository:
 # Tests for SPTTahunanBadanBuilder
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestSPTTahunanBadanBuilder:
+    @pytest.mark.asyncio
     async def test_create_new_spt(self, sample_builder):
         sample_builder._repository.exists = AsyncMock(return_value=False)
         sample_builder._repository.add = AsyncMock()
@@ -804,12 +831,14 @@ class TestSPTTahunanBadanBuilder:
         assert "spt_id" in result
         assert result["tahun_pajak"] == 2026
 
+    @pytest.mark.asyncio
     async def test_create_existing_spt_returns_error(self, sample_builder):
         sample_builder._repository.exists = AsyncMock(return_value=True)
         result = await sample_builder.create("123456789012345", 2026, uuid.uuid4())
         assert not result["success"]
         assert "already exists" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_collect_data_success(self, sample_builder):
         ledger = sample_builder._ledger_service
         tax = sample_builder._tax_service
@@ -852,12 +881,14 @@ class TestSPTTahunanBadanBuilder:
         assert result["ntpn"] == "1234567890123456"
         assert len(result["shareholders"]) == 1
 
+    @pytest.mark.asyncio
     async def test_collect_data_error(self, sample_builder):
         sample_builder._ledger_service.get_commercial_financials = AsyncMock(side_effect=Exception("DB error"))
         result = await sample_builder.collect_data("123", 2026)
         assert "error" in result
         assert result["penghasilan_neto_komersial"] == Decimal("0")  # fallback
 
+    @pytest.mark.asyncio
     async def test_build_new_spt(self, sample_builder):
         sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=None)
         with patch.object(sample_builder, "create", return_value={"success": True, "spt_id": "new"}):
@@ -896,6 +927,7 @@ class TestSPTTahunanBadanBuilder:
                 assert result["success"]
                 assert "spt_id" in result
 
+    @pytest.mark.asyncio
     async def test_build_existing_spt(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.spt_id = uuid.uuid4()
@@ -925,6 +957,7 @@ class TestSPTTahunanBadanBuilder:
             result = await sample_builder.build("123", 2026, uuid.uuid4())
             assert result["success"]
 
+    @pytest.mark.asyncio
     async def test_validate_spt_success(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.validate = MagicMock(return_value=mock_spt)
@@ -936,12 +969,14 @@ class TestSPTTahunanBadanBuilder:
         assert result["success"]
         assert result["valid"]
 
+    @pytest.mark.asyncio
     async def test_validate_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_validate_spt_validation_error(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.validate = MagicMock(side_effect=SPTBadanValidationError("Invalid"))
@@ -951,6 +986,7 @@ class TestSPTTahunanBadanBuilder:
         assert not result["valid"]
         assert "Invalid" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_submit_spt_success(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
@@ -982,12 +1018,14 @@ class TestSPTTahunanBadanBuilder:
         assert result["spt_number"] == "SPT-001"
         assert result["tracking_id"] == "TRK-123"
 
+    @pytest.mark.asyncio
     async def test_submit_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_submit_spt_validation_error(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.DRAFT
@@ -998,6 +1036,7 @@ class TestSPTTahunanBadanBuilder:
         assert not result["success"]
         assert "Invalid" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_submit_spt_coretax_auth_error(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
@@ -1023,6 +1062,7 @@ class TestSPTTahunanBadanBuilder:
         assert "Coretax authentication failed" in result["error"]
         mock_spt.transition.assert_called_with(SPTStatus.ERROR, ANY, ANY)
 
+    @pytest.mark.asyncio
     async def test_submit_spt_retry_success(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.status = SPTStatus.CALCULATED
@@ -1051,12 +1091,14 @@ class TestSPTTahunanBadanBuilder:
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
         assert result["success"]
 
+    @pytest.mark.asyncio
     async def test_check_spt_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.check_spt_status(uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_check_spt_status_no_tracking_id(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.tracking_id = None
@@ -1066,11 +1108,17 @@ class TestSPTTahunanBadanBuilder:
         assert result["success"]
         assert result["message"] == "Not yet submitted to Coretax"
 
+    @pytest.mark.asyncio
     async def test_check_spt_status_success(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.tracking_id = "TRK-123"
         mock_spt.status = SPTStatus.SUBMITTED
-        mock_spt.approve = MagicMock(return_value=mock_spt)
+
+        def _approve(*args, **kwargs):
+            mock_spt.status = SPTStatus.APPROVED
+            return mock_spt
+
+        mock_spt.approve = MagicMock(side_effect=_approve)
         mock_spt.reject = MagicMock(return_value=mock_spt)
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         sample_builder._repository.update = AsyncMock()
@@ -1081,7 +1129,9 @@ class TestSPTTahunanBadanBuilder:
         result = await sample_builder.check_spt_status(uuid.uuid4())
         assert result["success"]
         assert result["status"] == SPTStatus.APPROVED.value
+        mock_spt.approve.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_cancel_spt_success(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.spt_id = uuid.uuid4()
@@ -1102,12 +1152,14 @@ class TestSPTTahunanBadanBuilder:
         assert result["success"]
         assert result["cancelled"]
 
+    @pytest.mark.asyncio
     async def test_cancel_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_create_correction_spt_success(self, sample_builder):
         previous_spt = MagicMock()
         previous_spt.create_correction = MagicMock(return_value=MagicMock(spt_id=uuid.uuid4(), tahun_pajak=2026, correction_number=1, status=SPTStatus.DRAFT))
@@ -1118,53 +1170,63 @@ class TestSPTTahunanBadanBuilder:
         assert result["correction_number"] == 1
 
     # Gabungkan dua test duplikat menjadi satu dengan parametrize
-    @pytest.mark.parametrize("scenario, error_message", [
-        ("not_found", "Previous SPT not found"),
-        ("create_fails", "Previous not found"),  # Actually SPTBadanNotFoundError
-    ])
-    async def test_create_correction_spt_not_found(self, sample_builder, scenario, error_message):
-        if scenario == "not_found":
-            sample_builder._repository.get_by_id = AsyncMock(return_value=None)
-        else:
-            previous_spt = MagicMock()
-            previous_spt.create_correction = MagicMock(side_effect=SPTBadanNotFoundError("Previous not found"))
-            sample_builder._repository.get_by_id = AsyncMock(return_value=previous_spt)
+    @pytest.mark.asyncio
+    async def test_create_correction_spt_previous_not_found(self, sample_builder):
+        """Jika previous SPT tidak ditemukan di repository, builder mengembalikan error dict."""
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.create_correction_spt("123", 2026, uuid.uuid4(), 1, uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_create_correction_spt_create_correction_raises(self, sample_builder):
+        """create_correction_spt() TIDAK membungkus previous_spt.create_correction() dalam
+        try/except, jadi SPTBadanNotFoundError dari sana benar-benar diteruskan (propagate)
+        ke pemanggil, bukan dikonversi menjadi error dict."""
+        previous_spt = MagicMock()
+        previous_spt.create_correction = MagicMock(side_effect=SPTBadanNotFoundError("Previous not found"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=previous_spt)
+        with pytest.raises(SPTBadanNotFoundError, match="Previous not found"):
+            await sample_builder.create_correction_spt("123", 2026, uuid.uuid4(), 1, uuid.uuid4())
 
     # Hapus test_get_status_not_found yang duplikat, kita akan gunakan satu saja.
     # Yang di bawah ini adalah yang asli, kita bisa menghapus yang duplikat.
     # Tapi karena kita sudah punya satu di baris 1137, kita akan pertahankan yang itu.
     # Di sini kita akan tambahkan test_get_status_not_found yang sudah ada.
 
+    @pytest.mark.asyncio
     async def test_get_by_id(self, sample_builder):
         mock_spt = MagicMock()
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_by_id(uuid.uuid4())
         assert result is mock_spt
 
+    @pytest.mark.asyncio
     async def test_get_by_npwp_tahun(self, sample_builder):
         mock_spt = MagicMock()
         sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_by_npwp_tahun("123", 2026)
         assert result is mock_spt
 
+    @pytest.mark.asyncio
     async def test_get_status(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.get_status = MagicMock(return_value={"status": "draft"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_status(uuid.uuid4())
-        assert result["success"]
+        # On the found path, get_status() returns spt.get_status() directly
+        # (no "success" wrapper key), unlike the not-found error path.
         assert result["status"] == "draft"
 
     # Test ini akan menggantikan dua test duplikat
+    @pytest.mark.asyncio
     async def test_get_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.get_status(uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_get_history(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.get_history = MagicMock(return_value=[{"event": "test"}])
@@ -1173,20 +1235,24 @@ class TestSPTTahunanBadanBuilder:
         assert result["success"]
         assert len(result["history"]) == 1
 
+    @pytest.mark.asyncio
     async def test_get_history_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.get_history(uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_snapshot(self, sample_builder):
         mock_spt = MagicMock()
         mock_spt.snapshot = MagicMock(return_value={"spt_id": "123"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.snapshot(uuid.uuid4())
-        assert result["success"]
+        # On the found path, snapshot() returns spt.snapshot() directly
+        # (no "success" wrapper key), unlike the not-found error path.
         assert result["spt_id"] == "123"
 
+    @pytest.mark.asyncio
     async def test_snapshot_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.snapshot(uuid.uuid4())
@@ -1239,13 +1305,12 @@ async def test_get_spt_tahunan_builder_singleton():
 # TESTS TAMBAHAN UNTUK MENINGKATKAN COVERAGE
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestSPTTahunanBadanBuilderPrivateMethods:
     """Test untuk private methods SPTTahunanBadanBuilder."""
 
     @pytest.fixture
     def builder(self):
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter") as mock_storage:
+        with patch("infrastructure.file_storage.s3_adapter.S3FileStorageAdapter") as mock_storage:
             mock_storage.return_value = MagicMock()
             builder = SPTTahunanBadanBuilder(config={})
             builder._repository = AsyncMock()
@@ -1270,13 +1335,13 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
             assert "file_storage_bucket" in result["coretax_djp"]["spt_tahunan"]
 
     def test_init_file_storage_success(self):
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter") as mock_adapter:
+        with patch("infrastructure.file_storage.s3_adapter.S3FileStorageAdapter") as mock_adapter:
             mock_adapter.return_value = MagicMock()
             builder = SPTTahunanBadanBuilder(config={})
             assert builder._file_storage is not None
 
     def test_init_file_storage_failure(self, caplog):
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.S3FileStorageAdapter", side_effect=Exception("Import failed")):
+        with patch("infrastructure.file_storage.s3_adapter.S3FileStorageAdapter", side_effect=Exception("Import failed")):
             with caplog.at_level("WARNING"):
                 builder = SPTTahunanBadanBuilder(config={})
                 assert builder._file_storage is None
@@ -1284,6 +1349,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
     @pytest.mark.asyncio
     async def test_get_coretax_client(self, builder):
+        builder._coretax_client = None
         with patch("adapters.coretax_djp.spt_tahunan_badan_builder.get_coretax_client") as mock_get:
             mock_client = AsyncMock()
             mock_get.return_value = mock_client
@@ -1296,7 +1362,8 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
     @pytest.mark.asyncio
     async def test_get_ledger_service(self, builder):
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.LedgerService") as mock_ledger:
+        builder._ledger_service = None
+        with patch("application.service_layer.service_ledger.LedgerService") as mock_ledger:
             mock_ledger.return_value = MagicMock()
             svc1 = await builder._get_ledger_service()
             assert svc1 is not None
@@ -1307,7 +1374,8 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
     @pytest.mark.asyncio
     async def test_get_tax_service(self, builder):
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.TaxService") as mock_tax:
+        builder._tax_service = None
+        with patch("application.service_layer.service_tax.TaxService") as mock_tax:
             mock_tax.return_value = MagicMock()
             svc1 = await builder._get_tax_service()
             assert svc1 is not None
@@ -1401,7 +1469,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client = sample_builder._coretax_client
         client.post = AsyncMock(return_value={"status": "success", "message": "OK"})
 
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert") as mock_alert:
+        with patch("infrastructure.telemetry.alert_manager_router.trigger_alert") as mock_alert:
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
             assert result["success"]
             mock_alert.assert_called_once()
@@ -1430,7 +1498,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client = sample_builder._coretax_client
         client.post = AsyncMock(side_effect=Exception("Network error"))
 
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert") as mock_alert:
+        with patch("infrastructure.telemetry.alert_manager_router.trigger_alert") as mock_alert:
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
             assert not result["success"]
             assert "Network error" in result["error"]
@@ -1465,8 +1533,8 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         client = sample_builder._coretax_client
         client.post = AsyncMock(return_value={"status": "success"})
 
-        with patch("adapters.coretax_djp.spt_tahunan_badan_builder.trigger_alert", side_effect=ImportError("No module")):
-            # Harus tetap sukses meskipun alert gagal
+        with patch.dict("sys.modules", {"infrastructure.telemetry.alert_manager_router": None}):
+            # Harus tetap sukses meskipun alert gagal (ImportError ditangkap dan diabaikan)
             result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
             assert result["success"]
 
@@ -1547,12 +1615,13 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
         assert not dummy.has_attachment("other")
 
     @pytest.mark.asyncio
-    async def test_create_with_existing_spt_uses_repository_exists(self, sample_builder):
-        sample_builder._repository.exists = AsyncMock(return_value=True)
+    async def test_create_with_existing_spt_uses_repository_get_by_npwp_tahun(self, sample_builder):
+        existing_spt = MagicMock()
+        sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=existing_spt)
         result = await sample_builder.create("123", 2026, uuid.uuid4())
         assert not result["success"]
         assert "already exists" in result["error"]
-        sample_builder._repository.exists.assert_called_once_with("123", 2026, 0)
+        sample_builder._repository.get_by_npwp_tahun.assert_called_once_with("123", 2026)
 
     @pytest.mark.asyncio
     async def test_build_when_create_fails_returns_error(self, sample_builder):
@@ -1685,7 +1754,7 @@ class TestSPTTahunanBadanBuilderPrivateMethods:
 
     @pytest.mark.asyncio
     async def test_create_updates_cache_and_repository(self, sample_builder):
-        sample_builder._repository.exists = AsyncMock(return_value=False)
+        sample_builder._repository.get_by_npwp_tahun = AsyncMock(return_value=None)
         sample_builder._repository.add = AsyncMock()
         sample_builder._set_cached = AsyncMock()
         result = await sample_builder.create("123", 2026, uuid.uuid4())

@@ -1,6 +1,9 @@
 # tests/infrastructure/caching/test_warmer_scheduled.py
 # Perbaikan kualitas assertions: mengganti semua assert True dengan
 # assertion yang memeriksa nilai aktual, efek samping, dan interaksi mock.
+# Menambahkan marker @pytest.mark.asyncio ke semua async test.
+# Mock datetime untuk menghindari flaky test.
+# Menambahkan negative path tests.
 
 import asyncio
 from datetime import datetime, timedelta
@@ -110,6 +113,7 @@ class TestCacheWarmer:
         )
 
     # ---- _get_redis ----
+    @pytest.mark.asyncio
     async def test_get_redis_creates_manager(self, warmer):
         with patch("infrastructure.caching.warmer_scheduled.get_redis_manager") as mock_get:
             mock_redis_manager = AsyncMock()
@@ -121,6 +125,7 @@ class TestCacheWarmer:
             assert warmer._redis_manager == mock_redis_manager
             mock_get.assert_awaited_once()
 
+    @pytest.mark.asyncio
     async def test_get_redis_returns_existing(self, warmer):
         mock_redis_manager = AsyncMock()
         warmer._redis_manager = mock_redis_manager
@@ -130,6 +135,7 @@ class TestCacheWarmer:
         assert redis == mock_redis_manager
 
     # ---- _acquire_lock ----
+    @pytest.mark.asyncio
     async def test_acquire_lock_success(self, warmer, mock_redis):
         warmer._redis_manager = AsyncMock()
         warmer._redis_manager._client = mock_redis
@@ -141,6 +147,7 @@ class TestCacheWarmer:
         mock_redis.setnx.assert_called_once_with("cache:warmer:lock:test_job", pytest.approx(datetime.now().timestamp(), abs=2))
         mock_redis.expire.assert_called_once_with("cache:warmer:lock:test_job", WARMING_LOCK_TTL)
 
+    @pytest.mark.asyncio
     async def test_acquire_lock_failure(self, warmer, mock_redis):
         warmer._redis_manager = AsyncMock()
         warmer._redis_manager._client = mock_redis
@@ -152,6 +159,7 @@ class TestCacheWarmer:
         mock_redis.expire.assert_not_called()
 
     # ---- _release_lock ----
+    @pytest.mark.asyncio
     async def test_release_lock(self, warmer, mock_redis):
         warmer._redis_manager = AsyncMock()
         warmer._redis_manager._client = mock_redis
@@ -159,8 +167,11 @@ class TestCacheWarmer:
         await warmer._release_lock("test_job")
 
         mock_redis.delete.assert_called_once_with("cache:warmer:lock:test_job")
+        # Additional assertion: verify delete was called exactly once
+        assert mock_redis.delete.call_count == 1
 
     # ---- _execute_warming_job ----
+    @pytest.mark.asyncio
     async def test_execute_warming_job_success(self, warmer, mock_redis, mock_job):
         warmer._redis_manager = AsyncMock()
         warmer._redis_manager._client = mock_redis
@@ -182,6 +193,7 @@ class TestCacheWarmer:
 
         mock_release.assert_called_once_with("test_job")
 
+    @pytest.mark.asyncio
     async def test_execute_warming_job_skip_if_locked(self, warmer, mock_redis, mock_job):
         warmer._redis_manager = AsyncMock()
         warmer._redis_manager._client = mock_redis
@@ -196,6 +208,7 @@ class TestCacheWarmer:
         assert mock_job.last_status is None
         mock_release.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_execute_warming_job_failure(self, warmer, mock_redis, mock_job):
         warmer._redis_manager = AsyncMock()
         warmer._redis_manager._client = mock_redis
@@ -233,6 +246,8 @@ class TestCacheWarmer:
             warmer.register_job(mock_job)
 
         mock_schedule.assert_called_once_with(mock_job)
+        # Also verify job was added to _jobs
+        assert mock_job.name in warmer._jobs
 
     # ---- unregister_job ----
     def test_unregister_job_success(self, warmer, mock_job):
@@ -256,6 +271,7 @@ class TestCacheWarmer:
         warmer._scheduler.remove_job.assert_not_called()
 
     # ---- start ----
+    @pytest.mark.asyncio
     async def test_start(self, warmer, mock_job):
         warmer.register_job(mock_job)
 
@@ -271,6 +287,7 @@ class TestCacheWarmer:
             # Schedule job called
             assert mock_scheduler.add_job.call_count == 1
 
+    @pytest.mark.asyncio
     async def test_start_already_running(self, warmer):
         warmer._scheduler = MagicMock()
 
@@ -278,8 +295,11 @@ class TestCacheWarmer:
             await warmer.start()
 
             mock_logger.warning.assert_called_with("Cache warmer already running")
+            # Verify no new scheduler started
+            assert warmer._scheduler is not None  # still the same
 
     # ---- stop ----
+    @pytest.mark.asyncio
     async def test_stop(self, warmer):
         warmer._scheduler = MagicMock()
         warmer._running = True
@@ -290,12 +310,14 @@ class TestCacheWarmer:
         assert warmer._scheduler is None
         assert warmer._running is False
 
+    @pytest.mark.asyncio
     async def test_stop_when_not_running(self, warmer):
         warmer._scheduler = None
 
         await warmer.stop()
 
         assert warmer._running is False
+        # No exception raised
 
     # ---- _schedule_job ----
     def test_schedule_job_cron(self, warmer, mock_job):
@@ -338,6 +360,7 @@ class TestCacheWarmer:
             warmer._schedule_job(mock_job)
 
     # ---- run_job_now ----
+    @pytest.mark.asyncio
     async def test_run_job_now_success(self, warmer, mock_job):
         warmer.register_job(mock_job)
 
@@ -350,14 +373,18 @@ class TestCacheWarmer:
             assert result["status"] == "success"
             mock_execute.assert_called_once_with(mock_job)
 
+    @pytest.mark.asyncio
     async def test_run_job_now_not_found(self, warmer):
         with pytest.raises(ValueError, match="Job nonexistent not found"):
             await warmer.run_job_now("nonexistent")
 
     # ---- get_status ----
+    @pytest.mark.asyncio
     async def test_get_status(self, warmer, mock_job):
         warmer.register_job(mock_job)
-        mock_job.last_run = datetime.now()
+        # Mock datetime to avoid flakiness
+        fixed_now = datetime(2025, 1, 1, 12, 0, 0)
+        mock_job.last_run = fixed_now
         mock_job.last_status = "success"
 
         status = await warmer.get_status()
@@ -369,8 +396,11 @@ class TestCacheWarmer:
         assert status["jobs"][0]["name"] == "test_job"
         assert status["jobs"][0]["status"] == "success"
         assert status["jobs"][0]["error"] is None
+        # Check last_run is formatted correctly
+        assert status["jobs"][0]["last_run"] == fixed_now.isoformat()
 
     # ---- warm_all ----
+    @pytest.mark.asyncio
     async def test_warm_all(self, warmer, mock_job):
         warmer.register_job(mock_job)
 
@@ -383,6 +413,7 @@ class TestCacheWarmer:
             assert results["test_job"]["status"] == "success"
             mock_run.assert_called_once_with("test_job")
 
+    @pytest.mark.asyncio
     async def test_warm_all_with_error(self, warmer, mock_job):
         warmer.register_job(mock_job)
 
@@ -398,6 +429,7 @@ class TestCacheWarmer:
 # Warming functions tests (with mocks)
 # ============================================================================
 class TestWarmingFunctions:
+    @pytest.mark.asyncio
     async def test_warm_chart_of_accounts(self):
         mock_container = MagicMock()
         mock_coa_service = AsyncMock()
@@ -424,6 +456,7 @@ class TestWarmingFunctions:
             assert result["coa:1"]["legal_entity_id"] == "1"
             assert len(result["coa:1"]["accounts"]) == 1
 
+    @pytest.mark.asyncio
     async def test_warm_trial_balance(self):
         mock_container = MagicMock()
         mock_ledger_service = AsyncMock()
@@ -445,6 +478,7 @@ class TestWarmingFunctions:
             key = list(result.keys())[0]
             assert key.startswith("trial_balance:1:")
 
+    @pytest.mark.asyncio
     async def test_warm_inventory_summary(self):
         mock_container = MagicMock()
         mock_inv_service = AsyncMock()
@@ -464,6 +498,7 @@ class TestWarmingFunctions:
 
             assert "inventory_summary:1" in result
 
+    @pytest.mark.asyncio
     async def test_warm_ar_aging(self):
         mock_container = MagicMock()
         mock_ar_service = AsyncMock()
@@ -484,6 +519,7 @@ class TestWarmingFunctions:
             key = list(result.keys())[0]
             assert key.startswith("ar_aging:1:")
 
+    @pytest.mark.asyncio
     async def test_warm_ap_aging(self):
         mock_container = MagicMock()
         mock_ap_service = AsyncMock()
@@ -504,6 +540,7 @@ class TestWarmingFunctions:
             key = list(result.keys())[0]
             assert key.startswith("ap_aging:1:")
 
+    @pytest.mark.asyncio
     async def test_warm_fixed_asset_summary(self):
         mock_container = MagicMock()
         mock_fa_service = AsyncMock()
@@ -552,6 +589,7 @@ def test_get_default_warming_jobs():
 # ============================================================================
 # Singleton functions tests
 # ============================================================================
+@pytest.mark.asyncio
 async def test_get_cache_warmer_singleton():
     warmer1 = await get_cache_warmer()
     warmer2 = await get_cache_warmer()
@@ -562,6 +600,7 @@ async def test_get_cache_warmer_singleton():
     assert len(warmer1._jobs) == 6
 
 
+@pytest.mark.asyncio
 async def test_start_cache_warmer():
     warmer = CacheWarmer()
     with patch("infrastructure.caching.warmer_scheduled.get_cache_warmer") as mock_get:
@@ -569,8 +608,11 @@ async def test_start_cache_warmer():
         with patch.object(warmer, "start") as mock_start:
             await start_cache_warmer()
             mock_start.assert_awaited_once()
+            # Verify that start was called
+            assert mock_start.called
 
 
+@pytest.mark.asyncio
 async def test_stop_cache_warmer():
     warmer = CacheWarmer()
     # Set global warmer
@@ -586,6 +628,7 @@ async def test_stop_cache_warmer():
 # ============================================================================
 # Additional edge case tests
 # ============================================================================
+@pytest.mark.asyncio
 async def test_execute_warming_job_with_key_pattern_formatting():
     """Test that key_pattern is formatted with data values."""
     warmer = CacheWarmer()
@@ -613,32 +656,19 @@ async def test_execute_warming_job_with_key_pattern_formatting():
             await warmer._execute_warming_job(job)
 
     # Should call set with keys: test:123 and test:456
-    # The format uses key_pattern.format(**value) where value is dict with legal_entity_id
-    # So the key is formatted as "test:{legal_entity_id}" where {legal_entity_id} is replaced
-    # with the value of legal_entity_id from the dict
-
-    # Check that set was called twice with correct keys
-    # Since the key is computed as f"{WARMED_KEY_PREFIX}{job.key_pattern.format(**value)}"
-    # and value is the dict itself, the key_pattern.format(**value) requires that
-    # the dict has keys matching the placeholders. Our mock_func returns dicts with
-    # legal_entity_id, so it should work.
-
-    # Actually we need to check the calls
     calls = mock_redis.set.call_args_list
     assert len(calls) == 2
 
-    # The first call should have key "warmed:test:123"
-    # The second call should have key "warmed:test:456"
-    # Note: WARMED_KEY_PREFIX is "warmed:"
     args1 = calls[0][0]
     args2 = calls[1][0]
-    # args[0] is key, args[1] is value, args[2] is ttl_seconds
+    # args[0] is key, args[1] is value, args[2] is ex (ttl)
     assert args1[0] == "warmed:test:123"
     assert args2[0] == "warmed:test:456"
     assert args1[2] == 3600
     assert args2[2] == 3600
 
 
+@pytest.mark.asyncio
 async def test_execute_warming_job_with_key_pattern_no_formatting():
     """Test key_pattern without placeholders works."""
     warmer = CacheWarmer()
@@ -665,6 +695,7 @@ async def test_execute_warming_job_with_key_pattern_no_formatting():
     mock_redis.set.assert_called_once_with("warmed:static_key", {"data": "value1"}, ex=3600)
 
 
+@pytest.mark.asyncio
 async def test_stop_cache_warmer_when_not_running():
     import infrastructure.caching.warmer_scheduled as module
     module._warmer = None
@@ -672,3 +703,82 @@ async def test_stop_cache_warmer_when_not_running():
     # Should not raise
     await stop_cache_warmer()
     assert module._warmer is None
+
+
+# ============================================================================
+# Negative path tests (additional coverage)
+# ============================================================================
+@pytest.mark.asyncio
+async def test_acquire_lock_redis_error():
+    """Test _acquire_lock when redis setnx raises exception."""
+    warmer = CacheWarmer()
+    mock_redis = AsyncMock()
+    mock_redis.setnx = AsyncMock(side_effect=Exception("Redis error"))
+    warmer._redis_manager = AsyncMock()
+    warmer._redis_manager._client = mock_redis
+
+    with pytest.raises(Exception, match="Redis error"):
+        await warmer._acquire_lock("test_job")
+
+
+@pytest.mark.asyncio
+async def test_release_lock_redis_error():
+    """Test _release_lock when redis delete raises exception."""
+    warmer = CacheWarmer()
+    mock_redis = AsyncMock()
+    mock_redis.delete = AsyncMock(side_effect=Exception("Redis error"))
+    warmer._redis_manager = AsyncMock()
+    warmer._redis_manager._client = mock_redis
+
+    with pytest.raises(Exception, match="Redis error"):
+        await warmer._release_lock("test_job")
+
+
+@pytest.mark.asyncio
+async def test_execute_warming_job_acquire_lock_failure_no_alert():
+    """When lock acquisition fails, no alert should be triggered and job status unchanged."""
+    warmer = CacheWarmer()
+    mock_job = WarmingJob(
+        name="test",
+        function=AsyncMock(return_value={}),
+        schedule="0 2 * * *",
+        key_pattern="test",
+        ttl_seconds=3600,
+    )
+
+    with patch.object(warmer, "_acquire_lock", return_value=False):
+        with patch("infrastructure.caching.warmer_scheduled.trigger_alert") as mock_alert:
+            await warmer._execute_warming_job(mock_job)
+
+    mock_alert.assert_not_called()
+    assert mock_job.last_status is None
+
+
+@pytest.mark.asyncio
+async def test_execute_warming_job_function_returns_non_dict():
+    """Test when warming function returns non-dict (should still work but maybe not set keys)."""
+    warmer = CacheWarmer()
+    async def bad_func():
+        return "not a dict"
+
+    mock_job = WarmingJob(
+        name="test",
+        function=bad_func,
+        schedule="0 2 * * *",
+        key_pattern="test",
+        ttl_seconds=3600,
+    )
+
+    mock_redis = AsyncMock()
+    warmer._redis_manager = AsyncMock()
+    warmer._redis_manager._client = mock_redis
+
+    with patch.object(warmer, "_acquire_lock", return_value=True):
+        with patch.object(warmer, "_release_lock"):
+            await warmer._execute_warming_job(mock_job)
+
+    # Should not set anything because data is not dict (iteration would fail)
+    # But the code iterates over data.items(), which will fail for string
+    # So we expect an exception, which should be caught and set status failed
+    assert mock_job.last_status == "failed"
+    assert "not a dict" in mock_job.last_error or "is not iterable" in mock_job.last_error

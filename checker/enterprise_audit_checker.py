@@ -104,7 +104,7 @@ class EnterpriseAuditRunner:
         search_modules = [
             "infrastructure.database.session_factory_sqlalchemy",
             "infrastructure.database", "database.session_factory",
-            "db.session_factory", "infrastructure.db", "core.db",
+            "db.session_factory", "infrastructure.database", "core.db",
         ]
         for mod_name in search_modules:
             try:

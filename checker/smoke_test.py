@@ -963,7 +963,7 @@ class ForensicSmokeTestRunner:
                 "infrastructure.database",
                 "database.session_factory",
                 "db.session_factory",
-                "infrastructure.db",
+                "infrastructure.database",
                 "core.db",
                 "infrastructure.database.session",
                 "bootstrap.database",
