@@ -17,20 +17,28 @@ class DummyIAMState:
         self.users = {}
         self.roles = {}
         admin_password = PasswordHashedVO.create_from_plain("Admin123!")
+        from domain.iam.user_entity import UserProfile, UserAudit
+        admin_profile = UserProfile(
+            full_name="Administrator",
+            email="admin@example.com",
+        )
+        admin_audit = UserAudit(
+            created_at=datetime.now(UTC),
+            created_by="system",
+            updated_at=datetime.now(UTC),
+            updated_by="system",
+            version=1,
+        )
         admin_user = UserEntity(
             user_id=uuid4(),
             username="admin",
             email="admin@example.com",
             password_hash=admin_password,
             status=UserStatus.ACTIVE,
-            full_name="Administrator",
+            profile=admin_profile,
             legal_entity_id=uuid4(),
             role_ids=[],
-            is_locked=False,
-            created_by=None,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
+            audit=admin_audit,
         )
         self.users[admin_user.user_id] = admin_user
         logger.info("DummyIAMState initialized with admin user (admin/Admin123!)")

@@ -3,14 +3,11 @@
 asgi.py
 =======
 ASGI Application Factory — ERP Accounting Engine
-
 Entry point untuk server ASGI (Uvicorn / Gunicorn).
 Semua komponen di-import secara statis. Tidak ada dynamic import.
 Komponen yang gagal diimport (kecuali yang benar-benar opsional) akan menyebabkan aplikasi gagal start.
 """
-
 from __future__ import annotations
-
 import asyncio
 import logging
 import os
@@ -20,20 +17,14 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-from fastapi import Request
-
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
 # ============================================================================
 # 1. Setup dasar: path, logging awal, dan imports wajib
 # ============================================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
 # Logging sementara (akan di-replace dengan structlog jika tersedia)
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +32,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 _raw_log = logging.getLogger("erp.asgi")
-
 # FastAPI dan dependencies (wajib)
 try:
     from fastapi import FastAPI, Request, Response
@@ -53,32 +43,24 @@ except ImportError as exc:
     _raw_log.critical(f"FastAPI tidak terinstall: {exc}")
     _raw_log.critical("Jalankan: pip install fastapi uvicorn[standard]")
     sys.exit(1)
-
 # ============================================================================
 # 2. Konfigurasi dari application.yaml (dengan resolusi environment variable)
 # ============================================================================
-
 _CONFIG_CACHE: dict[str, Any] = {}
 _ENV_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
-
-
 def _resolve_env_placeholder(value: Any) -> Any:
     """Rekursif mengganti ${VAR:default} dengan nilai environment."""
     if isinstance(value, str):
-
         def replacer(match):
             var = match.group(1)
             default = match.group(2) if match.group(2) is not None else ""
             return os.environ.get(var, default)
-
         return _ENV_PLACEHOLDER.sub(replacer, value)
     elif isinstance(value, dict):
         return {k: _resolve_env_placeholder(v) for k, v in value.items()}
     elif isinstance(value, list):
         return [_resolve_env_placeholder(i) for i in value]
     return value
-
-
 def _load_app_config() -> dict[str, Any]:
     """Muat dan cache konfigurasi dari config_files/application.yaml."""
     if _CONFIG_CACHE:
@@ -91,7 +73,6 @@ def _load_app_config() -> dict[str, Any]:
         return {}
     try:
         import yaml
-
         with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         resolved = _resolve_env_placeholder(raw)
@@ -100,8 +81,6 @@ def _load_app_config() -> dict[str, Any]:
     except Exception as e:
         _raw_log.error(f"Gagal load application.yaml: {e}")
         return {}
-
-
 def get_config(key: str, default: Any = None) -> Any:
     """
     Ambil nilai dari YAML (dengan dot notation) atau fallback ke env var.
@@ -121,21 +100,15 @@ def get_config(key: str, default: Any = None) -> Any:
         return value
     env_key = key.upper().replace(".", "_")
     return os.environ.get(env_key, default)
-
-
 # ============================================================================
 # 3. Structured logging (structlog dengan fallback)
 # ============================================================================
-
 _LOGGER = None
-
-
 def get_logger(name: str = "erp.asgi"):
     global _LOGGER
     if _LOGGER is None:
         try:
             import structlog
-
             fmt = get_config("logging.format", "json")
             structlog.configure(
                 processors=[
@@ -162,12 +135,9 @@ def get_logger(name: str = "erp.asgi"):
         except ImportError:
             _LOGGER = _raw_log
     return _LOGGER
-
-
 # ============================================================================
 # 4. Import statis untuk semua komponen yang diperlukan (wajib)
 # ============================================================================
-
 # Import konfigurasi dan komponen kernel (wajib)
 try:
     from config.loader_yaml import initialize as init_config
@@ -188,7 +158,6 @@ try:
 except ImportError as exc:
     _raw_log.critical(f"Kernel component import failed: {exc}")
     sys.exit(1)
-
 # Import infrastruktur (wajib)
 try:
     from bootstrap.dependency_container.container_bootstrap import build_container
@@ -203,14 +172,12 @@ try:
 except ImportError as exc:
     _raw_log.critical(f"Infrastructure import failed: {exc}")
     sys.exit(1)
-
 # Import policy engine (wajib)
 try:
     from policy_engine.loader_yaml import load_policies
 except ImportError as exc:
     _raw_log.critical(f"Policy engine import failed: {exc}")
     sys.exit(1)
-
 # Import event gateway (wajib)
 try:
     from event_gateway.event_gate_singleton import get_instance as get_event_gate_instance
@@ -218,46 +185,37 @@ try:
 except ImportError as exc:
     _raw_log.critical(f"Event gateway import failed: {exc}")
     sys.exit(1)
-
 # Import outbox relay (wajib)
 try:
     from application.outbox.outbox_relay_service import start_relay, stop_relay
 except ImportError as exc:
     _raw_log.critical(f"Outbox relay import failed: {exc}")
     sys.exit(1)
-
 # Import service registrar (untuk registrasi dependency)
 try:
     from bootstrap.dependency_container.service_registry import ServiceRegistrar
 except ImportError as exc:
     _raw_log.critical(f"ServiceRegistrar import failed: {exc}")
     sys.exit(1)
-
 # Import middleware (opsional, tapi jika ada yang gagal tetap lanjutkan dengan warning)
 try:
     from adapters.primary_api.common.fastapi_request_id_middleware import RequestIDMiddleware
-
     MIDDLEWARE_REQUEST_ID_AVAILABLE = True
 except ImportError:
     MIDDLEWARE_REQUEST_ID_AVAILABLE = False
     _raw_log.warning("RequestIDMiddleware not available")
-
 try:
     from adapters.primary_api.common.fastapi_audit_middleware import AuditMiddleware
-
     MIDDLEWARE_AUDIT_AVAILABLE = True
 except ImportError:
     MIDDLEWARE_AUDIT_AVAILABLE = False
     _raw_log.warning("AuditMiddleware not available")
-
 try:
     from adapters.primary_api.common.fastapi_rate_limit_middleware import RateLimitMiddleware
-
     MIDDLEWARE_RATE_LIMIT_AVAILABLE = True
 except ImportError:
     MIDDLEWARE_RATE_LIMIT_AVAILABLE = False
     _raw_log.warning("RateLimitMiddleware not available")
-
 # Import router V1 (wajib, karena API utama)
 try:
     from adapters.primary_api.v1.fastapi_ap_router import router as ap_router
@@ -306,26 +264,18 @@ try:
 except ImportError as exc:
     _raw_log.critical(f"Router V1 import failed: {exc}")
     sys.exit(1)
-
 # ============================================================================
 # 5. IoC Container singleton (agar bisa diakses di lifespan)
 # ============================================================================
-
 _CONTAINER = None
-
-
 def _get_container():
     global _CONTAINER
     if _CONTAINER is None:
         _CONTAINER = build_container()
     return _CONTAINER
-
-
 # ============================================================================
 # 6. Lifespan (startup & shutdown) dengan inisialisasi komponen
 # ============================================================================
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Lifecycle manager: startup sebelum server mulai, shutdown setelah server berhenti."""
@@ -333,12 +283,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("=" * 60)
     logger.info(
         f"{get_config('app.name', 'ERP Accounting Engine')} v{get_config('app.version', '2.0.0')} — STARTUP",
-        env=get_config("app.env", "development"),
+        extra={"env": get_config("app.env", "development")},
     )
     logger.info("=" * 60)
     start_ts = time.monotonic()
     startup_errors = 0
-
     # Inisialisasi komponen secara berurutan (semua wajib sukses)
     try:
         init_config()
@@ -346,21 +295,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.error(f"❌ Config Loader — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     try:
         await create_session_factory()
         logger.info("✅ Database Session")
     except Exception as exc:
         logger.error(f"❌ Database Session — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     try:
         await get_redis_client()
         logger.info("✅ Redis Manager")
     except Exception as exc:
         logger.error(f"❌ Redis Manager — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     try:
         container = _get_container()  # inisialisasi container
         app.state.container = container  # <-- SIMPAN CONTAINER KE APP.STATE
@@ -368,7 +314,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.error(f"❌ IoC Container — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     # ==================== REGISTRASI SEMUA SERVICE KE CONTAINER ====================
     try:
         await ServiceRegistrar.register_all()
@@ -377,25 +322,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.error(f"❌ Service Registration — {type(exc).__name__}: {exc}")
         startup_errors += 1
     # ============================================================================
-
     # ==================== BUAT IAMSERVICE SECARA ASYNC ====================
     try:
         container = _get_container()
         from ports.primary.token_issuer_port import TokenIssuerPort
-
         from application.service_layer.service_iam import IAMService
         from ports.primary.cache_port import CachePort
         from ports.primary.event_publisher_port import EventPublisherPort
         from ports.primary.iam_repository_port import IAMRepositoryPort
         from ports.primary.unit_of_work_port import UnitOfWorkPort
-
         # Resolve dependencies secara async
         iam_repo = await container.resolve_async(IAMRepositoryPort)
         uow = await container.resolve_async(UnitOfWorkPort)
         event_publisher = None
         token_issuer = None
         cache = None
-
         # Coba resolve optional dependencies jika ada
         try:
             event_publisher = await container.resolve_async(EventPublisherPort)
@@ -409,7 +350,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             cache = await container.resolve_async(CachePort)
         except Exception:
             pass
-
         iam_service = IAMService(
             iam_repo=iam_repo,
             uow=uow,
@@ -423,32 +363,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.error(f"❌ IAMService creation failed: {type(exc).__name__}: {exc}")
         startup_errors += 1
     # ============================================================================
-
     try:
         load_policies()
         logger.info("✅ Policy Engine")
     except Exception as exc:
         logger.error(f"❌ Policy Engine — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     try:
         get_sealed_gate()
         logger.info("✅ Kernel SealedGate")
     except Exception as exc:
         logger.error(f"❌ Kernel SealedGate — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     try:
         get_event_gate_instance()
         logger.info("✅ Event Gateway")
     except Exception as exc:
         logger.error(f"❌ Event Gateway — {type(exc).__name__}: {exc}")
         startup_errors += 1
-
     # ==================== OUTBOX RELAY (menggunakan dependency yang sudah terdaftar) ====================
     try:
         container = _get_container()
-
         # Fungsi helper untuk resolve dependency secara async (dari container yang sudah terisi)
         async def resolve_async_dependency(dep_name: str):
             # Coba berbagai cara yang umum digunakan di container
@@ -470,36 +405,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 if callable(attr):
                     return attr() if not asyncio.iscoroutinefunction(attr) else await attr()
                 return attr
-
         outbox_repo = await resolve_async_dependency("outbox_repository")
         message_broker = await resolve_async_dependency("message_broker")
-
         # Inject session_factory ke outbox_repo agar relay loop bisa membuat
         # session baru per-batch tanpa perlu session eksplisit dari luar
         try:
             from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
-
             session_factory = await get_async_session_factory()
             if hasattr(outbox_repo, "set_session_factory") and session_factory is not None:
                 outbox_repo.set_session_factory(session_factory)
                 logger.info("✅ Outbox Relay — session_factory injected")
         except Exception as sf_exc:
             logger.warning(f"⚠️ Outbox Relay — session_factory tidak tersedia: {sf_exc}")
-
         await start_relay(outbox_repository=outbox_repo, message_broker=message_broker)
         logger.info("✅ Outbox Relay")
     except Exception as exc:
         logger.error(f"❌ Outbox Relay — {type(exc).__name__}: {exc}")
         startup_errors += 1
     # ==============================================================================
-
     # Telemetry opsional, tapi gagal tidak dianggap fatal
     try:
         setup_telemetry()
         logger.info("✅ Telemetry (OpenTelemetry)")
     except Exception as exc:
         logger.warning(f"⚠️ Telemetry setup failed: {exc}")
-
     elapsed = time.monotonic() - start_ts
     if startup_errors == 0:
         logger.info(f"Startup selesai — semua komponen aktif ({elapsed:.2f}s).")
@@ -507,24 +436,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning(
             f"Startup selesai dengan {startup_errors} error dalam {elapsed:.2f}s. Sistem berjalan terbatas."
         )
-
     app.state.started_at = time.time()
     app.state.startup_errors = startup_errors
-
     yield  # Aplikasi berjalan
-
     # ---------- SHUTDOWN ----------
     logger.info("=" * 60)
     logger.info(f"{get_config('app.name', 'ERP Accounting Engine')} — SHUTDOWN graceful ...")
     logger.info("=" * 60)
-
     try:
         await stop_relay()
         logger.info("🔒 Outbox Relay — ditutup")
     except Exception as e:
         # Perbaikan: tidak lagi bare except, exception ditangkap dengan alias dan dicatat
         logger.debug(f"Shutdown error on Outbox Relay: {e}")
-
     try:
         # shutdown_event_gate mungkin async, jadi perlu await jika coroutine
         if asyncio.iscoroutinefunction(shutdown_event_gate):
@@ -534,13 +458,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("🔒 Event Gateway — ditutup")
     except Exception as e:
         logger.debug(f"Shutdown error on Event Gateway: {e}")
-
     try:
         await close_redis()
         logger.info("🔒 Redis Manager — ditutup")
     except Exception as e:
         logger.debug(f"Shutdown error on Redis Manager: {e}")
-
     try:
         # dispose mungkin async
         if asyncio.iscoroutinefunction(dispose):
@@ -550,7 +472,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("🔒 Database Pool — ditutup")
     except Exception as e:
         logger.debug(f"Shutdown error on Database Pool: {e}")
-
     try:
         # flush_metrics mungkin async
         if asyncio.iscoroutinefunction(flush_metrics):
@@ -560,22 +481,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("🔒 Telemetry — flushed")
     except Exception as e:
         logger.debug(f"Shutdown error on Telemetry flush: {e}")
-
     logger.info("Shutdown selesai.")
-
-
 # ============================================================================
 # 7. Middleware (CORS, GZip, dan Registrasi Custom Middleware)
 # ============================================================================
-
-
 def _add_middleware(app: FastAPI) -> None:
     """Pasang middleware global."""
     logger = get_logger()
-
     # GZip compression untuk response > 1KB
     app.add_middleware(GZipMiddleware, minimum_size=1024)
-
     # CORS
     cors_origins_str = get_config("api.cors_origins", "http://localhost:3000,http://localhost:8000")
     cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
@@ -588,7 +502,6 @@ def _add_middleware(app: FastAPI) -> None:
         "http://localhost:5500",
     ]
     list(set(cors_origins + extra_origins))
-
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -597,36 +510,28 @@ def _add_middleware(app: FastAPI) -> None:
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "X-Correlation-ID"],
     )
-
     # Custom middleware (hanya jika tersedia)
     if MIDDLEWARE_REQUEST_ID_AVAILABLE:
         app.add_middleware(RequestIDMiddleware)
         logger.debug("Middleware RequestIDMiddleware berhasil didaftarkan")
     else:
         logger.warning("RequestIDMiddleware tidak tersedia (skip)")
-
     if MIDDLEWARE_AUDIT_AVAILABLE:
         app.add_middleware(AuditMiddleware)
         logger.debug("Middleware AuditMiddleware berhasil didaftarkan")
     else:
         logger.warning("AuditMiddleware tidak tersedia (skip)")
-
     if MIDDLEWARE_RATE_LIMIT_AVAILABLE:
         app.add_middleware(RateLimitMiddleware)
         logger.debug("Middleware RateLimitMiddleware berhasil didaftarkan")
     else:
         logger.warning("RateLimitMiddleware tidak tersedia (skip)")
-
-
 # ============================================================================
 # 8. Exception handlers global
 # ============================================================================
-
-
 def _add_exception_handlers(app: FastAPI) -> None:
     """Pasang handler untuk exception umum."""
     logger = get_logger()
-
     @app.exception_handler(Exception)
     async def handle_unhandled(request: Request, exc: Exception) -> JSONResponse:
         corr = getattr(request.state, "correlation_id", "unknown")
@@ -641,14 +546,12 @@ def _add_exception_handlers(app: FastAPI) -> None:
                 "correlation_id": corr,
             },
         )
-
     @app.exception_handler(404)
     async def handle_404(request: Request, exc: Any) -> JSONResponse:
         return JSONResponse(
             status_code=404,
             content={"error": "not_found", "message": f"Path tidak ditemukan: {request.url.path}"},
         )
-
     @app.exception_handler(405)
     async def handle_405(request: Request, exc: Any) -> JSONResponse:
         return JSONResponse(
@@ -658,17 +561,12 @@ def _add_exception_handlers(app: FastAPI) -> None:
                 "message": f"Method {request.method} tidak diizinkan",
             },
         )
-
-
 # ============================================================================
 # 9. Endpoint sistem (root, health, metrics, version) — tanpa dynamic import
 # ============================================================================
-
-
 def _add_system_endpoints(app: FastAPI) -> None:
     """Tambahkan endpoint yang selalu tersedia tanpa dependensi domain."""
     logger = get_logger()
-
     @app.get("/", tags=["System"])
     async def root() -> dict:
         return {
@@ -679,7 +577,6 @@ def _add_system_endpoints(app: FastAPI) -> None:
             "health": "/health",
             "metrics": "/metrics",
         }
-
     @app.get("/health", tags=["System"])
     async def health_check(request: Request) -> JSONResponse:
         uptime = time.time() - getattr(request.app.state, "started_at", time.time())
@@ -697,18 +594,15 @@ def _add_system_endpoints(app: FastAPI) -> None:
                 "startup_errors": errors,
             },
         )
-
     @app.get("/readiness", include_in_schema=False)
     async def readiness(request: Request) -> Response:
         errors = getattr(request.app.state, "startup_errors", 0)
         return Response(
             content="OK" if errors == 0 else "DEGRADED", status_code=200 if errors == 0 else 503
         )
-
     @app.get("/liveness", include_in_schema=False)
     async def liveness() -> Response:
         return Response(content="OK", status_code=200)
-
     @app.get("/version", tags=["System"])
     async def version_info() -> dict:
         return {
@@ -717,18 +611,14 @@ def _add_system_endpoints(app: FastAPI) -> None:
             "env": get_config("app.env", "development"),
             "python": sys.version,
         }
-
     # Metrics (Prometheus) jika tersedia (import statis)
     try:
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-
         @app.get("/metrics", tags=["System"])
         async def metrics() -> Response:
             return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
         logger.info("Prometheus metrics endpoint aktif di /metrics")
     except ImportError:
-
         @app.get("/metrics", tags=["System"])
         async def metrics_not_available() -> JSONResponse:
             return JSONResponse(
@@ -738,15 +628,10 @@ def _add_system_endpoints(app: FastAPI) -> None:
                     "message": "Prometheus client tidak terinstall",
                 },
             )
-
         logger.warning("Prometheus client tidak terinstall, endpoint /metrics tidak aktif")
-
-
 # ============================================================================
 # 10. Daftarkan semua router domain (API v1) — statis
 # ============================================================================
-
-
 def _register_domain_routers(app: FastAPI) -> None:
     """Pasang semua router API versi 1."""
     app.include_router(journal_router, prefix="/api/v1/journals", tags=["Journal"])
@@ -786,13 +671,9 @@ def _register_domain_routers(app: FastAPI) -> None:
     app.include_router(umkm_router, prefix="/api/v1/umkm", tags=["UMKM"])
     logger = get_logger()
     logger.info("[routers] 35 router V1 berhasil didaftarkan")
-
-
 # ============================================================================
 # 11. Custom OpenAPI schema dengan security JWT
 # ============================================================================
-
-
 def _custom_openapi(app: FastAPI):
     if app.openapi_schema:
         return app.openapi_schema
@@ -811,19 +692,14 @@ def _custom_openapi(app: FastAPI):
     }
     schema["security"] = [{"BearerAuth": []}]
     app.openapi_schema = schema
-    return schema
-
-
+    return app.openapi_schema
 # ============================================================================
 # 12. Application factory
 # ============================================================================
-
-
 def create_application() -> FastAPI:
     """Factory untuk membuat instance FastAPI yang sudah dikonfigurasi."""
     env = get_config("app.env", "development")
     is_production = env == "production"
-
     app = FastAPI(
         title=get_config("app.name", "ERP Accounting Engine"),
         version=get_config("app.version", "2.0.0"),
@@ -834,24 +710,19 @@ def create_application() -> FastAPI:
         debug=not is_production,
         lifespan=lifespan,
     )
-
     # Pasang komponen
     _add_middleware(app)
     _add_exception_handlers(app)
     _add_system_endpoints(app)
     _register_domain_routers(app)
     app.openapi = lambda: _custom_openapi(app)  # type: ignore
-
     logger = get_logger()
     logger.info(
         f"[asgi] {get_config('app.name', 'ERP Accounting Engine')} v{get_config('app.version', '2.0.0')} "
         f"dikonfigurasi (env={env}, docs={'nonaktif' if is_production else '/docs'})"
     )
     return app
-
-
 # ============================================================================
 # 13. ASGI app instance (export 'app' untuk uvicorn/gunicorn)
 # ============================================================================
-
 app = create_application()

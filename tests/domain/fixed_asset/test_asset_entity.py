@@ -2,8 +2,7 @@
 """
 Comprehensive tests for domain/fixed_asset/asset_entity.py.
 Covers enums, exceptions, FixedAsset entity (all methods/properties),
-and repository protocol.
-
+repository protocol, and helper validation functions.
 All datetime.now() calls are mocked to FIXED_NOW to avoid flaky tests.
 """
 
@@ -27,6 +26,16 @@ from domain.fixed_asset.asset_entity import (
     InvalidCostError,
     InvalidDepreciationError,
     InvalidUsefulLifeError,
+    # Import helper functions for direct testing
+    _validate_asset_code,
+    _validate_asset_name,
+    _validate_cost,
+    _validate_salvage_value,
+    _validate_useful_life,
+    _validate_accumulated_depreciation,
+    _validate_impairment,
+    _validate_revaluation_surplus,
+    _validate_currency,
 )
 
 # ============================================================================
@@ -226,6 +235,137 @@ class TestExceptions:
     def test_exceptions_raise(self, exc_class):
         with pytest.raises(exc_class):
             raise exc_class("test")
+
+
+# ============================================================================
+# TESTS FOR HELPER FUNCTIONS
+# ============================================================================
+
+class TestHelperFunctions:
+    def test_validate_asset_code_valid(self):
+        assert _validate_asset_code("AST-001") == "AST-001"
+        assert _validate_asset_code("  AST-001  ") == "AST-001"
+        # valid chars: letters, numbers, hyphens, underscores, slashes
+        assert _validate_asset_code("A1_B/C") == "A1_B/C"
+
+    def test_validate_asset_code_invalid(self):
+        with pytest.raises(InvalidAssetCodeError, match="non-empty string"):
+            _validate_asset_code("")
+        with pytest.raises(InvalidAssetCodeError, match="at least 2 characters"):
+            _validate_asset_code("A")
+        with pytest.raises(InvalidAssetCodeError, match="not exceed 30 characters"):
+            _validate_asset_code("A" * 31)
+        with pytest.raises(InvalidAssetCodeError, match="only contain letters"):
+            _validate_asset_code("asset 1")
+
+    def test_validate_asset_name_valid(self):
+        assert _validate_asset_name("Valid Name") == "Valid Name"
+        assert _validate_asset_name("  Valid Name  ") == "Valid Name"
+
+    def test_validate_asset_name_invalid(self):
+        with pytest.raises(FixedAssetError, match="non-empty string"):
+            _validate_asset_name("")
+        with pytest.raises(FixedAssetError, match="at least 2 characters"):
+            _validate_asset_name("A")
+        with pytest.raises(FixedAssetError, match="not exceed 200 characters"):
+            _validate_asset_name("A" * 201)
+
+    def test_validate_cost_valid(self):
+        assert _validate_cost(Decimal("100.00")) == Decimal("100.00")
+        assert _validate_cost("100.00") == Decimal("100.00")
+        assert _validate_cost(100) == Decimal("100.00")
+
+    def test_validate_cost_invalid(self):
+        with pytest.raises(InvalidCostError, match="positive"):
+            _validate_cost(Decimal("-10"))
+        with pytest.raises(InvalidCostError, match="positive"):
+            _validate_cost(Decimal("0"))
+        with pytest.raises(InvalidCostError, match="Invalid cost type"):
+            _validate_cost([])
+
+    def test_validate_salvage_value_valid(self):
+        cost = Decimal("1000")
+        assert _validate_salvage_value(Decimal("100"), cost) == Decimal("100.00")
+        assert _validate_salvage_value("50", cost) == Decimal("50.00")
+        assert _validate_salvage_value(0, cost) == Decimal("0.00")
+
+    def test_validate_salvage_value_invalid(self):
+        cost = Decimal("1000")
+        with pytest.raises(FixedAssetError, match="cannot be negative"):
+            _validate_salvage_value(Decimal("-10"), cost)
+        with pytest.raises(FixedAssetError, match="exceeds cost"):
+            _validate_salvage_value(Decimal("1500"), cost)
+
+    def test_validate_useful_life_valid(self):
+        assert _validate_useful_life(5) == 5
+        assert _validate_useful_life("10") == 10
+
+    def test_validate_useful_life_invalid(self):
+        with pytest.raises(InvalidUsefulLifeError, match="positive"):
+            _validate_useful_life(0)
+        with pytest.raises(InvalidUsefulLifeError, match="positive"):
+            _validate_useful_life(-5)
+        with pytest.raises(InvalidUsefulLifeError, match="exceeds maximum"):
+            _validate_useful_life(101)
+        with pytest.raises(InvalidUsefulLifeError, match="must be integer"):
+            _validate_useful_life("invalid")
+
+    def test_validate_accumulated_depreciation_valid(self):
+        cost = Decimal("1000")
+        salvage = Decimal("100")
+        assert _validate_accumulated_depreciation(Decimal("500"), cost, salvage) == Decimal("500.00")
+        assert _validate_accumulated_depreciation("500", cost, salvage) == Decimal("500.00")
+        # Max allowed = cost - salvage = 900, so 900.01 is allowed with tolerance 0.01? Actually tolerance is 0.01, so 900.00 is allowed, 900.01 is not.
+        assert _validate_accumulated_depreciation(Decimal("900"), cost, salvage) == Decimal("900.00")
+        # 900.01 should raise
+        with pytest.raises(FixedAssetError, match="exceeds depreciable amount"):
+            _validate_accumulated_depreciation(Decimal("900.01"), cost, salvage)
+
+    def test_validate_accumulated_depreciation_invalid(self):
+        cost = Decimal("1000")
+        salvage = Decimal("100")
+        with pytest.raises(FixedAssetError, match="cannot be negative"):
+            _validate_accumulated_depreciation(Decimal("-10"), cost, salvage)
+        # Exceeds max by more than tolerance
+        with pytest.raises(FixedAssetError, match="exceeds depreciable amount"):
+            _validate_accumulated_depreciation(Decimal("950"), cost, salvage)
+
+    def test_validate_impairment_valid(self):
+        nbv = Decimal("1000")
+        assert _validate_impairment(Decimal("100"), nbv) == Decimal("100.00")
+        assert _validate_impairment("100", nbv) == Decimal("100.00")
+        assert _validate_impairment(None, nbv) == Decimal("0")
+        assert _validate_impairment(Decimal("0"), nbv) == Decimal("0.00")
+
+    def test_validate_impairment_invalid(self):
+        nbv = Decimal("1000")
+        with pytest.raises(FixedAssetError, match="cannot be negative"):
+            _validate_impairment(Decimal("-10"), nbv)
+        with pytest.raises(FixedAssetError, match="exceeds NBV"):
+            _validate_impairment(Decimal("1200"), nbv)
+
+    def test_validate_revaluation_surplus_valid(self):
+        assert _validate_revaluation_surplus(Decimal("100")) == Decimal("100.00")
+        assert _validate_revaluation_surplus("50") == Decimal("50.00")
+        assert _validate_revaluation_surplus(None) == Decimal("0")
+        assert _validate_revaluation_surplus(Decimal("0")) == Decimal("0.00")
+
+    def test_validate_revaluation_surplus_invalid(self):
+        with pytest.raises(FixedAssetError, match="cannot be negative"):
+            _validate_revaluation_surplus(Decimal("-10"))
+
+    def test_validate_currency_valid(self):
+        assert _validate_currency("IDR") == "IDR"
+        assert _validate_currency("  usd  ") == "USD"
+        assert _validate_currency("EUR") == "EUR"
+
+    def test_validate_currency_invalid(self):
+        with pytest.raises(FixedAssetError, match="non-empty string"):
+            _validate_currency("")
+        with pytest.raises(FixedAssetError, match="exactly 3 characters"):
+            _validate_currency("ID")
+        with pytest.raises(FixedAssetError, match="only letters"):
+            _validate_currency("123")
 
 
 # ============================================================================
@@ -652,4 +792,4 @@ class TestFixedAssetRepository:
     async def test_repo_methods_can_be_mocked(self, repo):
         repo.get_by_id = AsyncMock(return_value=None)
         result = await repo.get_by_id(uuid.uuid4(), uuid.uuid4())
-        assert result is None 
+        assert result is None

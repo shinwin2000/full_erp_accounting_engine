@@ -272,17 +272,19 @@ class ServiceRegistrar:
             except ImportError:
                 logger.warning("RedisCache not available, using None")
 
-            # Daftarkan IAMService dengan factory
-            container.register_singleton(
-                IAMService,
-                lambda: IAMService(
-                    iam_repo=container.resolve(IAMRepositoryPort),
-                    uow=container.resolve(UnitOfWorkPort),
+            # Daftarkan IAMService dengan factory async
+            async def _create_iam_service():
+                iam_repo = await container.resolve_async(IAMRepositoryPort)
+                uow = await container.resolve_async(UnitOfWorkPort)
+                return IAMService(
+                    iam_repo=iam_repo,
+                    uow=uow,
                     event_publisher=event_publisher,
                     token_issuer=token_issuer,
                     cache=cache
                 )
-            )
+
+            container.register_singleton(IAMService, factory=_create_iam_service)
             logger.info("IAMService and dependencies registered")
         except Exception as e:
             logger.error(f"Failed to register IAMService: {e}")

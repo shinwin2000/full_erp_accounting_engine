@@ -3,13 +3,12 @@
 tests/policy_engine/test_interpreter.py
 Comprehensive tests for policy_engine/interpreter.py
 
-Covers:
+Covers all public and private methods:
 - EvaluationResult constants
 - ConditionEvaluator: evaluate, _resolve_value, _is_number, _parse_arguments,
   register_function, register_operator
-- ActionExecutor: built-in actions (approve, reject, flag, calculate, validate,
-  log, notify, set, increment, decrement, append, remove, apply_rate),
-  execute, _parse_action_params, register_action, get_available_actions
+- ActionExecutor: _init_builtin, all _action_* private methods, execute,
+  _parse_action_params, register_action, get_available_actions
 - PolicyInterpreter: evaluate_condition, execute_action, evaluate_policy,
   evaluate_by_domain, evaluate_multiple_domains, start_batch, end_batch,
   _record_evaluation, register_custom_action, register_custom_function,
@@ -17,7 +16,6 @@ Covers:
   generate_report, export_to_json, get_policy_interpreter
 - All edge cases, negative paths, and error handling
 - No flaky datetime (mocked)
-- No duplicate test structures (parametrized where appropriate)
 """
 
 from __future__ import annotations
@@ -131,7 +129,6 @@ class TestConditionEvaluator:
         assert ConditionEvaluator.evaluate("age >= 30", sample_context) is True
 
     def test_evaluate_in_operator(self, sample_context):
-        # 'in' works with lists or strings
         sample_context["roles"] = ["admin", "manager"]
         assert ConditionEvaluator.evaluate("'manager' in roles", sample_context) is True
         assert ConditionEvaluator.evaluate("'guest' in roles", sample_context) is False
@@ -153,13 +150,11 @@ class TestConditionEvaluator:
 
     def test_evaluate_function_call(self):
         context = {"dt": FIXED_DATETIME}
-        # now() returns fixed datetime
         assert ConditionEvaluator.evaluate("year(now()) == 2026", context) is True
         assert ConditionEvaluator.evaluate("month(now()) == 1", context) is True
         assert ConditionEvaluator.evaluate("day(now()) == 15", context) is True
         assert ConditionEvaluator.evaluate("hour(now()) == 12", context) is True
         assert ConditionEvaluator.evaluate("minute(now()) == 0", context) is True
-        # abs, round, etc.
         assert ConditionEvaluator.evaluate("abs(-5) == 5", context) is True
         assert ConditionEvaluator.evaluate("round(3.7) == 4", context) is True
         assert ConditionEvaluator.evaluate("floor(3.7) == 3", context) is True
@@ -178,7 +173,6 @@ class TestConditionEvaluator:
 
     def test_evaluate_dict_literal(self):
         context = {}
-        # Dict literal with strings
         result = ConditionEvaluator.evaluate("{'a':1, 'b':2} == {'a':1, 'b':2}", context)
         assert result is True
 
@@ -205,10 +199,7 @@ class TestConditionEvaluator:
 
     def test_register_operator(self):
         ConditionEvaluator.register_operator("**", lambda x, y: x ** y)
-        context = {"x": 2}
-        # We need to use it in a condition; our operator mapping is used in evaluate.
-        # The operator is used if it appears in the condition string.
-        # But we can test by directly calling the operator function.
+        # Test operator by direct usage
         op_func = ConditionEvaluator._operators["**"]
         assert op_func(2, 3) == 8
 
@@ -234,8 +225,6 @@ class TestConditionEvaluator:
         context = {}
         result = ConditionEvaluator._resolve_value("[1, 2, 3]", context)
         assert result == [1, 2, 3]
-        result2 = ConditionEvaluator._resolve_value("[1, 2, 3]", context)
-        assert result2 == [1, 2, 3]
 
     def test_resolve_value_dict_literal(self):
         context = {}
@@ -274,14 +263,14 @@ class TestConditionEvaluator:
     def test_parse_arguments_nested(self):
         context = {}
         args = ConditionEvaluator._parse_arguments("1, max(2,3), 4", context)
-        # max is a built-in function, but not in _functions, so it will be treated as string
-        # Actually _parse_arguments calls _resolve_value on each arg, which will try to resolve
-        # 'max(2,3)' as a function call, but max is not in _functions, so it will return the string.
-        # So we expect ['1', 'max(2,3)', '4']? Not exactly: _resolve_value will try to parse function call,
-        # but max is not registered, it will raise ValueError, which is caught? Actually _resolve_value
-        # doesn't catch, it raises. But we are testing the parser, so we can just check that it splits correctly.
-        # We'll just ensure it doesn't raise.
+        # max is not registered, so will be resolved as string? Actually _resolve_value will try to call function and raise ValueError, which will be caught? In current implementation, _resolve_value doesn't catch; but we are testing parser only, so we can check length.
         assert len(args) == 3
+
+    # ---- Additional edge cases for evaluate ----
+    def test_evaluate_with_is_operator(self):
+        context = {"x": None}
+        assert ConditionEvaluator.evaluate("x is none", context) is True
+        assert ConditionEvaluator.evaluate("x is_not none", context) is False
 
 
 # =============================================================================
@@ -305,118 +294,154 @@ class TestActionExecutor:
         assert "remove" in ActionExecutor._builtin_actions
         assert "apply_rate" in ActionExecutor._builtin_actions
 
-    def test_action_approve(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("approve(message=OK)", sample_context, results)
-        assert sample_context["_action_result"] == "approved"
+    # ---- Direct tests for each private action method ----
+    def test_action_approve_direct(self):
+        context = {}
+        result = ActionExecutor._action_approve(context, message="OK")
+        assert context["_action_result"] == "approved"
         assert result["status"] == "approved"
         assert result["message"] == "OK"
-        assert len(results) == 1
 
-    def test_action_reject(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("reject(message=No)", sample_context, results)
-        assert sample_context["_action_result"] == "rejected"
+    def test_action_reject_direct(self):
+        context = {}
+        result = ActionExecutor._action_reject(context, message="No")
+        assert context["_action_result"] == "rejected"
         assert result["status"] == "rejected"
         assert result["message"] == "No"
 
-    def test_action_flag(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("flag(type=manual_review, message=Check)", sample_context, results)
-        assert "_flags" in sample_context
-        assert "manual_review" in sample_context["_flags"]
+    def test_action_flag_direct(self):
+        context = {}
+        result = ActionExecutor._action_flag(context, type="manual_review", message="Check")
+        assert "_flags" in context
+        assert "manual_review" in context["_flags"]
         assert result["flag"] == "manual_review"
         assert result["message"] == "Check"
 
-    def test_action_calculate(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("calculate(expression=amount * 2, target=doubled)", sample_context, results)
-        assert sample_context["doubled"] == Decimal("3000000")
+    def test_action_calculate_direct(self):
+        context = {"amount": Decimal("1500000")}
+        result = ActionExecutor._action_calculate(context, expression="amount * 2", target="doubled")
+        assert context["doubled"] == Decimal("3000000")
         assert result["calculated"] == "doubled"
         assert result["value"] == Decimal("3000000")
 
-    def test_action_validate(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("validate(rule=check_status, field=status, expected='pending')", sample_context, results)
-        assert "_validations" in sample_context
-        assert sample_context["_validations"][0]["rule"] == "check_status"
-        assert sample_context["_validations"][0]["valid"] is True
+    def test_action_calculate_error(self, caplog):
+        context = {}
+        with caplog.at_level("ERROR"):
+            result = ActionExecutor._action_calculate(context, expression="invalid", target="x")
+        assert "error" in result
+        assert "Calculation error" in caplog.text
+
+    def test_action_validate_direct(self):
+        context = {"status": "pending"}
+        result = ActionExecutor._action_validate(context, rule="check_status", field="status", expected="pending")
+        assert "_validations" in context
+        assert context["_validations"][0]["rule"] == "check_status"
+        assert context["_validations"][0]["valid"] is True
         assert result["validation"] == "check_status"
         assert result["valid"] is True
 
-    def test_action_validate_false(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("validate(rule=check_status, field=status, expected='approved')", sample_context, results)
-        assert sample_context["_validations"][0]["valid"] is False
+    def test_action_validate_false(self):
+        context = {"status": "pending"}
+        result = ActionExecutor._action_validate(context, rule="check_status", field="status", expected="approved")
+        assert context["_validations"][0]["valid"] is False
 
-    def test_action_log(self, sample_context, caplog):
-        results = []
+    def test_action_log_direct(self, caplog):
+        context = {}
         with caplog.at_level("INFO"):
-            ActionExecutor.execute("log(message=Hello, level=info)", sample_context, results)
+            result = ActionExecutor._action_log(context, message="Hello", level="info")
         assert "Hello" in caplog.text
-        assert "_logs" in sample_context
-        assert "Hello" in sample_context["_logs"]
+        assert "_logs" in context
+        assert "Hello" in context["_logs"]
+        assert result["logged"] == "Hello"
 
-    def test_action_notify(self, sample_context, caplog):
-        results = []
+    def test_action_notify_direct(self, caplog):
+        context = {}
         with caplog.at_level("INFO"):
-            ActionExecutor.execute("notify(channel=email, message=Alert)", sample_context, results)
+            result = ActionExecutor._action_notify(context, channel="email", message="Alert")
         assert "NOTIFICATION [email]: Alert" in caplog.text
-        assert "_notifications" in sample_context
-        assert sample_context["_notifications"][0]["channel"] == "email"
+        assert "_notifications" in context
+        assert context["_notifications"][0]["channel"] == "email"
         assert result["notification_sent"] is True
+        assert result["channel"] == "email"
 
-    def test_action_set(self, sample_context):
-        results = []
-        result = ActionExecutor.execute("set(var=myvar, value=hello)", sample_context, results)
-        assert sample_context["myvar"] == "hello"
+    def test_action_set_direct(self):
+        context = {}
+        result = ActionExecutor._action_set(context, var="myvar", value="hello")
+        assert context["myvar"] == "hello"
         assert result["set"] == "myvar"
         assert result["value"] == "hello"
 
-    def test_action_increment(self, sample_context):
-        sample_context["counter"] = 5
-        results = []
-        result = ActionExecutor.execute("increment(var=counter, delta=2)", sample_context, results)
-        assert sample_context["counter"] == 7
+    def test_action_set_missing_var(self):
+        context = {}
+        result = ActionExecutor._action_set(context)
+        assert result["error"] == "missing var parameter"
+
+    def test_action_increment_direct(self):
+        context = {"counter": 5}
+        result = ActionExecutor._action_increment(context, var="counter", delta=2)
+        assert context["counter"] == 7
         assert result["incremented"] == "counter"
         assert result["new_value"] == 7
 
-    def test_action_decrement(self, sample_context):
-        sample_context["counter"] = 5
-        results = []
-        result = ActionExecutor.execute("decrement(var=counter, delta=2)", sample_context, results)
-        assert sample_context["counter"] == 3
+    def test_action_increment_missing_var(self):
+        context = {}
+        result = ActionExecutor._action_increment(context, delta=2)
+        assert result["error"] == "missing var parameter"
+
+    def test_action_decrement_direct(self):
+        context = {"counter": 5}
+        result = ActionExecutor._action_decrement(context, var="counter", delta=2)
+        assert context["counter"] == 3
         assert result["decremented"] == "counter"
         assert result["new_value"] == 3
 
-    def test_action_append(self, sample_context):
-        sample_context["mylist"] = ["a"]
-        results = []
-        result = ActionExecutor.execute("append(var=mylist, value=b)", sample_context, results)
-        assert sample_context["mylist"] == ["a", "b"]
+    def test_action_append_direct(self):
+        context = {"mylist": ["a"]}
+        result = ActionExecutor._action_append(context, var="mylist", value="b")
+        assert context["mylist"] == ["a", "b"]
         assert result["appended_to"] == "mylist"
         assert result["value"] == "b"
 
-    def test_action_remove(self, sample_context):
-        sample_context["mylist"] = ["a", "b", "c"]
-        results = []
-        result = ActionExecutor.execute("remove(var=mylist, value=b)", sample_context, results)
-        assert sample_context["mylist"] == ["a", "c"]
+    def test_action_append_missing_var(self):
+        context = {}
+        result = ActionExecutor._action_append(context, value="b")
+        assert result["error"] == "missing var parameter"
+
+    def test_action_remove_direct(self):
+        context = {"mylist": ["a", "b", "c"]}
+        result = ActionExecutor._action_remove(context, var="mylist", value="b")
+        assert context["mylist"] == ["a", "c"]
         assert result["removed_from"] == "mylist"
         assert result["value"] == "b"
 
-    def test_action_apply_rate(self, sample_context):
+    def test_action_remove_missing_var(self):
+        context = {}
+        result = ActionExecutor._action_remove(context, var="missing", value="x")
+        assert result["error"] == "var not found or not a list"
+
+    def test_action_apply_rate_direct(self):
+        context = {}
+        result = ActionExecutor._action_apply_rate(context, rate=Decimal("0.02"))
+        assert context["rate"] == Decimal("0.02")
+        assert result["rate"] == Decimal("0.02")
+
+        # Also test string conversion
+        context2 = {}
+        result2 = ActionExecutor._action_apply_rate(context2, rate="0.03")
+        assert context2["rate"] == Decimal("0.03")
+
+    # ---- execute method ----
+    def test_execute_action_with_space_format(self):
+        context = {}
         results = []
-        result = ActionExecutor.execute("apply_rate(rate=0.02)", sample_context, results)
-        assert sample_context["rate"] == Decimal("0.02")
-        # Also test space-separated format
-        result2 = ActionExecutor.execute("apply_rate 0.03", sample_context, results)
-        # This will be handled by the execute method's space detection
-        # Actually in execute method, it treats "apply_rate 0.03" as simple format,
-        # and we have special handling in evaluate_condition? Actually we have a special
-        # case in PolicyInterpreter.execute_action, but ActionExecutor.execute doesn't handle
-        # space-separated directly. Let's test PolicyInterpreter.execute_action separately.
-        # So for ActionExecutor, we test the standard format.
+        # Space-separated format: "apply_rate 0.02"
+        result = ActionExecutor.execute("apply_rate 0.02", context, results)
+        # In execute, it detects space and creates params with rate
+        # Actually the code handles "apply_rate 0.02" by converting to parameters.
+        # Let's test that.
+        assert result["rate"] == Decimal("0.02")
+        # Also check that context was updated? The apply_rate action sets context["rate"].
+        assert context["rate"] == Decimal("0.02")
 
     def test_execute_custom_action(self):
         def custom_action(context, **params):
@@ -439,13 +464,23 @@ class TestActionExecutor:
         assert "context_snapshot" in result
         assert len(results) == 1
 
-    def test_parse_action_params(self):
+    # ---- parse_action_params ----
+    def test_parse_action_params_basic(self):
         context = {"x": 10}
         params = ActionExecutor._parse_action_params("a=1, b='hello', c=x", context)
         assert params == {"a": 1, "b": "hello", "c": 10}
 
+    def test_parse_action_params_with_nested_parentheses(self):
+        context = {"data": "test"}
+        # Test with nested parentheses in value
+        params = ActionExecutor._parse_action_params("func=max(1,2)", context)
+        # The parser will split on comma, but here there is no comma, so it will parse entire string as key? Actually it expects key=value. If no =, it's ignored.
+        # Let's test a valid case: value with parentheses inside.
+        params = ActionExecutor._parse_action_params("expr='func(1,2)'", context)
+        # It should resolve the value as string literal.
+        assert params["expr"] == "func(1,2)"
+
     def test_get_available_actions(self):
-        # Ensure builtins are loaded
         actions = ActionExecutor.get_available_actions()
         assert "approve" in actions
         assert "reject" in actions
@@ -488,17 +523,22 @@ class TestPolicyInterpreter:
         assert "_flags" in sample_context
         assert "high_amount" in sample_context["_flags"]
 
+    def test_evaluate_policy_with_disabled_rule(self, interpreter, sample_policy, sample_context):
+        # Disable rule1
+        sample_policy.rules[0].enabled = False
+        results = interpreter.evaluate_policy(sample_policy, sample_context)
+        # Only rule2 might execute if condition true, but it's false in fixed date.
+        assert len(results) == 0
+
     def test_evaluate_policy_with_cache(self, interpreter, sample_policy, sample_context):
         cache_key = "test_cache"
-        # First evaluation, condition should be evaluated and cached
         interpreter.enable_cache(ttl_seconds=60)
+        # First evaluation, condition should be evaluated and cached
         results1 = interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
         # Second evaluation with same key should use cache
-        # We need to ensure the condition evaluator is not called again; we can mock it.
         with patch.object(interpreter._condition_evaluator, "evaluate") as mock_eval:
             mock_eval.return_value = True
             results2 = interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
-            # Since cache hit, the condition evaluator should not be called
             mock_eval.assert_not_called()
         # Disable cache
         interpreter.disable_cache()
@@ -525,7 +565,6 @@ class TestPolicyInterpreter:
             assert "other" in results
             assert len(results["txn"]) == 1
             assert results["txn"][0]["flag"] == "high_amount"
-            # other domain also gets same policy (since mocked)
             assert len(results["other"]) == 1
 
     def test_start_batch_end_batch(self, interpreter, sample_policy, sample_context):
@@ -534,7 +573,6 @@ class TestPolicyInterpreter:
         interpreter.evaluate_policy(sample_policy, sample_context)
         batch_results = interpreter.end_batch()
         assert len(batch_results) == 2
-        # Check each entry has expected fields
         for entry in batch_results:
             assert "timestamp" in entry
             assert "policy_id" in entry
@@ -583,10 +621,8 @@ class TestPolicyInterpreter:
         assert interpreter._evaluation_cache == {}
 
     def test_get_stats(self, interpreter):
-        # Initially empty
         stats = interpreter.get_stats()
         assert stats["total_evaluations"] == 0
-        # Add some evaluations
         interpreter._record_evaluation("p1", "r1", True, action_result="ok")
         interpreter._record_evaluation("p2", "r2", False, error="err")
         stats2 = interpreter.get_stats()
@@ -598,7 +634,6 @@ class TestPolicyInterpreter:
         assert stats2["cache_size"] == 0
 
     def test_generate_report(self, interpreter):
-        # Add some evaluations
         interpreter._record_evaluation("p1", "r1", True)
         report = interpreter.generate_report()
         assert "stats" in report
@@ -608,7 +643,6 @@ class TestPolicyInterpreter:
         assert "available_operators" in report
 
     def test_export_to_json(self, interpreter):
-        # Add some data
         interpreter._record_evaluation("p1", "r1", True, action_result={"x": 1})
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
             file_path = f.name
@@ -625,10 +659,9 @@ class TestPolicyInterpreter:
             os.remove(file_path)
 
     def test_evaluate_policy_error_handling(self, interpreter, sample_policy, sample_context):
-        # Make condition evaluator raise an error
+        # Condition evaluator error
         with patch.object(interpreter._condition_evaluator, "evaluate", side_effect=Exception("boom")):
             results = interpreter.evaluate_policy(sample_policy, sample_context)
-            # Should not raise, should record error and continue
             assert results == []
             history = interpreter.get_evaluation_history()
             assert len(history) == 1
@@ -636,13 +669,10 @@ class TestPolicyInterpreter:
 
         # Action error
         with patch.object(interpreter._action_executor, "execute", side_effect=Exception("action boom")):
-            # We need to make condition true
             with patch.object(interpreter._condition_evaluator, "evaluate", return_value=True):
                 results = interpreter.evaluate_policy(sample_policy, sample_context)
                 assert results == []
                 history2 = interpreter.get_evaluation_history()
-                # There should be two entries: one for condition true, one for action error
-                # The latest should have error
                 assert history2[-1]["error"] == "action boom"
 
 
