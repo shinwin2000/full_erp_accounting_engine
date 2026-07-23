@@ -4,14 +4,14 @@ ui/pages/tax_faktur_page.py
 Halaman modul "Faktur Pajak (Coretax)" (Pajak).
 
 Endpoint backend : /tax/coretax/tax/faktur-pajak
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -32,14 +32,17 @@ COLUMNS = [
 # Field form tambah/ubah Faktur Pajak (Coretax)
 # ---------------------------------------------------------------------------
 FORM_FIELDS = [
-    FieldSpec("reference_id", "No. Referensi", required=True),
+    FieldSpec("reference_id", "ID Referensi Invoice (UUID)", FieldType.UUID, required=True),
     FieldSpec("faktur_date", "Tanggal Faktur", FieldType.DATE, required=True),
-    FieldSpec("npwp_pembeli", "NPWP Pembeli", required=True),
+    FieldSpec("npwp_pembeli", "NPWP Pembeli (15 digit angka)", required=True),
     FieldSpec("nama_pembeli", "Nama Pembeli", required=True),
     FieldSpec("alamat_pembeli", "Alamat Pembeli", FieldType.TEXTAREA),
-    FieldSpec("dpp", "DPP", FieldType.DECIMAL, required=True),
+    FieldSpec("dpp", "DPP (harus > 0)", FieldType.DECIMAL, required=True),
     FieldSpec("ppn_rate", "Tarif PPN (%)", FieldType.DECIMAL, default=11),
-    FieldSpec("is_ppn_bm", "PPnBM", FieldType.BOOL, default=False),
+    FieldSpec("is_ppn_bm", "Kena PPnBM", FieldType.BOOL, default=False),
+    FieldSpec("ppn_bm_rate", "Tarif PPnBM (%, jika kena PPnBM)", FieldType.DECIMAL, default=0),
+    FieldSpec("note_type", "Tipe Faktur", FieldType.SELECT, choices=("normal", "correction", "replacement",), default="normal"),
+    FieldSpec("correction_sequence", "No. Urut Pembetulan (0 jika normal)", FieldType.NUMBER, default=0),
     FieldSpec("description", "Keterangan", FieldType.TEXTAREA),
 ]
 
@@ -63,6 +66,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=True,
     search_param="search",
+    edit_http_method="PUT",
 )
 
 

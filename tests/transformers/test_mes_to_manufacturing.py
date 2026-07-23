@@ -49,8 +49,8 @@ class TestBaseTransformer:
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "is_valid" in result
 
     def test_to_dict_smoke(self):
         """Smoke test for BaseTransformer.to_dict using mocked collaborators."""
@@ -60,19 +60,18 @@ class TestBaseTransformer:
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "name" in result
 
     def test_from_dict_smoke(self):
         """Smoke test for BaseTransformer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BaseTransformer.from_dict(data={})
+            result = BaseTransformer.from_dict(data={"name": "from_test"})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, BaseTransformer)
+        assert result.name == "from_test"
 
     def test_clone_smoke(self):
         """Smoke test for BaseTransformer.clone using mocked collaborators."""
@@ -82,8 +81,8 @@ class TestBaseTransformer:
         except (Exception, SystemExit) as e:
             pytest.skip(f"clone needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, BaseTransformer)
+        assert result is not instance
 
 
 class TestMESToManufacturingTransformerError:
@@ -185,23 +184,35 @@ class TestManufacturingCostCalculator:
         """Smoke test for ManufacturingCostCalculator.calculate_wip_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.calculate_wip_cost(work_order_id=uuid4(), material_costs=[{}], labor_costs=[{}], machine_costs=[{}])
+            result = await instance.calculate_wip_cost(
+                work_order_id=uuid4(),
+                material_costs=[{"cost": 100}],
+                labor_costs=[{"cost": 50}],
+                machine_costs=[{"cost": 30}]
+            )
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_wip_cost needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "total_wip" in result
 
     async def test_calculate_finished_goods_cost_smoke(self):
         """Smoke test for ManufacturingCostCalculator.calculate_finished_goods_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.calculate_finished_goods_cost(work_order=MagicMock(), wip_cost=Decimal("100.00"), completed_quantity=Decimal("100.00"))
+            work_order = MagicMock()
+            work_order.work_order_number = "WO-001"
+            work_order.standard_cost = 200
+            result = await instance.calculate_finished_goods_cost(
+                work_order=work_order,
+                wip_cost=Decimal("1000.00"),
+                completed_quantity=Decimal("5")
+            )
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_finished_goods_cost needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "unit_cost" in result
 
     def test_validate_smoke(self):
         """Smoke test for ManufacturingCostCalculator.validate using mocked collaborators."""
@@ -211,8 +222,8 @@ class TestManufacturingCostCalculator:
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert result["is_valid"] is True
 
     def test_to_dict_smoke(self):
         """Smoke test for ManufacturingCostCalculator.to_dict using mocked collaborators."""
@@ -222,8 +233,7 @@ class TestManufacturingCostCalculator:
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
 
 
 class TestMESToManufacturingTransformer:
@@ -245,23 +255,31 @@ class TestMESToManufacturingTransformer:
         """Smoke test for MESToManufacturingTransformer.transform using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.transform(envelope=MagicMock())
+            # We need a valid event type to avoid early return
+            envelope = MagicMock()
+            envelope.event_type = "ProductionOrderStarted"
+            envelope.payload = {
+                "work_order_id": str(uuid4()),
+                "product_id": str(uuid4()),
+                "planned_quantity": 100,
+            }
+            # Mock the BOM repo to return something
+            instance._bom_repo.get_active_by_product = MagicMock(return_value=MagicMock(id=uuid4()))
+            await instance.transform(envelope=envelope)
         except (Exception, SystemExit) as e:
             pytest.skip(f"transform needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # If no exception, pass
 
     async def test_reset_smoke(self):
         """Smoke test for MESToManufacturingTransformer.reset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reset()
+            await instance.reset()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reset needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert len(instance._processed_events) == 0
 
     def test_validate_smoke(self):
         """Smoke test for MESToManufacturingTransformer.validate using mocked collaborators."""
@@ -271,8 +289,8 @@ class TestMESToManufacturingTransformer:
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "is_valid" in result
 
     def test_to_dict_smoke(self):
         """Smoke test for MESToManufacturingTransformer.to_dict using mocked collaborators."""
@@ -282,8 +300,8 @@ class TestMESToManufacturingTransformer:
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "name" in result
 
 
 async def test_get_mes_to_manufacturing_transformer_smoke():
@@ -293,14 +311,22 @@ async def test_get_mes_to_manufacturing_transformer_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_mes_to_manufacturing_transformer needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, MESToManufacturingTransformer)
 
 
 async def test_handle_mes_event_smoke():
     """Smoke test for module-level function handle_mes_event."""
     try:
-        result = await handle_mes_event(envelope=MagicMock())
+        envelope = MagicMock()
+        envelope.event_type = "ProductionOrderStarted"
+        envelope.payload = {
+            "work_order_id": str(uuid4()),
+            "product_id": str(uuid4()),
+            "planned_quantity": 100,
+        }
+        await handle_mes_event(envelope=envelope)
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_mes_event needs specific input data: {e}")
         return
+    # No exception means success
     assert True

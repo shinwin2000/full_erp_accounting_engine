@@ -1,6 +1,5 @@
 # test_causality_exceptions.py
-# =========================================
-# Lengkap: Semua test asli dipertahankan + tambahan test coverage untuk factory methods yang hilang.
+# Comprehensive tests for domain/causality/causality_exceptions.py
 
 from unittest.mock import MagicMock
 
@@ -41,10 +40,12 @@ from domain.causality.causality_exceptions import (
 )
 
 
+# =============================================================================
+# Enum Tests
+# =============================================================================
+
 class TestCausalityErrorCode:
-    """Tests for the CausalityErrorCode enum."""
-    def test_members_exist(self):
-        """All expected enum members are defined."""
+    def test_members_exist(self) -> None:
         assert hasattr(CausalityErrorCode, 'NODE_NOT_FOUND')
         assert hasattr(CausalityErrorCode, 'NODE_ALREADY_EXISTS')
         assert hasattr(CausalityErrorCode, 'NODE_INVALID_TYPE')
@@ -75,619 +76,456 @@ class TestCausalityErrorCode:
         assert hasattr(CausalityErrorCode, 'CAUSALITY_INCONSISTENT')
         assert hasattr(CausalityErrorCode, 'UNKNOWN_CAUSALITY_ERROR')
 
-    def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
+    def test_member_is_instance(self) -> None:
         assert isinstance(CausalityErrorCode.NODE_NOT_FOUND, CausalityErrorCode)
 
 
 class TestCausalitySeverity:
-    """Tests for the CausalitySeverity enum."""
-    def test_members_exist(self):
-        """All expected enum members are defined."""
+    def test_members_exist(self) -> None:
         assert hasattr(CausalitySeverity, 'CRITICAL')
         assert hasattr(CausalitySeverity, 'HIGH')
         assert hasattr(CausalitySeverity, 'MEDIUM')
         assert hasattr(CausalitySeverity, 'LOW')
 
-    def test_member_is_instance(self):
-        """Enum members are instances of the enum class."""
+    def test_member_is_instance(self) -> None:
         assert isinstance(CausalitySeverity.CRITICAL, CausalitySeverity)
 
+    def test_values(self) -> None:
+        assert CausalitySeverity.CRITICAL.value == 80
+        assert CausalitySeverity.HIGH.value == 60
+        assert CausalitySeverity.MEDIUM.value == 40
+        assert CausalitySeverity.LOW.value == 20
+
+
+# =============================================================================
+# Base Exception Tests
+# =============================================================================
 
 class TestCausalityError:
-    """Tests for CausalityError."""
+    def test_construction_minimal(self) -> None:
+        exc = CausalityError(
+            message="Test error",
+            error_code=CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR,
+        )
+        assert exc.original_message == "Test error"
+        assert exc.error_code == CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR
+        assert exc.severity == CausalitySeverity.MEDIUM  # default
+        assert exc.component is None
+        assert exc.details == {}
+        assert exc.cause is None
+        assert "Test error" in str(exc)
 
-    def _build_instance(self):
-        return CausalityError(
-            message="test_value",
+    def test_construction_full(self) -> None:
+        cause = ValueError("original")
+        exc = CausalityError(
+            message="Test error",
             error_code=CausalityErrorCode.NODE_NOT_FOUND,
+            severity=CausalitySeverity.HIGH,
+            component="test_component",
+            details={"key": "value"},
+            cause=cause,
+        )
+        assert exc.original_message == "Test error"
+        assert exc.error_code == CausalityErrorCode.NODE_NOT_FOUND
+        assert exc.severity == CausalitySeverity.HIGH
+        assert exc.component == "test_component"
+        assert exc.details == {"key": "value"}
+        assert exc.cause is cause
+        assert "Test error" in str(exc)
+
+    def test_to_dict(self) -> None:
+        exc = CausalityError(
+            message="Test error",
+            error_code=CausalityErrorCode.QUERY_FAILED,
             severity=CausalitySeverity.CRITICAL,
-            component="test_value",
-            details={},
-            cause=MagicMock(),
+            component="test",
+            details={"a": 1},
+            cause=ValueError("nested"),
         )
-
-    def test_construction(self):
-        """CausalityError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalityError)
-
-    def test_original_message(self):
-        instance = self._build_instance()
-        assert instance.original_message == "test_value"
-
-    def test_to_dict(self):
-        instance = self._build_instance()
-        d = instance.to_dict()
+        d = exc.to_dict()
         assert d["type"] == "CausalityError"
-        assert d["error_code"] == "NODE_NOT_FOUND"
+        assert d["error_code"] == "QUERY_FAILED"
         assert d["severity"] == "CRITICAL"
-        assert d["message"] == "test_value"
-        assert d["component"] == "test_value"
-        assert d["details"] == {}
-        assert d["cause"] is not None
+        assert d["message"] == "Test error"
+        assert d["component"] == "test"
+        assert d["details"] == {"a": 1}
+        assert d["cause"] == "nested"
 
-    def test_is_critical(self):
-        instance = self._build_instance()
-        assert instance.is_critical() is True
+    def test_is_critical(self) -> None:
+        exc_critical = CausalityError("", CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR, CausalitySeverity.CRITICAL)
+        exc_high = CausalityError("", CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR, CausalitySeverity.HIGH)
+        assert exc_critical.is_critical() is True
+        assert exc_high.is_critical() is False
 
-    def test_is_high(self):
-        instance = CausalityError(
-            message="high", error_code=CausalityErrorCode.NODE_NOT_FOUND,
-            severity=CausalitySeverity.HIGH
-        )
-        assert instance.is_high() is True
+    def test_is_high(self) -> None:
+        exc_high = CausalityError("", CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR, CausalitySeverity.HIGH)
+        exc_medium = CausalityError("", CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR, CausalitySeverity.MEDIUM)
+        assert exc_high.is_high() is True
+        assert exc_medium.is_high() is False
 
-        instance_low = CausalityError(
-            message="low", error_code=CausalityErrorCode.NODE_NOT_FOUND,
-            severity=CausalitySeverity.LOW
-        )
-        assert instance_low.is_high() is False
 
+# =============================================================================
+# Specific Exception Tests
+# =============================================================================
 
 class TestCausalNodeNotFoundError:
-    """Tests for CausalNodeNotFoundError."""
+    def test_construction_with_node_id(self) -> None:
+        exc = CausalNodeNotFoundError(node_id="n123")
+        assert exc.node_id == "n123"
+        assert exc.error_code == CausalityErrorCode.NODE_NOT_FOUND
+        assert exc.severity == CausalitySeverity.HIGH
+        assert "n123" in str(exc)
 
-    def _build_instance(self):
-        return CausalNodeNotFoundError(node_id="test_value", entity_type="test_value", entity_id="test_value")
+    def test_construction_with_entity(self) -> None:
+        exc = CausalNodeNotFoundError(entity_type="journal", entity_id="j456")
+        assert exc.node_id is None
+        assert exc.details["entity_type"] == "journal"
+        assert exc.details["entity_id"] == "j456"
+        assert "journal" in str(exc)
 
-    def test_construction(self):
-        """CausalNodeNotFoundError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalNodeNotFoundError)
+    def test_construction_fallback(self) -> None:
+        exc = CausalNodeNotFoundError()
+        assert exc.node_id is None
+        assert exc.message == "Causal node not found"
 
 
 class TestCausalNodeAlreadyExistsError:
-    """Tests for CausalNodeAlreadyExistsError."""
-
-    def _build_instance(self):
-        return CausalNodeAlreadyExistsError(node_id="test_value")
-
-    def test_construction(self):
-        """CausalNodeAlreadyExistsError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalNodeAlreadyExistsError)
+    def test_construction(self) -> None:
+        exc = CausalNodeAlreadyExistsError(node_id="n123")
+        assert exc.node_id == "n123"
+        assert exc.error_code == CausalityErrorCode.NODE_ALREADY_EXISTS
+        assert exc.severity == CausalitySeverity.MEDIUM
+        assert "n123" in str(exc)
 
 
 class TestCausalNodeInvalidTypeError:
-    """Tests for CausalNodeInvalidTypeError."""
-
-    def _build_instance(self):
-        return CausalNodeInvalidTypeError(node_type="test_value", valid_types=["test_value"])
-
-    def test_construction(self):
-        """CausalNodeInvalidTypeError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalNodeInvalidTypeError)
+    def test_construction(self) -> None:
+        exc = CausalNodeInvalidTypeError(node_type="bad", valid_types=["good1", "good2"])
+        assert exc.node_type == "bad"
+        assert exc.details["valid_types"] == ["good1", "good2"]
+        assert exc.error_code == CausalityErrorCode.NODE_INVALID_TYPE
+        assert exc.severity == CausalitySeverity.HIGH
 
 
 class TestCausalNodeHashMismatchError:
-    """Tests for CausalNodeHashMismatchError."""
-
-    def _build_instance(self):
-        return CausalNodeHashMismatchError(node_id="test_value", expected_hash="test_value", actual_hash="test_value")
-
-    def test_construction(self):
-        """CausalNodeHashMismatchError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalNodeHashMismatchError)
+    def test_construction(self) -> None:
+        exc = CausalNodeHashMismatchError(
+            node_id="n123", expected_hash="abc123", actual_hash="def456"
+        )
+        assert exc.node_id == "n123"
+        assert exc.details["expected_hash"] == "abc123"
+        assert exc.details["actual_hash"] == "def456"
+        assert exc.error_code == CausalityErrorCode.NODE_HASH_MISMATCH
+        assert exc.severity == CausalitySeverity.CRITICAL
+        assert "n123" in str(exc)
 
 
 class TestCausalNodeCorruptedError:
-    """Tests for CausalNodeCorruptedError."""
-
-    def _build_instance(self):
-        return CausalNodeCorruptedError(node_id="test_value", reason="test_value")
-
-    def test_construction(self):
-        """CausalNodeCorruptedError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalNodeCorruptedError)
+    def test_construction(self) -> None:
+        exc = CausalNodeCorruptedError(node_id="n123", reason="missing data")
+        assert exc.node_id == "n123"
+        assert exc.details["reason"] == "missing data"
+        assert exc.error_code == CausalityErrorCode.NODE_CORRUPTED
+        assert exc.severity == CausalitySeverity.CRITICAL
 
 
 class TestCausalChainIncompleteError:
-    """Tests for CausalChainIncompleteError."""
-
-    def _build_instance(self):
-        return CausalChainIncompleteError(start_id="test_value", end_id="test_value", missing_nodes=["test_value"])
-
-    def test_construction(self):
-        """CausalChainIncompleteError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalChainIncompleteError)
+    def test_construction(self) -> None:
+        exc = CausalChainIncompleteError(
+            start_id="s1", end_id="e1", missing_nodes=["a", "b"]
+        )
+        assert exc.start_id == "s1"
+        assert exc.end_id == "e1"
+        assert exc.details["missing_nodes"] == ["a", "b"]
+        assert exc.error_code == CausalityErrorCode.CHAIN_INCOMPLETE
+        assert exc.severity == CausalitySeverity.HIGH
 
 
 class TestCausalChainCycleDetectedError:
-    """Tests for CausalChainCycleDetectedError."""
-
-    def _build_instance(self):
-        return CausalChainCycleDetectedError(cycle_nodes=["test_value"])
-
-    def test_construction(self):
-        """CausalChainCycleDetectedError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalChainCycleDetectedError)
+    def test_construction(self) -> None:
+        exc = CausalChainCycleDetectedError(cycle_nodes=["a", "b", "c", "a"])
+        assert exc.cycle_nodes == ["a", "b", "c", "a"]
+        assert exc.error_code == CausalityErrorCode.CHAIN_CYCLE_DETECTED
+        assert exc.severity == CausalitySeverity.CRITICAL
+        assert "a -> b" in str(exc)
 
 
 class TestCausalChainTooDeepError:
-    """Tests for CausalChainTooDeepError."""
-
-    def _build_instance(self):
-        return CausalChainTooDeepError(max_depth=1, actual_depth=1)
-
-    def test_construction(self):
-        """CausalChainTooDeepError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalChainTooDeepError)
+    def test_construction(self) -> None:
+        exc = CausalChainTooDeepError(max_depth=5, actual_depth=10)
+        assert exc.max_depth == 5
+        assert exc.actual_depth == 10
+        assert exc.error_code == CausalityErrorCode.CHAIN_TOO_DEEP
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestCausalChainBrokenError:
-    """Tests for CausalChainBrokenError."""
-
-    def _build_instance(self):
-        return CausalChainBrokenError(node_id="test_value", expected_next="test_value", actual_next="test_value")
-
-    def test_construction(self):
-        """CausalChainBrokenError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalChainBrokenError)
+    def test_construction(self) -> None:
+        exc = CausalChainBrokenError(
+            node_id="n1", expected_next="n2", actual_next="n3"
+        )
+        assert exc.node_id == "n1"
+        assert exc.details["expected_next"] == "n2"
+        assert exc.details["actual_next"] == "n3"
+        assert exc.error_code == CausalityErrorCode.CHAIN_BROKEN
+        assert exc.severity == CausalitySeverity.HIGH
 
 
 class TestCausalChainEmptyError:
-    """Tests for CausalChainEmptyError."""
-
-    def _build_instance(self):
-        return CausalChainEmptyError(entity_id="test_value", entity_type="test_value")
-
-    def test_construction(self):
-        """CausalChainEmptyError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalChainEmptyError)
+    def test_construction(self) -> None:
+        exc = CausalChainEmptyError(entity_id="e1", entity_type="journal")
+        assert exc.entity_id == "e1"
+        assert exc.details["entity_type"] == "journal"
+        assert exc.error_code == CausalityErrorCode.CHAIN_EMPTY
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestCausalChainNotFoundError:
-    """Tests for CausalChainNotFoundError."""
-
-    def _build_instance(self):
-        return CausalChainNotFoundError(chain_id="test_value")
-
-    def test_construction(self):
-        """CausalChainNotFoundError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalChainNotFoundError)
+    def test_construction(self) -> None:
+        exc = CausalChainNotFoundError(chain_id="c1")
+        assert exc.chain_id == "c1"
+        assert exc.error_code == CausalityErrorCode.CHAIN_NOT_FOUND
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestCausalRelationshipNotFoundError:
-    """Tests for CausalRelationshipNotFoundError."""
-
-    def _build_instance(self):
-        return CausalRelationshipNotFoundError(source_id="test_value", target_id="test_value")
-
-    def test_construction(self):
-        """CausalRelationshipNotFoundError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalRelationshipNotFoundError)
+    def test_construction(self) -> None:
+        exc = CausalRelationshipNotFoundError(source_id="s1", target_id="t1")
+        assert exc.source_id == "s1"
+        assert exc.target_id == "t1"
+        assert exc.error_code == CausalityErrorCode.RELATIONSHIP_NOT_FOUND
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestCausalRelationshipAlreadyExistsError:
-    """Tests for CausalRelationshipAlreadyExistsError."""
-
-    def _build_instance(self):
-        return CausalRelationshipAlreadyExistsError(source_id="test_value", target_id="test_value")
-
-    def test_construction(self):
-        """CausalRelationshipAlreadyExistsError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalRelationshipAlreadyExistsError)
+    def test_construction(self) -> None:
+        exc = CausalRelationshipAlreadyExistsError(source_id="s1", target_id="t1")
+        assert exc.source_id == "s1"
+        assert exc.target_id == "t1"
+        assert exc.error_code == CausalityErrorCode.RELATIONSHIP_ALREADY_EXISTS
+        assert exc.severity == CausalitySeverity.LOW
 
 
 class TestCausalRelationshipInvalidError:
-    """Tests for CausalRelationshipInvalidError."""
-
-    def _build_instance(self):
-        return CausalRelationshipInvalidError(source_id="test_value", target_id="test_value", reason="test_value")
-
-    def test_construction(self):
-        """CausalRelationshipInvalidError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalRelationshipInvalidError)
+    def test_construction(self) -> None:
+        exc = CausalRelationshipInvalidError(
+            source_id="s1", target_id="t1", reason="self-loop not allowed"
+        )
+        assert exc.source_id == "s1"
+        assert exc.target_id == "t1"
+        assert exc.details["reason"] == "self-loop not allowed"
+        assert exc.error_code == CausalityErrorCode.RELATIONSHIP_INVALID
+        assert exc.severity == CausalitySeverity.HIGH
 
 
 class TestCircularReferenceDetectedError:
-    """Tests for CircularReferenceDetectedError."""
-
-    def _build_instance(self):
-        return CircularReferenceDetectedError(entities=["test_value"])
-
-    def test_construction(self):
-        """CircularReferenceDetectedError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CircularReferenceDetectedError)
+    def test_construction(self) -> None:
+        exc = CircularReferenceDetectedError(entities=["a", "b", "c", "a"])
+        assert exc.entities == ["a", "b", "c", "a"]
+        assert exc.error_code == CausalityErrorCode.CIRCULAR_REFERENCE_DETECTED
+        assert exc.severity == CausalitySeverity.HIGH
 
 
 class TestRelationshipStrengthInvalidError:
-    """Tests for RelationshipStrengthInvalidError."""
-
-    def _build_instance(self):
-        return RelationshipStrengthInvalidError(strength=1.5)
-
-    def test_construction(self):
-        """RelationshipStrengthInvalidError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, RelationshipStrengthInvalidError)
+    def test_construction(self) -> None:
+        exc = RelationshipStrengthInvalidError(strength=1.5)
+        assert exc.strength == 1.5
+        assert exc.error_code == CausalityErrorCode.RELATIONSHIP_STRENGTH_INVALID
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestWhyQueryFailedError:
-    """Tests for WhyQueryFailedError."""
-
-    def _build_instance(self):
-        return WhyQueryFailedError(entity_id="test_value", reason="test_value")
-
-    def test_construction(self):
-        """WhyQueryFailedError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, WhyQueryFailedError)
+    def test_construction(self) -> None:
+        exc = WhyQueryFailedError(entity_id="e1", reason="timeout")
+        assert exc.entity_id == "e1"
+        assert exc.details["reason"] == "timeout"
+        assert exc.error_code == CausalityErrorCode.QUERY_FAILED
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestWhyQueryTimeoutError:
-    """Tests for WhyQueryTimeoutError."""
-
-    def _build_instance(self):
-        return WhyQueryTimeoutError(entity_id="test_value", timeout_ms=1)
-
-    def test_construction(self):
-        """WhyQueryTimeoutError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, WhyQueryTimeoutError)
+    def test_construction(self) -> None:
+        exc = WhyQueryTimeoutError(entity_id="e1", timeout_ms=5000)
+        assert exc.entity_id == "e1"
+        assert exc.details["timeout_ms"] == 5000
+        assert exc.error_code == CausalityErrorCode.QUERY_TIMEOUT
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestInvalidQueryDepthError:
-    """Tests for InvalidQueryDepthError."""
-
-    def _build_instance(self):
-        return InvalidQueryDepthError(depth=1, max_depth=1)
-
-    def test_construction(self):
-        """InvalidQueryDepthError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, InvalidQueryDepthError)
+    def test_construction(self) -> None:
+        exc = InvalidQueryDepthError(depth=10, max_depth=5)
+        assert exc.depth == 10
+        assert exc.details["max_depth"] == 5
+        assert exc.error_code == CausalityErrorCode.INVALID_QUERY_DEPTH
+        assert exc.severity == CausalitySeverity.LOW
 
 
 class TestTraversalTooDeepError:
-    """Tests for TraversalTooDeepError."""
-
-    def _build_instance(self):
-        return TraversalTooDeepError(start_id="test_value", max_depth=1)
-
-    def test_construction(self):
-        """TraversalTooDeepError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, TraversalTooDeepError)
+    def test_construction(self) -> None:
+        exc = TraversalTooDeepError(start_id="s1", max_depth=3)
+        assert exc.start_id == "s1"
+        assert exc.details["max_depth"] == 3
+        assert exc.error_code == CausalityErrorCode.TRAVERSAL_TOO_DEEP
+        assert exc.severity == CausalitySeverity.LOW
 
 
 class TestPathNotFoundError:
-    """Tests for PathNotFoundError."""
-
-    def _build_instance(self):
-        return PathNotFoundError(source_id="test_value", target_id="test_value")
-
-    def test_construction(self):
-        """PathNotFoundError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, PathNotFoundError)
+    def test_construction(self) -> None:
+        exc = PathNotFoundError(source_id="s1", target_id="t1")
+        assert exc.source_id == "s1"
+        assert exc.target_id == "t1"
+        assert exc.error_code == CausalityErrorCode.PATH_NOT_FOUND
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestInvalidDirectionError:
-    """Tests for InvalidDirectionError."""
-
-    def _build_instance(self):
-        return InvalidDirectionError(direction="test_value", valid_directions=["test_value"])
-
-    def test_construction(self):
-        """InvalidDirectionError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, InvalidDirectionError)
+    def test_construction(self) -> None:
+        exc = InvalidDirectionError(direction="up", valid_directions=["down", "both"])
+        assert exc.direction == "up"
+        assert exc.details["valid_directions"] == ["down", "both"]
+        assert exc.error_code == CausalityErrorCode.INVALID_DIRECTION
+        assert exc.severity == CausalitySeverity.LOW
 
 
 class TestExplanationGenerationFailedError:
-    """Tests for ExplanationGenerationFailedError."""
-
-    def _build_instance(self):
-        return ExplanationGenerationFailedError(entity_id="test_value", entity_type="test_value", reason="test_value")
-
-    def test_construction(self):
-        """ExplanationGenerationFailedError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, ExplanationGenerationFailedError)
+    def test_construction(self) -> None:
+        exc = ExplanationGenerationFailedError(
+            entity_id="e1", entity_type="journal", reason="no data"
+        )
+        assert exc.entity_id == "e1"
+        assert exc.details["entity_type"] == "journal"
+        assert exc.details["reason"] == "no data"
+        assert exc.error_code == CausalityErrorCode.EXPLANATION_GENERATION_FAILED
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestUnsupportedLanguageError:
-    """Tests for UnsupportedLanguageError."""
-
-    def _build_instance(self):
-        return UnsupportedLanguageError(language="test_value", supported=["test_value"])
-
-    def test_construction(self):
-        """UnsupportedLanguageError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, UnsupportedLanguageError)
+    def test_construction(self) -> None:
+        exc = UnsupportedLanguageError(language="fr", supported=["en", "id"])
+        assert exc.language == "fr"
+        assert exc.details["supported"] == ["en", "id"]
+        assert exc.error_code == CausalityErrorCode.UNSUPPORTED_LANGUAGE
+        assert exc.severity == CausalitySeverity.LOW
 
 
 class TestUnsupportedFormatError:
-    """Tests for UnsupportedFormatError."""
-
-    def _build_instance(self):
-        return UnsupportedFormatError(format="test_value", supported=["test_value"])
-
-    def test_construction(self):
-        """UnsupportedFormatError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, UnsupportedFormatError)
+    def test_construction(self) -> None:
+        exc = UnsupportedFormatError(format="xml", supported=["json", "yaml"])
+        assert exc.format == "xml"
+        assert exc.details["supported"] == ["json", "yaml"]
+        assert exc.error_code == CausalityErrorCode.UNSUPPORTED_FORMAT
+        assert exc.severity == CausalitySeverity.LOW
 
 
 class TestCausalityNotFoundError:
-    """Tests for CausalityNotFoundError."""
-
-    def _build_instance(self):
-        return CausalityNotFoundError(entity_id="test_value", entity_type="test_value")
-
-    def test_construction(self):
-        """CausalityNotFoundError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalityNotFoundError)
+    def test_construction(self) -> None:
+        exc = CausalityNotFoundError(entity_id="e1", entity_type="account")
+        assert exc.entity_id == "e1"
+        assert exc.details["entity_type"] == "account"
+        assert exc.error_code == CausalityErrorCode.CAUSALITY_NOT_FOUND
+        assert exc.severity == CausalitySeverity.MEDIUM
 
 
 class TestCausalityInconsistentError:
-    """Tests for CausalityInconsistentError."""
-
-    def _build_instance(self):
-        return CausalityInconsistentError(reason="test_value")
-
-    def test_construction(self):
-        """CausalityInconsistentError can be instantiated with mocked dependencies."""
-        try:
-            instance = self._build_instance()
-        except (Exception, SystemExit) as e:
-            pytest.skip(f"Requires domain-specific construction setup: {e}")
-            return
-        assert isinstance(instance, CausalityInconsistentError)
+    def test_construction(self) -> None:
+        exc = CausalityInconsistentError(reason="version mismatch")
+        assert exc.reason == "version mismatch"
+        assert exc.details["reason"] == "version mismatch"
+        assert exc.error_code == CausalityErrorCode.CAUSALITY_INCONSISTENT
+        assert exc.severity == CausalitySeverity.HIGH
 
 
-# ============================================================================
-# Test CausalityExceptionFactory (dengan tambahan untuk semua factory methods)
-# ============================================================================
+# =============================================================================
+# Exception Factory Tests
+# =============================================================================
 
 class TestCausalityExceptionFactory:
-    """Tests for CausalityExceptionFactory."""
-
-    def _build_instance(self):
-        return CausalityExceptionFactory()
-
-    def test_construction(self):
-        """CausalityExceptionFactory can be instantiated."""
-        instance = self._build_instance()
-        assert isinstance(instance, CausalityExceptionFactory)
-
-    # --- Test existing smoke methods (dipertahankan) ---
-    def test_node_not_found(self):
-        """Test node_not_found factory method."""
-        exc = CausalityExceptionFactory.node_not_found(
-            node_id="node-123", entity_type="journal", entity_id="journal-456"
-        )
+    def test_node_not_found_with_id(self) -> None:
+        exc = CausalityExceptionFactory.node_not_found(node_id="n1")
         assert isinstance(exc, CausalNodeNotFoundError)
-        assert exc.node_id == "node-123"
-        assert exc.error_code == CausalityErrorCode.NODE_NOT_FOUND
+        assert exc.node_id == "n1"
 
-    def test_node_already_exists(self):
-        exc = CausalityExceptionFactory.node_already_exists(node_id="node-123")
+    def test_node_not_found_with_entity(self) -> None:
+        exc = CausalityExceptionFactory.node_not_found(entity_type="journal", entity_id="j1")
+        assert isinstance(exc, CausalNodeNotFoundError)
+        assert exc.details["entity_type"] == "journal"
+        assert exc.details["entity_id"] == "j1"
+
+    def test_node_already_exists(self) -> None:
+        exc = CausalityExceptionFactory.node_already_exists(node_id="n1")
         assert isinstance(exc, CausalNodeAlreadyExistsError)
-        assert exc.node_id == "node-123"
+        assert exc.node_id == "n1"
 
-    def test_node_invalid_type(self):
+    def test_node_invalid_type(self) -> None:
         exc = CausalityExceptionFactory.node_invalid_type(
-            node_type="invalid", valid_types=["journal", "account"]
+            node_type="bad", valid_types=["good1", "good2"]
         )
         assert isinstance(exc, CausalNodeInvalidTypeError)
-        assert exc.node_type == "invalid"
+        assert exc.node_type == "bad"
+        assert exc.details["valid_types"] == ["good1", "good2"]
 
-    def test_chain_incomplete(self):
+    def test_chain_incomplete(self) -> None:
         exc = CausalityExceptionFactory.chain_incomplete(
-            start_id="start-1", end_id="end-1", missing_nodes=["node-a", "node-b"]
+            start_id="s1", end_id="e1", missing_nodes=["a", "b"]
         )
         assert isinstance(exc, CausalChainIncompleteError)
-        assert exc.start_id == "start-1"
-        assert exc.end_id == "end-1"
+        assert exc.start_id == "s1"
+        assert exc.end_id == "e1"
 
-    # --- TAMBAHAN: Factory methods yang hilang ---
-    def test_cycle_detected(self):
-        """Test cycle_detected factory method."""
-        exc = CausalityExceptionFactory.cycle_detected(
-            cycle_nodes=["node-1", "node-2", "node-3"]
-        )
+    def test_cycle_detected(self) -> None:
+        exc = CausalityExceptionFactory.cycle_detected(cycle_nodes=["a", "b", "c", "a"])
         assert isinstance(exc, CausalChainCycleDetectedError)
-        assert exc.cycle_nodes == ["node-1", "node-2", "node-3"]
-        assert exc.error_code == CausalityErrorCode.CHAIN_CYCLE_DETECTED
-        assert exc.severity == CausalitySeverity.CRITICAL
+        assert exc.cycle_nodes == ["a", "b", "c", "a"]
 
-    def test_relationship_not_found(self):
-        """Test relationship_not_found factory method."""
-        exc = CausalityExceptionFactory.relationship_not_found(
-            source_id="source-1", target_id="target-1"
-        )
+    def test_relationship_not_found(self) -> None:
+        exc = CausalityExceptionFactory.relationship_not_found(source_id="s1", target_id="t1")
         assert isinstance(exc, CausalRelationshipNotFoundError)
-        assert exc.source_id == "source-1"
-        assert exc.target_id == "target-1"
+        assert exc.source_id == "s1"
+        assert exc.target_id == "t1"
+
+    def test_circular_reference(self) -> None:
+        exc = CausalityExceptionFactory.circular_reference(entities=["a", "b", "a"])
+        assert isinstance(exc, CircularReferenceDetectedError)
+        assert exc.entities == ["a", "b", "a"]
+
+    def test_why_query_failed(self) -> None:
+        exc = CausalityExceptionFactory.why_query_failed(entity_id="e1", reason="timeout")
+        assert isinstance(exc, WhyQueryFailedError)
+        assert exc.entity_id == "e1"
+        assert exc.details["reason"] == "timeout"
+
+    def test_causality_not_found(self) -> None:
+        exc = CausalityExceptionFactory.causality_not_found(entity_id="e1", entity_type="account")
+        assert isinstance(exc, CausalityNotFoundError)
+        assert exc.entity_id == "e1"
+        assert exc.details["entity_type"] == "account"
+
+    def test_invalid_relationship_strength(self) -> None:
+        exc = CausalityExceptionFactory.invalid_relationship_strength(strength=1.2)
+        assert isinstance(exc, RelationshipStrengthInvalidError)
+        assert exc.strength == 1.2
+
+    # Additional factory methods (if any exist in source) - they are already covered above
+    # Also test that all factory methods return the correct error_code
+    def test_factory_sets_error_code(self) -> None:
+        exc = CausalityExceptionFactory.node_not_found(node_id="n1")
+        assert exc.error_code == CausalityErrorCode.NODE_NOT_FOUND
+
+        exc = CausalityExceptionFactory.cycle_detected(["a"])
+        assert exc.error_code == CausalityErrorCode.CHAIN_CYCLE_DETECTED
+
+        exc = CausalityExceptionFactory.relationship_not_found("s", "t")
         assert exc.error_code == CausalityErrorCode.RELATIONSHIP_NOT_FOUND
 
-    def test_circular_reference(self):
-        """Test circular_reference factory method."""
-        exc = CausalityExceptionFactory.circular_reference(
-            entities=["A", "B", "C", "A"]
-        )
-        assert isinstance(exc, CircularReferenceDetectedError)
-        assert exc.entities == ["A", "B", "C", "A"]
+        exc = CausalityExceptionFactory.circular_reference(["a"])
         assert exc.error_code == CausalityErrorCode.CIRCULAR_REFERENCE_DETECTED
 
-    def test_why_query_failed(self):
-        """Test why_query_failed factory method."""
-        exc = CausalityExceptionFactory.why_query_failed(
-            entity_id="entity-123", reason="Graph traversal timeout"
-        )
-        assert isinstance(exc, WhyQueryFailedError)
-        assert exc.entity_id == "entity-123"
+        exc = CausalityExceptionFactory.why_query_failed("e", "r")
         assert exc.error_code == CausalityErrorCode.QUERY_FAILED
 
-    def test_causality_not_found(self):
-        """Test causality_not_found factory method."""
-        exc = CausalityExceptionFactory.causality_not_found(
-            entity_id="entity-123", entity_type="journal"
-        )
-        assert isinstance(exc, CausalityNotFoundError)
-        assert exc.entity_id == "entity-123"
+        exc = CausalityExceptionFactory.causality_not_found("e", "a")
         assert exc.error_code == CausalityErrorCode.CAUSALITY_NOT_FOUND
 
-    def test_invalid_relationship_strength(self):
-        """Test invalid_relationship_strength factory method."""
-        exc = CausalityExceptionFactory.invalid_relationship_strength(strength=1.5)
-        assert isinstance(exc, RelationshipStrengthInvalidError)
-        assert exc.strength == 1.5
+        exc = CausalityExceptionFactory.invalid_relationship_strength(1.5)
         assert exc.error_code == CausalityErrorCode.RELATIONSHIP_STRENGTH_INVALID
-
-    # --- Tambahan test untuk factory method lainnya (opsional) ---
-    def test_unknown_error(self):
-        """Test that we can create an unknown error (not a factory method, but coverage)."""
-        exc = CausalityError(
-            message="Unknown causality error",
-            error_code=CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR,
-            severity=CausalitySeverity.MEDIUM,
-        )
-        assert exc.error_code == CausalityErrorCode.UNKNOWN_CAUSALITY_ERROR
-        assert exc.severity == CausalitySeverity.MEDIUM

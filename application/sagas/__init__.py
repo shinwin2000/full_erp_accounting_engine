@@ -85,6 +85,15 @@ from application.sagas.saga_state_store import (
 # Sales Saga
 from application.sagas.sales_saga import SalesSagaContext, SalesSagaOrchestrator
 
+# ============================================================================
+# Default instance for procurement saga (used by tests and orchestrator)
+# ============================================================================
+procurement_saga = get_procurement_saga()
+
+# ============================================================================
+# Exports
+# ============================================================================
+
 __all__ = [
     # Exceptions
     "SagaAlreadyCompletedError",
@@ -118,6 +127,7 @@ __all__ = [
     "ProcurementSagaStepName",
     "SecurityException",
     "get_procurement_saga",
+    "procurement_saga",  # Added default instance
     # Manufacturing Saga
     "ManufacturingSagaContext",
     "ManufacturingSagaOrchestrator",

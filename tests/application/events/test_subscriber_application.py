@@ -209,23 +209,24 @@ class TestIdempotencyChecker:
         """Smoke test for IdempotencyChecker.is_processed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_processed(idempotency_key="test_value")
+            # Mock redis.exists to return False
+            instance._redis.exists = MagicMock(return_value=False)
+            result = await instance.is_processed(idempotency_key="test_key")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_processed needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert result is False
 
     async def test_mark_processed_smoke(self):
         """Smoke test for IdempotencyChecker.mark_processed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.mark_processed(idempotency_key="test_value")
+            await instance.mark_processed(idempotency_key="test_key")
         except (Exception, SystemExit) as e:
             pytest.skip(f"mark_processed needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # Check that redis.setex was called
+        instance._redis.setex.assert_called_once()
 
 
 class TestSimpleRetryPolicy:
@@ -247,12 +248,13 @@ class TestSimpleRetryPolicy:
         """Smoke test for SimpleRetryPolicy.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(func=MagicMock())
+            # Mock function that returns success
+            func = MagicMock(return_value="success")
+            result = await instance.execute(func)
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert result == "success"
 
 
 class TestEventProcessorWorker:
@@ -274,45 +276,47 @@ class TestEventProcessorWorker:
         """Smoke test for EventProcessorWorker.set_queue using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_queue(queue=MagicMock())
+            queue = asyncio.Queue()
+            instance.set_queue(queue=queue)
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_queue needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._queue is queue
 
     async def test_start_smoke(self):
         """Smoke test for EventProcessorWorker.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            instance.set_queue(asyncio.Queue())
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is True
+        await instance.stop()
 
     async def test_stop_smoke(self):
         """Smoke test for EventProcessorWorker.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            instance.set_queue(asyncio.Queue())
+            await instance.start()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is False
 
     def test_get_stats_smoke(self):
         """Smoke test for EventProcessorWorker.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            stats = instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(stats, dict)
+        assert "worker_id" in stats
 
 
 class TestApplicationEventSubscriber:
@@ -334,45 +338,50 @@ class TestApplicationEventSubscriber:
         """Smoke test for ApplicationEventSubscriber.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is True
+        # Clean up
+        await instance.stop()
 
     async def test_stop_smoke(self):
         """Smoke test for ApplicationEventSubscriber.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop(drain_timeout=1)
+            await instance.start()
+            await instance.stop(drain_timeout=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is False
 
     async def test_publish_internal_smoke(self):
         """Smoke test for ApplicationEventSubscriber.publish_internal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_internal(envelope=MagicMock())
+            # Change mode to internal to allow publishing
+            instance._mode = SubscriptionMode.INTERNAL
+            instance._queue = asyncio.Queue()
+            envelope = MagicMock()
+            await instance.publish_internal(envelope=envelope)
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_internal needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # Check that queue got the item
+        assert instance._queue.qsize() == 1
 
     def test_get_stats_smoke(self):
         """Smoke test for ApplicationEventSubscriber.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            stats = instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(stats, dict)
+        assert "running" in stats
 
 
 def test_exponential_backoff_smoke():
@@ -382,7 +391,8 @@ def test_exponential_backoff_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"exponential_backoff needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, float)
+    assert result >= 0
 
 
 async def test_create_event_subscriber_smoke():
@@ -392,4 +402,4 @@ async def test_create_event_subscriber_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_event_subscriber needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, ApplicationEventSubscriber)

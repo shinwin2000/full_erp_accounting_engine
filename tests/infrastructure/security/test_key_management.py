@@ -72,8 +72,8 @@ class TestKeyManager:
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_key needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # In the singleton, a default key is generated, so result should be bytes
+        assert isinstance(result, bytes) or result is None
 
     def test_get_current_key_id_smoke(self):
         """Smoke test for KeyManager.get_current_key_id using mocked collaborators."""
@@ -83,19 +83,22 @@ class TestKeyManager:
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_key_id needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, str) or result is None
 
     def test_get_key_smoke(self):
         """Smoke test for KeyManager.get_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_key(key_id="test_value")
+            # Use a known key id if possible, otherwise fallback
+            key_id = instance.get_current_key_id()
+            if key_id is None:
+                result = None
+            else:
+                result = instance.get_key(key_id)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_key needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, bytes) or result is None
 
     def test_list_keys_smoke(self):
         """Smoke test for KeyManager.list_keys using mocked collaborators."""
@@ -105,8 +108,9 @@ class TestKeyManager:
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_keys needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, list)
+        if result:
+            assert "key_id" in result[0]
 
 
 def test_get_key_manager_smoke():
@@ -116,7 +120,7 @@ def test_get_key_manager_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_key_manager needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, KeyManager)
 
 
 def test_get_current_key_smoke():
@@ -126,7 +130,7 @@ def test_get_current_key_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_current_key needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, bytes) or result is None
 
 
 def test_get_current_key_id_smoke():
@@ -136,7 +140,7 @@ def test_get_current_key_id_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_current_key_id needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, str) or result is None
 
 
 def test_list_keys_smoke():
@@ -146,54 +150,81 @@ def test_list_keys_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"list_keys needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, list)
 
 
 def test_add_key_smoke():
     """Smoke test for module-level function add_key."""
     try:
-        result = add_key(key_id="test_value", key_bytes=b"test", metadata={})
+        # Use a unique key_id to avoid conflict
+        import time
+        key_id = f"test_key_{int(time.time())}"
+        add_key(key_id=key_id, key_bytes=b"test"*8, metadata={"test": True})
+        # Verify it was added
+        keys = list_keys()
+        found = any(k["key_id"] == key_id for k in keys)
     except (Exception, SystemExit) as e:
         pytest.skip(f"add_key needs specific input data: {e}")
         return
-    assert True
+    assert found is True
 
 
 def test_set_current_key_smoke():
     """Smoke test for module-level function set_current_key."""
     try:
-        result = set_current_key(key_id="test_value")
+        # First add a key, then set it as current
+        import time
+        key_id = f"test_key_{int(time.time())}"
+        add_key(key_id=key_id, key_bytes=b"test"*8, metadata={})
+        set_current_key(key_id)
+        current = get_current_key_id()
     except (Exception, SystemExit) as e:
         pytest.skip(f"set_current_key needs specific input data: {e}")
         return
-    assert True
+    assert current == key_id
 
 
 def test_rotate_key_smoke():
     """Smoke test for module-level function rotate_key."""
     try:
-        result = rotate_key(new_key_id="test_value", callback=(lambda *a, **kw: None))
+        # Rotate without callback
+        new_key_id = rotate_key()
+        # After rotation, current key should be the new one
+        current = get_current_key_id()
     except (Exception, SystemExit) as e:
         pytest.skip(f"rotate_key needs specific input data: {e}")
         return
-    assert True
+    assert current == new_key_id
 
 
 def test_remove_key_smoke():
     """Smoke test for module-level function remove_key."""
     try:
-        result = remove_key(key_id="test_value")
+        # Add a key (not current) then remove it
+        import time
+        key_id = f"test_key_{int(time.time())}"
+        add_key(key_id=key_id, key_bytes=b"test"*8, metadata={})
+        # Ensure it's not current (if current is default, keep it)
+        current = get_current_key_id()
+        if current == key_id:
+            # Rotate to a different key first
+            rotate_key()
+        remove_key(key_id)
+        keys = list_keys()
+        found = any(k["key_id"] == key_id for k in keys)
     except (Exception, SystemExit) as e:
         pytest.skip(f"remove_key needs specific input data: {e}")
         return
-    assert True
+    assert found is False
 
 
 def test_reload_keys_smoke():
     """Smoke test for module-level function reload_keys."""
     try:
-        result = reload_keys()
+        reload_keys()
+        # After reload, should still have a current key
+        current = get_current_key_id()
     except (Exception, SystemExit) as e:
         pytest.skip(f"reload_keys needs specific input data: {e}")
         return
-    assert True
+    assert current is not None

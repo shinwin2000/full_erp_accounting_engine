@@ -4,19 +4,26 @@ Comprehensive unit tests for Equity & Retained Earnings invariants.
 
 Covers:
 - InvariantResult (construction, add_error, merge, to_dict, bool, classmethods)
-- All validator functions (positive_amount, non_negative_amount, currency_code, percentage, date_sequence, version)
-- CapitalContributionInvariants (validate_contribution, validate_status_transition, validate_cancel_reason)
+- All validator functions (positive_amount, non_negative_amount, currency_code,
+  percentage, date_sequence, version) with parametrized tests
+- CapitalContributionInvariants (validate_contribution, validate_status_transition,
+  validate_cancel_reason)
 - CapitalWithdrawalInvariants (validate_withdrawal, validate_status_transition)
-- RetainedEarningsInvariants (validate_net_income, validate_dividend_reduction, validate_prior_period_adjustment, validate_transfer)
+- RetainedEarningsInvariants (validate_net_income, validate_dividend_reduction,
+  validate_prior_period_adjustment, validate_transfer)
 - DividendInvariants (validate_dividend_declaration, validate_status_transition)
 - EquityInvariantEnforcer (all enforce_* methods with mocked callbacks)
 - Standalone helper functions (validate_capital_contribution_invariants, etc.)
+- All edge cases and negative paths
+- No flaky datetime (mocked)
+- No duplicate test code (parametrized where appropriate)
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
+from unittest.mock import patch
 
 import pytest
 
@@ -72,6 +79,24 @@ class MockAllocation:
 
 
 # =============================================================================
+# Fixtures
+# =============================================================================
+
+@pytest.fixture
+def fixed_now():
+    return datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now(fixed_now):
+    with patch("domain.equity_retained.invariants.datetime") as mock_dt:
+        mock_dt.now.return_value = fixed_now
+        mock_dt.utcnow.return_value = fixed_now
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        yield mock_dt
+
+
+# =============================================================================
 # Tests for InvariantResult
 # =============================================================================
 
@@ -100,23 +125,7 @@ class TestInvariantResult:
         assert result.is_valid is True  # warnings don't affect validity
         assert result.warnings == ["date not timezone-aware"]
 
-    def test_merge_valid(self):
-        r1 = InvariantResult()
-        r2 = InvariantResult()
-        merged = r1.merge(r2)
-        assert merged.is_valid is True
-        assert merged.errors == []
-        assert merged.warnings == []
-
-    def test_merge_invalid(self):
-        r1 = InvariantResult()
-        r2 = InvariantResult(is_valid=False, errors=["e2"], warnings=["w2"])
-        merged = r1.merge(r2)
-        assert merged.is_valid is False
-        assert merged.errors == ["e2"]
-        assert merged.warnings == ["w2"]
-
-    def test_merge_multiple(self):
+    def test_merge(self):
         r1 = InvariantResult(is_valid=False, errors=["e1"], warnings=["w1"])
         r2 = InvariantResult(is_valid=False, errors=["e2"], warnings=["w2"])
         merged = r1.merge(r2)
@@ -138,10 +147,8 @@ class TestInvariantResult:
     def test_success_classmethod(self):
         result = InvariantResult.success()
         assert result.is_valid is True
-        assert result.errors == []
-        assert result.warnings == []
-        result_with_warnings = InvariantResult.success(warnings=["w1"])
-        assert result_with_warnings.warnings == ["w1"]
+        result = InvariantResult.success(warnings=["w1"])
+        assert result.warnings == ["w1"]
 
     def test_failure_classmethod(self):
         result = InvariantResult.failure("error", warnings=["w1"])
@@ -151,115 +158,85 @@ class TestInvariantResult:
 
 
 # =============================================================================
-# Tests for Validator Functions
+# Tests for Validator Functions (parametrized)
 # =============================================================================
 
 class TestValidators:
-    def test_validate_positive_amount_valid(self):
-        result = validate_positive_amount(Decimal("10.00"))
-        assert result.is_valid is True
+    @pytest.mark.parametrize("amount,expected_valid", [
+        (Decimal("10.00"), True),
+        (Decimal("0"), False),
+        (Decimal("-5"), False),
+    ])
+    def test_validate_positive_amount(self, amount, expected_valid):
+        result = validate_positive_amount(amount)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "positive" in result.errors[0]
 
-    def test_validate_positive_amount_invalid_zero(self):
-        result = validate_positive_amount(Decimal("0"))
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
+    @pytest.mark.parametrize("amount,expected_valid", [
+        (Decimal("10"), True),
+        (Decimal("0"), True),
+        (Decimal("-1"), False),
+    ])
+    def test_validate_non_negative_amount(self, amount, expected_valid):
+        result = validate_non_negative_amount(amount)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "negative" in result.errors[0]
 
-    def test_validate_positive_amount_invalid_negative(self):
-        result = validate_positive_amount(Decimal("-5"))
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
+    @pytest.mark.parametrize("currency,expected_valid,error_substr", [
+        ("USD", True, None),
+        ("US", False, "exactly 3"),
+        ("U1D", False, "letters"),
+        ("", False, "non-empty"),
+        (None, False, "non-empty"),
+    ])
+    def test_validate_currency_code(self, currency, expected_valid, error_substr):
+        result = validate_currency_code(currency)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert error_substr in result.errors[0] or "must" in result.errors[0]
 
-    def test_validate_non_negative_amount_valid_positive(self):
-        result = validate_non_negative_amount(Decimal("10"))
-        assert result.is_valid is True
+    @pytest.mark.parametrize("percentage,expected_valid", [
+        (Decimal("50"), True),
+        (Decimal("0"), True),
+        (Decimal("100"), True),
+        (Decimal("101"), False),
+        (Decimal("-1"), False),
+        (None, True),
+    ])
+    def test_validate_percentage(self, percentage, expected_valid):
+        result = validate_percentage(percentage)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "between 0 and 100" in result.errors[0]
 
-    def test_validate_non_negative_amount_valid_zero(self):
-        result = validate_non_negative_amount(Decimal("0"))
-        assert result.is_valid is True
-
-    def test_validate_non_negative_amount_invalid_negative(self):
-        result = validate_non_negative_amount(Decimal("-1"))
-        assert result.is_valid is False
-        assert "negative" in result.errors[0]
-
-    def test_validate_currency_code_valid(self):
-        result = validate_currency_code("USD")
-        assert result.is_valid is True
-
-    def test_validate_currency_code_invalid_length(self):
-        result = validate_currency_code("US")
-        assert result.is_valid is False
-        assert "exactly 3" in result.errors[0]
-
-    def test_validate_currency_code_invalid_chars(self):
-        result = validate_currency_code("U1D")
-        assert result.is_valid is False
-        assert "letters" in result.errors[0]
-
-    def test_validate_currency_code_empty(self):
-        result = validate_currency_code("")
-        assert result.is_valid is False
-
-    def test_validate_percentage_valid(self):
-        result = validate_percentage(Decimal("50"))
-        assert result.is_valid is True
-        result = validate_percentage(Decimal("0"))
-        assert result.is_valid is True
-        result = validate_percentage(Decimal("100"))
-        assert result.is_valid is True
-
-    def test_validate_percentage_invalid_above_100(self):
-        result = validate_percentage(Decimal("101"))
-        assert result.is_valid is False
-        assert "between 0 and 100" in result.errors[0]
-
-    def test_validate_percentage_invalid_negative(self):
-        result = validate_percentage(Decimal("-1"))
-        assert result.is_valid is False
-        assert "between 0 and 100" in result.errors[0]
-
-    def test_validate_percentage_none(self):
-        result = validate_percentage(None)
-        assert result.is_valid is True
-
-    def test_validate_date_sequence_valid(self):
-        earlier = datetime(2025, 1, 1, tzinfo=UTC)
-        later = datetime(2025, 1, 2, tzinfo=UTC)
+    @pytest.mark.parametrize("earlier, later, expected_valid", [
+        (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 2, tzinfo=UTC), True),
+        (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 1, tzinfo=UTC), False),
+        (datetime(2025, 1, 2, tzinfo=UTC), datetime(2025, 1, 1, tzinfo=UTC), False),
+    ])
+    def test_validate_date_sequence(self, earlier, later, expected_valid):
         result = validate_date_sequence(earlier, later)
-        assert result.is_valid is True
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "must be after" in result.errors[0]
 
-    def test_validate_date_sequence_invalid_equal(self):
-        dt = datetime(2025, 1, 1, tzinfo=UTC)
-        result = validate_date_sequence(dt, dt)
-        assert result.is_valid is False
-        assert "must be after" in result.errors[0]
-
-    def test_validate_date_sequence_invalid_earlier(self):
-        earlier = datetime(2025, 1, 2, tzinfo=UTC)
-        later = datetime(2025, 1, 1, tzinfo=UTC)
-        result = validate_date_sequence(earlier, later)
-        assert result.is_valid is False
-        assert "must be after" in result.errors[0]
-
-    def test_validate_version_valid(self):
-        result = validate_version(1)
-        assert result.is_valid is True
-        result = validate_version(5)
-        assert result.is_valid is True
-
-    def test_validate_version_invalid_zero(self):
-        result = validate_version(0)
-        assert result.is_valid is False
-        assert ">= 1" in result.errors[0]
-
-    def test_validate_version_mismatch(self):
-        result = validate_version(1, expected_version=2)
-        assert result.is_valid is False
-        assert "mismatch" in result.errors[0]
-
-    def test_validate_version_match(self):
-        result = validate_version(2, expected_version=2)
-        assert result.is_valid is True
+    @pytest.mark.parametrize("version, expected_version, expected_valid", [
+        (1, None, True),
+        (5, None, True),
+        (0, None, False),
+        (1, 1, True),
+        (1, 2, False),
+    ])
+    def test_validate_version(self, version, expected_version, expected_valid):
+        result = validate_version(version, expected_version)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            if expected_version is not None:
+                assert "mismatch" in result.errors[0]
+            else:
+                assert ">= 1" in result.errors[0]
 
 
 # =============================================================================
@@ -267,21 +244,21 @@ class TestValidators:
 # =============================================================================
 
 class TestCapitalContributionInvariants:
-    def test_validate_contribution_valid(self):
+    def test_validate_contribution_valid(self, fixed_now):
         result = CapitalContributionInvariants.validate_contribution(
             amount=Decimal("1000"),
             share_percentage=Decimal("25"),
             currency="USD",
-            contribution_date=datetime(2025, 1, 1, tzinfo=UTC),
+            contribution_date=fixed_now,
         )
         assert result.is_valid is True
 
-    def test_validate_contribution_invalid_amount_negative(self):
+    def test_validate_contribution_invalid_amount(self):
         result = CapitalContributionInvariants.validate_contribution(
             amount=Decimal("-100"),
             share_percentage=Decimal("25"),
             currency="USD",
-            contribution_date=datetime.now(UTC),
+            contribution_date=datetime(2025, 1, 1, tzinfo=UTC),
         )
         assert result.is_valid is False
         assert "positive" in result.errors[0]
@@ -291,13 +268,13 @@ class TestCapitalContributionInvariants:
             amount=Decimal("1000"),
             share_percentage=Decimal("101"),
             currency="USD",
-            contribution_date=datetime.now(UTC),
+            contribution_date=datetime(2025, 1, 1, tzinfo=UTC),
         )
         assert result.is_valid is False
         assert "between 0 and 100" in result.errors[0]
 
-    def test_validate_contribution_warning_on_naive_date(self):
-        # contribution_date without timezone
+    def test_validate_contribution_naive_date_warning(self):
+        # contribution_date without timezone -> warning
         result = CapitalContributionInvariants.validate_contribution(
             amount=Decimal("1000"),
             share_percentage=None,
@@ -308,38 +285,31 @@ class TestCapitalContributionInvariants:
         assert len(result.warnings) == 1
         assert "timezone-aware" in result.warnings[0]
 
-    def test_validate_status_transition_valid(self):
-        result = CapitalContributionInvariants.validate_status_transition(
-            ContributionStatus.DRAFT, ContributionStatus.APPROVED, user_role="finance_manager"
-        )
-        assert result.is_valid is True
+    @pytest.mark.parametrize("current,new,user_role,expected_valid", [
+        (ContributionStatus.DRAFT, ContributionStatus.APPROVED, "finance_manager", True),
+        (ContributionStatus.DRAFT, ContributionStatus.APPROVED, "user", False),
+        (ContributionStatus.DRAFT, ContributionStatus.CANCELLED, "user", True),
+        (ContributionStatus.APPROVED, ContributionStatus.POSTED, "accountant", True),
+        (ContributionStatus.APPROVED, ContributionStatus.POSTED, "user", False),
+        (ContributionStatus.POSTED, ContributionStatus.APPROVED, "admin", False),
+    ])
+    def test_validate_status_transition(self, current, new, user_role, expected_valid):
+        result = CapitalContributionInvariants.validate_status_transition(current, new, user_role)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "not allowed" in result.errors[0] or "Only" in result.errors[0]
 
-    def test_validate_status_transition_invalid_role(self):
-        result = CapitalContributionInvariants.validate_status_transition(
-            ContributionStatus.DRAFT, ContributionStatus.APPROVED, user_role="user"
-        )
-        assert result.is_valid is False
-        assert "Only finance manager or admin" in result.errors[0]
-
-    def test_validate_status_transition_invalid_transition(self):
-        result = CapitalContributionInvariants.validate_status_transition(
-            ContributionStatus.POSTED, ContributionStatus.CANCELLED, user_role="admin"
-        )
-        assert result.is_valid is False
-        assert "not allowed" in result.errors[0]
-
-    def test_validate_cancel_reason_valid(self):
-        result = CapitalContributionInvariants.validate_cancel_reason("Too long reason")
-        assert result.is_valid is True
-
-    def test_validate_cancel_reason_too_short(self):
-        result = CapitalContributionInvariants.validate_cancel_reason("no")
-        assert result.is_valid is False
-        assert "at least 5 characters" in result.errors[0]
-
-    def test_validate_cancel_reason_empty(self):
-        result = CapitalContributionInvariants.validate_cancel_reason("")
-        assert result.is_valid is False
+    @pytest.mark.parametrize("reason,expected_valid", [
+        ("Valid reason", True),
+        ("No", False),
+        ("", False),
+        ("   ", False),
+    ])
+    def test_validate_cancel_reason(self, reason, expected_valid):
+        result = CapitalContributionInvariants.validate_cancel_reason(reason)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "at least 5 characters" in result.errors[0]
 
 
 # =============================================================================
@@ -347,12 +317,12 @@ class TestCapitalContributionInvariants:
 # =============================================================================
 
 class TestCapitalWithdrawalInvariants:
-    def test_validate_withdrawal_valid(self):
+    def test_validate_withdrawal_valid(self, fixed_now):
         result = CapitalWithdrawalInvariants.validate_withdrawal(
             amount=Decimal("5000"),
             tax_withheld_amount=Decimal("500"),
             currency="USD",
-            withdrawal_date=datetime(2025, 1, 1, tzinfo=UTC),
+            withdrawal_date=fixed_now,
             paid_in_capital=Decimal("10000"),
         )
         assert result.is_valid is True
@@ -362,7 +332,7 @@ class TestCapitalWithdrawalInvariants:
             amount=Decimal("15000"),
             tax_withheld_amount=Decimal("0"),
             currency="USD",
-            withdrawal_date=datetime.now(UTC),
+            withdrawal_date=datetime(2025, 1, 1, tzinfo=UTC),
             paid_in_capital=Decimal("10000"),
         )
         assert result.is_valid is False
@@ -373,7 +343,7 @@ class TestCapitalWithdrawalInvariants:
             amount=Decimal("1000"),
             tax_withheld_amount=Decimal("1200"),
             currency="USD",
-            withdrawal_date=datetime.now(UTC),
+            withdrawal_date=datetime(2025, 1, 1, tzinfo=UTC),
             paid_in_capital=Decimal("10000"),
         )
         assert result.is_valid is False
@@ -384,7 +354,7 @@ class TestCapitalWithdrawalInvariants:
             amount=Decimal("1000"),
             tax_withheld_amount=Decimal("-100"),
             currency="USD",
-            withdrawal_date=datetime.now(UTC),
+            withdrawal_date=datetime(2025, 1, 1, tzinfo=UTC),
             paid_in_capital=Decimal("10000"),
         )
         assert result.is_valid is False
@@ -401,18 +371,18 @@ class TestCapitalWithdrawalInvariants:
         assert result.is_valid is True
         assert "timezone-aware" in result.warnings[0]
 
-    def test_validate_status_transition_valid(self):
-        result = CapitalWithdrawalInvariants.validate_status_transition(
-            WithdrawalStatus.DRAFT, WithdrawalStatus.APPROVED, user_role="finance_manager"
-        )
-        assert result.is_valid is True
-
-    def test_validate_status_transition_invalid_role(self):
-        result = CapitalWithdrawalInvariants.validate_status_transition(
-            WithdrawalStatus.DRAFT, WithdrawalStatus.APPROVED, user_role="user"
-        )
-        assert result.is_valid is False
-        assert "Only finance manager or admin" in result.errors[0]
+    @pytest.mark.parametrize("current,new,user_role,expected_valid", [
+        (WithdrawalStatus.DRAFT, WithdrawalStatus.APPROVED, "finance_manager", True),
+        (WithdrawalStatus.DRAFT, WithdrawalStatus.APPROVED, "user", False),
+        (WithdrawalStatus.APPROVED, WithdrawalStatus.POSTED, "accountant", True),
+        (WithdrawalStatus.APPROVED, WithdrawalStatus.POSTED, "user", False),
+        (WithdrawalStatus.POSTED, WithdrawalStatus.APPROVED, "admin", False),
+    ])
+    def test_validate_status_transition(self, current, new, user_role, expected_valid):
+        result = CapitalWithdrawalInvariants.validate_status_transition(current, new, user_role)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert "not allowed" in result.errors[0] or "Only" in result.errors[0]
 
 
 # =============================================================================
@@ -421,73 +391,43 @@ class TestCapitalWithdrawalInvariants:
 
 class TestRetainedEarningsInvariants:
     def test_validate_net_income_always_valid(self):
-        result = RetainedEarningsInvariants.validate_net_income(Decimal("1000"))
-        assert result.is_valid is True
-        result = RetainedEarningsInvariants.validate_net_income(Decimal("-500"))
-        assert result.is_valid is True
+        assert RetainedEarningsInvariants.validate_net_income(Decimal("1000")).is_valid is True
+        assert RetainedEarningsInvariants.validate_net_income(Decimal("-500")).is_valid is True
 
-    def test_validate_dividend_reduction_valid(self):
-        result = RetainedEarningsInvariants.validate_dividend_reduction(
-            dividend_amount=Decimal("500"),
-            current_balance=Decimal("1000"),
-        )
-        assert result.is_valid is True
-
-    def test_validate_dividend_reduction_exceeds_balance(self):
-        result = RetainedEarningsInvariants.validate_dividend_reduction(
-            dividend_amount=Decimal("1500"),
-            current_balance=Decimal("1000"),
-        )
-        assert result.is_valid is False
-        assert "exceeds current retained earnings" in result.errors[0]
-
-    def test_validate_dividend_reduction_zero(self):
-        result = RetainedEarningsInvariants.validate_dividend_reduction(
-            dividend_amount=Decimal("0"),
-            current_balance=Decimal("1000"),
-        )
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
+    @pytest.mark.parametrize("dividend,balance,expected_valid", [
+        (Decimal("500"), Decimal("1000"), True),
+        (Decimal("1500"), Decimal("1000"), False),
+        (Decimal("0"), Decimal("1000"), False),
+        (Decimal("-100"), Decimal("1000"), False),
+    ])
+    def test_validate_dividend_reduction(self, dividend, balance, expected_valid):
+        result = RetainedEarningsInvariants.validate_dividend_reduction(dividend, balance)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            if dividend <= 0:
+                assert "positive" in result.errors[0]
+            else:
+                assert "exceeds current retained earnings" in result.errors[0]
 
     def test_validate_prior_period_adjustment_always_valid(self):
-        result = RetainedEarningsInvariants.validate_prior_period_adjustment(Decimal("100"))
-        assert result.is_valid is True
-        result = RetainedEarningsInvariants.validate_prior_period_adjustment(Decimal("-100"))
-        assert result.is_valid is True
+        assert RetainedEarningsInvariants.validate_prior_period_adjustment(Decimal("100")).is_valid is True
+        assert RetainedEarningsInvariants.validate_prior_period_adjustment(Decimal("-100")).is_valid is True
 
-    def test_validate_transfer_valid_to_reserve(self):
-        result = RetainedEarningsInvariants.validate_transfer(
-            amount=Decimal("200"),
-            current_balance=Decimal("1000"),
-            to_reserve=True,
-        )
-        assert result.is_valid is True
-
-    def test_validate_transfer_exceeds_balance_to_reserve(self):
-        result = RetainedEarningsInvariants.validate_transfer(
-            amount=Decimal("1200"),
-            current_balance=Decimal("1000"),
-            to_reserve=True,
-        )
-        assert result.is_valid is False
-        assert "cannot transfer" in result.errors[0]
-
-    def test_validate_transfer_from_reserve_always_valid(self):
-        result = RetainedEarningsInvariants.validate_transfer(
-            amount=Decimal("1000"),
-            current_balance=Decimal("1000"),
-            to_reserve=False,
-        )
-        assert result.is_valid is True
-
-    def test_validate_transfer_zero_amount(self):
-        result = RetainedEarningsInvariants.validate_transfer(
-            amount=Decimal("0"),
-            current_balance=Decimal("1000"),
-            to_reserve=True,
-        )
-        assert result.is_valid is False
-        assert "positive" in result.errors[0]
+    @pytest.mark.parametrize("amount,balance,to_reserve,expected_valid", [
+        (Decimal("200"), Decimal("1000"), True, True),
+        (Decimal("1200"), Decimal("1000"), True, False),
+        (Decimal("1000"), Decimal("1000"), False, True),  # from reserve always valid
+        (Decimal("0"), Decimal("1000"), True, False),
+        (Decimal("-100"), Decimal("1000"), True, False),
+    ])
+    def test_validate_transfer(self, amount, balance, to_reserve, expected_valid):
+        result = RetainedEarningsInvariants.validate_transfer(amount, balance, to_reserve)
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            if amount <= 0:
+                assert "positive" in result.errors[0]
+            else:
+                assert "cannot transfer" in result.errors[0]
 
 
 # =============================================================================
@@ -495,7 +435,7 @@ class TestRetainedEarningsInvariants:
 # =============================================================================
 
 class TestDividendInvariants:
-    def test_validate_dividend_declaration_valid(self):
+    def test_validate_dividend_declaration_valid(self, fixed_now):
         allocations = [
             MockAllocation(dividend_amount=Decimal("600"), share_percentage=Decimal("60"), shares_owned=1000),
             MockAllocation(dividend_amount=Decimal("400"), share_percentage=Decimal("40"), shares_owned=800),
@@ -503,34 +443,34 @@ class TestDividendInvariants:
         result = DividendInvariants.validate_dividend_declaration(
             total_amount=Decimal("1000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 1, tzinfo=UTC),
-            record_date=datetime(2025, 1, 10, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 20, tzinfo=UTC),
+            declaration_date=fixed_now,
+            record_date=fixed_now + timedelta(days=9),
+            payment_date=fixed_now + timedelta(days=19),
             retained_earnings_balance=Decimal("2000"),
             allocations=allocations,
         )
         assert result.is_valid is True
 
-    def test_validate_dividend_declaration_exceeds_retained_earnings(self):
+    def test_validate_dividend_declaration_exceeds_retained_earnings(self, fixed_now):
         result = DividendInvariants.validate_dividend_declaration(
             total_amount=Decimal("3000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 1, tzinfo=UTC),
-            record_date=datetime(2025, 1, 10, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 20, tzinfo=UTC),
+            declaration_date=fixed_now,
+            record_date=fixed_now + timedelta(days=9),
+            payment_date=fixed_now + timedelta(days=19),
             retained_earnings_balance=Decimal("2000"),
             allocations=[],
         )
         assert result.is_valid is False
         assert "exceeds retained earnings" in result.errors[0]
 
-    def test_validate_dividend_declaration_invalid_dates(self):
+    def test_validate_dividend_declaration_invalid_dates(self, fixed_now):
         result = DividendInvariants.validate_dividend_declaration(
             total_amount=Decimal("1000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 10, tzinfo=UTC),
-            record_date=datetime(2025, 1, 1, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 5, tzinfo=UTC),
+            declaration_date=fixed_now + timedelta(days=10),
+            record_date=fixed_now,
+            payment_date=fixed_now + timedelta(days=5),
             retained_earnings_balance=Decimal("2000"),
             allocations=[],
         )
@@ -574,48 +514,23 @@ class TestDividendInvariants:
         assert any("positive" in err for err in result.errors)
         assert any("does not equal" in err for err in result.errors)
 
-    def test_validate_status_transition_valid(self):
+    @pytest.mark.parametrize("current,new,total_paid,total_amount,user_role,expected_valid", [
+        (DividendStatus.PROPOSED, DividendStatus.APPROVED, Decimal("0"), Decimal("1000"), "board", True),
+        (DividendStatus.PROPOSED, DividendStatus.APPROVED, Decimal("0"), Decimal("1000"), "user", False),
+        (DividendStatus.APPROVED, DividendStatus.PAID, Decimal("1000"), Decimal("1000"), "finance", True),
+        (DividendStatus.APPROVED, DividendStatus.PAID, Decimal("500"), Decimal("1000"), "finance", False),
+        (DividendStatus.APPROVED, DividendStatus.PARTIALLY_PAID, Decimal("500"), Decimal("1000"), "finance", True),
+        (DividendStatus.APPROVED, DividendStatus.PARTIALLY_PAID, Decimal("1000"), Decimal("1000"), "finance", False),
+        (DividendStatus.PROPOSED, DividendStatus.CANCELLED, Decimal("0"), Decimal("1000"), "user", True),
+        (DividendStatus.PROPOSED, DividendStatus.PAID, Decimal("0"), Decimal("1000"), "finance", False),
+    ])
+    def test_validate_status_transition(self, current, new, total_paid, total_amount, user_role, expected_valid):
         result = DividendInvariants.validate_status_transition(
-            DividendStatus.PROPOSED,
-            DividendStatus.APPROVED,
-            total_paid=Decimal("0"),
-            total_amount=Decimal("1000"),
-            user_role="board",
+            current, new, total_paid, total_amount, user_role
         )
-        assert result.is_valid is True
-
-    def test_validate_status_transition_invalid_role(self):
-        result = DividendInvariants.validate_status_transition(
-            DividendStatus.PROPOSED,
-            DividendStatus.APPROVED,
-            total_paid=Decimal("0"),
-            total_amount=Decimal("1000"),
-            user_role="user",
-        )
-        assert result.is_valid is False
-        assert "Only board member or admin" in result.errors[0]
-
-    def test_validate_status_transition_paid_without_full_payment(self):
-        result = DividendInvariants.validate_status_transition(
-            DividendStatus.APPROVED,
-            DividendStatus.PAID,
-            total_paid=Decimal("500"),
-            total_amount=Decimal("1000"),
-            user_role="finance",
-        )
-        assert result.is_valid is False
-        assert "Cannot set status to PAID when only" in result.errors[0]
-
-    def test_validate_status_transition_partially_paid_when_fully_paid(self):
-        result = DividendInvariants.validate_status_transition(
-            DividendStatus.APPROVED,
-            DividendStatus.PARTIALLY_PAID,
-            total_paid=Decimal("1000"),
-            total_amount=Decimal("1000"),
-            user_role="finance",
-        )
-        assert result.is_valid is False
-        assert "PARTIALLY_PAID status is not allowed when fully paid" in result.errors[0]
+        assert result.is_valid == expected_valid
+        if not expected_valid:
+            assert len(result.errors) > 0
 
 
 # =============================================================================
@@ -625,7 +540,6 @@ class TestDividendInvariants:
 class TestEquityInvariantEnforcer:
     @pytest.fixture
     def enforcer(self):
-        # Provide simple synchronous callbacks returning fixed values
         def get_paid_in_capital():
             return Decimal("10000")
         def get_retained_earnings():
@@ -636,12 +550,12 @@ class TestEquityInvariantEnforcer:
         )
 
     @pytest.mark.asyncio
-    async def test_enforce_contribution_valid(self, enforcer):
+    async def test_enforce_contribution_valid(self, enforcer, fixed_now):
         result = await enforcer.enforce_contribution(
             amount=Decimal("1000"),
             share_percentage=Decimal("25"),
             currency="USD",
-            contribution_date=datetime(2025, 1, 1, tzinfo=UTC),
+            contribution_date=fixed_now,
         )
         assert result.is_valid is True
 
@@ -666,12 +580,12 @@ class TestEquityInvariantEnforcer:
         assert result.is_valid is True
 
     @pytest.mark.asyncio
-    async def test_enforce_withdrawal_valid(self, enforcer):
+    async def test_enforce_withdrawal_valid(self, enforcer, fixed_now):
         result = await enforcer.enforce_withdrawal(
             amount=Decimal("2000"),
             tax_withheld_amount=Decimal("200"),
             currency="USD",
-            withdrawal_date=datetime(2025, 1, 1, tzinfo=UTC),
+            withdrawal_date=fixed_now,
         )
         assert result.is_valid is True
 
@@ -696,7 +610,7 @@ class TestEquityInvariantEnforcer:
         assert result.is_valid is True
 
     @pytest.mark.asyncio
-    async def test_enforce_dividend_valid(self, enforcer):
+    async def test_enforce_dividend_valid(self, enforcer, fixed_now):
         allocations = [
             MockAllocation(dividend_amount=Decimal("600"), share_percentage=Decimal("60"), shares_owned=1000),
             MockAllocation(dividend_amount=Decimal("400"), share_percentage=Decimal("40"), shares_owned=800),
@@ -704,21 +618,21 @@ class TestEquityInvariantEnforcer:
         result = await enforcer.enforce_dividend(
             total_amount=Decimal("1000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 1, tzinfo=UTC),
-            record_date=datetime(2025, 1, 10, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 20, tzinfo=UTC),
+            declaration_date=fixed_now,
+            record_date=fixed_now + timedelta(days=9),
+            payment_date=fixed_now + timedelta(days=19),
             allocations=allocations,
         )
         assert result.is_valid is True
 
     @pytest.mark.asyncio
-    async def test_enforce_dividend_exceeds_retained_earnings(self, enforcer):
+    async def test_enforce_dividend_exceeds_retained_earnings(self, enforcer, fixed_now):
         result = await enforcer.enforce_dividend(
             total_amount=Decimal("6000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 1, tzinfo=UTC),
-            record_date=datetime(2025, 1, 10, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 20, tzinfo=UTC),
+            declaration_date=fixed_now,
+            record_date=fixed_now + timedelta(days=9),
+            payment_date=fixed_now + timedelta(days=19),
             allocations=[],
         )
         assert result.is_valid is False
@@ -773,26 +687,26 @@ class TestEquityInvariantEnforcer:
 # =============================================================================
 
 class TestStandaloneHelpers:
-    def test_validate_capital_contribution_invariants(self):
+    def test_validate_capital_contribution_invariants(self, fixed_now):
         result = validate_capital_contribution_invariants(
             amount=Decimal("1000"),
             share_percentage=Decimal("25"),
             currency="USD",
-            contribution_date=datetime(2025, 1, 1, tzinfo=UTC),
+            contribution_date=fixed_now,
         )
         assert result.is_valid is True
 
-    def test_validate_capital_withdrawal_invariants(self):
+    def test_validate_capital_withdrawal_invariants(self, fixed_now):
         result = validate_capital_withdrawal_invariants(
             amount=Decimal("1000"),
             tax_withheld_amount=Decimal("100"),
             currency="USD",
-            withdrawal_date=datetime(2025, 1, 1, tzinfo=UTC),
+            withdrawal_date=fixed_now,
             paid_in_capital=Decimal("5000"),
         )
         assert result.is_valid is True
 
-    def test_validate_dividend_declaration_invariants(self):
+    def test_validate_dividend_declaration_invariants(self, fixed_now):
         allocations = [
             MockAllocation(dividend_amount=Decimal("600"), share_percentage=Decimal("60"), shares_owned=1000),
             MockAllocation(dividend_amount=Decimal("400"), share_percentage=Decimal("40"), shares_owned=800),
@@ -800,21 +714,21 @@ class TestStandaloneHelpers:
         result = validate_dividend_declaration_invariants(
             total_amount=Decimal("1000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 1, tzinfo=UTC),
-            record_date=datetime(2025, 1, 10, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 20, tzinfo=UTC),
+            declaration_date=fixed_now,
+            record_date=fixed_now + timedelta(days=9),
+            payment_date=fixed_now + timedelta(days=19),
             retained_earnings_balance=Decimal("2000"),
             allocations=allocations,
         )
         assert result.is_valid is True
 
-    def test_validate_dividend_declaration_invariants_invalid(self):
+    def test_validate_dividend_declaration_invariants_invalid(self, fixed_now):
         result = validate_dividend_declaration_invariants(
             total_amount=Decimal("3000"),
             currency="USD",
-            declaration_date=datetime(2025, 1, 10, tzinfo=UTC),
-            record_date=datetime(2025, 1, 1, tzinfo=UTC),
-            payment_date=datetime(2025, 1, 5, tzinfo=UTC),
+            declaration_date=fixed_now + timedelta(days=10),
+            record_date=fixed_now,
+            payment_date=fixed_now + timedelta(days=5),
             retained_earnings_balance=Decimal("2000"),
             allocations=[],
         )

@@ -2,8 +2,87 @@
 """
 checker/pytest_checker.py – Pytest Quality Checker (Hardened, Forensic-Grade)
 ================================================================================
-Versi   : 5.1.7 (Fixed & Accurate)
+Versi   : 5.1.12 (Fixed & Accurate)
 Standar : ISO/IEC 25010-informed static analysis heuristics (bukan audit forensik resmi)
+
+Perubahan v5.1.12:
+- FIX (BUG NYATA, akar masalah "NO-ASSERTION tetap muncul walau test sudah
+  jelas memverifikasi hasil"): _record_assert() hanya dipicu oleh node
+  ast.Assert (statement `assert ...` bawaan Python). Test bergaya
+  unittest.TestCase yang memverifikasi lewat method call --
+  `self.assertEqual(...)`, `self.assertTrue(...)`, `self.assertRaises(...)`,
+  `mock_obj.assert_called_once_with(...)`, dst -- SAMA SEKALI tidak pernah
+  tertangkap karena itu ast.Call biasa, bukan ast.Assert. Test semacam itu
+  SELAMANYA dianggap "tidak punya assertion" berapa pun banyaknya
+  assertEqual/assertTrue di dalamnya. Sekarang method call yang namanya
+  diawali "assert" (assertEqual, assertTrue, assertRaises, assert_called_*,
+  dst) ikut dicatat sebagai assertion, termasuk saat dipakai sebagai context
+  manager (`with self.assertRaises(...):`).
+
+Perubahan v5.1.11:
+- FIX (BUG NYATA, akar masalah "Mock Quality tetap rendah & FLAKY-TEST tetap
+  muncul walau test sudah pakai mock"): has_mock hanya diperiksa dari
+  komponen TERAKHIR sebuah attribute chain. Untuk pola mocking paling umum
+  sehari-hari -- `patch.object(datetime, "now", ...)`, `mock.patch.object(...)`,
+  `mocker.patch.object(...)` -- komponen yang tertangkap adalah "object",
+  sedangkan kata kunci sesungguhnya ("patch") ada satu/dua level lebih dalam
+  dan tidak pernah diperiksa. Akibatnya test yang sudah benar memakai
+  patch.object() tetap dianggap "tidak pakai mock" oleh mock_quality() dan
+  flaky_test_detector() (keduanya murni bergantung pada flag has_mock),
+  berapa kali pun test-nya "diperbaiki" dengan menambah mock, karena
+  pola mocking yang paling sering dipakai justru yang tidak pernah terbaca.
+  Sekarang seluruh rantai dotted attribute diperiksa, bukan cuma ujungnya.
+
+Perubahan v5.1.10:
+- FIX (BUG NYATA, akar masalah "test_construction / *_can_be_instantiated selalu
+  ORPHAN, __init__ selalu Untested Function"): _resolve_calls() tidak pernah
+  mencocokkan pemanggilan bare konstruktor kelas -- `obj = FixedAssetCollection()`
+  -- ke `class_methods_index["FixedAssetCollection.__init__"]`. Cabang bare-call
+  (owner_expr None) hanya mengecek imported_symbols[attr][0] == "function",
+  padahal instansiasi kelas ditandai type "class"; akibatnya fallback ke
+  bare_name_index.get(attr) yang dikunci NAMA FUNGSI (bukan nama kelas) --
+  selalu kosong. Ini pola test PALING UMUM di suite manapun (test konstruksi),
+  jadi bug ini adalah kontributor terbesar ke angka Orphan Tests (7833) dan
+  Untested Functions untuk __init__ -- dan tidak bisa hilang dengan
+  "memperbaiki" test-nya, karena bukan test-nya yang salah. Sekarang bare call
+  ke nama yang dikenal sebagai kelas (lewat imported_symbols, atau heuristik
+  huruf besar di awal untuk kelas lokal yang tidak diimpor eksplisit --
+  konsisten dengan heuristik yang sudah dipakai di tempat lain di file ini)
+  diresolve ke `Kelas.__init__` bila kelas itu punya __init__ eksplisit.
+
+Perubahan v5.1.9:
+- FIX (BUG NYATA, akar masalah "sudah saya perbaiki tapi DUPLICATE-TEST tetap
+  muncul lagi"): _normalized_dump() -- fungsi yang menghasilkan struct_hash
+  untuk duplicate_test_detector() -- membuang tiga hal yang justru paling
+  sering dipakai untuk MEMBEDAKAN dua test:
+    1) Nilai literal (ast.Constant) hanya disimpan TIPE-nya, bukan nilainya
+       -- `assert x == 5` dan `assert y == 999` dianggap identik struktural.
+    2) Nama identifier bare (ast.Name) dibuang total -- `foo(...)` vs
+       `bar(...)`, atau `ClassA()` vs `ClassB()`, dianggap identik.
+    3) Nama keyword argument (ast.keyword.arg, mis. `currency_code=...` vs
+       `decimal_places=...`) tidak pernah tersimpan karena field string biasa
+       ini tidak ikut ter-walk oleh loop generik.
+  Akibatnya, DUPLICATE-TEST pada dua test yang sebenarnya menguji hal
+  BERBEDA (field berbeda, kelas berbeda, nilai berbeda) akan SELALU muncul
+  lagi berapa kali pun kode-nya "diperbaiki", karena bagian yang diedit
+  justru bagian yang sudah dibuang sebelum dibandingkan -- ini bukan bug
+  caching, tapi bug pada apa yang dianggap "sama". self_test() versi lama
+  bahkan mengunci perilaku ini lewat assertion eksplisit yang sekarang
+  dibalik agar mencerminkan perilaku yang benar. Duplicate/copy-paste yang
+  BENAR-BENAR identik (variabel & literal sama persis) tetap terdeteksi.
+
+Perubahan v5.1.8:
+- FIX (BUG NYATA, akar masalah "file yang sudah diperbaiki tetap tampil eror"):
+  async_test_checker() hanya mengecek decorator PER FUNGSI (node.decorator_list)
+  untuk marker @pytest.mark.asyncio/@pytest.mark.anyio. Ini membuat proyek yang
+  pakai `pytestmark = pytest.mark.asyncio` di level modul/class (pola sangat
+  umum di test suite FastAPI/async), atau `asyncio_mode = auto` di
+  pytest.ini/pyproject.toml, SELALU ditandai ASYNC-MISSING-MARKER untuk setiap
+  test async -- walau pytest menjalankannya dengan benar dan tidak ada apa pun
+  yang perlu diedit di level fungsi. Sekarang: `pytestmark` di level modul dan
+  class ikut diparse dan diwariskan ke tiap TestFunction.markers, dan
+  `asyncio_mode = auto` di config proyek membuat ASYNC-MISSING-MARKER
+  dinonaktifkan total untuk proyek tersebut.
 
 Perubahan v5.1.7:
 - FIX (BUG NYATA, ditemukan dari run di proyek 2226 file sungguhan): _run_parallel()
@@ -60,7 +139,9 @@ import json
 import logging
 import pathlib
 import re
+import shutil
 import sys
+import tempfile
 import threading
 import time
 from collections import defaultdict
@@ -164,7 +245,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 
-__version__ = "5.1.7"
+__version__ = "5.1.12"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -400,18 +481,47 @@ def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None, str]:
 
 
 def _normalized_dump(node: ast.AST) -> str:
+    # BUGFIX v5.1.9 (BUG NYATA, akar masalah "file yang sudah diperbaiki tetap
+    # tampil sebagai DUPLICATE-TEST"): fungsi ini dipakai untuk struct_hash yang
+    # menjadi dasar duplicate_test_detector(). Sebelumnya:
+    #   - ast.Constant hanya menyimpan TIPE nilainya ("<int>", "<str>", dst),
+    #     nilai sesungguhnya (5 vs 999, "email" vs "tax_id", dsb) DIBUANG.
+    #   - ast.Name (identifier bare seperti nama variabel/fungsi/kelas, mis.
+    #     `foo(...)` vs `bar(...)` atau `ClassA()` vs `ClassB()`) DIBUANG TOTAL
+    #     (`.id` tidak pernah disimpan).
+    #   - ast.keyword.arg (nama keyword argument, mis. `currency_code=...` vs
+    #     `decimal_places=...`) tidak pernah tersimpan sama sekali, karena
+    #     `.arg` adalah field string biasa (bukan ast.AST/list) sehingga loop
+    #     generik di bawah selalu melewatinya.
+    # Akibatnya, dua test yang secara PERILAKU jelas berbeda -- beda field yang
+    # divalidasi, beda kelas yang dipanggil, beda nilai literal yang dites --
+    # tapi kebetulan punya BENTUK AST yang sama, akan selalu menghasilkan
+    # struct_hash IDENTIK selama-lamanya. Ini persis skenario yang dilaporkan
+    # user: file sudah diperbaiki (nilai/keyword/nama fungsi diubah) tapi
+    # DUPLICATE-TEST tetap muncul di run berikutnya -- karena bagian yang
+    # diubah justru bagian yang dibuang oleh fungsi ini, bukan bug caching.
+    # self_test() versi lama bahkan MENGUNCI bug ini sebagai "perilaku benar"
+    # lewat assertion h1 == h2 untuk `assert x == 5` vs `assert y == 999` --
+    # assertion itu ikut diperbaiki di bagian self_test().
+    # Sekarang nilai literal, nama identifier, dan nama keyword argument ikut
+    # disertakan, sehingga duplicate detection tetap toleran terhadap
+    # perbedaan gaya kode (spasi, urutan baris, dll) tapi TIDAK LAGI buta
+    # terhadap perbedaan substansi yang sebenarnya membedakan dua test.
     parts: list[str] = []
 
     def walk(n, is_root: bool = False):
         if isinstance(n, ast.AST):
             parts.append(type(n).__name__)
             if isinstance(n, ast.Constant):
-                parts.append(f"<{type(n.value).__name__}>")
+                parts.append(f"<{type(n.value).__name__}:{n.value!r}>")
                 return
             if isinstance(n, ast.Name):
+                parts.append(n.id)
                 return
             if isinstance(n, ast.Attribute):
                 parts.append(n.attr)
+            if isinstance(n, ast.keyword) and n.arg:
+                parts.append(f"kw:{n.arg}")
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not is_root:
                 return
             for field_name, value in ast.iter_fields(n):
@@ -441,6 +551,60 @@ def _deco_name(dec: ast.expr) -> str:
         if isinstance(dec.func, ast.Attribute):
             return dec.func.attr
     return ""
+
+
+def _extract_pytestmark(body: list[ast.stmt]) -> list[str]:
+    """Ekstrak nama marker dari assignment `pytestmark = ...` di level modul
+    atau class (pola resmi pytest untuk menandai SEMUA test dalam modul/class
+    tanpa perlu decorator per-fungsi, mis. `pytestmark = pytest.mark.asyncio`).
+
+    BUGFIX: async_test_checker() sebelumnya HANYA mengecek node.decorator_list
+    per fungsi, jadi file yang pakai `pytestmark = pytest.mark.asyncio` di
+    atas file (pola sangat umum di test suite FastAPI) akan SELALU ditandai
+    ASYNC-MISSING-MARKER untuk setiap test async di dalamnya, walau pytest
+    sesungguhnya menjalankannya dengan benar -- dan tidak akan pernah hilang
+    dari laporan apa pun yang diedit di level fungsi, karena markernya memang
+    sengaja dipasang di level modul/class, bukan di fungsi.
+    """
+    marks: list[str] = []
+    for stmt in body:
+        if isinstance(stmt, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "pytestmark" for t in stmt.targets
+        ):
+            value = stmt.value
+            if isinstance(value, (ast.List, ast.Tuple)):
+                for elt in value.elts:
+                    name = _deco_name(elt)
+                    if name:
+                        marks.append(name)
+            else:
+                name = _deco_name(value)
+                if name:
+                    marks.append(name)
+    return marks
+
+
+def _detect_asyncio_auto_mode(root: pathlib.Path) -> bool:
+    """Deteksi apakah proyek pakai `asyncio_mode = auto` (pytest-asyncio).
+    Dalam mode ini pytest-asyncio menjalankan SEMUA fungsi `async def test_*`
+    secara otomatis TANPA butuh marker `@pytest.mark.asyncio` sama sekali --
+    jadi kalau mode ini aktif, ASYNC-MISSING-MARKER seharusnya tidak pernah
+    ditampilkan untuk proyek ini. Dicek di pytest.ini / setup.cfg / tox.ini
+    (format `[pytest]` / `[tool:pytest]`) dan pyproject.toml (format
+    `[tool.pytest.ini_options]`).
+    """
+    for name in ("pytest.ini", "setup.cfg", "tox.ini", "pyproject.toml"):
+        p = root / name
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        m = re.search(r'asyncio_mode\s*=\s*["\']?(\w+)["\']?', text)
+        if m and m.group(1).strip().lower() == "auto":
+            return True
+    return False
 
 
 def _dotted_module_path(rel_posix: str) -> str:
@@ -581,9 +745,55 @@ class TestFeatureVisitor(ast.NodeVisitor):
         self.has_retry = False
         self.tested_roles: set[str] = set()
         self.var_types: dict[str, str] = {}
+        self._call_func_attr_ids: set[int] | None = None
         for p in param_names:
             if p in fixture_class_index:
                 self.var_types[p] = fixture_class_index[p]
+
+    # BUGFIX v5.1.12 (BUG NYATA, akar masalah "NO-ASSERTION tetap muncul walau
+    # test sudah jelas mem-verifikasi hasil"): _record_assert() hanya dipicu
+    # oleh node ast.Assert -- yaitu statement `assert ...` bawaan Python.
+    # Test bergaya unittest.TestCase yang memverifikasi lewat method call
+    # (`self.assertEqual(...)`, `self.assertTrue(...)`, `self.assertRaises(...)`,
+    # dst -- pola yang sangat umum di codebase enterprise yang mencampur
+    # unittest & pytest) SAMA SEKALI tidak pernah tertangkap, karena itu cuma
+    # `ast.Call` biasa, bukan `ast.Assert`. Akibatnya test semacam itu
+    # SELAMANYA dianggap "tidak punya assertion" berapa pun banyaknya
+    # assertEqual/assertTrue di dalamnya -- bukan test-nya yang salah.
+    _UNITTEST_ASSERT_OPS = {
+        "assertEqual": "eq", "assertEquals": "eq", "assertNotEqual": "ne",
+        "assertTrue": "truthy", "assertFalse": "not",
+        "assertIs": "is", "assertIsNot": "is_not",
+        "assertIsNone": "is", "assertIsNotNone": "is_not",
+        "assertIn": "in", "assertNotIn": "not_in",
+        "assertGreater": "gt", "assertGreaterEqual": "ge",
+        "assertLess": "lt", "assertLessEqual": "le",
+        "assertRaises": "raises", "assertRaisesRegex": "raises",
+        "assertAlmostEqual": "eq", "assertNotAlmostEqual": "ne",
+    }
+
+    def _record_call_assert(self, node: ast.Call, attr: str):
+        op = self._UNITTEST_ASSERT_OPS.get(attr)
+        if op is None:
+            # Mock-verification methods (assert_called_once, assert_called_with,
+            # assert_not_called, assert_any_call, assert_has_calls, dst) juga
+            # assertion yang sah -- memverifikasi perilaku, bukan cuma "tidak
+            # error".
+            op = "other"
+        has_literal = any(isinstance(a, ast.Constant) for a in node.args)
+        try:
+            raw = ast.unparse(node)
+        except Exception:
+            raw = "assert(...)"
+        self.assertions.append(AssertInfo(op=op, lineno=node.lineno, has_literal_operand=has_literal,
+                                           has_message=len(node.args) >= (3 if op not in ("truthy", "not") else 2),
+                                           raw=raw, is_bool_literal_compare=False))
+        if op == "raises":
+            self.has_raises = True
+            if node.args and isinstance(node.args[0], ast.Name):
+                self.raises_targets.append(node.args[0].id)
+            elif node.args and isinstance(node.args[0], ast.Attribute):
+                self.raises_targets.append(node.args[0].attr)
 
     def _record_assert(self, node: ast.Assert):
         op = "truthy"
@@ -617,14 +827,37 @@ class TestFeatureVisitor(ast.NodeVisitor):
                                            has_message=node.msg is not None, raw=raw,
                                            is_bool_literal_compare=is_bool_lit))
 
+    def visit(self, node):
+        # BUGFIX (bug nyata): dulu bare attribute read (mis. `dto.total_pajak`
+        # untuk @property, tanpa tanda kurung) HANYA ditangkap kalau letaknya
+        # persis di dalam statement `assert`. Pola test yang sangat umum --
+        # assign ke variabel dulu, baru assert nilainya:
+        #     hasil = dto.total_pajak
+        #     assert hasil == Decimal("100")
+        # -- membuat `total_pajak` TIDAK PERNAH tercatat sebagai diakses sama
+        # sekali, sehingga property/classmethod seperti itu selamanya muncul
+        # "Untested Function" walau benar-benar sudah ditest. Sekarang akses
+        # atribut ditangkap di SELURUH badan fungsi test (bukan cuma di dalam
+        # assert), sambil tetap mengecualikan Attribute yang sebenarnya adalah
+        # target pemanggilan (`x.foo()` -> ditangani visit_Call, bukan di sini)
+        # supaya tidak dobel hitung.
+        if self._call_func_attr_ids is None:
+            self._call_func_attr_ids = {
+                id(n.func) for n in ast.walk(node)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            }
+        return super().visit(node)
+
+    def visit_Attribute(self, node):
+        if id(node) not in self._call_func_attr_ids:
+            self.raw_calls.append((node.value, node.attr, getattr(node, "lineno", 0)))
+            self._check_keyword_flags(node.attr)
+        self.generic_visit(node)
+
     def visit_Assert(self, node):
         self._record_assert(node)
-        call_func_ids = {id(n.func) for n in ast.walk(node.test) if isinstance(n, ast.Call)}
         for n in ast.walk(node.test):
-            if isinstance(n, ast.Attribute) and id(n) not in call_func_ids:
-                self.raw_calls.append((n.value, n.attr, node.lineno))
-                self._check_keyword_flags(n.attr)
-            elif isinstance(n, ast.Name):
+            if isinstance(n, ast.Name):
                 self._check_keyword_flags(n.id)
         self.generic_visit(node)
 
@@ -712,6 +945,30 @@ class TestFeatureVisitor(ast.NodeVisitor):
                     self.raises_targets.append(node.args[0].id)
                 elif node.args and isinstance(node.args[0], ast.Attribute):
                     self.raises_targets.append(node.args[0].attr)
+            if attr.startswith("assert") and attr != "assert_type":
+                self._record_call_assert(node, attr)
+            # BUGFIX v5.1.11 (BUG NYATA, akar masalah "Mock Quality tetap rendah
+            # & FLAKY-TEST tetap muncul walau sudah pakai mock"): has_mock
+            # sebelumnya hanya dicek dari `attr` -- komponen TERAKHIR dari
+            # attribute chain. Untuk `patch.object(datetime, "now", ...)`,
+            # `mock.patch.object(...)`, atau `mocker.patch.object(...)` --
+            # pola mocking paling umum sehari-hari -- `attr` yang tertangkap
+            # adalah "object", sedangkan kata kunci sesungguhnya ("patch")
+            # ada satu level lebih dalam dan tidak pernah diperiksa. Akibatnya
+            # test yang sudah benar memakai patch.object() tetap dianggap
+            # "tidak pakai mock": Mock Quality selamanya rendah, dan
+            # FLAKY-TEST tetap dilaporkan meski datetime.now()/random/sleep
+            # SUDAH di-mock. Sekarang seluruh rantai dotted (mis. "mock" ->
+            # "patch" -> "object") ikut diperiksa, bukan cuma ujungnya.
+            root = node.func.value
+            while isinstance(root, ast.Attribute):
+                if root.attr in ("patch", "MagicMock", "Mock", "AsyncMock", "create_autospec", "spy"):
+                    self.has_mock = True
+                root = root.value
+            if isinstance(root, ast.Name) and root.id in (
+                "patch", "MagicMock", "Mock", "AsyncMock", "create_autospec", "spy", "mock", "mocker",
+            ):
+                self.has_mock = True
         elif isinstance(node.func, ast.Name):
             attr = node.func.id
             self.raw_calls.append((None, attr, node.lineno))
@@ -875,6 +1132,7 @@ class ProjectIndex:
         self.bare_name_index: dict[str, list[str]] = defaultdict(list)
         self.module_exports_index: dict[str, dict[str, str]] = {}
         self.fixture_class_index: dict[str, str] = {}
+        self.asyncio_auto_mode = _detect_asyncio_auto_mode(root)
 
     def scan_files(self):
         for py_file in self.root.rglob("*.py"):
@@ -947,8 +1205,16 @@ class ProjectIndex:
                     is_dunder=f["name"].startswith("__") and f["name"].endswith("__") and f["name"] != "__init__",
                 )
                 self.source_functions[sf.key] = sf
-                if sf.is_private:
-                    continue
+                # BUGFIX (bug nyata): private method (single-underscore, bukan
+                # dunder) dulu SAMA SEKALI tidak dimasukkan ke class_methods_index
+                # / bare_name_index. Fungsi itu tetap dihitung sebagai source
+                # function yang "butuh test" (baris di atas), tapi karena tidak
+                # pernah diindeks, resolve_calls() TIDAK PERNAH BISA mencocokkan
+                # panggilan test manapun ke fungsi itu -- termasuk white-box test
+                # yang eksplisit memanggil `instance._method(...)`. Akibatnya
+                # method private (sangat umum di kode seperti runbook/step
+                # internal) selamanya muncul "Untested Function" walau sudah
+                # ditest langsung. Sekarang tetap diindeks seperti method biasa.
                 if sf.class_name:
                     self.class_methods_index[f"{sf.class_name}.{sf.name}"].append(sf.key)
                 self.bare_name_index[sf.name].append(sf.key)
@@ -1035,6 +1301,40 @@ def _resolve_calls(
             if candidates:
                 resolved.append((attr, "direct", candidates))
                 continue
+        # BUGFIX v5.1.10 (BUG NYATA, akar masalah "test_construction / *_can_be_
+        # instantiated selalu ORPHAN & __init__ selalu Untested Function"):
+        # pemanggilan bare konstruktor -- `obj = FixedAssetCollection()`, tanpa
+        # owner_expr karena ini `ast.Name` langsung, bukan `ast.Attribute` --
+        # dulu TIDAK PERNAH dicocokkan ke class_methods_index sama sekali.
+        # Cabang di bawah ini hanya mengecek imported_symbols[attr][0] ==
+        # "function", padahal instansiasi kelas ditandai type "class" (lihat
+        # baris `elif owner_expr.id in imported_symbols and ...[0] == "class"`
+        # di atas, dan _build_test_functions.visit_Assign yang memakai mapping
+        # sama). Karena tidak pernah dicek, `bare_name_index.get(attr)` juga
+        # gagal karena index itu dikunci oleh NAMA FUNGSI/METHOD ("__init__",
+        # "from_dict", dst), bukan nama kelas -- jadi resolusi selalu kosong,
+        # padahal test tsb SECARA EKSPLISIT menginstansiasi kelas itu. Ini
+        # membuat pola test paling umum di suite manapun (test konstruksi /
+        # "can be instantiated") selamanya muncul sebagai Orphan Test, dan
+        # `__init__` kelas terkait selamanya muncul sebagai Untested Function
+        # -- berapa kali pun test-nya "diperbaiki", karena bukan test-nya yang
+        # salah, tapi jalur resolusinya yang tidak pernah ada.
+        # Sekarang: bare call ke nama yang dikenal sebagai kelas (via
+        # imported_symbols, atau heuristik huruf besar di awal untuk kelas
+        # lokal yang tidak diimpor eksplisit -- konsisten dengan heuristik
+        # yang sudah dipakai di visit_Assign) diresolve ke `Kelas.__init__`
+        # kalau kelas itu punya __init__ eksplisit di source.
+        if owner_expr is None and attr:
+            ctor_class = None
+            if attr in imported_symbols and imported_symbols[attr][0] == "class":
+                ctor_class = imported_symbols[attr][1]
+            elif attr[:1].isupper() and attr not in imported_symbols:
+                ctor_class = attr
+            if ctor_class:
+                init_candidates = index.class_methods_index.get(f"{ctor_class}.__init__", [])
+                if init_candidates:
+                    resolved.append((attr, "direct", init_candidates))
+                    continue
         if owner_expr is None and attr in imported_symbols and imported_symbols[attr][0] == "function":
             resolved.append((attr, "direct", [imported_symbols[attr][1]]))
             continue
@@ -1086,8 +1386,9 @@ def _build_test_functions(
             continue
         imported_symbols = index.imported_symbols_for(rel)
         src_lines = src_text.splitlines() if src_text else []
+        module_marks = _extract_pytestmark(tree.body)
 
-        def handle(node: ast.FunctionDef | ast.AsyncFunctionDef, class_prefix: str = ""):
+        def handle(node: ast.FunctionDef | ast.AsyncFunctionDef, class_prefix: str = "", extra_marks: list[str] | None = None):
             if not node.name.startswith("test_"):
                 return
             param_names = [a.arg for a in node.args.args if a.arg != "self"]
@@ -1095,7 +1396,12 @@ def _build_test_functions(
             visitor.visit(node)
             resolved = _resolve_calls(visitor.raw_calls, visitor.var_types, imported_symbols, index)
             decorators = [_deco_name(d) for d in node.decorator_list]
-            markers = [d for d in decorators if d]
+            # markers = decorator milik fungsi ITU SENDIRI + marker yang
+            # diwariskan dari `pytestmark` di level modul/class (lihat
+            # _extract_pytestmark). Dulu hanya decorator fungsi yang dicek,
+            # sehingga pola `pytestmark = pytest.mark.asyncio` di atas file
+            # tidak pernah terbaca sebagai marker.
+            markers = [d for d in decorators if d] + (extra_marks or [])
             try:
                 source_text = ast.unparse(node)
             except Exception:
@@ -1126,11 +1432,12 @@ def _build_test_functions(
 
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                handle(node)
+                handle(node, extra_marks=module_marks)
             elif isinstance(node, ast.ClassDef):
+                class_marks = module_marks + _extract_pytestmark(node.body)
                 for child in node.body:
                     if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        handle(child, class_prefix=f"{node.name}.")
+                        handle(child, class_prefix=f"{node.name}.", extra_marks=class_marks)
         if progress_callback:
             progress_callback(i + 1, total)
     return test_functions, parse_errors
@@ -1812,7 +2119,19 @@ class QualityAnalyzer:
     @_memoize_analyzer_method
     def async_test_checker(self) -> dict:
         async_tests = [t for t in self.test_funcs.values() if t.is_async]
-        missing_marker = [t for t in async_tests if "asyncio" not in " ".join(t.decorators).lower() and "anyio" not in " ".join(t.decorators).lower()]
+        # BUGFIX (real bug, ditemukan dari run 2226 file sungguhan): dulu hanya
+        # `t.decorators` (decorator PER FUNGSI) yang dicek. Itu membuat proyek
+        # yang pakai `pytestmark = pytest.mark.asyncio` di level modul/class,
+        # atau `asyncio_mode = auto` di pytest.ini/pyproject.toml, SELALU
+        # ditandai ASYNC-MISSING-MARKER untuk setiap test async -- walau
+        # pytest menjalankannya dengan benar -- dan tidak akan pernah hilang
+        # dari laporan, karena tidak ada apa pun untuk diperbaiki di level
+        # fungsi. Sekarang: (1) `t.markers` sudah mencakup marker yang
+        # diwariskan dari `pytestmark` modul/class, dan (2) kalau proyek pakai
+        # asyncio_mode=auto, tidak ada marker yang dibutuhkan sama sekali.
+        if self.index.asyncio_auto_mode:
+            return {"async_count": len(async_tests), "missing_marker": 0, "total": len(self.test_funcs)}
+        missing_marker = [t for t in async_tests if "asyncio" not in " ".join(t.markers).lower() and "anyio" not in " ".join(t.markers).lower()]
         for t in missing_marker:
             self._add_finding("ASYNC-MISSING-MARKER", "warning",
                                f"Test async '{t.name}' tidak punya marker @pytest.mark.asyncio — kemungkinan tidak benar-benar dijalankan oleh pytest",
@@ -2979,9 +3298,19 @@ def self_test(verbose: bool = True) -> bool:
     check("TestFeatureVisitor tracks var type from constructor", tv.var_types.get("svc") == "JournalService", str(tv.var_types))
     check("TestFeatureVisitor records assertion op", any(a.op == "eq" for a in tv.assertions), str(tv.assertions))
 
+    # BUGFIX v5.1.9: dua check di bawah dulu MENGUNCI bug _normalized_dump
+    # (literal & nama identifier dibuang) sebagai "perilaku benar". Itu justru
+    # akar masalah "file sudah diperbaiki tapi DUPLICATE-TEST tetap muncul":
+    # `assert x == 5` vs `assert y == 999` dulu dianggap identik struktural
+    # padahal beda variabel DAN beda nilai. Sekarang keduanya harus dianggap
+    # BERBEDA -- nama variabel dan nilai literal ikut membedakan struct_hash.
     h1 = _normalized_dump(ast.parse("assert x == 5").body[0])
     h2 = _normalized_dump(ast.parse("assert y == 999").body[0])
-    check("Normalized dump ignores literal values/names (structural duplicate hash)", h1 == h2, f"{h1} vs {h2}")
+    check("Normalized dump distinguishes different literal values AND different names",
+          h1 != h2, f"{h1} vs {h2}")
+    h1b = _normalized_dump(ast.parse("assert x == 5").body[0])
+    check("Normalized dump is still deterministic/stable for identical code",
+          h1 == h1b, f"{h1} vs {h1b}")
     h3 = _normalized_dump(ast.parse("assert x != 5").body[0])
     check("Normalized dump distinguishes different operators", h1 != h3, f"{h1} vs {h3}")
 
@@ -2990,11 +3319,23 @@ def self_test(verbose: bool = True) -> bool:
     check("Domain discovery returns empty for non-domain files", _discover_domain("application/use_cases/foo.py") == "")
 
     fn_a = ast.parse("def test_a():\n    assert x == 5\n").body[0]
+    fn_a2 = ast.parse("def test_a2():\n    assert x == 5\n").body[0]
     fn_b = ast.parse("def test_b():\n    assert y == 999\n").body[0]
     fn_c = ast.parse("def test_c():\n    assert x is not None\n").body[0]
-    hash_a, hash_b, hash_c = _normalized_dump(fn_a), _normalized_dump(fn_b), _normalized_dump(fn_c)
+    hash_a = _normalized_dump(fn_a)
+    hash_a2 = _normalized_dump(fn_a2)
+    hash_b = _normalized_dump(fn_b)
+    hash_c = _normalized_dump(fn_c)
     check("normalized_dump on root FunctionDef is not just 'FunctionDef'", hash_a != "FunctionDef", hash_a)
-    check("normalized_dump treats structurally-identical test bodies as equal", hash_a == hash_b, f"{hash_a} vs {hash_b}")
+    # BUGFIX v5.1.9: dua test body yang benar-benar sama persis (variabel &
+    # literal sama) tetap harus dianggap satu struktur (true positive
+    # duplicate/copy-paste tetap terdeteksi)...
+    check("normalized_dump treats byte-for-byte-identical test bodies as equal",
+          hash_a == hash_a2, f"{hash_a} vs {hash_a2}")
+    # ...tapi test body yang beda variabel/nilai literal (test_a vs test_b)
+    # SEKARANG dianggap berbeda -- dulu keduanya keliru dianggap "sama".
+    check("normalized_dump distinguishes test bodies differing only by literal/name",
+          hash_a != hash_b, f"{hash_a} vs {hash_b}")
     check("normalized_dump distinguishes structurally-different test bodies", hash_a != hash_c, f"{hash_a} vs {hash_c}")
 
     tv_bool = TestFeatureVisitor({}, {}, [])
@@ -3060,6 +3401,188 @@ def self_test(verbose: bool = True) -> bool:
                               line_count=5, calls=["execute", "execute"])
     check("TestFunction with same call repeated 2x is available for idempotency repeated-call detection",
           tf_repeat.calls.count("execute") >= 2)
+
+    mod_tree = ast.parse(
+        "import pytest\n"
+        "pytestmark = pytest.mark.asyncio\n"
+        "async def test_a():\n"
+        "    assert 1 == 1\n"
+    )
+    mod_marks = _extract_pytestmark(mod_tree.body)
+    check("module-level `pytestmark = pytest.mark.asyncio` is extracted as a marker",
+          "asyncio" in mod_marks, str(mod_marks))
+
+    mod_tree_list = ast.parse(
+        "import pytest\n"
+        "pytestmark = [pytest.mark.asyncio, pytest.mark.slow]\n"
+    )
+    mod_marks_list = _extract_pytestmark(mod_tree_list.body)
+    check("module-level `pytestmark = [mark.asyncio, mark.slow]` extracts both names",
+          "asyncio" in mod_marks_list and "slow" in mod_marks_list, str(mod_marks_list))
+
+    cls_tree = ast.parse(
+        "import pytest\n"
+        "class TestFoo:\n"
+        "    pytestmark = pytest.mark.asyncio\n"
+        "    async def test_b(self):\n"
+        "        assert 1 == 1\n"
+    )
+    cls_node = cls_tree.body[1]
+    cls_marks = _extract_pytestmark(cls_node.body)
+    check("class-level `pytestmark = pytest.mark.asyncio` is extracted as a marker",
+          "asyncio" in cls_marks, str(cls_marks))
+
+    no_mark_tree = ast.parse("async def test_c():\n    assert 1 == 1\n")
+    check("file with no pytestmark assignment yields no inherited markers",
+          _extract_pytestmark(no_mark_tree.body) == [])
+
+    _tmp_dir = pathlib.Path(tempfile.mkdtemp())
+    try:
+        (_tmp_dir / "pytest.ini").write_text("[pytest]\nasyncio_mode = auto\n", encoding="utf-8")
+        check("asyncio_mode = auto in pytest.ini is detected", _detect_asyncio_auto_mode(_tmp_dir))
+        (_tmp_dir / "pytest.ini").write_text("[pytest]\nasyncio_mode = strict\n", encoding="utf-8")
+        check("asyncio_mode = strict in pytest.ini is NOT treated as auto mode",
+              not _detect_asyncio_auto_mode(_tmp_dir))
+        (_tmp_dir / "pytest.ini").unlink()
+        check("no asyncio_mode config anywhere -> not auto mode", not _detect_asyncio_auto_mode(_tmp_dir))
+    finally:
+        shutil.rmtree(_tmp_dir, ignore_errors=True)
+
+    idx_async = ProjectIndex.__new__(ProjectIndex)
+    idx_async.asyncio_auto_mode = True
+    analyzer_async = QualityAnalyzer.__new__(QualityAnalyzer)
+    analyzer_async.index = idx_async
+    analyzer_async.test_funcs = {
+        "k1": TestFunction(key="k1", name="test_x", file="f.py", lineno=1, end_lineno=2, line_count=2, is_async=True)
+    }
+    analyzer_async._metric_cache = {}
+    analyzer_async.findings = []
+    result_auto = analyzer_async.async_test_checker()
+    check("async_test_checker reports 0 missing_marker when asyncio_mode=auto is active",
+          result_auto["missing_marker"] == 0, str(result_auto))
+
+    idx_marked = ProjectIndex.__new__(ProjectIndex)
+    idx_marked.asyncio_auto_mode = False
+    analyzer_marked = QualityAnalyzer.__new__(QualityAnalyzer)
+    analyzer_marked.index = idx_marked
+    analyzer_marked.test_funcs = {
+        "k1": TestFunction(key="k1", name="test_y", file="f.py", lineno=1, end_lineno=2, line_count=2,
+                            is_async=True, decorators=[], markers=["asyncio"]),
+    }
+    analyzer_marked._metric_cache = {}
+    analyzer_marked.findings = []
+    result_marked = analyzer_marked.async_test_checker()
+    check("async_test_checker does NOT flag async test whose marker came from inherited pytestmark "
+          "(present in .markers but not .decorators)",
+          result_marked["missing_marker"] == 0, str(result_marked))
+
+    tv_unittest_assert = TestFeatureVisitor({}, {}, [])
+    tv_unittest_assert.visit(ast.parse(
+        "def test_validate_dates_valid(self):\n"
+        "    entity = DividendDeclaration()\n"
+        "    self.assertTrue(entity.validate_dates())\n"
+        "    self.assertEqual(entity.status, 'valid')\n"
+    ).body[0])
+    check("unittest-style `self.assertTrue`/`self.assertEqual` calls are recorded as real "
+          "assertions -- test must NOT be flagged NO-ASSERTION just because it uses no bare `assert`",
+          len(tv_unittest_assert.assertions) == 2, str(tv_unittest_assert.assertions))
+
+    tv_unittest_raises = TestFeatureVisitor({}, {}, [])
+    tv_unittest_raises.visit(ast.parse(
+        "def test_invalid(self):\n"
+        "    with self.assertRaises(ValueError):\n"
+        "        DividendDeclaration(amount=-1)\n"
+    ).body[0])
+    check("`self.assertRaises(...)` is recorded as an assertion and sets has_raises",
+          len(tv_unittest_raises.assertions) == 1 and tv_unittest_raises.has_raises,
+          f"{tv_unittest_raises.assertions} has_raises={tv_unittest_raises.has_raises}")
+
+    tv_patch_obj = TestFeatureVisitor({}, {}, [])
+    tv_patch_obj.visit(ast.parse(
+        "def test_x():\n"
+        "    with patch.object(datetime, 'now', return_value=FIXED):\n"
+        "        assert do_thing() == 1\n"
+    ).body[0])
+    check("has_mock detects `patch.object(...)` (dotted chain, not just the leaf attr 'object')",
+          tv_patch_obj.has_mock)
+
+    tv_mocker_patch_obj = TestFeatureVisitor({}, {}, [])
+    tv_mocker_patch_obj.visit(ast.parse(
+        "def test_y(mocker):\n"
+        "    mocker.patch.object(SomeClass, 'method', return_value=1)\n"
+        "    assert do_thing() == 1\n"
+    ).body[0])
+    check("has_mock detects `mocker.patch.object(...)` (3-level dotted chain)",
+          tv_mocker_patch_obj.has_mock)
+
+    idx_ctor = ProjectIndex.__new__(ProjectIndex)
+    idx_ctor.class_methods_index = defaultdict(list)
+    idx_ctor.bare_name_index = defaultdict(list)
+    idx_ctor.class_methods_index["FixedAssetCollection.__init__"].append("src_init_key")
+    imported_ctor = {"FixedAssetCollection": ("class", "FixedAssetCollection")}
+    tv_ctor = TestFeatureVisitor(imported_ctor, {}, [])
+    tv_ctor.visit(ast.parse(
+        "def test_construction():\n"
+        "    obj = FixedAssetCollection()\n"
+        "    assert obj is not None\n"
+    ).body[0])
+    resolved_ctor = _resolve_calls(tv_ctor.raw_calls, tv_ctor.var_types, imported_ctor, idx_ctor)
+    check("bare constructor call `Kelas()` (imported, no owner_expr) resolves to that class's __init__ "
+          "-- test_construction pattern must NOT be an orphan test",
+          any(c == "src_init_key" for _, _, cands in resolved_ctor for c in cands), str(resolved_ctor))
+
+    idx_ctor_local = ProjectIndex.__new__(ProjectIndex)
+    idx_ctor_local.class_methods_index = defaultdict(list)
+    idx_ctor_local.bare_name_index = defaultdict(list)
+    idx_ctor_local.class_methods_index["ReloadResult.__init__"].append("src_init_key2")
+    tv_ctor_local = TestFeatureVisitor({}, {}, [])
+    tv_ctor_local.visit(ast.parse(
+        "def test_construction():\n"
+        "    obj = ReloadResult()\n"
+        "    assert obj is not None\n"
+    ).body[0])
+    resolved_ctor_local = _resolve_calls(tv_ctor_local.raw_calls, tv_ctor_local.var_types, {}, idx_ctor_local)
+    check("bare constructor call to a LOCAL/unimported class (capitalized-name heuristic, "
+          "not present in imported_symbols) still resolves to that class's __init__",
+          any(c == "src_init_key2" for _, _, cands in resolved_ctor_local for c in cands), str(resolved_ctor_local))
+
+    idx_priv = ProjectIndex.__new__(ProjectIndex)
+    idx_priv.source_functions = {}
+    idx_priv.class_methods_index = defaultdict(list)
+    idx_priv.bare_name_index = defaultdict(list)
+    idx_priv.module_exports_index = {}
+    idx_priv.fixture_class_index = {}
+    idx_priv.class_methods_index["AccountingFailureRunbook._take_snapshot"].append("k_priv")
+    idx_priv.bare_name_index["_take_snapshot"].append("k_priv")
+    resolved_priv = _resolve_calls(
+        [(ast.Name(id="runbook"), "_take_snapshot", 1)],
+        {"runbook": "AccountingFailureRunbook"}, {}, idx_priv,
+    )
+    check("test explicitly calling a private method (instance._helper(...)) DOES resolve as 'direct' "
+          "(private methods must stay indexed, otherwise they can never be marked tested)",
+          resolved_priv and resolved_priv[0] == ("_take_snapshot", "direct", ["k_priv"]), str(resolved_priv))
+
+    tv_assign_assert = TestFeatureVisitor({}, {}, [])
+    tv_assign_assert.visit(ast.parse(
+        "def test_total_pajak():\n"
+        "    dto = FakturPajakKeluaranDTO()\n"
+        "    hasil = dto.total_pajak\n"
+        "    assert hasil == 100\n"
+    ).body[0])
+    check("bare property read assigned to a variable BEFORE assert (`x = obj.prop; assert x == ...`) "
+          "is still captured -- not just reads written directly inside the assert expression",
+          any(attr == "total_pajak" for _, attr, _ in tv_assign_assert.raw_calls),
+          str(tv_assign_assert.raw_calls))
+
+    tv_no_dup = TestFeatureVisitor({}, {}, [])
+    tv_no_dup.visit(ast.parse(
+        "def test_call_not_dup():\n"
+        "    result = handler.execute(cmd)\n"
+        "    assert result == 1\n"
+    ).body[0])
+    check("method CALL (`x.execute(...)`) is not also double-recorded as a bare attribute read",
+          sum(1 for _, attr, _ in tv_no_dup.raw_calls if attr == "execute") == 1,
+          str(tv_no_dup.raw_calls))
 
     if verbose:
         _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed == 0 else '❌'}")

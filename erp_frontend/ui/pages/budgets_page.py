@@ -4,14 +4,14 @@ ui/pages/budgets_page.py
 Halaman modul "Budget / Anggaran" (Perencanaan).
 
 Endpoint backend : /budget/budget/
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ COLUMNS = [
 FORM_FIELDS = [
     FieldSpec("budget_code", "Kode Budget", required=True),
     FieldSpec("budget_name", "Nama Budget", required=True),
-    FieldSpec("budget_type", "Tipe Budget", FieldType.SELECT, choices=("operational", "capital", "cash_flow", "master",)),
+    FieldSpec("budget_type", "Tipe Budget", FieldType.SELECT, choices=("operational", "capital", "cash", "project", "department", "fixed_asset", "sales",)),
     FieldSpec("fiscal_year", "Tahun Fiskal", FieldType.NUMBER, required=True),
-    FieldSpec("period", "Periode", FieldType.SELECT, choices=("monthly", "quarterly", "annual",)),
+    FieldSpec("period", "Periode", FieldType.SELECT, choices=("monthly", "quarterly", "yearly",)),
     FieldSpec("version", "Versi", default="1.0"),
     FieldSpec("effective_date", "Berlaku Sejak", FieldType.DATE, required=True),
     FieldSpec("expiry_date", "Berlaku Sampai", FieldType.DATE),
@@ -68,6 +68,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=True,
     search_param="search",
+    edit_http_method="PUT",
 )
 
 

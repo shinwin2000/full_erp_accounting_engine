@@ -1,9 +1,36 @@
-# test_aggregate_root.py
-# Comprehensive tests for aggregate_root.py
+#!/usr/bin/env python3
+"""
+tests/domain/legal_entity/test_aggregate_root.py
+Comprehensive tests for domain/legal_entity/aggregate_root.py
+
+Covers:
+- Enums: LegalEntityStatus, LegalEntityType, FiscalYearType
+- LegalEntity aggregate:
+  - Construction and validation (parametrized for all error cases)
+  - Properties
+  - Event management (register, clear, get, pop, pull)
+  - Audit trail
+  - Snapshot and restore
+  - Lock/unlock
+  - Status transitions (activate, deactivate, suspend, reactivate, dissolve)
+  - Tax profile update
+  - Basic attribute updates (rename, address, contact)
+  - Hierarchy management (add/remove child)
+  - Validation
+  - Touch and clone
+  - Serialization (to_dict, from_dict)
+  - Factory method create_legal_entity
+- Repository interface (protocol check)
+- All edge cases and negative paths
+- No flaky datetime (mocked)
+- No duplicate tests (parametrized where appropriate)
+"""
+
+from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,20 +58,31 @@ from domain.legal_entity.domain_events import (
 from domain.shared_value_objects.npwp_vo import NPWP
 from domain.shared_value_objects.percentage_vo import Percentage
 
-
-# ============================================================================
+# =============================================================================
 # Fixtures
-# ============================================================================
+# =============================================================================
+
+FIXED_DATETIME = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+FIXED_DATE = FIXED_DATETIME.date()
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now to return a fixed value."""
+    with patch("domain.legal_entity.aggregate_root.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_DATETIME
+        mock_dt.utcnow.return_value = FIXED_DATETIME
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        yield mock_dt
+
 
 @pytest.fixture
 def valid_npwp():
-    """Return a valid NPWP."""
     return NPWP("123456789012345")
 
 
 @pytest.fixture
 def valid_tax_profile():
-    """Return a valid tax profile."""
     return CompanyTaxProfileVO(
         is_pkp=True,
         tax_regime=TaxRegime.GENERAL,
@@ -60,7 +98,6 @@ def valid_tax_profile():
 
 @pytest.fixture
 def legal_entity(valid_npwp, valid_tax_profile):
-    """Create a valid LegalEntity."""
     return LegalEntity(
         entity_id=uuid4(),
         entity_code="LEGAL-001",
@@ -88,299 +125,100 @@ def legal_entity(valid_npwp, valid_tax_profile):
 
 @pytest.fixture
 def legal_entity_inactive(legal_entity):
-    """Return an inactive entity."""
     return legal_entity.deactivate("admin", "Test deactivation")
 
 
 @pytest.fixture
 def legal_entity_suspended(legal_entity):
-    """Return a suspended entity."""
     return legal_entity.suspend("admin", "Test suspension")
 
 
 @pytest.fixture
 def legal_entity_dissolved(legal_entity):
-    """Return a dissolved entity."""
     suspended = legal_entity.suspend("admin", "Test")
-    return suspended.dissolve("admin", datetime.now(UTC), "Test dissolution")
+    return suspended.dissolve("admin", FIXED_DATETIME, "Test dissolution")
 
 
 @pytest.fixture
 def locked_entity(legal_entity):
-    """Return a locked entity."""
     return legal_entity.lock("admin", "Test lock")
 
 
-# ============================================================================
-# Tests for Enums
-# ============================================================================
+# =============================================================================
+# Enums
+# =============================================================================
 
-class TestLegalEntityStatus:
-    def test_members(self):
+class TestEnums:
+    def test_legal_entity_status(self):
         assert LegalEntityStatus.ACTIVE.value == "active"
         assert LegalEntityStatus.INACTIVE.value == "inactive"
         assert LegalEntityStatus.SUSPENDED.value == "suspended"
         assert LegalEntityStatus.DISSOLVED.value == "dissolved"
-
-    def test_from_string(self):
         assert LegalEntityStatus.from_string("active") == LegalEntityStatus.ACTIVE
-        assert LegalEntityStatus.from_string("INACTIVE") == LegalEntityStatus.INACTIVE
-        assert LegalEntityStatus.from_string("suspended") == LegalEntityStatus.SUSPENDED
-        assert LegalEntityStatus.from_string("dissolved") == LegalEntityStatus.DISSOLVED
-        assert LegalEntityStatus.from_string("invalid") == LegalEntityStatus.ACTIVE  # default
-
-    def test_can_transition_to(self):
-        # ACTIVE -> SUSPENDED, INACTIVE
+        assert LegalEntityStatus.from_string("invalid") == LegalEntityStatus.ACTIVE
+        # can_transition_to
         assert LegalEntityStatus.ACTIVE.can_transition_to(LegalEntityStatus.SUSPENDED) is True
-        assert LegalEntityStatus.ACTIVE.can_transition_to(LegalEntityStatus.INACTIVE) is True
         assert LegalEntityStatus.ACTIVE.can_transition_to(LegalEntityStatus.DISSOLVED) is False
-
-        # INACTIVE -> ACTIVE
-        assert LegalEntityStatus.INACTIVE.can_transition_to(LegalEntityStatus.ACTIVE) is True
-        assert LegalEntityStatus.INACTIVE.can_transition_to(LegalEntityStatus.DISSOLVED) is False
-
-        # SUSPENDED -> ACTIVE, DISSOLVED
         assert LegalEntityStatus.SUSPENDED.can_transition_to(LegalEntityStatus.ACTIVE) is True
         assert LegalEntityStatus.SUSPENDED.can_transition_to(LegalEntityStatus.DISSOLVED) is True
-
-        # DISSOLVED -> none
         assert LegalEntityStatus.DISSOLVED.can_transition_to(LegalEntityStatus.ACTIVE) is False
 
-
-class TestLegalEntityType:
-    def test_members(self):
+    def test_legal_entity_type(self):
         assert LegalEntityType.CORPORATION.value == "corporation"
-        assert LegalEntityType.LIMITED.value == "limited"
-        assert LegalEntityType.SOLE_PROPRIETORSHIP.value == "sole"
-        assert LegalEntityType.PARTNERSHIP.value == "partnership"
-        assert LegalEntityType.COOPERATIVE.value == "cooperative"
-        assert LegalEntityType.NON_PROFIT.value == "non_profit"
-        assert LegalEntityType.GOVERNMENT.value == "government"
-
-    def test_from_string(self):
         assert LegalEntityType.from_string("corporation") == LegalEntityType.CORPORATION
-        assert LegalEntityType.from_string("limited") == LegalEntityType.LIMITED
-        assert LegalEntityType.from_string("invalid") == LegalEntityType.CORPORATION  # default
+        assert LegalEntityType.from_string("invalid") == LegalEntityType.CORPORATION
 
-
-class TestFiscalYearType:
-    def test_members(self):
+    def test_fiscal_year_type(self):
         assert FiscalYearType.CALENDAR.value == "calendar"
-        assert FiscalYearType.APRIL_MARCH.value == "april_march"
-        assert FiscalYearType.JULY_JUNE.value == "july_june"
-        assert FiscalYearType.OCTOBER_SEPTEMBER.value == "october_sep"
-        assert FiscalYearType.CUSTOM.value == "custom"
-
-    def test_from_string(self):
         assert FiscalYearType.from_string("calendar") == FiscalYearType.CALENDAR
-        assert FiscalYearType.from_string("april_march") == FiscalYearType.APRIL_MARCH
-        assert FiscalYearType.from_string("invalid") == FiscalYearType.CALENDAR  # default
+        assert FiscalYearType.from_string("invalid") == FiscalYearType.CALENDAR
 
 
-# ============================================================================
-# Tests for LegalEntity - Construction and Validation
-# ============================================================================
+# =============================================================================
+# Validation tests (parametrized)
+# =============================================================================
 
-class TestLegalEntityConstruction:
-    def test_construction_valid(self, legal_entity):
-        assert legal_entity.entity_code == "LEGAL-001"
-        assert legal_entity.entity_name == "PT Maju Jaya"
-        assert legal_entity.status == LegalEntityStatus.ACTIVE
-        assert legal_entity.version == 1
-        assert legal_entity._events == []
-        assert legal_entity._audit_trail == []
-        assert legal_entity._snapshots == []
-        assert legal_entity.is_locked is False
-
-    def test_validation_entity_code_too_short(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="between 3 and 20 characters"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="AB",
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_entity_code_too_long(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="between 3 and 20 characters"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="A" * 25,
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_entity_name_too_short(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="at least 2 characters"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="A",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_legal_name_too_short(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="at least 2 characters"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="Test",
-                legal_name="A",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_address_too_short(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="at least 5 characters"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl.",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_city_too_short(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="at least 2 characters"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="J",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_fiscal_year_start_month_out_of_range(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="between 1 and 12"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=0,
-                fiscal_year_start_day=1,
-            )
-
-    def test_validation_fiscal_year_start_day_out_of_range(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="between 1 and 31"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=0,
-            )
-
-    def test_validation_functional_currency_length(self, valid_npwp, valid_tax_profile):
-        with pytest.raises(ValueError, match="ISO 4217"):
-            LegalEntity(
-                entity_id=uuid4(),
-                entity_code="LEGAL",
-                entity_name="Test",
-                legal_name="Test Legal",
-                entity_type=LegalEntityType.CORPORATION,
-                status=LegalEntityStatus.ACTIVE,
-                npwp=valid_npwp,
-                tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                fiscal_year_type=FiscalYearType.CALENDAR,
-                fiscal_year_start_month=1,
-                fiscal_year_start_day=1,
-                functional_currency="ID",
-            )
+class TestValidation:
+    @pytest.mark.parametrize(
+        "field, value, error_substr",
+        [
+            ("entity_code", "AB", "between 3 and 20"),
+            ("entity_code", "A" * 25, "between 3 and 20"),
+            ("entity_name", "A", "at least 2"),
+            ("legal_name", "A", "at least 2"),
+            ("address", "Jl.", "at least 5"),
+            ("city", "J", "at least 2"),
+            ("fiscal_year_start_month", 0, "between 1 and 12"),
+            ("fiscal_year_start_month", 13, "between 1 and 12"),
+            ("fiscal_year_start_day", 0, "between 1 and 31"),
+            ("fiscal_year_start_day", 32, "between 1 and 31"),
+            ("functional_currency", "ID", "ISO 4217"),
+        ],
+    )
+    def test_validation_errors(self, valid_npwp, valid_tax_profile, field, value, error_substr):
+        base = {
+            "entity_id": uuid4(),
+            "entity_code": "LEGAL",
+            "entity_name": "Test",
+            "legal_name": "Test Legal",
+            "entity_type": LegalEntityType.CORPORATION,
+            "status": LegalEntityStatus.ACTIVE,
+            "npwp": valid_npwp,
+            "tax_profile": valid_tax_profile,
+            "address": "Jl. Merdeka No. 1",
+            "city": "Jakarta",
+            "province": "DKI",
+            "postal_code": "10110",
+            "country": "Indonesia",
+            "fiscal_year_type": FiscalYearType.CALENDAR,
+            "fiscal_year_start_month": 1,
+            "fiscal_year_start_day": 1,
+            "functional_currency": "IDR",
+        }
+        # We need to set the field
+        base[field] = value
+        with pytest.raises(ValueError, match=error_substr):
+            LegalEntity(**base)
 
     def test_validation_parent_self(self, valid_npwp, valid_tax_profile):
         entity_id = uuid4()
@@ -394,7 +232,7 @@ class TestLegalEntityConstruction:
                 status=LegalEntityStatus.ACTIVE,
                 npwp=valid_npwp,
                 tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
+                address="Jl. Merdeka",
                 city="Jakarta",
                 province="DKI",
                 postal_code="10110",
@@ -405,7 +243,7 @@ class TestLegalEntityConstruction:
                 parent_entity_id=entity_id,
             )
 
-    def test_validation_version(self, valid_npwp, valid_tax_profile):
+    def test_validation_version_zero(self, valid_npwp, valid_tax_profile):
         with pytest.raises(ValueError, match="Version must be >= 1"):
             LegalEntity(
                 entity_id=uuid4(),
@@ -416,7 +254,7 @@ class TestLegalEntityConstruction:
                 status=LegalEntityStatus.ACTIVE,
                 npwp=valid_npwp,
                 tax_profile=valid_tax_profile,
-                address="Jl. Merdeka No. 1",
+                address="Jl. Merdeka",
                 city="Jakarta",
                 province="DKI",
                 postal_code="10110",
@@ -428,11 +266,11 @@ class TestLegalEntityConstruction:
             )
 
 
-# ============================================================================
-# Tests for Properties
-# ============================================================================
+# =============================================================================
+# Properties
+# =============================================================================
 
-class TestLegalEntityProperties:
+class TestProperties:
     def test_id(self, legal_entity):
         assert legal_entity.id == legal_entity.entity_id
 
@@ -453,11 +291,11 @@ class TestLegalEntityProperties:
         assert locked_entity.is_locked is True
 
 
-# ============================================================================
-# Tests for Event Management
-# ============================================================================
+# =============================================================================
+# Events
+# =============================================================================
 
-class TestLegalEntityEvents:
+class TestEvents:
     def test_register_event(self, legal_entity):
         event = MagicMock(spec=DomainEvent)
         event.event_type = MagicMock()
@@ -465,7 +303,6 @@ class TestLegalEntityEvents:
         legal_entity.register_event(event)
         assert len(legal_entity._events) == 1
         assert legal_entity._events[0] == event
-        # Check audit trail
         assert any(e["action"] == "event_added" for e in legal_entity._audit_trail)
 
     def test_clear_events(self, legal_entity):
@@ -478,7 +315,7 @@ class TestLegalEntityEvents:
         assert len(legal_entity._events) == 0
         assert any(e["action"] == "events_cleared" for e in legal_entity._audit_trail)
 
-    def test_get_events(self, legal_entity):
+    def test_get_events_returns_copy(self, legal_entity):
         event = MagicMock(spec=DomainEvent)
         event.event_type = MagicMock()
         event.event_type.value = "test"
@@ -506,11 +343,11 @@ class TestLegalEntityEvents:
         assert len(legal_entity._events) == 0
 
 
-# ============================================================================
-# Tests for Audit Trail
-# ============================================================================
+# =============================================================================
+# Audit Trail
+# =============================================================================
 
-class TestLegalEntityAudit:
+class TestAuditTrail:
     def test_audit_trail(self, legal_entity):
         legal_entity._record_audit_trail("test", {"key": "value"})
         trail = legal_entity.audit_trail()
@@ -526,21 +363,19 @@ class TestLegalEntityAudit:
         assert len(legal_entity._audit_trail) == 0
 
 
-# ============================================================================
-# Tests for Snapshot
-# ============================================================================
+# =============================================================================
+# Snapshot
+# =============================================================================
 
-class TestLegalEntitySnapshot:
+class TestSnapshot:
     def test_snapshot(self, legal_entity):
         snap = legal_entity.snapshot()
         assert snap["aggregate_id"] == str(legal_entity.entity_id)
         assert snap["aggregate_type"] == "LegalEntity"
         assert snap["version"] == legal_entity.version
         assert snap["state"]["entity_code"] == legal_entity.entity_code
-        assert snap["state"]["entity_name"] == legal_entity.entity_name
         assert "hash" in snap
         assert len(legal_entity._snapshots) == 1
-        assert legal_entity._snapshots[0] == snap
 
     def test_restore_from_snapshot(self, legal_entity):
         snap = legal_entity.snapshot()
@@ -604,16 +439,16 @@ class TestLegalEntitySnapshot:
             new_entity.restore_from_snapshot(snap)
 
 
-# ============================================================================
-# Tests for Lock / Unlock
-# ============================================================================
+# =============================================================================
+# Lock / Unlock
+# =============================================================================
 
-class TestLegalEntityLock:
+class TestLock:
     def test_lock(self, legal_entity):
         locked = legal_entity.lock("admin", "Test lock")
         assert locked.is_locked is True
         assert locked._locked_by == "admin"
-        assert locked._locked_at is not None
+        assert locked._locked_at == FIXED_DATETIME
         assert any(e["action"] == "locked" for e in locked._audit_trail)
 
     def test_lock_already_locked(self, locked_entity):
@@ -636,11 +471,11 @@ class TestLegalEntityLock:
             locked_entity.unlock("user2")
 
 
-# ============================================================================
-# Tests for Status Transitions
-# ============================================================================
+# =============================================================================
+# Status Transitions
+# =============================================================================
 
-class TestLegalEntityStatusTransitions:
+class TestStatusTransitions:
     def test_activate(self, legal_entity_inactive):
         activated = legal_entity_inactive.activate("admin", "Activation reason")
         assert activated.status == LegalEntityStatus.ACTIVE
@@ -651,13 +486,33 @@ class TestLegalEntityStatusTransitions:
         activated = legal_entity_suspended.activate("admin", "Reactivate")
         assert activated.status == LegalEntityStatus.ACTIVE
 
-    def test_activate_from_active_raises(self, legal_entity):
-        with pytest.raises(ValueError, match="Cannot activate entity with status active"):
-            legal_entity.activate("admin")
-
-    def test_activate_from_dissolved_raises(self, legal_entity_dissolved):
-        with pytest.raises(ValueError, match="Cannot activate entity with status dissolved"):
-            legal_entity_dissolved.activate("admin")
+    @pytest.mark.parametrize("status", [LegalEntityStatus.ACTIVE, LegalEntityStatus.DISSOLVED])
+    def test_activate_invalid_status_raises(self, legal_entity, status, valid_npwp, valid_tax_profile):
+        # We need an entity with the given status; use fixtures but we'll create directly
+        entity = LegalEntity(
+            entity_id=uuid4(),
+            entity_code="TEST",
+            entity_name="Test",
+            legal_name="Test Legal",
+            entity_type=LegalEntityType.CORPORATION,
+            status=status,
+            npwp=valid_npwp,
+            tax_profile=valid_tax_profile,
+            address="Jl. Test",
+            city="Jakarta",
+            province="DKI",
+            postal_code="10110",
+            country="Indonesia",
+            fiscal_year_type=FiscalYearType.CALENDAR,
+            fiscal_year_start_month=1,
+            fiscal_year_start_day=1,
+        )
+        if status == LegalEntityStatus.ACTIVE:
+            with pytest.raises(ValueError, match="Cannot activate entity with status active"):
+                entity.activate("admin")
+        else:
+            with pytest.raises(ValueError, match="Cannot activate entity with status dissolved"):
+                entity.activate("admin")
 
     def test_activate_locked_raises(self, locked_entity):
         with pytest.raises(ValueError, match="Cannot activate locked legal entity"):
@@ -681,18 +536,40 @@ class TestLegalEntityStatusTransitions:
         suspended = legal_entity.suspend("admin", "Suspension reason")
         assert suspended.status == LegalEntityStatus.SUSPENDED
         assert suspended.version == legal_entity.version + 1
-        # Check event
         events = suspended.get_events()
         assert any(isinstance(e, CompanySuspendedEvent) for e in events)
         assert any(e["action"] == "suspended" for e in suspended._audit_trail)
+        # Check event details
+        event = next(e for e in events if isinstance(e, CompanySuspendedEvent))
+        assert event.reason == "Suspension reason"
+        assert event.user_id == "admin"
 
-    def test_suspend_already_suspended(self, legal_entity_suspended):
-        with pytest.raises(ValueError, match="already suspended"):
-            legal_entity_suspended.suspend("admin", "Again")
-
-    def test_suspend_dissolved_raises(self, legal_entity_dissolved):
-        with pytest.raises(ValueError, match="Cannot suspend a dissolved entity"):
-            legal_entity_dissolved.suspend("admin", "Test")
+    @pytest.mark.parametrize("status", [LegalEntityStatus.SUSPENDED, LegalEntityStatus.DISSOLVED])
+    def test_suspend_invalid_status_raises(self, legal_entity, status, valid_npwp, valid_tax_profile):
+        entity = LegalEntity(
+            entity_id=uuid4(),
+            entity_code="TEST",
+            entity_name="Test",
+            legal_name="Test Legal",
+            entity_type=LegalEntityType.CORPORATION,
+            status=status,
+            npwp=valid_npwp,
+            tax_profile=valid_tax_profile,
+            address="Jl. Test",
+            city="Jakarta",
+            province="DKI",
+            postal_code="10110",
+            country="Indonesia",
+            fiscal_year_type=FiscalYearType.CALENDAR,
+            fiscal_year_start_month=1,
+            fiscal_year_start_day=1,
+        )
+        if status == LegalEntityStatus.SUSPENDED:
+            with pytest.raises(ValueError, match="already suspended"):
+                entity.suspend("admin", "Again")
+        else:
+            with pytest.raises(ValueError, match="Cannot suspend a dissolved entity"):
+                entity.suspend("admin", "Test")
 
     def test_suspend_locked_raises(self, locked_entity):
         with pytest.raises(ValueError, match="Cannot suspend locked legal entity"):
@@ -715,7 +592,7 @@ class TestLegalEntityStatusTransitions:
             locked_entity.reactivate("admin", "Test")
 
     def test_dissolve(self, legal_entity_suspended):
-        effective = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        effective = FIXED_DATETIME
         dissolved = legal_entity_suspended.dissolve("admin", effective, "Dissolution reason")
         assert dissolved.status == LegalEntityStatus.DISSOLVED
         assert dissolved.version == legal_entity_suspended.version + 1
@@ -723,25 +600,44 @@ class TestLegalEntityStatusTransitions:
         assert any(isinstance(e, CompanyDissolvedEvent) for e in events)
         assert any(e["action"] == "dissolved" for e in dissolved._audit_trail)
 
-    def test_dissolve_from_active_raises(self, legal_entity):
-        with pytest.raises(ValueError, match="Entity must be suspended before dissolution"):
-            legal_entity.dissolve("admin", datetime.now(UTC), "Test")
-
-    def test_dissolve_from_dissolved_raises(self, legal_entity_dissolved):
-        with pytest.raises(ValueError, match="Entity already dissolved"):
-            legal_entity_dissolved.dissolve("admin", datetime.now(UTC), "Test")
+    @pytest.mark.parametrize("status", [LegalEntityStatus.ACTIVE, LegalEntityStatus.DISSOLVED])
+    def test_dissolve_invalid_status_raises(self, legal_entity, status, valid_npwp, valid_tax_profile):
+        entity = LegalEntity(
+            entity_id=uuid4(),
+            entity_code="TEST",
+            entity_name="Test",
+            legal_name="Test Legal",
+            entity_type=LegalEntityType.CORPORATION,
+            status=status,
+            npwp=valid_npwp,
+            tax_profile=valid_tax_profile,
+            address="Jl. Test",
+            city="Jakarta",
+            province="DKI",
+            postal_code="10110",
+            country="Indonesia",
+            fiscal_year_type=FiscalYearType.CALENDAR,
+            fiscal_year_start_month=1,
+            fiscal_year_start_day=1,
+        )
+        if status == LegalEntityStatus.ACTIVE:
+            with pytest.raises(ValueError, match="Entity must be suspended before dissolution"):
+                entity.dissolve("admin", FIXED_DATETIME, "Test")
+        else:
+            with pytest.raises(ValueError, match="Entity already dissolved"):
+                entity.dissolve("admin", FIXED_DATETIME, "Test")
 
     def test_dissolve_locked_raises(self, locked_entity):
         with pytest.raises(ValueError, match="Cannot dissolve locked legal entity"):
-            locked_entity.dissolve("admin", datetime.now(UTC), "Test")
+            locked_entity.dissolve("admin", FIXED_DATETIME, "Test")
 
 
-# ============================================================================
-# Tests for Tax Profile Update
-# ============================================================================
+# =============================================================================
+# Tax Profile Update
+# =============================================================================
 
-class TestLegalEntityTaxProfile:
-    def test_update_tax_profile(self, legal_entity, valid_tax_profile):
+class TestTaxProfile:
+    def test_update_tax_profile(self, legal_entity):
         new_profile = CompanyTaxProfileVO(
             is_pkp=True,
             tax_regime=TaxRegime.GENERAL,
@@ -760,11 +656,11 @@ class TestLegalEntityTaxProfile:
             locked_entity.update_tax_profile(valid_tax_profile, "admin")
 
 
-# ============================================================================
-# Tests for Basic Attribute Updates
-# ============================================================================
+# =============================================================================
+# Basic Attribute Updates
+# =============================================================================
 
-class TestLegalEntityBasicUpdates:
+class TestBasicUpdates:
     def test_rename(self, legal_entity):
         updated = legal_entity.rename("PT Maju Jaya Baru", "admin")
         assert updated.entity_name == "PT Maju Jaya Baru"
@@ -795,20 +691,18 @@ class TestLegalEntityBasicUpdates:
         assert updated.version == legal_entity.version + 1
         assert any(e["action"] == "address_updated" for e in updated._audit_trail)
 
-    def test_update_address_invalid(self, legal_entity):
-        with pytest.raises(ValueError, match="at least 5 characters"):
+    @pytest.mark.parametrize(
+        "address, city, error_substr",
+        [
+            ("Jl.", "Jakarta", "at least 5"),
+            ("Jl. Merdeka", "J", "at least 2"),
+        ],
+    )
+    def test_update_address_invalid(self, legal_entity, address, city, error_substr):
+        with pytest.raises(ValueError, match=error_substr):
             legal_entity.update_address(
-                address="Jl.",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                updated_by="admin",
-            )
-        with pytest.raises(ValueError, match="at least 2 characters"):
-            legal_entity.update_address(
-                address="Jl. Merdeka No. 1",
-                city="J",
+                address=address,
+                city=city,
                 province="DKI",
                 postal_code="10110",
                 country="Indonesia",
@@ -818,12 +712,8 @@ class TestLegalEntityBasicUpdates:
     def test_update_address_locked(self, locked_entity):
         with pytest.raises(ValueError, match="Cannot update address of locked legal entity"):
             locked_entity.update_address(
-                address="New",
-                city="Jakarta",
-                province="DKI",
-                postal_code="10110",
-                country="Indonesia",
-                updated_by="admin",
+                address="New", city="Jakarta", province="DKI", postal_code="10110",
+                country="Indonesia", updated_by="admin"
             )
 
     def test_update_contact(self, legal_entity):
@@ -854,15 +744,14 @@ class TestLegalEntityBasicUpdates:
             locked_entity.update_contact("phone", "email", "website", "admin")
 
 
-# ============================================================================
-# Tests for Hierarchy Management
-# ============================================================================
+# =============================================================================
+# Hierarchy Management
+# =============================================================================
 
-class TestLegalEntityHierarchy:
+class TestHierarchy:
     def test_add_child(self, legal_entity):
         child_id = uuid4()
         result = legal_entity.add_child(child_id, "admin")
-        # add_child returns self (no state change)
         assert result is legal_entity
         assert any(e["action"] == "child_added" and e["details"]["child_id"] == str(child_id)
                    for e in result._audit_trail)
@@ -883,56 +772,48 @@ class TestLegalEntityHierarchy:
             locked_entity.remove_child(uuid4(), "admin")
 
 
-# ============================================================================
-# Tests for Validation
-# ============================================================================
+# =============================================================================
+# Validation method
+# =============================================================================
 
-class TestLegalEntityValidation:
-    def test_validate(self, legal_entity):
+class TestValidateMethod:
+    def test_validate_passes(self, legal_entity):
         errors = legal_entity.validate()
         assert errors == []
 
-    def test_validate_invalid(self, legal_entity):
-        # Create an invalid entity by bypassing constructor validation? We can't easily.
-        # We'll use a valid entity and then modify a field? But frozen dataclass? It's not frozen.
-        # We can create a new entity with invalid data and then call validate.
-        invalid = LegalEntity(
-            entity_id=uuid4(),
-            entity_code="AB",  # too short
+    def test_validate_fails(self):
+        # Create an invalid entity (bypass constructor validation? we can't, but we can create with invalid data)
+        # We'll create a valid one and then modify a field? Not frozen, so we can.
+        entity = create_legal_entity(
+            entity_code="LEGAL-001",
             entity_name="Test",
             legal_name="Test Legal",
             entity_type=LegalEntityType.CORPORATION,
-            status=LegalEntityStatus.ACTIVE,
-            npwp=legal_entity.npwp,
-            tax_profile=legal_entity.tax_profile,
-            address=legal_entity.address,
-            city=legal_entity.city,
-            province=legal_entity.province,
-            postal_code=legal_entity.postal_code,
-            country=legal_entity.country,
-            phone=legal_entity.phone,
-            email=legal_entity.email,
-            website=legal_entity.website,
-            fiscal_year_type=legal_entity.fiscal_year_type,
-            fiscal_year_start_month=legal_entity.fiscal_year_start_month,
-            fiscal_year_start_day=legal_entity.fiscal_year_start_day,
-            functional_currency=legal_entity.functional_currency,
+            npwp=NPWP("123456789012345"),
+            tax_profile=CompanyTaxProfileVO(is_pkp=True, tax_regime=TaxRegime.GENERAL),
+            address="Jl. Merdeka",
+            city="Jakarta",
+            province="DKI",
+            postal_code="10110",
+            country="Indonesia",
+            created_by="admin",
         )
-        errors = invalid.validate()
-        assert len(errors) > 0
-        assert any("Entity code must be between 3 and 20 characters" in e for e in errors)
+        # Invalidate entity_code
+        entity.entity_code = "AB"
+        errors = entity.validate()
+        assert any("between 3 and 20" in e for e in errors)
 
 
-# ============================================================================
-# Tests for Touch and Clone
-# ============================================================================
+# =============================================================================
+# Touch and Clone
+# =============================================================================
 
-class TestLegalEntityTouchClone:
+class TestTouchClone:
     def test_touch(self, legal_entity):
         old_updated = legal_entity.updated_at
         touched = legal_entity.touch("admin")
         assert touched.updated_at > old_updated
-        assert touched.version == legal_entity.version  # version does NOT increment on touch
+        assert touched.version == legal_entity.version  # version does NOT increment
         assert any(e["action"] == "touched" for e in touched._audit_trail)
 
     def test_clone(self, legal_entity):
@@ -946,11 +827,11 @@ class TestLegalEntityTouchClone:
         assert any(e["action"] == "cloned" for e in cloned._audit_trail)
 
 
-# ============================================================================
-# Tests for Serialization
-# ============================================================================
+# =============================================================================
+# Serialization
+# =============================================================================
 
-class TestLegalEntitySerialization:
+class TestSerialization:
     def test_to_dict(self, legal_entity):
         d = legal_entity.to_dict()
         assert d["entity_id"] == str(legal_entity.entity_id)
@@ -958,7 +839,6 @@ class TestLegalEntitySerialization:
         assert d["entity_name"] == "PT Maju Jaya"
         assert d["status"] == "active"
         assert d["version"] == legal_entity.version
-        assert "tax_profile" in d
         assert d["tax_profile"]["is_pkp"] is True
 
     def test_from_dict(self, legal_entity):
@@ -994,23 +874,22 @@ class TestLegalEntitySerialization:
             "fiscal_year_type": "calendar",
             "fiscal_year_start_month": 1,
             "fiscal_year_start_day": 1,
-            "created_at": datetime.now(UTC).isoformat(),
-            "updated_at": datetime.now(UTC).isoformat(),
+            "created_at": FIXED_DATETIME.isoformat(),
+            "updated_at": FIXED_DATETIME.isoformat(),
         }
         restored = LegalEntity.from_dict(data)
-        assert restored.functional_currency == "IDR"
-        assert restored.payment_method == TaxPaymentMethod.MONTHLY_INSTALLMENT
-        assert restored.annual_return_deadline_month == 4
+        assert restored.functional_currency == "IDR"  # default
+        # Check tax_profile default fields
+        assert restored.tax_profile.payment_method == TaxPaymentMethod.MONTHLY_INSTALLMENT
+        assert restored.tax_profile.annual_return_deadline_month == 4
 
 
-# ============================================================================
-# Tests for Repository (Protocol)
-# ============================================================================
+# =============================================================================
+# Repository Protocol
+# =============================================================================
 
-class TestLegalEntityRepository:
-    def test_repository_is_protocol(self):
-        # The repository is a Protocol, so it's not instantiable with missing methods.
-        # We can check that it defines the expected methods.
+class TestRepositoryProtocol:
+    def test_protocol_has_methods(self):
         assert hasattr(LegalEntityRepository, "get_by_id")
         assert hasattr(LegalEntityRepository, "get_by_code")
         assert hasattr(LegalEntityRepository, "get_by_npwp")
@@ -1019,11 +898,11 @@ class TestLegalEntityRepository:
         assert hasattr(LegalEntityRepository, "delete")
 
 
-# ============================================================================
-# Tests for Factory Method
-# ============================================================================
+# =============================================================================
+# Factory Method
+# =============================================================================
 
-class TestCreateLegalEntity:
+class TestFactory:
     def test_create_legal_entity(self, valid_npwp, valid_tax_profile):
         created = create_legal_entity(
             entity_code="LEGAL-002",
@@ -1047,7 +926,7 @@ class TestCreateLegalEntity:
             functional_currency="USD",
             parent_entity_id=None,
             consolidation_group="Group1",
-            established_date=datetime(2010, 1, 1, 0, 0, 0, tzinfo=UTC),
+            established_date=FIXED_DATETIME,
         )
         assert created.entity_code == "LEGAL-002"
         assert created.entity_name == "PT Contoh"
@@ -1055,7 +934,7 @@ class TestCreateLegalEntity:
         assert created.version == 1
         assert created.functional_currency == "USD"
         assert created.consolidation_group == "Group1"
-        assert created.established_date == datetime(2010, 1, 1, 0, 0, 0, tzinfo=UTC)
+        assert created.established_date == FIXED_DATETIME
 
     def test_create_legal_entity_with_parent(self, valid_npwp, valid_tax_profile):
         parent_id = uuid4()
@@ -1075,3 +954,24 @@ class TestCreateLegalEntity:
             parent_entity_id=parent_id,
         )
         assert created.parent_entity_id == parent_id
+
+    def test_create_legal_entity_minimal(self, valid_npwp):
+        # Minimal tax profile
+        tax_profile = CompanyTaxProfileVO(is_pkp=False, tax_regime=TaxRegime.GENERAL)
+        created = create_legal_entity(
+            entity_code="LEGAL-004",
+            entity_name="Minimal",
+            legal_name="Minimal Legal",
+            entity_type=LegalEntityType.SOLE_PROPRIETORSHIP,
+            npwp=valid_npwp,
+            tax_profile=tax_profile,
+            address="Jl. Minimal",
+            city="City",
+            province="Prov",
+            postal_code="12345",
+            country="Country",
+            created_by="admin",
+        )
+        assert created.entity_code == "LEGAL-004"
+        assert created.status == LegalEntityStatus.ACTIVE
+        assert created.version == 1

@@ -1,14 +1,14 @@
 {
-  "timestamp": "2026-07-19T09:00:37.717646+00:00",
+  "timestamp": "2026-07-22T05:26:38.499667+00:00",
   "version": "7.6.1",
   "summary": {
-    "total_duration_seconds": 230.697,
-    "passed": 16,
-    "failed": 2,
+    "total_duration_seconds": 31.387,
+    "passed": 18,
+    "failed": 0,
     "warnings": 0,
     "total_tests": 18,
-    "score_percent": 88.9,
-    "test_env_used": false,
+    "score_percent": 100.0,
+    "test_env_used": true,
     "rca_enabled": true
   },
   "results": [
@@ -19,16 +19,18 @@
       "duration_seconds": 0.0,
       "severity": "WARNING",
       "details": {
-        "environment": "not_set",
-        "debug_enabled": true,
-        "is_production": false,
-        "indicators": [],
-        "test_env_flag": false,
-        "python_version": "3.12.7",
+        "environment": "production",
+        "debug_enabled": false,
+        "is_production": true,
+        "indicators": [
+          "ENVIRONMENT=production"
+        ],
+        "test_env_flag": true,
+        "python_version": "3.11.9",
         "platform": "win32"
       },
       "error": null,
-      "suggested_fix": "Nonaktifkan DEBUG di production",
+      "suggested_fix": "Hapus --test-env jika benar-benar production",
       "evidence": [],
       "rca_analysis": null,
       "remediation_steps": []
@@ -37,7 +39,7 @@
       "name": "DI Container Integrity",
       "category": "ARCHITECTURE",
       "passed": true,
-      "duration_seconds": 0.037,
+      "duration_seconds": 0.018,
       "severity": "WARNING",
       "details": {
         "container_type": "factory",
@@ -59,14 +61,14 @@
       "name": "FastAPI App Structure",
       "category": "WEB",
       "passed": true,
-      "duration_seconds": 99.023,
+      "duration_seconds": 7.658,
       "severity": "WARNING",
       "details": {
         "app_source": "from helper get_app_instance()",
         "route_count": 783,
         "unique_routes": 650,
         "duplicate_routes": 101,
-        "middleware_count": 2,
+        "middleware_count": 3,
         "has_cors_middleware": true,
         "title": "Sovereign ERP Accounting Engine",
         "version": "1.0.0"
@@ -81,7 +83,7 @@
       "name": "Database Connectivity & Transaction",
       "category": "INFRASTRUCTURE",
       "passed": true,
-      "duration_seconds": 0.304,
+      "duration_seconds": 0.303,
       "severity": "INFO",
       "details": {
         "connection": "success",
@@ -102,28 +104,26 @@
     {
       "name": "Security Configuration Audit",
       "category": "SECURITY",
-      "passed": false,
-      "duration_seconds": 0.004,
-      "severity": "ERROR",
+      "passed": true,
+      "duration_seconds": 0.002,
+      "severity": "WARNING",
       "details": {
-        "issues_count": 1,
+        "issues_count": 0,
         "warnings_count": 3,
-        "issues": [
-          "DEBUG mode aktif"
-        ],
+        "issues": [],
         "warnings": [
-          "Weak secrets: EMAIL_PASSWORD (length 12), ERP_BACKUP_PASSWORD (length 13), TELEGRAM_BOT_TOKEN (length 14)",
+          "Weak secrets: DB_PASSWORD (length 11), GITLAB_TOKEN (length 10), MINIO_ACCESS_KEY (length 10)",
           "HTTPS tidak diaktifkan di environment (risiko MITM)",
           "Tidak ada middleware security headers"
         ],
-        "secrets_checked": 14,
+        "secrets_checked": 20,
         "https_enabled": false,
         "allowed_hosts_set": true,
         "rate_limit_found": true,
-        "test_env": false
+        "test_env": true
       },
-      "error": "DEBUG mode aktif",
-      "suggested_fix": "Nonaktifkan DEBUG dan perbaiki konfigurasi keamanan",
+      "error": null,
+      "suggested_fix": "Periksa secret key, tambahkan HTTPS, rate limit, dan security headers",
       "evidence": [],
       "rca_analysis": null,
       "remediation_steps": []
@@ -153,11 +153,11 @@
       "name": "Resource Leak Detection",
       "category": "PERFORMANCE",
       "passed": true,
-      "duration_seconds": 2.513,
+      "duration_seconds": 0.371,
       "severity": "INFO",
       "details": {
-        "start_memory_mb": 270.65,
-        "end_memory_mb": 270.65,
+        "start_memory_mb": 366.53,
+        "end_memory_mb": 366.53,
         "memory_diff_mb": 0.0,
         "start_threads": 1,
         "end_threads": 1,
@@ -174,7 +174,7 @@
       "name": "API Health Check (Real Call)",
       "category": "API",
       "passed": true,
-      "duration_seconds": 2.385,
+      "duration_seconds": 0.433,
       "severity": "INFO",
       "details": {
         "endpoints_tested": [
@@ -197,9 +197,9 @@
     {
       "name": "Configuration Validation",
       "category": "CONFIG",
-      "passed": false,
+      "passed": true,
       "duration_seconds": 0.0,
-      "severity": "ERROR",
+      "severity": "WARNING",
       "details": {
         "required_vars_defined": [
           "DATABASE_URL",
@@ -212,17 +212,15 @@
           "ALLOWED_HOSTS",
           "ENVIRONMENT"
         ],
-        "missing_required": [
-          "ENVIRONMENT"
-        ],
+        "missing_required": [],
         "missing_optional": [
           "CACHE_URL",
           "BROKER_URL"
         ],
-        "test_env": false
+        "test_env": true
       },
-      "error": "Variabel environment wajib hilang: ENVIRONMENT",
-      "suggested_fix": "Set variabel tersebut di .env atau environment",
+      "error": null,
+      "suggested_fix": "Set jika diperlukan untuk fitur tertentu",
       "evidence": [],
       "rca_analysis": null,
       "remediation_steps": []
@@ -231,23 +229,23 @@
       "name": "Domain Models",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 1.652,
+      "duration_seconds": 8.62,
       "severity": "INFO",
       "details": {
         "domain_folder_exists": true,
         "model_files_count": 251,
         "total_class_definitions": 1379,
         "sample_classes": [
-          "EmployeeSalaryStructureVO",
-          "BankReconciliationEngine",
-          "InvalidUserStatusTransitionError",
-          "COANotActiveError",
-          "InvalidQueryDepthError",
-          "BPJSEmploymentProgram",
-          "PurchaseInvoiceEntity",
-          "SettingCategory",
-          "MatchingMethod",
-          "CashBookRepository"
+          "PettyCashAdjustedEvent",
+          "RoutingOperation",
+          "GoodsReceiptInvariants",
+          "AssetGroupUpdatedEvent",
+          "IntangibleAssetAcquiredEvent",
+          "IntentStatus",
+          "BillingMilestone",
+          "InvalidSupplierStatusTransitionError",
+          "TimeEntryInvariants",
+          "APInvoiceLine"
         ]
       },
       "error": null,
@@ -260,7 +258,7 @@
       "name": "Repository Pattern",
       "category": "DATA",
       "passed": true,
-      "duration_seconds": 65.941,
+      "duration_seconds": 10.955,
       "severity": "INFO",
       "details": {
         "repository_modules_found": [],
@@ -307,14 +305,13 @@
       "name": "Authentication / Authorization",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 13.266,
+      "duration_seconds": 0.736,
       "severity": "INFO",
       "details": {
         "auth_indicators": [
-          "JWT_SECRET ada",
           "File auth: api_oauth2_client.py, fastapi_auth_jwt_middleware.py, tax_authority_coretax_adapter_impl.py"
         ],
-        "jwt_secret_set": true,
+        "jwt_secret_set": false,
         "has_auth_files": true
       },
       "error": null,
@@ -327,7 +324,7 @@
       "name": "Master Data Models (ERP)",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 1.722,
+      "duration_seconds": 0.083,
       "severity": "INFO",
       "details": {
         "core_models_defined": [
@@ -373,7 +370,7 @@
       "name": "OpenAPI Documentation & Duplicate Operation ID",
       "category": "API",
       "passed": true,
-      "duration_seconds": 30.606,
+      "duration_seconds": 1.04,
       "severity": "INFO",
       "details": {
         "openapi_json": "ok",
@@ -393,7 +390,7 @@
       "name": "Message Broker (Publish/Consume/Ack)",
       "category": "INTEGRATION",
       "passed": true,
-      "duration_seconds": 0.033,
+      "duration_seconds": 0.053,
       "severity": "INFO",
       "details": {
         "type": "redis",
@@ -413,7 +410,7 @@
       "name": "Scheduler (Job Execution)",
       "category": "INTEGRATION",
       "passed": true,
-      "duration_seconds": 12.212,
+      "duration_seconds": 1.032,
       "severity": "INFO",
       "details": {
         "scheduler_indicators": [
@@ -435,7 +432,7 @@
       "name": "End-to-End Accounting Transaction",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 0.983,
+      "duration_seconds": 0.074,
       "severity": "INFO",
       "details": {
         "accounting_files_found": 141,
@@ -454,7 +451,7 @@
     }
   ],
   "baseline": {
-    "start_memory_mb": 56.3,
+    "start_memory_mb": 68.99,
     "start_thread_count": 1
   }
 }

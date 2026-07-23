@@ -4,14 +4,14 @@ ui/pages/legal_entities_page.py
 Halaman modul "Entitas Legal" (Master Data).
 
 Endpoint backend : /legal-entities/legal-entities/
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -33,20 +33,27 @@ COLUMNS = [
 # Field form tambah/ubah Entitas Legal
 # ---------------------------------------------------------------------------
 FORM_FIELDS = [
-    FieldSpec("legal_name", "Nama Legal", required=True),
+    FieldSpec("legal_name", "Nama Legal (min. 3 karakter)", required=True),
     FieldSpec("trade_name", "Nama Dagang"),
-    FieldSpec("entity_type", "Tipe Entitas", FieldType.SELECT, required=True, choices=("PT", "CV", "UD", "Firma", "Koperasi", "Yayasan",)),
-    FieldSpec("registration_number", "No. Registrasi"),
-    FieldSpec("npwp", "NPWP"),
-    FieldSpec("nppp", "NPPP"),
+    FieldSpec("entity_type", "Tipe Entitas", FieldType.SELECT, required=True, choices=("corporation", "branch", "representative_office", "partnership", "sole_proprietorship", "cooperative", "foundation", "consolidation_group",), help_text="corporation=PT, partnership=CV/Firma, sole_proprietorship=UD, cooperative=Koperasi, foundation=Yayasan"),
+    FieldSpec("registration_number", "No. Registrasi (NIB)"),
+    FieldSpec("npwp", "NPWP (harus 15 digit angka)", help_text="15 digit angka tanpa titik/strip"),
+    FieldSpec("nppp", "NPPP (untuk PKP)"),
     FieldSpec("address", "Alamat", FieldType.TEXTAREA),
     FieldSpec("city", "Kota"),
     FieldSpec("postal_code", "Kode Pos"),
     FieldSpec("province", "Provinsi"),
-    FieldSpec("country", "Negara", default="Indonesia"),
+    FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID"),
     FieldSpec("phone", "Telepon"),
     FieldSpec("email", "Email"),
     FieldSpec("website", "Website"),
+    FieldSpec("fiscal_year_start", "Bulan Awal Tahun Fiskal (1-12)", FieldType.NUMBER, default=1),
+    FieldSpec("fiscal_year_end", "Bulan Akhir Tahun Fiskal (1-12)", FieldType.NUMBER, default=12),
+    FieldSpec("base_currency", "Mata Uang Dasar (3 huruf)", default="IDR"),
+    FieldSpec("functional_currency", "Mata Uang Fungsional (3 huruf)", default="IDR"),
+    FieldSpec("is_taxable", "PKP (Pengusaha Kena Pajak)", FieldType.BOOL, default=True),
+    FieldSpec("is_withholding_agent", "Pemotong Pajak", FieldType.BOOL, default=True),
+    FieldSpec("parent_company_id", "Perusahaan Induk (UUID, opsional)", FieldType.UUID),
 ]
 
 # ---------------------------------------------------------------------------
@@ -69,6 +76,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=True,
     search_param="search",
+    edit_http_method="PUT",
 )
 
 

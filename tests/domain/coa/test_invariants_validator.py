@@ -69,8 +69,9 @@ from domain.coa.invariants_validator import (
     validate_account_name,
 )
 
+
 # ============================================================================
-# Reset shared ClassVar state (AccountEntity._audit_trail etc.)
+# Reset shared ClassVar state
 # ============================================================================
 
 
@@ -139,154 +140,131 @@ def make_account(legal_entity_id, **overrides):
 
 
 # ============================================================================
-# Code format & uniqueness
+# Code format & uniqueness (merged duplicates via parametrize)
 # ============================================================================
 
 
 class TestValidateAccountCodeFormat:
-    def test_valid_code(self, validator):
-        assert bool(validator.validate_account_code_format("1000")) is True
-
-    def test_empty_code_fails(self, validator):
-        assert bool(validator.validate_account_code_format("")) is False
-
-    def test_non_string_fails(self, validator):
-        assert bool(validator.validate_account_code_format(None)) is False
-
-    def test_too_long_fails(self, validator):
-        assert bool(validator.validate_account_code_format("1" * 21)) is False
-
-    def test_invalid_characters_fail(self, validator):
-        assert bool(validator.validate_account_code_format("1000!")) is False
-
-    def test_leading_separator_fails(self, validator):
-        assert bool(validator.validate_account_code_format(".1000")) is False
-
-    def test_trailing_separator_fails(self, validator):
-        assert bool(validator.validate_account_code_format("1000.")) is False
-
-    def test_dots_and_dashes_allowed(self, validator):
-        assert bool(validator.validate_account_code_format("1.10-01")) is True
+    @pytest.mark.parametrize("code,expected_valid", [
+        ("1000", True),
+        ("1.10-01", True),
+        ("", False),
+        (None, False),
+        ("1" * 21, False),
+        ("1000!", False),
+        (".1000", False),
+        ("1000.", False),
+    ])
+    def test_code_format(self, validator, code, expected_valid):
+        result = validator.validate_account_code_format(code)
+        assert bool(result) is expected_valid
 
 
 class TestValidateUniqueAccountCode:
-    def test_unique_passes(self, validator):
-        assert bool(validator.validate_unique_account_code("2000", {"1000"})) is True
-
-    def test_duplicate_fails(self, validator):
-        assert bool(validator.validate_unique_account_code("1000", {"1000"})) is False
+    @pytest.mark.parametrize("code,existing,expected_valid", [
+        ("2000", {"1000"}, True),
+        ("1000", {"1000"}, False),
+    ])
+    def test_uniqueness(self, validator, code, existing, expected_valid):
+        result = validator.validate_unique_account_code(code, existing)
+        assert bool(result) is expected_valid
 
 
 # ============================================================================
-# Name validation
+# Name validation (merged duplicates)
 # ============================================================================
 
 
 class TestValidateAccountName:
-    def test_valid_name(self, validator):
-        assert bool(validator.validate_account_name("Cash")) is True
-
-    def test_empty_fails(self, validator):
-        assert bool(validator.validate_account_name("")) is False
-
-    def test_too_short_fails(self, validator):
-        assert bool(validator.validate_account_name("X")) is False
-
-    def test_too_long_fails(self, validator):
-        assert bool(validator.validate_account_name("A" * 201)) is False
-
-    def test_exactly_200_chars_passes(self, validator):
-        assert bool(validator.validate_account_name("A" * 200)) is True
+    @pytest.mark.parametrize("name,expected_valid", [
+        ("Cash", True),
+        ("A" * 200, True),
+        ("", False),
+        ("X", False),  # too short
+        ("A" * 201, False),  # too long
+    ])
+    def test_name_validation(self, validator, name, expected_valid):
+        result = validator.validate_account_name(name)
+        assert bool(result) is expected_valid
 
 
 # ============================================================================
-# Parent-child validation
+# Parent-child validation (merged duplicates)
 # ============================================================================
 
 
 class TestValidateParentExists:
-    def test_none_parent_is_valid(self, validator):
-        assert bool(validator.validate_parent_exists(None, set())) is True
-
-    def test_existing_parent_is_valid(self, validator):
+    @pytest.mark.parametrize("parent_id,existing_ids,expected_valid", [
+        (None, set(), True),
+        (uuid4(), {uuid4()}, True),  # but we need same ID for both; can't use uuid4() inside param
+    ])
+    def test_parent_exists(self, validator, legal_entity_id):
         parent_id = uuid4()
+        assert bool(validator.validate_parent_exists(None, set())) is True
         assert bool(validator.validate_parent_exists(parent_id, {parent_id})) is True
-
-    def test_missing_parent_is_invalid(self, validator):
         assert bool(validator.validate_parent_exists(uuid4(), set())) is False
 
 
 class TestValidateParentNotSelf:
-    def test_different_ids_valid(self, validator):
-        assert bool(validator.validate_parent_not_self(uuid4(), uuid4())) is True
-
-    def test_none_parent_valid(self, validator):
-        assert bool(validator.validate_parent_not_self(uuid4(), None)) is True
-
-    def test_self_parent_invalid(self, validator):
+    def test_parent_not_self(self, validator):
         account_id = uuid4()
+        other = uuid4()
+        assert bool(validator.validate_parent_not_self(account_id, other)) is True
+        assert bool(validator.validate_parent_not_self(account_id, None)) is True
         assert bool(validator.validate_parent_not_self(account_id, account_id)) is False
 
 
 class TestValidateParentTypeCompatibility:
-    def test_asset_under_asset_valid(self, validator):
-        assert bool(validator.validate_parent_type_compatibility(AccountType.ASSET, AccountType.ASSET)) is True
-
-    def test_asset_under_liability_invalid(self, validator):
-        assert bool(validator.validate_parent_type_compatibility(AccountType.ASSET, AccountType.LIABILITY)) is False
-
-    def test_contra_asset_under_asset_valid(self, validator):
-        assert bool(
-            validator.validate_parent_type_compatibility(AccountType.CONTRA_ASSET, AccountType.ASSET)
-        ) is True
-
-    def test_contra_revenue_is_unmapped(self, validator):
-        """CONTRA_REVENUE / CONTRA_EXPENSE have no entry in ALLOWED_PARENT_TYPES,
-        so they are always reported as an unknown child type."""
-        result = validator.validate_parent_type_compatibility(AccountType.CONTRA_REVENUE, AccountType.REVENUE)
-        assert bool(result) is False
-        assert "Unknown child account type" in result.message
-
-    def test_contra_expense_is_unmapped(self, validator):
-        result = validator.validate_parent_type_compatibility(AccountType.CONTRA_EXPENSE, AccountType.EXPENSE)
-        assert bool(result) is False
-        assert "Unknown child account type" in result.message
+    @pytest.mark.parametrize("child_type,parent_type,expected_valid", [
+        (AccountType.ASSET, AccountType.ASSET, True),
+        (AccountType.ASSET, AccountType.LIABILITY, False),
+        (AccountType.CONTRA_ASSET, AccountType.ASSET, True),
+        (AccountType.LIABILITY, AccountType.LIABILITY, True),
+        (AccountType.CONTRA_LIABILITY, AccountType.LIABILITY, True),
+        (AccountType.EQUITY, AccountType.EQUITY, True),
+        (AccountType.CONTRA_EQUITY, AccountType.EQUITY, True),
+        (AccountType.REVENUE, AccountType.REVENUE, True),
+        (AccountType.EXPENSE, AccountType.EXPENSE, True),
+        # Unmapped types (CONTRA_REVENUE, CONTRA_EXPENSE) always fail
+        (AccountType.CONTRA_REVENUE, AccountType.REVENUE, False),
+        (AccountType.CONTRA_EXPENSE, AccountType.EXPENSE, False),
+    ])
+    def test_parent_type_compatibility(self, validator, child_type, parent_type, expected_valid):
+        result = validator.validate_parent_type_compatibility(child_type, parent_type)
+        if not expected_valid:
+            assert bool(result) is False
+            # Check specific messages for unmapped types
+            if child_type in (AccountType.CONTRA_REVENUE, AccountType.CONTRA_EXPENSE):
+                assert "Unknown child account type" in result.message
+        else:
+            assert bool(result) is True
 
 
 class TestValidateNoCycle:
-    def test_none_new_parent_is_valid(self, validator):
-        assert bool(validator.validate_no_cycle(uuid4(), None, lambda x: None)) is True
-
-    def test_no_cycle_is_valid(self, validator):
+    def test_no_cycle(self, validator):
         account_id = uuid4()
         new_parent_id = uuid4()
         grandparent_id = uuid4()
         parent_map = {new_parent_id: grandparent_id, grandparent_id: None}
+        # no cycle
         assert bool(validator.validate_no_cycle(account_id, new_parent_id, parent_map.get)) is True
-
-    def test_direct_cycle_detected(self, validator):
-        account_id = uuid4()
-        parent_map = {account_id: None}
-        assert bool(validator.validate_no_cycle(account_id, account_id, parent_map.get)) is False
-
-    def test_indirect_cycle_detected(self, validator):
-        account_id = uuid4()
-        new_parent_id = uuid4()
-        parent_map = {new_parent_id: account_id, account_id: None}
-        assert bool(validator.validate_no_cycle(account_id, new_parent_id, parent_map.get)) is False
+        # direct cycle
+        parent_map_direct = {account_id: None}
+        assert bool(validator.validate_no_cycle(account_id, account_id, parent_map_direct.get)) is False
+        # indirect cycle
+        parent_map_indirect = {new_parent_id: account_id, account_id: None}
+        assert bool(validator.validate_no_cycle(account_id, new_parent_id, parent_map_indirect.get)) is False
 
 
 class TestValidateMaxDepth:
-    def test_none_parent_is_valid(self, validator):
-        assert bool(validator.validate_max_depth(None, lambda x: 0)) is True
-
-    def test_within_max_depth_is_valid(self, validator):
+    def test_max_depth(self, validator):
         parent_id = uuid4()
+        # within max
         assert bool(validator.validate_max_depth(parent_id, lambda x: 5)) is True
-
-    def test_exceeding_max_depth_is_invalid(self, validator):
-        parent_id = uuid4()
+        # at max (10) should fail because 10+1 > 10
         assert bool(validator.validate_max_depth(parent_id, lambda x: 10)) is False
+        # None parent always valid
+        assert bool(validator.validate_max_depth(None, lambda x: 0)) is True
 
 
 # ============================================================================
@@ -295,80 +273,75 @@ class TestValidateMaxDepth:
 
 
 class TestValidateCanDeactivate:
-    def test_inactive_account_cannot_be_deactivated_again(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id)  # DRAFT, is_active False
-        result = validator.validate_can_deactivate(account, children=[])
+    def test_can_deactivate(self, validator, legal_entity_id):
+        from domain.coa.account_entity import AccountStatus
+
+        # already inactive
+        inactive = make_account(legal_entity_id)
+        result = validator.validate_can_deactivate(inactive, children=[])
         assert bool(result) is False
         assert "already inactive" in result.message
 
-    def test_active_account_with_no_active_children_can_deactivate(self, validator, legal_entity_id):
-        from domain.coa.account_entity import AccountStatus
-
-        account = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
-        result = validator.validate_can_deactivate(account, children=[])
+        # active, no active children, no transactions -> ok
+        active = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
+        result = validator.validate_can_deactivate(active, children=[])
         assert bool(result) is True
 
-    def test_account_with_active_children_cannot_deactivate(self, validator, legal_entity_id):
-        from domain.coa.account_entity import AccountStatus
-
-        account = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
+        # active with active children -> fail
         active_child = make_account(legal_entity_id, code=AccountCodeVO("1001"), status=AccountStatus.ACTIVE)
-        result = validator.validate_can_deactivate(account, children=[active_child])
+        result = validator.validate_can_deactivate(active, children=[active_child])
         assert bool(result) is False
         assert "active child account" in result.message
 
-    def test_account_with_transactions_cannot_deactivate(self, validator, legal_entity_id):
-        from domain.coa.account_entity import AccountStatus
-
-        account = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
-        result = validator.validate_can_deactivate(account, children=[], has_transactions=True)
+        # active with transactions -> fail
+        result = validator.validate_can_deactivate(active, children=[], has_transactions=True)
         assert bool(result) is False
 
 
 class TestValidateCanReactivate:
-    def test_active_account_cannot_reactivate(self, validator, legal_entity_id):
+    def test_can_reactivate(self, validator, legal_entity_id):
         from domain.coa.account_entity import AccountStatus
 
-        account = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
-        result = validator.validate_can_reactivate(account)
+        # already active
+        active = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
+        result = validator.validate_can_reactivate(active)
         assert bool(result) is False
         assert "already active" in result.message
 
-    def test_inactive_account_with_no_parent_can_reactivate(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id)
-        result = validator.validate_can_reactivate(account)
+        # inactive, no parent -> ok
+        inactive = make_account(legal_entity_id)
+        result = validator.validate_can_reactivate(inactive)
         assert bool(result) is True
 
-    def test_inactive_account_with_inactive_parent_cannot_reactivate(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id, parent_id=uuid4())
-        result = validator.validate_can_reactivate(account, parent_active=False)
+        # inactive with inactive parent -> fail
+        inactive_with_parent = make_account(legal_entity_id, parent_id=uuid4())
+        result = validator.validate_can_reactivate(inactive_with_parent, parent_active=False)
         assert bool(result) is False
         assert "parent account is inactive" in result.message
 
 
 class TestValidateCanDelete:
-    def test_account_with_children_cannot_delete(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id)
-        child = make_account(legal_entity_id, code=AccountCodeVO("1001"))
-        result = validator.validate_can_delete(account, children=[child])
-        assert bool(result) is False
-
-    def test_account_with_transactions_cannot_delete(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id)
-        result = validator.validate_can_delete(account, children=[], has_transactions=True)
-        assert bool(result) is False
-
-    def test_active_account_cannot_delete(self, validator, legal_entity_id):
+    def test_can_delete(self, validator, legal_entity_id):
         from domain.coa.account_entity import AccountStatus
 
-        account = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
-        result = validator.validate_can_delete(account, children=[])
+        inactive = make_account(legal_entity_id)  # DRAFT -> inactive
+        # with children -> fail
+        child = make_account(legal_entity_id, code=AccountCodeVO("1001"))
+        result = validator.validate_can_delete(inactive, children=[child])
+        assert bool(result) is False
+
+        # with transactions -> fail
+        result = validator.validate_can_delete(inactive, children=[], has_transactions=True)
+        assert bool(result) is False
+
+        # active -> fail
+        active = make_account(legal_entity_id, status=AccountStatus.ACTIVE)
+        result = validator.validate_can_delete(active, children=[])
         assert bool(result) is False
         assert "Deactivate before deletion" in result.message
 
-    def test_inactive_account_with_no_children_or_transactions_can_delete(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id)  # DRAFT -> is_active False
-        result = validator.validate_can_delete(account, children=[])
+        # inactive, no children, no transactions -> ok
+        result = validator.validate_can_delete(inactive, children=[])
         assert bool(result) is True
 
 
@@ -378,65 +351,47 @@ class TestValidateCanDelete:
 
 
 class TestValidateOpeningBalanceSign:
-    def test_debit_account_nonnegative_balance_valid_with_string(self, validator):
-        result = validator.validate_opening_balance_sign(Decimal("100"), "debit")
-        assert bool(result) is True
+    def test_with_string_normal_balance(self, validator):
+        # These are the intended checks (using literal strings)
+        assert bool(validator.validate_opening_balance_sign(Decimal("100"), "debit")) is True
+        assert bool(validator.validate_opening_balance_sign(Decimal("-1"), "debit")) is False
+        assert bool(validator.validate_opening_balance_sign(Decimal("-100"), "credit")) is True
+        assert bool(validator.validate_opening_balance_sign(Decimal("100"), "credit")) is False
 
-    def test_debit_account_negative_balance_invalid_with_string(self, validator):
-        result = validator.validate_opening_balance_sign(Decimal("-1"), "debit")
-        assert bool(result) is False
-
-    def test_credit_account_nonpositive_balance_valid_with_string(self, validator):
-        result = validator.validate_opening_balance_sign(Decimal("-100"), "credit")
-        assert bool(result) is True
-
-    def test_credit_account_positive_balance_invalid_with_string(self, validator):
-        result = validator.validate_opening_balance_sign(Decimal("100"), "credit")
-        assert bool(result) is False
-
-    def test_debit_enum_with_positive_balance_incorrectly_fails(self, validator):
-        """BUG-COA-VALIDATOR-001: passing NormalBalance.DEBIT (an enum, as
-        every real caller does) instead of the literal string "debit"
-        makes the function always take the credit branch, wrongly
-        rejecting an entirely normal debit-side positive balance."""
+    def test_with_enum_normal_balance_bug(self, validator):
+        """BUG-COA-VALIDATOR-001: passing NormalBalance.DEBIT enum causes
+        the function to incorrectly treat the account as credit."""
         result = validator.validate_opening_balance_sign(Decimal("100"), NormalBalance.DEBIT)
         assert bool(result) is False
         assert "credit account cannot be positive" in result.message
 
-    def test_credit_enum_still_correctly_rejects_positive_balance(self, validator):
+        # Passing NormalBalance.CREDIT works correctly (still rejects positive)
         result = validator.validate_opening_balance_sign(Decimal("100"), NormalBalance.CREDIT)
         assert bool(result) is False
 
 
 class TestValidateOpeningBalancePrecision:
-    def test_zero_decimal_currency_accepts_whole_number(self, validator):
-        result = validator.validate_opening_balance_precision(Decimal("500"), "IDR")
-        assert bool(result) is True
+    def test_precision_checks(self, validator):
+        # IDR (0 decimals) accepts whole numbers
+        assert bool(validator.validate_opening_balance_precision(Decimal("500"), "IDR")) is True
 
-    def test_zero_decimal_currency_rejects_quantized_value_even_if_logically_whole(self, validator):
-        """BUG-COA-VALIDATOR-002: the check inspects the Decimal's stored
-        exponent, not its logical value. AccountEntity always quantizes
-        opening_balance to 2 decimals, so a real IDR account's balance
-        (e.g. Decimal("500.00")) fails here even though 500.00 == 500."""
+        # IDR rejects quantized values (bug)
         result = validator.validate_opening_balance_precision(Decimal("500.00"), "IDR")
         assert bool(result) is False
         assert "Maximum allowed: 0" in result.message
 
-    def test_two_decimal_currency_accepts_two_decimals(self, validator):
-        result = validator.validate_opening_balance_precision(Decimal("100.50"), "USD")
-        assert bool(result) is True
+        # USD (2 decimals) accepts two decimals
+        assert bool(validator.validate_opening_balance_precision(Decimal("100.50"), "USD")) is True
 
-    def test_two_decimal_currency_rejects_three_decimals(self, validator):
+        # USD rejects three decimals
         result = validator.validate_opening_balance_precision(Decimal("100.505"), "USD")
         assert bool(result) is False
 
-    def test_unknown_currency_defaults_to_two_decimals(self, validator):
-        result = validator.validate_opening_balance_precision(Decimal("100.50"), "XYZ")
-        assert bool(result) is True
+        # Unknown currency defaults to 2 decimals
+        assert bool(validator.validate_opening_balance_precision(Decimal("100.50"), "XYZ")) is True
 
-    def test_currency_code_is_case_insensitive(self, validator):
-        result = validator.validate_opening_balance_precision(Decimal("100"), "idr")
-        assert bool(result) is True
+        # Case insensitive
+        assert bool(validator.validate_opening_balance_precision(Decimal("100"), "idr")) is True
 
 
 # ============================================================================
@@ -445,22 +400,21 @@ class TestValidateOpeningBalancePrecision:
 
 
 class TestValidateControlAccount:
-    def test_control_account_without_children_still_succeeds(self, validator, legal_entity_id):
+    def test_control_account(self, validator, legal_entity_id):
         account = make_account(legal_entity_id, is_control_account=True)
-        result = validator.validate_control_account(account, has_children=False)
-        assert bool(result) is True  # only logs a debug warning, never fails
+        # only logs warning, never fails
+        assert bool(validator.validate_control_account(account, has_children=False)) is True
+        assert bool(validator.validate_control_account(account, has_children=True)) is True
 
-    def test_regular_account_always_succeeds(self, validator, legal_entity_id):
+    def test_regular_account(self, validator, legal_entity_id):
         account = make_account(legal_entity_id)
         assert bool(validator.validate_control_account(account, has_children=True)) is True
 
 
 class TestValidateSameLegalEntity:
-    def test_matching_entities_valid(self, validator):
+    def test_same_legal_entity(self, validator):
         le = uuid4()
         assert bool(validator.validate_same_legal_entity(le, le)) is True
-
-    def test_mismatched_entities_invalid(self, validator):
         assert bool(validator.validate_same_legal_entity(uuid4(), uuid4())) is False
 
 
@@ -471,10 +425,7 @@ class TestValidateSameLegalEntity:
 
 class TestValidateNewAccount:
     def test_valid_debit_account_still_fails_due_to_documented_bugs(self, validator, legal_entity_id):
-        """Demonstrates BUG-COA-VALIDATOR-001 and -002 together: a
-        completely ordinary IDR Cash/ASSET/DEBIT account with a positive
-        balance fails validate_new_account() with two unrelated-looking
-        errors, even though nothing is actually wrong with the account."""
+        """Demonstrates BUG-COA-VALIDATOR-001 and -002 together."""
         account = make_account(legal_entity_id, opening_balance=Decimal("500"), currency_code="IDR")
         results = validator.validate_new_account(
             account, existing_codes=set(), existing_accounts={}, coa_legal_entity_id=legal_entity_id,
@@ -545,9 +496,10 @@ class TestValidateExistingAccountUpdate:
             legal_entity_id, opening_balance=Decimal("0"), parent_id=new_parent_id, id=old.id,
         )
         parent_map = {new_parent_id: old.id, old.id: None}
+        existing_accounts = {new_parent_id: make_account(legal_entity_id, code=AccountCodeVO("9000"))}
         results = validator.validate_existing_account_update(
             old_account=old, new_account=new, existing_codes=set(),
-            existing_accounts={new_parent_id: make_account(legal_entity_id, code=AccountCodeVO("9000"))},
+            existing_accounts=existing_accounts,
             get_parent_func=parent_map.get, get_depth_func=lambda x: 0,
             coa_legal_entity_id=legal_entity_id,
         )
@@ -575,7 +527,11 @@ class TestBulkHelpers:
         assert errors == ["bad 1", "bad 2"]
 
     def test_raise_if_invalid_does_not_raise_when_all_valid(self):
-        COAInvariantsValidator.raise_if_invalid([ValidationResult.success()])  # no raise
+        # Should not raise; we can simply call and verify no exception
+        try:
+            COAInvariantsValidator.raise_if_invalid([ValidationResult.success()])
+        except Exception:
+            pytest.fail("raise_if_invalid raised unexpectedly")
 
     def test_raise_if_invalid_raises_with_joined_messages(self):
         with pytest.raises(InvariantViolationError, match="bad 1; bad 2"):
@@ -590,39 +546,35 @@ class TestBulkHelpers:
 
 
 class TestValidateAccountTypeConsistency:
-    def test_asset_expects_debit(self, validator):
-        assert bool(validator.validate_account_type_consistency(AccountType.ASSET, "debit")) is True
-
-    def test_asset_with_credit_fails(self, validator):
-        result = validator.validate_account_type_consistency(AccountType.ASSET, "credit")
-        assert bool(result) is False
-
-    def test_liability_expects_credit(self, validator):
-        assert bool(validator.validate_account_type_consistency(AccountType.LIABILITY, "credit")) is True
-
-    def test_unmapped_type_always_succeeds(self, validator):
-        result = validator.validate_account_type_consistency(AccountType.CONTRA_REVENUE, "anything")
-        assert bool(result) is True
+    @pytest.mark.parametrize("account_type,normal_balance,expected_valid", [
+        (AccountType.ASSET, "debit", True),
+        (AccountType.ASSET, "credit", False),
+        (AccountType.LIABILITY, "credit", True),
+        (AccountType.LIABILITY, "debit", False),
+        (AccountType.CONTRA_REVENUE, "anything", True),  # unmapped => always succeeds
+    ])
+    def test_type_consistency(self, validator, account_type, normal_balance, expected_valid):
+        result = validator.validate_account_type_consistency(account_type, normal_balance)
+        assert bool(result) is expected_valid
 
 
 class TestValidateCurrencySupported:
-    def test_supported_currency(self, validator):
-        assert bool(validator.validate_currency_supported("IDR")) is True
-
-    def test_unsupported_currency(self, validator):
-        assert bool(validator.validate_currency_supported("XXX")) is False
-
-    def test_case_insensitive(self, validator):
-        assert bool(validator.validate_currency_supported("usd")) is True
+    @pytest.mark.parametrize("currency,expected_valid", [
+        ("IDR", True),
+        ("USD", True),
+        ("XXX", False),
+        ("idr", True),
+        ("usd", True),
+    ])
+    def test_currency_supported(self, validator, currency, expected_valid):
+        result = validator.validate_currency_supported(currency)
+        assert bool(result) is expected_valid
 
 
 class TestValidateLevelConsistency:
-    def test_matching_level(self, validator, legal_entity_id):
+    def test_level_consistency(self, validator, legal_entity_id):
         account = make_account(legal_entity_id, level=2)
         assert bool(validator.validate_level_consistency(account, expected_level=2)) is True
-
-    def test_mismatched_level(self, validator, legal_entity_id):
-        account = make_account(legal_entity_id, level=2)
         result = validator.validate_level_consistency(account, expected_level=3)
         assert bool(result) is False
         assert "stored=2, expected=3" in result.message
@@ -634,14 +586,19 @@ class TestValidateLevelConsistency:
 
 
 class TestConvenienceFunctions:
-    def test_validate_account_code_true(self):
-        assert validate_account_code("1000") is True
+    @pytest.mark.parametrize("code,expected", [
+        ("1000", True),
+        ("!!!", False),
+        ("", False),
+    ])
+    def test_validate_account_code(self, code, expected):
+        assert validate_account_code(code) is expected
 
-    def test_validate_account_code_false(self):
-        assert validate_account_code("!!!") is False
-
-    def test_validate_account_name_true(self):
-        assert validate_account_name("Cash") is True
-
-    def test_validate_account_name_false(self):
-        assert validate_account_name("X") is False
+    @pytest.mark.parametrize("name,expected", [
+        ("Cash", True),
+        ("X", False),
+        ("", False),
+        ("A" * 200, True),
+    ])
+    def test_validate_account_name(self, name, expected):
+        assert validate_account_name(name) is expected

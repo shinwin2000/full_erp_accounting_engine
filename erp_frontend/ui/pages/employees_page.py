@@ -4,14 +4,14 @@ ui/pages/employees_page.py
 Halaman modul "Karyawan" (Master Data).
 
 Endpoint backend : /employees/employees
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -36,9 +36,16 @@ FORM_FIELDS = [
     FieldSpec("employee_code", "Kode Karyawan", required=True),
     FieldSpec("full_name", "Nama Lengkap", required=True),
     FieldSpec("npwp", "NPWP"),
-    FieldSpec("nik", "NIK", required=True),
-    FieldSpec("dependents", "Jumlah Tanggungan", FieldType.NUMBER, default=0),
-    FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, required=True),
+    FieldSpec("nik", "NIK (KTP)"),
+    FieldSpec("birth_date", "Tanggal Lahir", FieldType.DATE),
+    FieldSpec("join_date", "Tanggal Bergabung", FieldType.DATE),
+    FieldSpec("marital_status", "Status Pernikahan", FieldType.SELECT, choices=("single", "married", "divorced", "widowed",), default="single"),
+    FieldSpec("dependents", "Jumlah Tanggungan (PTKP)", FieldType.NUMBER, default=0),
+    FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, default=0),
+    FieldSpec("position_allowance", "Tunjangan Jabatan", FieldType.DECIMAL, default=0),
+    FieldSpec("transport_allowance", "Tunjangan Transport", FieldType.DECIMAL, default=0),
+    FieldSpec("meal_allowance", "Tunjangan Makan", FieldType.DECIMAL, default=0),
+    FieldSpec("overtime_rate", "Tarif Lembur/Jam", FieldType.DECIMAL, default=0),
 ]
 
 # ---------------------------------------------------------------------------

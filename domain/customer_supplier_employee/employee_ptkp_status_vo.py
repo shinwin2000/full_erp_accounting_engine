@@ -568,6 +568,13 @@ def get_max_dependents_for_marital(marital: MaritalStatus) -> int:
 
 
 # ============================================================================
+# Alias for backward compatibility (used by tests)
+# ============================================================================
+
+# PTKPStatus is an alias for PTKPCategory to satisfy imports in tests
+PTKPStatus = PTKPCategory
+
+# ============================================================================
 # Exports
 # ============================================================================
 
@@ -578,6 +585,7 @@ __all__ = [
     "MaritalStatus",
     "PTKPCategory",
     "PTKPError",
+    "PTKPStatus",  
     "calculate_ptkp_deduction",
     "get_max_dependents_for_marital",
     "get_ptkp_category_from_code",

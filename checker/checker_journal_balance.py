@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,9 +80,17 @@ except ImportError:
     RED = GREEN = YELLOW = CYAN = BOLD = RESET = ""
 
 # ─── Konfigurasi ──────────────────────────────────────────────────────────────
+# FIX v3.2 (bug performa #2, ditemukan lewat benchmark nyata):
+# ".venv" saja tidak cukup — banyak virtualenv dibuat tanpa titik di depan
+# (mis. "venv", "env" hasil `python -m venv venv`). Kalau nama itu tidak ada
+# di SKIP_DIRS, seluruh isi virtualenv (termasuk ribuan file .py dari
+# dependency di site-packages) ikut ter-scan dan ter-parse AST-nya — inilah
+# penyebab utama angka "Scanning 15671 Python files..." yang jauh lebih besar
+# dari jumlah file source project yang sebenarnya.
 SKIP_DIRS = {
     "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    ".git", ".venv", "node_modules", ".tox", ".cache", "dist", "build",
+    ".git", ".venv", "venv", "env", ".env", "site-packages",
+    "node_modules", ".tox", ".cache", "dist", "build", "vendor",
     "docs", "deployment", "scripts", "monitoring",
     "migrations", "tests", "helm", "reports", "event_gateway",
     "dto_objects", "commands_cqrs", "mappers", "checker",
@@ -427,15 +436,31 @@ def run_checker(verbose: bool = False, json_out: str | None = None, use_rca: boo
     print()
 
     # Scan semua file Python di seluruh proyek (kecuali skip dirs)
+    #
+    # FIX v3.2 (bug performa UTAMA yang tersisa):
+    # Versi sebelumnya pakai `ROOT.rglob("*.py")` lalu memfilter SKIP_DIRS
+    # SETELAH file ditemukan. Masalahnya, rglob() tidak tahu soal SKIP_DIRS —
+    # dia tetap merekursif MASUK ke .venv/venv/.git/node_modules/dst dll,
+    # mengenumerasi setiap file .py di dalamnya (bisa puluhan ribu file dari
+    # dependency pihak ketiga), baru filter membuang hasilnya satu per satu.
+    # Waktu I/O untuk menjelajahi folder itu sudah terbuang meski akhirnya
+    # tidak dipakai.
+    #
+    # Sekarang pakai os.walk(topdown=True) dan PANGKAS (prune) folder yang
+    # ada di SKIP_DIRS langsung dari `dirnames` sebelum os.walk turun ke
+    # dalamnya. Ini membuat proses tidak pernah menjelajahi isi .venv, .git,
+    # node_modules, dsb sama sekali — bukan sekadar membuang hasilnya belakangan.
     all_files = []
-    for p in ROOT.rglob("*.py"):
-        if any(part in SKIP_DIRS for part in p.parts):
-            continue
-        if p.name.startswith("__") and p.name != "__init__.py":
-            continue
-        if p.name in ("checker_journal_balance.py", "rca.py", "rca_project_rules.py", "test_rca.py"):
-            continue
-        all_files.append(p)
+    for dirpath, dirnames, filenames in os.walk(ROOT, topdown=True):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for fname in filenames:
+            if not fname.endswith(".py"):
+                continue
+            if fname.startswith("__") and fname != "__init__.py":
+                continue
+            if fname in ("checker_journal_balance.py", "rca.py", "rca_project_rules.py", "test_rca.py"):
+                continue
+            all_files.append(Path(dirpath) / fname)
 
     print(f"🔍 Scanning {len(all_files)} Python files...")
 

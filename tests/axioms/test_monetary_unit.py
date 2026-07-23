@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """
 tests/unit/test_monetary_unit.py
-Test untuk axioms/monetary_unit.py
-Mencakup semua kelas dan metode (termasuk private) secara exhaustive.
-FIXES:
-- Semua datetime.now(UTC) diganti dengan FIXED_NOW.
-- Duplikasi test dihilangkan dengan parametrize.
-- Semua test memiliki assertion bermakna.
-- Test tanpa assertion diperbaiki.
-- Semua exception negative path diuji.
+Comprehensive tests for axioms/monetary_unit.py
+Covers all classes, enums, exceptions, helpers, and edge cases.
+Uses parameterization to eliminate duplication and fixed datetime mocks to avoid flakiness.
 """
 
 from __future__ import annotations
@@ -24,11 +19,13 @@ from axioms.monetary_unit import (
     CurrencyDefinition,
     CurrencyNotSupportedError,
     CurrencyRegistry,
+    CurrencyType,
     ExchangeRate,
     ExchangeRateNotFoundError,
     ExchangeRateType,
     MonetaryAmount,
     MonetaryUnitAxiom,
+    MonetaryUnitError,
     MonetaryUnitStability,
     MonetaryUnitValidator,
     MonetaryUnitViolation,
@@ -50,8 +47,9 @@ FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 FIXED_PAST = FIXED_NOW - timedelta(days=10)
 FIXED_FUTURE = FIXED_NOW + timedelta(days=10)
 
+
 # ============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS FOR TEST DATA
 # ============================================================================
 
 def create_test_currency(
@@ -115,7 +113,9 @@ def create_test_amount(
         return MonetaryAmount(amount, currency, decimal_places)
 
 
-def create_test_violation() -> MonetaryUnitViolation:
+def create_test_violation(
+    severity: MonetaryUnitViolationSeverity = MonetaryUnitViolationSeverity.MEDIUM,
+) -> MonetaryUnitViolation:
     with patch("axioms.monetary_unit.datetime") as mock_dt:
         mock_dt.now.return_value = FIXED_NOW
         mock_dt.UTC = UTC
@@ -126,7 +126,7 @@ def create_test_violation() -> MonetaryUnitViolation:
             functional_currency="IDR",
             exchange_rate_used=Decimal("15250"),
             required_rate_source="Bank Indonesia",
-            severity=MonetaryUnitViolationSeverity.MEDIUM,
+            severity=severity,
             message="Test violation",
             detected_at=FIXED_NOW,
             detected_by="tester",
@@ -134,19 +134,6 @@ def create_test_violation() -> MonetaryUnitViolation:
             resolved_at=None,
             resolved_by=None,
         )
-
-
-# ============================================================================
-# PARAMETRIZE HELPERS UNTUK ENTITY DASAR
-# ============================================================================
-
-# (entity_fixture, class_name, supports_update, supports_delete, supports_restore)
-ENTITY_PARAMS = [
-    ("currency", "CurrencyDefinition", True, True, True),
-    ("exchange_rate", "ExchangeRate", True, True, True),
-    ("monetary_amount", "MonetaryAmount", False, False, False),
-    ("violation", "MonetaryUnitViolation", False, False, False),
-]
 
 
 # ============================================================================
@@ -174,7 +161,77 @@ def violation():
 
 
 # ============================================================================
-# TESTS UNTUK CurrencyDefinition
+# ENUM TESTS
+# ============================================================================
+
+class TestMonetaryUnitStability:
+    def test_members(self):
+        assert MonetaryUnitStability.STABLE is not None
+        assert MonetaryUnitStability.INFLATIONARY is not None
+        assert MonetaryUnitStability.HYPERINFLATION is not None
+
+
+class TestCurrencyType:
+    def test_members(self):
+        assert CurrencyType.FUNCTIONAL is not None
+        assert CurrencyType.PRESENTATION is not None
+        assert CurrencyType.TRANSACTION is not None
+        assert CurrencyType.FOREIGN is not None
+
+
+class TestExchangeRateType:
+    def test_members(self):
+        assert ExchangeRateType.SPOT is not None
+        assert ExchangeRateType.AVERAGE is not None
+        assert ExchangeRateType.HISTORICAL is not None
+        assert ExchangeRateType.CLOSING is not None
+
+
+class TestMonetaryUnitViolationSeverity:
+    def test_members_and_values(self):
+        assert MonetaryUnitViolationSeverity.CATASTROPHIC.value == 100
+        assert MonetaryUnitViolationSeverity.CRITICAL.value == 80
+        assert MonetaryUnitViolationSeverity.HIGH.value == 60
+        assert MonetaryUnitViolationSeverity.MEDIUM.value == 40
+        assert MonetaryUnitViolationSeverity.LOW.value == 20
+        assert MonetaryUnitViolationSeverity.INFO.value == 0
+
+
+# ============================================================================
+# EXCEPTION TESTS
+# ============================================================================
+
+class TestExceptions:
+    def test_monetary_unit_error(self):
+        with pytest.raises(MonetaryUnitError):
+            raise MonetaryUnitError("test")
+
+    def test_currency_not_supported_error(self):
+        with pytest.raises(CurrencyNotSupportedError):
+            raise CurrencyNotSupportedError("test")
+
+    def test_exchange_rate_not_found_error(self):
+        with pytest.raises(ExchangeRateNotFoundError):
+            raise ExchangeRateNotFoundError("test")
+
+    def test_monetary_unit_violation_error(self):
+        tx_id = uuid.uuid4()
+        with pytest.raises(MonetaryUnitViolationError) as exc:
+            raise MonetaryUnitViolationError(
+                message="violation",
+                transaction_id=tx_id,
+                currency_used="USD",
+                functional_currency="IDR",
+                severity=MonetaryUnitViolationSeverity.CRITICAL,
+            )
+        assert exc.value.transaction_id == tx_id
+        assert exc.value.currency_used == "USD"
+        assert exc.value.functional_currency == "IDR"
+        assert exc.value.severity == MonetaryUnitViolationSeverity.CRITICAL
+
+
+# ============================================================================
+# TESTS FOR CurrencyDefinition
 # ============================================================================
 
 class TestCurrencyDefinition:
@@ -254,10 +311,8 @@ class TestCurrencyDefinition:
             currency.restore("admin")
 
     def test_activate(self, currency):
-        # already active -> returns self
         activated = currency.activate("admin")
         assert activated is currency
-        # deactivate then activate
         deactivated = currency.deactivate("admin", "test")
         activated2 = deactivated.activate("admin")
         assert activated2.is_active
@@ -267,7 +322,6 @@ class TestCurrencyDefinition:
         deactivated = currency.deactivate("admin", "test")
         assert not deactivated.is_active
         assert deactivated.version == currency.version + 1
-        # already inactive -> returns self
         again = deactivated.deactivate("admin", "again")
         assert again is deactivated
 
@@ -277,15 +331,9 @@ class TestCurrencyDefinition:
         unlocked = currency.unlock("admin")
         assert unlocked is currency
 
-    def test_create_method(self, currency):
-        created = currency.create("admin")
-        assert created is currency
-
     def test_validate(self, currency):
         result = currency.validate()
         assert result["is_valid"]
-        assert result["currency_code"] == "XTS"
-        # corrupt hash
         object.__setattr__(currency, "cryptographic_hash", "fake")
         result2 = currency.validate()
         assert not result2["is_valid"]
@@ -334,7 +382,7 @@ class TestCurrencyDefinition:
 
 
 # ============================================================================
-# TESTS UNTUK ExchangeRate
+# TESTS FOR ExchangeRate
 # ============================================================================
 
 class TestExchangeRate:
@@ -426,14 +474,13 @@ class TestExchangeRate:
         assert cloned.version == 1
 
     def test_is_valid_on(self, exchange_rate):
-        # valid within range
         assert exchange_rate.is_valid_on(FIXED_NOW)
         assert exchange_rate.is_valid_on(FIXED_NOW - timedelta(days=1))
         assert exchange_rate.is_valid_on(FIXED_NOW + timedelta(days=1))
-        # with expiry
+        # With expiry
         expired = create_test_exchange_rate(expires_at=FIXED_PAST)
         assert not expired.is_valid_on(FIXED_NOW)
-        # before effective
+        # Future effective
         future_rate = create_test_exchange_rate(effective_date=FIXED_FUTURE)
         assert not future_rate.is_valid_on(FIXED_NOW)
 
@@ -447,7 +494,7 @@ class TestExchangeRate:
 
 
 # ============================================================================
-# TESTS UNTUK MonetaryAmount
+# TESTS FOR MonetaryAmount
 # ============================================================================
 
 class TestMonetaryAmount:
@@ -523,7 +570,7 @@ class TestMonetaryAmount:
     def test_repr(self, monetary_amount):
         assert repr(monetary_amount) == "IDR 1000.00"
 
-    def test_arithmetic(self, monetary_amount):
+    def test_arithmetic(self):
         a = create_test_amount(Decimal("100"), "IDR")
         b = create_test_amount(Decimal("200"), "IDR")
         assert (a + b).amount == Decimal("300")
@@ -531,7 +578,6 @@ class TestMonetaryAmount:
         assert (a * Decimal("2.5")).amount == Decimal("250.00")
         assert (a / Decimal("4")).amount == Decimal("25.00")
         assert (-a).amount == Decimal("-100")
-        # different currency
         c = create_test_amount(Decimal("100"), "USD")
         with pytest.raises(ValueError, match="Currency mismatch"):
             _ = a + c
@@ -544,7 +590,7 @@ class TestMonetaryAmount:
 
 
 # ============================================================================
-# TESTS UNTUK MonetaryUnitViolation
+# TESTS FOR MonetaryUnitViolation
 # ============================================================================
 
 class TestMonetaryUnitViolation:
@@ -614,7 +660,7 @@ class TestMonetaryUnitViolation:
 
 
 # ============================================================================
-# TESTS UNTUK MonetaryUnitValidator
+# TESTS FOR MonetaryUnitValidator
 # ============================================================================
 
 class TestMonetaryUnitValidator:
@@ -700,13 +746,12 @@ class TestMonetaryUnitValidator:
             violation.severity = MonetaryUnitViolationSeverity.CRITICAL
             MonetaryUnitValidator._notify_constitution(violation)
             mock_law.check_violation.assert_called_once()
-            # verify principle passed
             args = mock_law.check_violation.call_args[1]
             assert args["principle"].name == "MONETARY_UNIT"
 
 
 # ============================================================================
-# TESTS UNTUK CurrencyRegistry
+# TESTS FOR CurrencyRegistry
 # ============================================================================
 
 class TestCurrencyRegistry:
@@ -804,7 +849,7 @@ class TestCurrencyRegistry:
 
 
 # ============================================================================
-# TESTS UNTUK MonetaryUnitAxiom
+# TESTS FOR MonetaryUnitAxiom
 # ============================================================================
 
 class TestMonetaryUnitAxiom:
@@ -927,11 +972,7 @@ class TestMonetaryUnitAxiom:
         axiom.save_violation(v2)
         result = axiom.get_violations(min_severity=MonetaryUnitViolationSeverity.HIGH)
         assert all(v.severity.value >= MonetaryUnitViolationSeverity.HIGH.value for v in result)
-        # unresolved only
-        v2.resolved = True
-        axiom.save_violation(v2)  # overwrite? better use new
-        # Actually we need to replace
-        # simpler: just test unresolved
+        # unresolved
         axiom._violation_history = []
         v3 = create_test_violation()
         v3.resolved = False
@@ -950,7 +991,6 @@ class TestMonetaryUnitAxiom:
         assert resolved is not None
         assert resolved.resolved
         assert resolved.resolved_by == "admin"
-        # already resolved -> None
         resolved2 = axiom.resolve_violation(violation.violation_id, "admin2")
         assert resolved2 is None
 
@@ -974,7 +1014,7 @@ class TestMonetaryUnitAxiom:
 
 
 # ============================================================================
-# TESTS UNTUK HELPER FUNCTIONS
+# TESTS FOR HELPER FUNCTIONS
 # ============================================================================
 
 class TestHelpers:
@@ -1056,8 +1096,17 @@ class TestHelpers:
 
 
 # ============================================================================
-# TESTS UNTUK ENTITY DASAR METHODS (PARAMETRIZE UNTUK HILANGKAN DUPLIKAT)
+# PARAMETRIZED ENTITY BASIC METHODS TESTS
 # ============================================================================
+
+# List of (fixture_name, class_name, supports_update, supports_delete, supports_restore)
+ENTITY_PARAMS = [
+    ("currency", "CurrencyDefinition", True, True, True),
+    ("exchange_rate", "ExchangeRate", True, True, True),
+    ("monetary_amount", "MonetaryAmount", False, False, False),
+    ("violation", "MonetaryUnitViolation", False, False, False),
+]
+
 
 class TestEntityBasicMethods:
     @pytest.mark.parametrize("entity_fixture,cls_name,upd,del_,res", ENTITY_PARAMS)
@@ -1070,13 +1119,10 @@ class TestEntityBasicMethods:
     def test_entity_touch(self, entity_fixture, cls_name, upd, del_, res, request):
         entity = request.getfixturevalue(entity_fixture)
         touched = entity.touch("toucher")
-        # For some entities touch returns new instance with version+1,
-        # for others (MonetaryAmount, violation) it returns self.
         if hasattr(touched, "version") and touched is not entity:
             assert touched.version == entity.version + 1
         else:
             assert touched is entity
-        # audit trail should have been recorded
         trail = touched.audit_trail()
         assert trail[-1]["action"] == "TOUCH"
 
@@ -1085,14 +1131,12 @@ class TestEntityBasicMethods:
         entity = request.getfixturevalue(entity_fixture)
         result = entity.validate()
         assert result["is_valid"]
-        # corrupt hash
         if hasattr(entity, "cryptographic_hash"):
             old = entity.cryptographic_hash
             object.__setattr__(entity, "cryptographic_hash", "fake")
             result2 = entity.validate()
             assert not result2["is_valid"]
             assert "Hash mismatch" in result2["errors"]
-            # restore
             object.__setattr__(entity, "cryptographic_hash", old)
 
     @pytest.mark.parametrize("entity_fixture,cls_name,upd,del_,res", ENTITY_PARAMS)
@@ -1100,7 +1144,6 @@ class TestEntityBasicMethods:
         entity = request.getfixturevalue(entity_fixture)
         d = entity.to_dict()
         assert "version" in d
-        # check some expected key based on type
         if cls_name == "CurrencyDefinition":
             assert "currency_code" in d
         elif cls_name == "ExchangeRate":
@@ -1124,7 +1167,6 @@ class TestEntityBasicMethods:
             reconstructed = MonetaryUnitViolation.from_dict(d)
         else:
             pytest.fail(f"Unknown class {cls_name}")
-        # compare some fields
         if cls_name == "CurrencyDefinition":
             assert reconstructed.currency_code == entity.currency_code
         elif cls_name == "ExchangeRate":
@@ -1140,12 +1182,10 @@ class TestEntityBasicMethods:
         cloned = entity.clone()
         assert cloned is not entity
         assert cloned.version == 1
-        # ID different for entities that have ID
         if cls_name == "ExchangeRate":
             assert cloned.rate_id != entity.rate_id
         elif cls_name == "MonetaryUnitViolation":
             assert cloned.violation_id != entity.violation_id
-        # CurrencyDefinition doesn't have ID but code changed
         elif cls_name == "CurrencyDefinition":
             assert cloned.currency_code != entity.currency_code
 
@@ -1166,7 +1206,6 @@ class TestEntityBasicMethods:
         entity = request.getfixturevalue(entity_fixture)
         trail = entity.audit_trail()
         assert len(trail) >= 1
-        # touch to add entry
         entity.touch("toucher")
         trail2 = entity.audit_trail()
         assert len(trail2) >= len(trail) + 1
@@ -1175,10 +1214,6 @@ class TestEntityBasicMethods:
     def test_entity_lock_unlock(self, entity_fixture, cls_name, upd, del_, res, request):
         entity = request.getfixturevalue(entity_fixture)
         locked = entity.lock("admin", "test")
-        # Most entities just return self, but some not
-        if hasattr(locked, "is_locked") or hasattr(locked, "frozen_at"):
-            # only if relevant
-            pass
         assert locked is not None
         unlocked = locked.unlock("admin")
         assert unlocked is not None

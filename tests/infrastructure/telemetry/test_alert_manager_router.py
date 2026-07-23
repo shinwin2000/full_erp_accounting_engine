@@ -46,8 +46,9 @@ class TestAlert:
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, dict)
+        assert "id" in result
+        assert "title" in result
 
     def test_get_dedup_key_smoke(self):
         """Smoke test for Alert.get_dedup_key using mocked collaborators."""
@@ -57,8 +58,8 @@ class TestAlert:
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_dedup_key needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, str)
+        assert len(result) > 0
 
 
 class TestBaseAlertChannel:
@@ -80,11 +81,13 @@ class TestBaseAlertChannel:
         """Smoke test for BaseAlertChannel.send using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send(alert=MagicMock())
+            # BaseAlertChannel.send raises NotImplementedError, so we expect it to fail
+            with pytest.raises(NotImplementedError):
+                await instance.send(alert=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
+        # If we reach here, the test passed
         assert True
 
 
@@ -111,8 +114,8 @@ class TestSlackAlertChannel:
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # Without a real webhook, it returns False
+        assert result is False
 
 
 class TestPagerDutyAlertChannel:
@@ -138,8 +141,8 @@ class TestPagerDutyAlertChannel:
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # Without integration key, returns False
+        assert result is False
 
 
 class TestEmailAlertChannel:
@@ -165,8 +168,8 @@ class TestEmailAlertChannel:
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # Without to_emails, returns False
+        assert result is False
 
 
 class TestWebhookAlertChannel:
@@ -192,8 +195,8 @@ class TestWebhookAlertChannel:
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        # Without webhook_url, returns False
+        assert result is False
 
 
 class TestAlertManagerRouter:
@@ -219,19 +222,19 @@ class TestAlertManagerRouter:
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_alert needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, bool)
 
     async def test_add_channel_smoke(self):
         """Smoke test for AlertManagerRouter.add_channel using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_channel(name="test_value", channel=MagicMock())
+            channel = MagicMock(spec=BaseAlertChannel)
+            await instance.add_channel(name="test_channel", channel=channel)
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_channel needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert "test_channel" in instance._channels
+        assert instance._channels["test_channel"] is channel
 
     def test_get_history_smoke(self):
         """Smoke test for AlertManagerRouter.get_history using mocked collaborators."""
@@ -241,19 +244,19 @@ class TestAlertManagerRouter:
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_history needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, list)
 
     async def test_clear_history_smoke(self):
         """Smoke test for AlertManagerRouter.clear_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.clear_history()
+            # Add a dummy alert first
+            await instance.send_alert("dummy", "dummy", "info", "test", force=True)
+            await instance.clear_history()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear_history needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert len(instance._alert_history) == 0
 
 
 async def test_get_alert_manager_smoke():
@@ -263,7 +266,7 @@ async def test_get_alert_manager_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_alert_manager needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, AlertManagerRouter)
 
 
 async def test_trigger_alert_smoke():
@@ -273,4 +276,4 @@ async def test_trigger_alert_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"trigger_alert needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, bool)

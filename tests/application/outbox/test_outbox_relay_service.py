@@ -134,45 +134,41 @@ class TestCircuitBreaker:
         """Smoke test for CircuitBreaker.state using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.state()
+            state = instance.state
         except (Exception, SystemExit) as e:
             pytest.skip(f"state needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert state in ("closed", "open", "half-open")
 
     def test_record_success_smoke(self):
         """Smoke test for CircuitBreaker.record_success using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_success()
+            instance.record_success()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_success needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._failures == 0
 
     def test_record_failure_smoke(self):
         """Smoke test for CircuitBreaker.record_failure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_failure()
+            instance.record_failure()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_failure needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._failures == 1
 
     def test_can_execute_smoke(self):
         """Smoke test for CircuitBreaker.can_execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.can_execute()
+            can = instance.can_execute()
         except (Exception, SystemExit) as e:
             pytest.skip(f"can_execute needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(can, bool)
 
 
 class TestPermanentError:
@@ -226,55 +222,55 @@ class TestOutboxRelayService:
         """Smoke test for OutboxRelayService.process_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.process_batch(batch_size=1)
+            # Mock repository to return empty list
+            instance._repository.get_pending_events = MagicMock(return_value=[])
+            count = await instance.process_batch(batch_size=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"process_batch needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(count, int)
 
     async def test_start_smoke(self):
         """Smoke test for OutboxRelayService.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is True
 
     async def test_stop_smoke(self):
         """Smoke test for OutboxRelayService.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop(timeout=1.5)
+            await instance.start()
+            await instance.stop(timeout=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is False
 
     async def test_health_check_smoke(self):
         """Smoke test for OutboxRelayService.health_check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.health_check()
+            health = await instance.health_check()
         except (Exception, SystemExit) as e:
             pytest.skip(f"health_check needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(health, dict)
+        assert "healthy" in health
 
 
 def test_classify_error_smoke():
     """Smoke test for module-level function classify_error."""
     try:
-        result = classify_error(exception=MagicMock())
+        result = classify_error(exception=ValueError("test"))
     except (Exception, SystemExit) as e:
         pytest.skip(f"classify_error needs specific input data: {e}")
         return
-    assert True
+    assert result in ("permanent", "temporary")
 
 
 def test_get_relay_service_smoke():
@@ -284,7 +280,8 @@ def test_get_relay_service_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_relay_service needs specific input data: {e}")
         return
-    assert True
+    # Initially None, but that's acceptable
+    assert result is None or isinstance(result, OutboxRelayService)
 
 
 def test_create_relay_service_smoke():
@@ -294,7 +291,7 @@ def test_create_relay_service_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_relay_service needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, OutboxRelayService)
 
 
 async def test_start_relay_smoke():
@@ -304,14 +301,17 @@ async def test_start_relay_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_relay needs specific input data: {e}")
         return
-    assert True
+    assert isinstance(result, OutboxRelayService)
 
 
 async def test_stop_relay_smoke():
     """Smoke test for module-level function stop_relay."""
     try:
-        result = await stop_relay()
+        # First start a relay
+        service = await start_relay(outbox_repository=MagicMock(), message_broker=MagicMock(), config=MagicMock())
+        await stop_relay()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_relay needs specific input data: {e}")
         return
-    assert True
+    # After stop, get_relay_service should return None
+    assert get_relay_service() is None

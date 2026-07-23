@@ -24,6 +24,28 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Enums
+# ============================================================================
+
+class Currency(Enum):
+    """ISO 4217 currency codes."""
+    IDR = "IDR"
+    USD = "USD"
+    EUR = "EUR"
+    GBP = "GBP"
+    JPY = "JPY"
+    SGD = "SGD"
+    MYR = "MYR"
+    CNY = "CNY"
+    AUD = "AUD"
+    THB = "THB"
+    INR = "INR"
+    KRW = "KRW"
+    PHP = "PHP"
+    VND = "VND"
+
+
 class CashBookStatus(Enum):
     ACTIVE = "active"
     CLOSED = "closed"
@@ -1323,5 +1345,6 @@ __all__ = [
     "CashBookStatus",
     "CashTransaction",
     "CashTransactionType",
+    "Currency",
     "DailyClosing",
 ]

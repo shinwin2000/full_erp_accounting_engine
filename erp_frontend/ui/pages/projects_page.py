@@ -4,14 +4,14 @@ ui/pages/projects_page.py
 Halaman modul "Proyek & Jasa" (Pembelian & Penjualan).
 
 Endpoint backend : /projects/projects/
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -37,10 +37,10 @@ FORM_FIELDS = [
     FieldSpec("customer_id", "Customer (UUID)", FieldType.UUID),
     FieldSpec("start_date", "Tanggal Mulai", FieldType.DATE, required=True),
     FieldSpec("end_date", "Tanggal Selesai", FieldType.DATE),
-    FieldSpec("contract_type", "Tipe Kontrak"),
+    FieldSpec("contract_type", "Tipe Kontrak", FieldType.SELECT, choices=("fixed_price", "time_material", "retainer", "cost_plus", "milestone",)),
     FieldSpec("contract_value", "Nilai Kontrak", FieldType.DECIMAL),
     FieldSpec("budget_total", "Total Budget", FieldType.DECIMAL),
-    FieldSpec("revenue_recognition_method", "Metode Pengakuan Pendapatan", FieldType.SELECT, choices=("percentage_of_completion", "completed_contract",)),
+    FieldSpec("revenue_recognition_method", "Metode Pengakuan Pendapatan", FieldType.SELECT, choices=("percentage_completion", "completed_contract", "straight_line", "milestone", "input_method", "output_method",)),
     FieldSpec("billing_cycle_days", "Siklus Billing (hari)", FieldType.NUMBER),
     FieldSpec("notes", "Catatan", FieldType.TEXTAREA),
 ]
@@ -65,6 +65,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=True,
     search_param="search",
+    edit_http_method="PUT",
 )
 
 

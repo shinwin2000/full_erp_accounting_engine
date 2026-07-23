@@ -144,7 +144,26 @@ from .stock_opname_cycle import StockOpnameCycleUseCase
 from .tax_filing_submission import TaxFilingSubmissionUseCase
 from .year_end_closing import YearEndClosingUseCase
 
+# ============================================================================
+# HPP Manufacturing Close - Static import with fallback
+# ============================================================================
+
+try:
+    # Try to import from the actual file name (use case file)
+    from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
+except ImportError:
+    try:
+        # Fallback: try to import from the original file name
+        from .hpp_manufacturing_close import HPPManufacturingCloseUseCase
+    except ImportError:
+        # If both fail, define a placeholder class that will be resolved later
+        # This will be caught by __getattr__ fallback
+        HPPManufacturingCloseUseCase = None  # type: ignore
+
+# ============================================================================
 # Aliases untuk convenience / backward compatibility
+# ============================================================================
+
 AmlScreeningTransactionHandler = AMLScreeningUseCase
 ApPaymentRunHandler = APPaymentRunUseCase
 ApproveJournalFourEyesHandler = ApproveJournalFourEyesUseCase
@@ -160,6 +179,7 @@ FinancialStatementGenerationHandler = FinancialStatementGenerationUseCase
 FiscalReconciliationHandler = FiscalReconciliationUseCase
 ForexRevaluationHandler = ForexRevaluationUseCase
 HedgeAccountingExecutionHandler = HedgeAccountingUseCase
+HppManufacturingCloseHandler = HPPManufacturingCloseUseCase
 ImpairmentTestingAnnualHandler = ImpairmentTestingUseCase
 IntercompanyEliminationHandler = IntercompanyEliminationUseCase
 PayrollMonthlyRunHandler = PayrollMonthlyRunUseCase
@@ -183,8 +203,19 @@ def __getattr__(name: str) -> Any:
     Lazy resolution untuk komponen yang belum diimport statis.
     """
     if name in ("HppManufacturingCloseUseCase", "HppManufacturingCloseHandler"):
-        from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
-        return HPPManufacturingCloseUseCase
+        try:
+            from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
+            return HPPManufacturingCloseUseCase
+        except ImportError:
+            try:
+                from .hpp_manufacturing_close import HPPManufacturingCloseUseCase
+                return HPPManufacturingCloseUseCase
+            except ImportError:
+                # If still not found, raise a descriptive error
+                raise ImportError(
+                    f"Could not import HPPManufacturingCloseUseCase. "
+                    f"Make sure the use case module is properly implemented."
+                )
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-07-20T00:53:17.100363Z",
+  "timestamp": "2026-07-22T04:24:02.980656Z",
   "version": "2.0.0",
   "summary": {
-    "total_duration_seconds": 2.323,
+    "total_duration_seconds": 1.529,
     "passed": 16,
     "total_tests": 16,
     "score_percent": 100.0
@@ -12,7 +12,7 @@
       "name": "Trial Balance (Global Debit=Credit)",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 2.142,
+      "duration_seconds": 1.328,
       "severity": "WARNING",
       "details": {
         "note": "No data"
@@ -26,7 +26,7 @@
       "name": "Duplicate Journal Numbers (Global)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.01,
+      "duration_seconds": 0.009,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -38,7 +38,7 @@
       "name": "Invalid Account References (FK)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.038,
+      "duration_seconds": 0.031,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -64,7 +64,7 @@
       "name": "Negative Stock / Inventory",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.007,
+      "duration_seconds": 0.008,
       "severity": "WARNING",
       "details": {
         "note": "No inventory table"
@@ -78,7 +78,7 @@
       "name": "Transactions Outside Fiscal Period",
       "category": "BUSINESS_RULE",
       "passed": true,
-      "duration_seconds": 0.035,
+      "duration_seconds": 0.045,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -90,7 +90,7 @@
       "name": "Optimistic Lock Version Consistency",
       "category": "CONCURRENCY",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.005,
       "severity": "INFO",
       "details": {
         "checked": 0
@@ -104,7 +104,7 @@
       "name": "Audit Trail Integrity (Hash Chain)",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.006,
       "severity": "WARNING",
       "details": {
         "note": "No audit table"
@@ -118,7 +118,7 @@
       "name": "Orphaned Records (Journal Ref)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.003,
+      "duration_seconds": 0.004,
       "severity": "WARNING",
       "details": {
         "note": "Tables missing"
@@ -132,7 +132,7 @@
       "name": "Duplicate Master Data (Account, Customer, Supplier)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.046,
+      "duration_seconds": 0.058,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -182,7 +182,7 @@
       "name": "Inventory Sanity (On-Hand, Reserved, Available)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.005,
       "severity": "WARNING",
       "details": {
         "note": "No inventory table"
@@ -196,7 +196,7 @@
       "name": "Missing Posting Check (Invoice vs GL)",
       "category": "BUSINESS_FLOW",
       "passed": true,
-      "duration_seconds": 0.001,
+      "duration_seconds": 0.002,
       "severity": "INFO",
       "details": {
         "note": "No missing postings found or tables not fully compatible"
@@ -210,7 +210,7 @@
       "name": "Date Sequence Sanity (Posting vs Document)",
       "category": "BUSINESS_RULE",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.005,
       "severity": "INFO",
       "details": {},
       "error": null,

@@ -4,14 +4,14 @@ ui/pages/work_orders_page.py
 Halaman modul "Work Order Produksi" (Manufaktur).
 
 Endpoint backend : /manufacturing/manufacturing/work-orders
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ from ui.widgets.generic_list_page import GenericListPage
 # Kolom tabel daftar Work Order Produksi
 # ---------------------------------------------------------------------------
 COLUMNS = [
-    ("wo_number", "No. WO"),
+    ("work_order_number", "No. WO"),
     ("product_id", "Produk"),
-    ("quantity", "Qty"),
+    ("planned_quantity", "Qty"),
     ("status", "Status"),
 ]
 
@@ -32,12 +32,14 @@ COLUMNS = [
 # Field form tambah/ubah Work Order Produksi
 # ---------------------------------------------------------------------------
 FORM_FIELDS = [
-    FieldSpec("bom_id", "BOM (UUID)", FieldType.UUID, required=True),
-    FieldSpec("routing_id", "Routing (UUID)"),
-    FieldSpec("quantity", "Qty Produksi", FieldType.DECIMAL, required=True),
+    FieldSpec("work_order_number", "No. Work Order", required=True),
+    FieldSpec("product_id", "Produk (UUID)", FieldType.UUID, required=True),
+    FieldSpec("planned_quantity", "Qty Rencana (harus > 0)", FieldType.DECIMAL, required=True),
     FieldSpec("planned_start_date", "Rencana Mulai", FieldType.DATE, required=True),
-    FieldSpec("planned_end_date", "Rencana Selesai", FieldType.DATE),
-    FieldSpec("notes", "Catatan", FieldType.TEXTAREA),
+    FieldSpec("planned_end_date", "Rencana Selesai", FieldType.DATE, required=True),
+    FieldSpec("bom_id", "BOM (UUID, opsional)", FieldType.UUID),
+    FieldSpec("routing_id", "Routing (UUID, opsional)", FieldType.UUID),
+    FieldSpec("cost_center", "Cost Center"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -65,6 +67,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=True,
     search_param="search",
+    edit_http_method="PUT",
 )
 
 

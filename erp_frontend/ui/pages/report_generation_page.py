@@ -49,18 +49,18 @@ from core.workers import run_task
 BASE = "/reports/reports"
 
 REPORT_TYPES = {
-    "Neraca (Balance Sheet)": ("financial/balance-sheet", "as_of", "BALANCE_SHEET"),
-    "Laba Rugi (Income Statement)": ("financial/income-statement", "range", "INCOME_STATEMENT"),
-    "Arus Kas (Cash Flow)": ("financial/cash-flow", "range", "CASH_FLOW"),
-    "Perubahan Ekuitas": ("financial/equity-statement", "range", "EQUITY_STATEMENT"),
-    "Neraca Saldo (Trial Balance)": ("ledger/trial-balance", "as_of", "TRIAL_BALANCE"),
-    "General Ledger": ("ledger/general-ledger", "range", "GENERAL_LEDGER"),
-    "AR Aging": ("subledger/ar-aging", "as_of", "AR_AGING"),
-    "AP Aging": ("subledger/ap-aging", "as_of", "AP_AGING"),
-    "Kartu Stok": ("inventory/stock-card", "range", "STOCK_CARD"),
-    "Ringkasan Pajak": ("tax/summary", "range", "TAX_SUMMARY"),
-    "Rasio Keuangan": ("analytics/financial-ratios", "as_of", "FINANCIAL_RATIOS"),
-    "Budget vs Actual": ("budget/vs-actual", "range", "BUDGET_VS_ACTUAL"),
+    "Neraca (Balance Sheet)": ("financial/balance-sheet", "as_of", "balance_sheet"),
+    "Laba Rugi (Income Statement)": ("financial/income-statement", "range", "income_statement"),
+    "Arus Kas (Cash Flow)": ("financial/cash-flow", "range", "cash_flow"),
+    "Perubahan Ekuitas": ("financial/equity-statement", "range", "equity_statement"),
+    "Neraca Saldo (Trial Balance)": ("ledger/trial-balance", "as_of", "trial_balance"),
+    "General Ledger": ("ledger/general-ledger", "range", "general_ledger"),
+    "AR Aging": ("subledger/ar-aging", "as_of", "ar_aging"),
+    "AP Aging": ("subledger/ap-aging", "as_of", "ap_aging"),
+    "Kartu Stok": ("inventory/stock-card", "range", "stock_card"),
+    "Ringkasan Pajak": ("tax/summary", "range", "tax_summary"),
+    "Rasio Keuangan": ("analytics/financial-ratios", "as_of", "financial_ratios"),
+    "Budget vs Actual": ("budget/vs-actual", "range", "budget_vs_actual"),
 }
 FORMATS = ["pdf", "xlsx", "csv", "html"]
 

@@ -67,45 +67,43 @@ class TestCircuitBreaker:
         """Smoke test for CircuitBreaker.record_success using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_success()
+            instance.record_success()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_success needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance.failure_count == 0
+        assert instance.state == "closed"
 
     def test_record_failure_smoke(self):
         """Smoke test for CircuitBreaker.record_failure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_failure()
+            instance.record_failure()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_failure needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance.failure_count == 1
+        assert instance.state == "open"  # because threshold=1
 
     def test_allow_request_smoke(self):
         """Smoke test for CircuitBreaker.allow_request using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.allow_request()
+            allowed = instance.allow_request()
         except (Exception, SystemExit) as e:
             pytest.skip(f"allow_request needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(allowed, bool)
 
     def test_is_open_smoke(self):
         """Smoke test for CircuitBreaker.is_open using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_open()
+            is_open = instance.is_open()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_open needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(is_open, bool)
 
 
 class TestDatabaseLockPort:
@@ -167,45 +165,48 @@ class TestMemoryLockPort:
         """Smoke test for MemoryLockPort.try_lock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.try_lock(lock_name="test_value", timeout_seconds=1)
+            result = await instance.try_lock(lock_name="test_lock", timeout_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"try_lock needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(result, bool)
+        # Verify lock is held
+        assert instance._locks.get("test_lock") is True
 
     async def test_unlock_smoke(self):
         """Smoke test for MemoryLockPort.unlock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.unlock(lock_name="test_value")
+            await instance.try_lock("test_lock", 1)
+            await instance.unlock("test_lock")
         except (Exception, SystemExit) as e:
             pytest.skip(f"unlock needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._locks.get("test_lock") is False
 
     async def test_extend_lock_smoke(self):
         """Smoke test for MemoryLockPort.extend_lock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.extend_lock(lock_name="test_value", timeout_seconds=1)
+            await instance.try_lock("test_lock", 1)
+            result = await instance.extend_lock("test_lock", 2)
         except (Exception, SystemExit) as e:
             pytest.skip(f"extend_lock needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert result is True
+        # Check that the time was updated (rough check)
+        assert instance._lock_times["test_lock"] is not None
 
     async def test_is_locked_smoke(self):
         """Smoke test for MemoryLockPort.is_locked using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_locked(lock_name="test_value")
+            await instance.try_lock("test_lock", 1)
+            locked = await instance.is_locked("test_lock")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_locked needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert locked is True
 
 
 class TestPermanentError:
@@ -259,52 +260,59 @@ class TestOutboxPoller:
         """Smoke test for OutboxPoller.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is True
 
     async def test_stop_smoke(self):
         """Smoke test for OutboxPoller.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop(timeout=1.5)
+            await instance.start()
+            await instance.stop(timeout=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert instance._running is False
 
     def test_get_stats_smoke(self):
         """Smoke test for OutboxPoller.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            stats = instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(stats, dict)
+        assert "running" in stats
 
     async def test_trigger_immediate_poll_smoke(self):
         """Smoke test for OutboxPoller.trigger_immediate_poll using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.trigger_immediate_poll()
+            # Mock relay_service.process_batch to return 0
+            instance._relay.process_batch = MagicMock(return_value=0)
+            count = await instance.trigger_immediate_poll()
         except (Exception, SystemExit) as e:
             pytest.skip(f"trigger_immediate_poll needs specific domain fixtures/data: {e}")
             return
-        # Real-code smoke assertion: call completed without raising
-        assert True
+        assert isinstance(count, int)
 
 
 async def test_run_outbox_poller_simple_smoke():
     """Smoke test for module-level function run_outbox_poller_simple."""
     try:
-        result = await run_outbox_poller_simple(relay_service=MagicMock(), poll_interval=1.5, stop_event=MagicMock(), batch_size=1)
+        relay = MagicMock()
+        stop_event = asyncio.Event()
+        # We cannot run indefinitely, so we'll start and then stop after a short time
+        task = asyncio.create_task(run_outbox_poller_simple(relay_service=relay, poll_interval=0.1, stop_event=stop_event, batch_size=1))
+        await asyncio.sleep(0.2)
+        stop_event.set()
+        await task
     except (Exception, SystemExit) as e:
         pytest.skip(f"run_outbox_poller_simple needs specific input data: {e}")
         return
-    assert True
+    assert relay.start.called
+    assert relay.stop.called

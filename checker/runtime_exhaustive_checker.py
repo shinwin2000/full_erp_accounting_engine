@@ -195,6 +195,25 @@ class RuntimeExhaustiveChecker:
         self._metadata = None  # SQLAlchemy MetaData
         self._uow_cls = None   # cached for transaction checks
         self._session_factory_async = None
+        # FIX BUG (root cause dari "RuntimeError: Event loop is closed"):
+        # Sebelumnya, tiap panggilan asyncio.run() membuat event loop BARU lalu
+        # menutupnya begitu selesai. self._engine (koneksi asyncpg di baliknya)
+        # terikat erat ke loop tempat ia dibuat. Karena self._engine dipakai
+        # ULANG oleh banyak check (Database Connectivity, Transactions,
+        # Connection Pool, ORM Models, Performance Benchmark) yang masing-masing
+        # membuat loop barunya sendiri, setiap pemakaian setelah yang pertama
+        # mencoba memakai koneksi dari loop yang sudah mati — SQLAlchemy lalu
+        # gagal (dengan timeout 2 detik) saat mencoba membersihkan koneksi itu.
+        # Sekarang dipakai SATU event loop persisten untuk seluruh siklus hidup
+        # checker; dibuat sekali (lihat _run_async_safely/_get_loop) dan hanya
+        # ditutup sekali di akhir lewat dispose().
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def _get_loop(self) -> asyncio.AbstractEventLoop:
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
 
     def _get_rca(self, exc: Exception, context: dict) -> dict | None:
         if not self.enable_rca or _analyze_exception is None:
@@ -218,20 +237,16 @@ class RuntimeExhaustiveChecker:
 
     def _run_async_safely(self, coro):
         """
-        Jalankan coroutine dalam event loop-nya sendiri (asyncio.run), TAPI
-        pastikan connection pool (self._engine) di-dispose SEBELUM loop itu
-        ditutup, masih di dalam loop yang sama.
+        Jalankan coroutine di dalam SATU event loop persisten milik checker
+        (lihat _get_loop), bukan loop baru tiap kali dipanggil. Ini penting
+        karena self._engine (dan koneksi asyncpg di baliknya) dibuat dan
+        dipakai ulang lintas banyak check — kalau tiap panggilan pakai loop
+        yang berbeda-beda, koneksi yang dibuat di satu loop akan gagal
+        dibersihkan ketika dipakai/ditutup dari loop lain ("Event loop is
+        closed"). Engine baru dibongkar sekali di akhir lewat dispose().
         """
-        async def _wrapper():
-            try:
-                return await coro
-            finally:
-                if self._engine is not None:
-                    try:
-                        await self._engine.dispose()
-                    except Exception as dispose_err:
-                        logger.debug(f"Dispose setelah test (ignored): {dispose_err}")
-        return asyncio.run(_wrapper())
+        loop = self._get_loop()
+        return loop.run_until_complete(coro)
 
     # -------------------------------------------------------------------------
     # BOOTSTRAP
@@ -367,7 +382,7 @@ class RuntimeExhaustiveChecker:
         def _inner():
             try:
                 import infrastructure.database.session_factory_sqlalchemy as sf_module
-                wrapper = asyncio.run(sf_module.get_session_factory())
+                wrapper = self._run_async_safely(sf_module.get_session_factory())
                 factory = wrapper.get_session_factory()
                 self._session_factory = factory
                 self._engine = wrapper.get_engine()
@@ -418,7 +433,7 @@ class RuntimeExhaustiveChecker:
                 if session_factory is None:
                     try:
                         import infrastructure.database.session_factory_sqlalchemy as sf_module
-                        wrapper = asyncio.run(sf_module.get_session_factory())
+                        wrapper = self._run_async_safely(sf_module.get_session_factory())
                         session_factory = wrapper.get_session_factory()
                         self._session_factory = session_factory
                         self._engine = wrapper.get_engine()
@@ -784,7 +799,7 @@ class RuntimeExhaustiveChecker:
                 engine = None
                 try:
                     import infrastructure.database.session_factory_sqlalchemy as sf_module
-                    wrapper = asyncio.run(sf_module.get_session_factory())
+                    wrapper = self._run_async_safely(sf_module.get_session_factory())
                     engine = wrapper.get_engine()
                     if engine is not None and self._engine is None:
                         self._engine = engine
@@ -909,6 +924,11 @@ class RuntimeExhaustiveChecker:
                 return "WARN", "EventPublisherPort tidak ditemukan", {}
         return self._check("Event Bus", _inner, "event", "HIGH")
 
+    # Timeout untuk operasi event bus yang bisa saja mencoba koneksi ke
+    # broker sungguhan (Kafka dll). Tanpa ini, publisher yang tidak
+    # tersedia/tidak merespons bisa membuat checker hang selamanya.
+    _EVENT_CHECK_TIMEOUT_SEC = 5
+
     def check_event_publish_subscribe(self) -> RuntimeCheckResult:
         def _inner():
             try:
@@ -932,6 +952,7 @@ class RuntimeExhaustiveChecker:
                 if hasattr(publisher, 'subscribe') and callable(publisher.subscribe):
                     try:
                         async def _test1():
+                            nonlocal subscribed
                             sig = inspect.signature(publisher.subscribe)
                             params = list(sig.parameters.keys())
                             if len(params) >= 2:
@@ -941,30 +962,38 @@ class RuntimeExhaustiveChecker:
                             elif len(params) == 1:
                                 result = await publisher.subscribe(handler)
                                 subscribed = True
-                        asyncio.run(_test1())
+                        self._run_async_safely(asyncio.wait_for(_test1(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
+                    except asyncio.TimeoutError:
+                        logger.debug(f"subscribe method 1 timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)")
                     except Exception as e:
                         logger.debug(f"subscribe method 1 failed: {e}")
 
                 if not subscribed and hasattr(publisher, 'register_handler') and callable(publisher.register_handler):
                     try:
                         async def _test2():
+                            nonlocal subscribed
                             await publisher.register_handler(DummyEvent, handler)
                             subscribed = True
-                        asyncio.run(_test2())
+                        self._run_async_safely(asyncio.wait_for(_test2(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
+                    except asyncio.TimeoutError:
+                        logger.debug(f"register_handler timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)")
                     except Exception as e:
                         logger.debug(f"register_handler failed: {e}")
 
                 if not subscribed and hasattr(publisher, 'on') and callable(publisher.on):
                     try:
                         async def _test3():
+                            nonlocal subscribed
                             await publisher.on(DummyEvent, handler)
                             subscribed = True
-                        asyncio.run(_test3())
+                        self._run_async_safely(asyncio.wait_for(_test3(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
+                    except asyncio.TimeoutError:
+                        logger.debug(f"on method timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)")
                     except Exception as e:
                         logger.debug(f"on method failed: {e}")
 
                 if not subscribed:
-                    return "SKIP", "EventPublisherPort tidak mendukung subscribe/register_handler/on", {}
+                    return "SKIP", "EventPublisherPort tidak mendukung subscribe/register_handler/on (atau broker tidak tersedia/timeout)", {}
 
                 if hasattr(publisher, 'publish') and callable(publisher.publish):
                     try:
@@ -972,11 +1001,13 @@ class RuntimeExhaustiveChecker:
                             evt = DummyEvent("test")
                             await publisher.publish(evt)
                             await asyncio.sleep(0.1)
-                        asyncio.run(_test_pub())
+                        self._run_async_safely(asyncio.wait_for(_test_pub(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
                         if received:
                             return "PASS", "Event publish-subscribe berhasil", {"event_count": len(received)}
                         else:
                             return "WARN", "Event diterbitkan tapi tidak ada yang menerima", {}
+                    except asyncio.TimeoutError:
+                        return "WARN", f"Event publish timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)", {}
                     except Exception as e:
                         return "WARN", f"Event publish gagal: {e}", {}
                 else:
@@ -1231,7 +1262,7 @@ class RuntimeExhaustiveChecker:
             if session_factory is None:
                 try:
                     import infrastructure.database.session_factory_sqlalchemy as sf_module
-                    wrapper = asyncio.run(sf_module.get_session_factory())
+                    wrapper = self._run_async_safely(sf_module.get_session_factory())
                     session_factory = wrapper.get_session_factory()
                     self._session_factory = session_factory
                     self._engine = wrapper.get_engine()
@@ -1328,19 +1359,24 @@ class RuntimeExhaustiveChecker:
     # 13. Dispose resources - perbaikan event loop
     # -------------------------------------------------------------------------
     def dispose(self):
+        # FIX BUG: versi sebelumnya membuat event loop BARU LAGI di sini untuk
+        # mem-bongkar self._engine — padahal engine itu dibuat & dipakai di
+        # self._loop (loop persisten checker). Membongkar dari loop yang
+        # berbeda memicu masalah "Event loop is closed" yang sama persis
+        # dengan bug utamanya. Sekarang dispose dijalankan di loop yang sama
+        # tempat engine itu hidup, lalu loop itu baru ditutup sekali di sini,
+        # di akhir seluruh proses checker.
         if self._engine is not None:
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._engine.dispose())
-                finally:
-                    loop.close()
+                loop = self._get_loop()
+                loop.run_until_complete(self._engine.dispose())
                 logger.info("Database engine disposed successfully")
             except RuntimeError as e:
                 logger.debug(f"RuntimeError during dispose (ignored): {e}")
             except Exception as e:
                 logger.warning(f"Error disposing engine: {e}")
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.close()
 
     # -------------------------------------------------------------------------
     # 14. Run All Checks

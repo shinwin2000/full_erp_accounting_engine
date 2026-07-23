@@ -4,14 +4,14 @@ ui/pages/inventory_items_page.py
 Halaman modul "Barang / Item" (Inventori).
 
 Endpoint backend : /inventory/inventory/items
-Router asal      : lihat adapters/primary_api/v1/fastapi_*_router.py terkait
 
-Kolom tabel, field form, dan aksi workflow modul ini didefinisikan LANGSUNG
-di file ini (bukan dirujuk dari file lain) supaya isi file mencerminkan
-struktur data modul backend secara langsung dan mudah dibaca/diaudit per
-modul, tanpa perlu membuka file lain untuk memahami field apa saja yang
-dipakai. Widget tabel + form generik (GenericListPage) tetap dipakai
-bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
+REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
+tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
+terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
+kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
+didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
+registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
+langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
@@ -33,19 +33,25 @@ COLUMNS = [
 # Field form tambah/ubah Barang / Item
 # ---------------------------------------------------------------------------
 FORM_FIELDS = [
-    FieldSpec("item_code", "Kode Barang", required=True),
-    FieldSpec("item_name", "Nama Barang", required=True),
-    FieldSpec("item_type", "Tipe", FieldType.SELECT, choices=("raw_material", "finished_good", "service", "trading",)),
-    FieldSpec("unit_of_measure", "Satuan", required=True),
+    FieldSpec("item_code", "Kode Barang (min. 3 karakter)", required=True),
+    FieldSpec("item_name", "Nama Barang (min. 3 karakter)", required=True),
+    FieldSpec("item_type", "Tipe", FieldType.SELECT, choices=("raw_material", "work_in_process", "finished_good", "trading", "consumable", "service",), default="trading"),
+    FieldSpec("unit_of_measure", "Satuan", default="pcs"),
     FieldSpec("category", "Kategori"),
     FieldSpec("brand", "Merek"),
-    FieldSpec("reorder_point", "Titik Reorder", FieldType.NUMBER),
-    FieldSpec("reorder_quantity", "Jumlah Reorder", FieldType.NUMBER),
-    FieldSpec("standard_cost", "HPP Standar", FieldType.DECIMAL),
-    FieldSpec("selling_price", "Harga Jual", FieldType.DECIMAL),
-    FieldSpec("valuation_method", "Metode Valuasi", FieldType.SELECT, choices=("FIFO", "LIFO", "AVERAGE", "STANDARD",)),
-    FieldSpec("min_stock", "Stok Minimum", FieldType.NUMBER),
-    FieldSpec("max_stock", "Stok Maksimum", FieldType.NUMBER),
+    FieldSpec("reorder_point", "Titik Reorder", FieldType.DECIMAL, default=0),
+    FieldSpec("reorder_quantity", "Jumlah Reorder", FieldType.DECIMAL, default=0),
+    FieldSpec("standard_cost", "HPP Standar", FieldType.DECIMAL, default=0),
+    FieldSpec("selling_price", "Harga Jual", FieldType.DECIMAL, default=0),
+    FieldSpec("valuation_method", "Metode Valuasi", FieldType.SELECT, choices=("FIFO", "LIFO", "AVERAGE", "STANDARD",), default="FIFO"),
+    FieldSpec("warehouse_id", "Gudang Default (UUID, opsional)", FieldType.UUID),
+    FieldSpec("min_stock", "Stok Minimum", FieldType.DECIMAL, default=0),
+    FieldSpec("max_stock", "Stok Maksimum", FieldType.DECIMAL, default=0),
+    FieldSpec("tax_rate_purchase", "Tarif Pajak Pembelian (%)", FieldType.DECIMAL, default=11),
+    FieldSpec("tax_rate_sales", "Tarif Pajak Penjualan (%)", FieldType.DECIMAL, default=11),
+    FieldSpec("is_lot_tracked", "Lacak per Batch/Lot", FieldType.BOOL, default=False),
+    FieldSpec("is_serial_tracked", "Lacak per Serial Number", FieldType.BOOL, default=False),
+    FieldSpec("is_expiry_tracked", "Lacak Tanggal Kadaluarsa", FieldType.BOOL, default=False),
     FieldSpec("description", "Deskripsi", FieldType.TEXTAREA),
 ]
 
@@ -69,6 +75,7 @@ CONFIG = ModuleConfig(
     can_edit=True,
     can_delete=True,
     search_param="search",
+    edit_http_method="PUT",
 )
 
 

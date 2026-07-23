@@ -287,7 +287,7 @@ class ImmutableRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self._version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -929,7 +929,11 @@ class ImmutabilityAxiom:
     _correction_history: list[CorrectionRecord] = []
     _violation_history: list[ImmutabilityViolation] = []
     _state_registry: dict[UUID, DataState] = {}
-    _lock = threading.Lock()
+    # NOTE: must be reentrant (RLock, not Lock). Several methods acquire
+    # this lock and then call other locking methods on the same thread
+    # (e.g. register_immutable_record() -> save_immutable_record()); with a
+    # plain threading.Lock() that nested acquisition deadlocks forever.
+    _lock = threading.RLock()
 
     def __new__(cls) -> ImmutabilityAxiom:
         if cls._instance is None:

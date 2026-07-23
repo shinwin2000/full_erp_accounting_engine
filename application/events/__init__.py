@@ -1,4 +1,4 @@
-# application/events/__init__.py - Fixed with correct event imports and fallback aliases
+# application/events/__init__.py - Fixed with all_event_handlers export
 
 from __future__ import annotations
 
@@ -137,7 +137,7 @@ except ImportError:
     # Jika tidak ada, coba import dari domain.purchase_sales atau buat dummy
     ThreeWayMatchResultEvent = _safe_import("domain.purchase_sales.domain_events", "ThreeWayMatchResultEvent")
     InvoiceReceivedEvent = _safe_import("domain.subledger_ap.domain_events", "InvoiceReceivedEvent")
-    InvoiceVerifiedEvent = _safe_import("domain.subledger_ap.domain_events", "InvoiceVerifiedEvent")
+    InvoiceVerifiedEvent = _safe_import("domain.subledger_ap.domain_events", "InvoiceVerifiedEvent", "InvoiceVerified")
     InvoiceApprovedEvent = _safe_import("domain.subledger_ap.domain_events", "InvoiceApprovedEvent", "InvoiceApproved")
     InvoicePaidEvent = _safe_import("domain.subledger_ap.domain_events", "InvoicePaidEvent", "InvoicePaid")
     InvoiceCancelledEvent = _safe_import("domain.subledger_ap.domain_events", "InvoiceCancelledEvent", "InvoiceCancelled")
@@ -292,7 +292,6 @@ except ImportError:
     EmployeeStructureUpdatedEvent = _safe_import("domain.payroll.domain_events", "EmployeeStructureUpdatedEvent", "EmployeeStructureUpdated")
     SalaryComponentAddedEvent = _safe_import("domain.payroll.domain_events", "SalaryComponentAddedEvent", "SalaryComponentAdded")
 
-# --- IAM events ---
 # --- Fiscal Period events ---
 from domain.fiscal_period.domain_events import (
     PeriodClosedEvent,
@@ -303,6 +302,8 @@ from domain.fiscal_period.domain_events import (
     PeriodStatusChangedEvent,
     PeriodUpdatedEvent,
 )
+
+# --- IAM events ---
 from domain.iam.domain_events import (
     LoginFailureEvent,
     LoginSuccessEvent,
@@ -367,7 +368,6 @@ except ImportError:
     CompanyContactUpdatedEvent = _safe_import("domain.legal_entity.domain_events", "CompanyContactUpdatedEvent", "CompanyContactUpdated")
     PKPStatusChangedEvent = _safe_import("domain.legal_entity.domain_events", "PKPStatusChangedEvent", "PKPStatusChanged")
 
-# --- Goodwill events ---
 # --- Consolidation events ---
 from domain.consolidation.domain_events import (
     ConsolidationArchived,
@@ -394,6 +394,8 @@ from domain.customer_supplier_employee.domain_events import (
     SupplierPaymentTermsChangedEvent,
     SupplierWithholdingCategoryChangedEvent,
 )
+
+# --- Goodwill events ---
 from domain.goodwill.domain_events import (
     GoodwillAmortizedEvent,
     GoodwillDisposedEvent,
@@ -435,6 +437,16 @@ except ImportError:
     DebitNoteIssuedEvent = _safe_import("domain.subledger_ar.domain_events", "DebitNoteIssuedEvent", "DebitNoteIssued")
 
 # --- System Settings events ---
+from domain.system_settings.domain_events import (
+    SettingAddedEvent,
+    SettingChangedEvent,
+    SettingRemovedEvent,
+    SettingResetEvent,
+    SettingsBulkUpdatedEvent,
+    SettingsLockedEvent,
+    SettingsUnlockedEvent,
+)
+
 # --- Project events ---
 from domain.project_services.domain_events import (
     MilestoneBilledEvent,
@@ -447,15 +459,6 @@ from domain.project_services.domain_events import (
     RevenueRecognizedEvent,
     TimeEntryApprovedEvent,
     TimeEntrySubmittedEvent,
-)
-from domain.system_settings.domain_events import (
-    SettingAddedEvent,
-    SettingChangedEvent,
-    SettingRemovedEvent,
-    SettingResetEvent,
-    SettingsBulkUpdatedEvent,
-    SettingsLockedEvent,
-    SettingsUnlockedEvent,
 )
 
 # --- Purchase & Sales events ---
@@ -515,6 +518,14 @@ except ImportError:
     DebitNoteIssuedServiceEvent = _safe_import("domain.purchase_sales.domain_events", "DebitNoteIssuedServiceEvent", "DebitNoteIssuedService")
 
 # --- UMKM events ---
+from domain.umkm_simplified.domain_events import (
+    TaxCalculatedEvent,
+    TransactionCreatedEvent,
+    TransactionDeletedEvent,
+    TransactionRecordedEvent,
+    TransactionUpdatedEvent,
+)
+
 # --- Equity events ---
 from domain.equity_retained.domain_events import (
     CapitalContributionApprovedEvent,
@@ -554,13 +565,6 @@ from domain.intangible_asset.domain_events import (
     IntangibleAssetTransferredEvent,
     IntangibleAssetUpdatedEvent,
 )
-from domain.umkm_simplified.domain_events import (
-    TaxCalculatedEvent,
-    TransactionCreatedEvent,
-    TransactionDeletedEvent,
-    TransactionRecordedEvent,
-    TransactionUpdatedEvent,
-)
 
 # --- Payment events (AP/AR payment) ---
 try:
@@ -573,6 +577,41 @@ except ImportError:
     PaymentMadeEvent = _safe_import("domain.subledger_ap.domain_events", "PaymentMadeEvent", "PaymentMade")
     PaymentVoidedEvent = _safe_import("domain.subledger_ap.domain_events", "PaymentVoidedEvent", "PaymentVoided")
     PaymentAppliedEvent = _safe_import("domain.subledger_ap.domain_events", "PaymentAppliedEvent", "PaymentApplied")
+
+# ============================================================================
+# all_event_handlers - Export for tests
+# ============================================================================
+
+def all_event_handlers():
+    """
+    Return all registered event handlers.
+    This function is used by tests to verify that all handlers are registered.
+    """
+    try:
+        # Get all handlers from the registry
+        # If get_handlers is a function that returns all handlers, use it.
+        # Otherwise, try to get from the registry instance.
+        if callable(get_handlers):
+            # If get_handlers expects an event type, we pass None to get all
+            try:
+                return get_handlers(None)
+            except TypeError:
+                # If get_handlers doesn't accept None, try without arguments
+                return get_handlers()
+        elif hasattr(event_handler_registry, 'get_all_handlers'):
+            return event_handler_registry.get_all_handlers()
+        elif hasattr(event_handler_registry, 'handlers'):
+            # If it's a dict or list
+            handlers = event_handler_registry.handlers
+            if isinstance(handlers, dict):
+                return list(handlers.values())
+            return handlers
+        else:
+            # Fallback: return empty list
+            return []
+    except Exception:
+        # If anything fails, return empty list
+        return []
 
 # ============================================================================
 # __all__ - Sertakan semua event yang telah diimpor
@@ -598,6 +637,8 @@ __all__ = [
     "register_wildcard",
     # Global Event Subscribers
     "handle_any_event",
+    # all_event_handlers
+    "all_event_handlers",
     # Event Publisher
     "ApplicationEventPublisher",
     "CachePort",

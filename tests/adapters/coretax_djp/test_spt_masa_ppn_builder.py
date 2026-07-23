@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 """
-tests/unit/test_spt_masa_ppn_builder.py
+tests/adapters/coretax_djp/test_spt_masa_ppn_builder.py
 Test untuk adapters/coretax_djp/spt_masa_ppn_builder.py
 Mencakup semua kelas dan metode secara exhaustive dengan mocking.
 
-Perbaikan:
-- Semua async test diberi @pytest.mark.asyncio
-- Flaky tests menggunakan mock datetime (fixture mock_datetime_now)
-- Semua assertion bermakna
+Perbaikan pada revisi ini:
+- Semua test async diberi marker @pytest.mark.asyncio secara eksplisit di
+  level fungsi (sebelumnya hanya mengandalkan marker di level class, yang
+  tidak terdeteksi oleh sebagian tool analisis statis).
+- Mock entity SPTMasaPPN dibuat dengan spec=SPTMasaPPN supaya typo/attribute
+  yang tidak ada di kelas asli langsung ketahuan (mock quality).
+- Interaksi penting (payload ke Coretax, cache key, argumen ke repository)
+  diverifikasi dengan assert_called_with/assert_called_once, bukan cuma
+  memeriksa return value.
+- Ditambahkan test negative-path yang sebelumnya tidak ada: approve/reject
+  saat locked, build() saat collect_data gagal, validate_spt/cancel_spt saat
+  locked/invalid state, submit_spt saat exception generik (bukan hanya
+  CoretaxAuthError), check_spt_status saat exception, serta beberapa kasus
+  "not found" pada repository dan builder yang belum diuji.
 """
 
 from __future__ import annotations
@@ -21,6 +31,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from adapters.coretax_djp.spt_masa_ppn_builder import (
+    CORETAX_SPT_PPN_ENDPOINT,
     FORM_CODE,
     PaymentReference,
     SPTAlreadyExistsError,
@@ -47,6 +58,7 @@ from adapters.coretax_djp.spt_masa_ppn_builder import (
 
 FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0)
 FIXED_TODAY = date(2026, 1, 1)
+UUID_ZERO = uuid.UUID(int=0)
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +113,15 @@ def sample_builder() -> SPTMasaPPNBuilder:
         return builder
 
 
+def make_mock_spt(**overrides) -> MagicMock:
+    """Buat MagicMock ber-spec SPTMasaPPN supaya attribute yang tidak ada
+    di kelas asli langsung memicu AttributeError (mock quality)."""
+    mock_spt = MagicMock(spec=SPTMasaPPN)
+    for key, value in overrides.items():
+        setattr(mock_spt, key, value)
+    return mock_spt
+
+
 # ============================================================================
 # Tests for Enums
 # ============================================================================
@@ -129,6 +150,18 @@ class TestExceptions:
                     SPTInvalidStateError, SPTValidationError, SPTLockedError,
                     SPTXMLGenerationError, SPTCalculationError]:
             assert issubclass(exc, Exception)
+
+    def test_exceptions_are_distinct_subclasses_of_spt_error(self):
+        # Negative path: pastikan tiap exception spesifik BUKAN alias satu
+        # sama lain, supaya except-block yang menangkap salah satunya tidak
+        # diam-diam menangkap yang lain.
+        specific = [SPTNotFoundError, SPTAlreadyExistsError, SPTInvalidStateError,
+                    SPTValidationError, SPTLockedError, SPTXMLGenerationError,
+                    SPTCalculationError]
+        assert len(set(specific)) == len(specific)
+        for exc in specific:
+            assert exc is not SPTError
+            assert issubclass(exc, SPTError)
 
 
 # ============================================================================
@@ -330,6 +363,26 @@ class TestSPTMasaPPN:
         with pytest.raises(SPTValidationError, match="PPN Kurang Bayar tidak sesuai"):
             sample_spt.validate(uuid.uuid4())
 
+    def test_validate_negative_ppn_keluaran_raises(self, sample_spt):
+        sample_spt._total_ppn_keluaran = Decimal("-100")
+        with pytest.raises(SPTValidationError, match="tidak boleh negatif"):
+            sample_spt.validate(uuid.uuid4())
+
+    def test_validate_pk_missing_but_ppn_keluaran_present_raises(self, sample_spt):
+        sample_spt._detail_pk = []
+        sample_spt._total_ppn_keluaran = Decimal("11000000")
+        sample_spt._ppn_kurang_bayar = Decimal("11000000")
+        sample_spt._ntpn = "1234567890123456"
+        with pytest.raises(SPTValidationError, match="tidak ada faktur keluaran"):
+            sample_spt.validate(uuid.uuid4())
+
+    def test_validate_invalid_bulan_raises(self, sample_spt):
+        sample_spt._bulan = 13
+        sample_spt._ppn_kurang_bayar = Decimal("0")
+        sample_spt._ppn_lebih_bayar = Decimal("0")
+        with pytest.raises(SPTValidationError, match="Bulan pajak tidak valid"):
+            sample_spt.validate(uuid.uuid4())
+
     def test_validate_locked_raises(self, sample_spt):
         sample_spt._locked_at = FIXED_NOW
         with pytest.raises(SPTLockedError, match="is locked"):
@@ -352,6 +405,12 @@ class TestSPTMasaPPN:
         with pytest.raises(SPTInvalidStateError, match="Cannot approve"):
             sample_spt.approve(uuid.uuid4())
 
+    def test_approve_locked_raises(self, sample_spt):
+        sample_spt._status = SPTStatus.SUBMITTED
+        sample_spt._locked_at = FIXED_NOW
+        with pytest.raises(SPTLockedError, match="is locked"):
+            sample_spt.approve(uuid.uuid4())
+
     def test_reject(self, sample_spt):
         sample_spt._status = SPTStatus.PENDING
         rejector_id = uuid.uuid4()
@@ -363,6 +422,12 @@ class TestSPTMasaPPN:
 
     def test_reject_invalid_status_raises(self, sample_spt):
         with pytest.raises(SPTInvalidStateError, match="Cannot reject"):
+            sample_spt.reject(uuid.uuid4(), "reason")
+
+    def test_reject_locked_raises(self, sample_spt):
+        sample_spt._status = SPTStatus.PENDING
+        sample_spt._locked_at = FIXED_NOW
+        with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.reject(uuid.uuid4(), "reason")
 
     def test_calculate(self, sample_spt):
@@ -407,8 +472,9 @@ class TestSPTMasaPPN:
         sample_spt._ppn_lebih_bayar = Decimal("0")
         sample_spt._ntpn = "1234567890123456"
         submitted_by = uuid.uuid4()
-        with patch.object(sample_spt, "_generate_xml", return_value="<xml/>"):
+        with patch.object(sample_spt, "_generate_xml", return_value="<xml/>") as mock_generate_xml:
             result = sample_spt.submit(submitted_by)
+        mock_generate_xml.assert_called_once_with()
         assert result.status == SPTStatus.SUBMITTED
         assert result.submitted_at == FIXED_NOW
         assert result.version == 2
@@ -418,6 +484,24 @@ class TestSPTMasaPPN:
         sample_spt._status = SPTStatus.DRAFT
         with pytest.raises(SPTInvalidStateError, match="Cannot submit"):
             sample_spt.submit(uuid.uuid4())
+
+    def test_submit_locked_raises(self, sample_spt):
+        sample_spt._status = SPTStatus.PENDING
+        sample_spt._locked_at = FIXED_NOW
+        with pytest.raises(SPTLockedError, match="is locked"):
+            sample_spt.submit(uuid.uuid4())
+
+    def test_submit_propagates_validation_error(self, sample_spt):
+        # Negative path: submit() memanggil validate() secara internal, jika
+        # data tidak valid maka SPTValidationError harus tetap menyebar
+        # keluar dari submit(), bukan tertelan diam-diam.
+        sample_spt._status = SPTStatus.PENDING
+        sample_spt._ppn_kurang_bayar = Decimal("100")
+        sample_spt._ntpn = None
+        with pytest.raises(SPTValidationError, match="tidak ada NTPN"):
+            sample_spt.submit(uuid.uuid4())
+        # status tidak boleh berubah jadi SUBMITTED karena validasi gagal
+        assert sample_spt.status == SPTStatus.PENDING
 
     def test_cancel(self, sample_spt):
         cancelled_by = uuid.uuid4()
@@ -430,6 +514,11 @@ class TestSPTMasaPPN:
     def test_cancel_invalid_status_raises(self, sample_spt):
         sample_spt._status = SPTStatus.CANCELLED
         with pytest.raises(SPTInvalidStateError, match="Cannot cancel"):
+            sample_spt.cancel(uuid.uuid4(), "reason")
+
+    def test_cancel_locked_raises(self, sample_spt):
+        sample_spt._locked_at = FIXED_NOW
+        with pytest.raises(SPTLockedError, match="is locked"):
             sample_spt.cancel(uuid.uuid4(), "reason")
 
     def test_void(self, sample_spt):
@@ -459,6 +548,9 @@ class TestSPTMasaPPN:
         history = sample_spt.get_history()
         assert len(history) == 1
 
+    def test_get_history_empty_by_default(self, sample_spt):
+        assert sample_spt.get_history() == []
+
     def test_snapshot(self, sample_spt):
         snap = sample_spt.snapshot()
         assert snap["npwp"] == "123456789012345"
@@ -481,6 +573,17 @@ class TestSPTMasaPPN:
         assert reconstructed.tahun == sample_spt.tahun
         assert reconstructed.bulan == sample_spt.bulan
         assert reconstructed.status == sample_spt.status
+
+    def test_from_dict_missing_optional_fields_uses_defaults(self):
+        # Negative/edge path: hanya field wajib yang diisi, sisanya harus
+        # jatuh ke default tanpa melempar KeyError.
+        minimal = {"npwp": "999", "tahun": 2026, "bulan": 1}
+        spt = SPTMasaPPN.from_dict(minimal)
+        assert spt.npwp == "999"
+        assert spt.spt_type == SPTType.NORMAL
+        assert spt.status == SPTStatus.DRAFT
+        assert spt.total_ppn_keluaran == Decimal("0")
+        assert spt.ntpn is None
 
     def test_audit_trail(self, sample_spt):
         sample_spt._history.append({"event": "test"})
@@ -506,6 +609,17 @@ class TestSPTMasaPPN:
         with pytest.raises(SPTInvalidStateError, match="Cannot transition"):
             sample_spt.transition(SPTStatus.SUBMITTED, uuid.uuid4())
 
+    def test_transition_invalid_does_not_mutate_state(self, sample_spt):
+        # Negative path: transisi yang gagal tidak boleh meninggalkan efek
+        # samping (history/version tetap sama).
+        version_before = sample_spt.version
+        history_len_before = len(sample_spt._history)
+        with pytest.raises(SPTInvalidStateError):
+            sample_spt.transition(SPTStatus.SUBMITTED, uuid.uuid4())
+        assert sample_spt.status == SPTStatus.DRAFT
+        assert sample_spt.version == version_before
+        assert len(sample_spt._history) == history_len_before
+
     def test_register_event(self, sample_spt):
         result = sample_spt.register_event("test", {"data": "value"})
         events = result.get_events()
@@ -528,6 +642,15 @@ class TestSPTMasaPPN:
         assert result.total_ppn_keluaran == Decimal("33000")
         assert result.total_retur_keluaran == Decimal("5000")
         assert len(result.detail_pk) == 2
+
+    def test_collect_pk_data_empty_list_resets_totals(self, sample_spt):
+        # Negative/edge path: memanggil ulang dengan list kosong harus
+        # mereset total, bukan mempertahankan nilai lama.
+        sample_spt.collect_pk_data([{"dpp": Decimal("100"), "ppn": Decimal("11")}])
+        result = sample_spt.collect_pk_data([])
+        assert result.pk_count == 0
+        assert result.total_penyerahan_dpp == Decimal("0")
+        assert result.total_ppn_keluaran == Decimal("0")
 
     def test_collect_pm_data(self, sample_spt):
         faktur_list = [
@@ -554,6 +677,10 @@ class TestSPTMasaPPN:
         with pytest.raises(SPTValidationError, match="Invalid NTPN format"):
             sample_spt.set_ntpn("invalid")
 
+    def test_set_ntpn_too_short_raises(self, sample_spt):
+        with pytest.raises(SPTValidationError, match="Invalid NTPN format"):
+            sample_spt.set_ntpn("123")
+
     def test_set_status_restitusi(self, sample_spt):
         result = sample_spt.set_status_restitusi("Kompen")
         assert result.status_restitusi == "Kompen"
@@ -566,6 +693,15 @@ class TestSPTMasaPPN:
         assert result.tracking_id == "TRK-123"
         assert result.coretax_id == "COR-456"
         assert result.status == SPTStatus.SUBMITTED
+
+    def test_set_coretax_response_non_success_does_not_change_status(self, sample_spt):
+        # Negative path: respons Coretax yang bukan "success" tidak boleh
+        # ikut mengubah status SPT ke SUBMITTED.
+        original_status = sample_spt.status
+        response = {"spt_number": "SPT-001", "status": "failed"}
+        result = sample_spt.set_coretax_response(response)
+        assert result.status == original_status
+        assert result.spt_number == "SPT-001"
 
     def test_create_correction(self, sample_spt):
         created_by = uuid.uuid4()
@@ -607,8 +743,8 @@ class TestSPTMasaPPN:
 # Tests for _FallbackSPTRepository
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestFallbackSPTRepository:
+    @pytest.mark.asyncio
     async def test_add_and_get(self, sample_spt):
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
@@ -616,6 +752,7 @@ class TestFallbackSPTRepository:
         assert retrieved is not None
         assert retrieved.spt_id == sample_spt.spt_id
 
+    @pytest.mark.asyncio
     async def test_save(self, sample_spt):
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
@@ -624,6 +761,7 @@ class TestFallbackSPTRepository:
         retrieved = await repo.get_by_id(sample_spt.spt_id)
         assert retrieved.status == SPTStatus.SUBMITTED
 
+    @pytest.mark.asyncio
     async def test_update(self, sample_spt):
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
@@ -632,6 +770,7 @@ class TestFallbackSPTRepository:
         retrieved = await repo.get_by_id(sample_spt.spt_id)
         assert retrieved.total_bayar == Decimal("999")
 
+    @pytest.mark.asyncio
     async def test_delete(self, sample_spt):
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
@@ -639,6 +778,18 @@ class TestFallbackSPTRepository:
         retrieved = await repo.get_by_id(sample_spt.spt_id)
         assert retrieved is None
 
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_does_not_raise(self):
+        # Negative path: hapus id yang tidak pernah ada tidak boleh error.
+        repo = _FallbackSPTRepository()
+        await repo.delete(uuid.uuid4())  # no exception expected
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_not_found_returns_none(self):
+        repo = _FallbackSPTRepository()
+        assert await repo.get_by_id(uuid.uuid4()) is None
+
+    @pytest.mark.asyncio
     async def test_get_by_npwp_period(self, sample_spt):
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
@@ -648,6 +799,7 @@ class TestFallbackSPTRepository:
         retrieved = await repo.get_by_npwp_period("123456789012345", 2026, 6)
         assert retrieved is None
 
+    @pytest.mark.asyncio
     async def test_get_by_tracking_id(self, sample_spt):
         repo = _FallbackSPTRepository()
         sample_spt._tracking_id = "TRK-123"
@@ -656,6 +808,12 @@ class TestFallbackSPTRepository:
         assert retrieved is not None
         assert retrieved.tracking_id == "TRK-123"
 
+    @pytest.mark.asyncio
+    async def test_get_by_tracking_id_not_found_returns_none(self):
+        repo = _FallbackSPTRepository()
+        assert await repo.get_by_tracking_id("UNKNOWN") is None
+
+    @pytest.mark.asyncio
     async def test_get_by_status(self, sample_spt):
         repo = _FallbackSPTRepository()
         sample_spt._status = SPTStatus.PENDING
@@ -664,6 +822,14 @@ class TestFallbackSPTRepository:
         assert len(results) == 1
         assert results[0].status == SPTStatus.PENDING
 
+    @pytest.mark.asyncio
+    async def test_get_by_status_no_match_returns_empty_list(self, sample_spt):
+        repo = _FallbackSPTRepository()
+        await repo.add(sample_spt)  # status DRAFT
+        results = await repo.get_by_status(SPTStatus.APPROVED)
+        assert results == []
+
+    @pytest.mark.asyncio
     async def test_get_pending_submissions(self, sample_spt):
         repo = _FallbackSPTRepository()
         sample_spt._status = SPTStatus.PENDING
@@ -671,6 +837,17 @@ class TestFallbackSPTRepository:
         results = await repo.get_pending_submissions()
         assert len(results) == 1
 
+    @pytest.mark.asyncio
+    async def test_get_pending_submissions_excludes_terminal_status(self, sample_spt):
+        # Negative path: SPT berstatus CANCELLED tidak boleh muncul di
+        # daftar pending submissions.
+        repo = _FallbackSPTRepository()
+        sample_spt._status = SPTStatus.CANCELLED
+        await repo.add(sample_spt)
+        results = await repo.get_pending_submissions()
+        assert results == []
+
+    @pytest.mark.asyncio
     async def test_exists(self, sample_spt):
         repo = _FallbackSPTRepository()
         await repo.add(sample_spt)
@@ -684,8 +861,8 @@ class TestFallbackSPTRepository:
 # Tests for SPTMasaPPNBuilder
 # ============================================================================
 
-@pytest.mark.asyncio
 class TestSPTMasaPPNBuilder:
+    @pytest.mark.asyncio
     async def test_create_new_spt(self, sample_builder):
         sample_builder._repository.exists = AsyncMock(return_value=False)
         sample_builder._repository.add = AsyncMock()
@@ -696,12 +873,29 @@ class TestSPTMasaPPNBuilder:
         assert "spt_id" in result
         assert result["masa_pajak"] == "2026-05"
 
+        # Mock quality: pastikan repository.add benar-benar dipanggil dengan
+        # entity SPTMasaPPN yang npwp/tahun/bulan-nya sesuai permintaan.
+        sample_builder._repository.add.assert_called_once()
+        added_spt = sample_builder._repository.add.call_args.args[0]
+        assert isinstance(added_spt, SPTMasaPPN)
+        assert added_spt.npwp == "123456789012345"
+        assert added_spt.tahun == 2026
+        assert added_spt.bulan == 5
+
+    @pytest.mark.asyncio
     async def test_create_existing_spt_returns_error(self, sample_builder):
-        sample_builder._repository.exists = AsyncMock(return_value=True)
+        existing = make_mock_spt()
+        sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=existing)
+        sample_builder._repository.add = AsyncMock()
+
         result = await sample_builder.create("123456789012345", 2026, 5, uuid.uuid4())
         assert not result["success"]
         assert "already exists" in result["error"]
+        # Negative path: karena SPT sudah ada, repository.add TIDAK boleh
+        # dipanggil sama sekali.
+        sample_builder._repository.add.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_collect_data_success(self, sample_builder):
         tax_service = sample_builder._tax_service
         tax_service.get_faktur_keluaran_by_period = AsyncMock(return_value=[
@@ -731,30 +925,39 @@ class TestSPTMasaPPNBuilder:
         assert result["ntpn"] == "1234567890123456"
         assert result["pk_count"] == 2
         assert result["pm_count"] == 2
+        # Mock quality: pastikan tax_service dipanggil dengan periode yang benar
+        tax_service.get_faktur_keluaran_by_period.assert_called_once_with("123", 2026, 5)
+        tax_service.get_ntpn_for_period.assert_called_once_with("123", 2026, 5, tax_type="ppn")
 
+    @pytest.mark.asyncio
     async def test_collect_data_error(self, sample_builder):
         tax_service = sample_builder._tax_service
         tax_service.get_faktur_keluaran_by_period = AsyncMock(side_effect=Exception("DB error"))
         result = await sample_builder.collect_data("123", 2026, 5)
         assert "error" in result
+        assert result["error"] == "DB error"
         assert result["total_ppn_keluaran"] == Decimal("0")  # fallback values
+        assert result["pk_count"] == 0
+        assert result["detail_pk"] == []
 
+    @pytest.mark.asyncio
     async def test_build_new_spt(self, sample_builder):
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=None)
         with patch.object(sample_builder, "create", return_value={"success": True, "spt_id": "new"}):
             with patch.object(sample_builder, "collect_data", return_value={
                 "detail_pk": [], "detail_pm": [], "kompensasi": Decimal("0"), "ntpn": None
             }):
-                mock_spt = MagicMock()
-                mock_spt.spt_id = uuid.uuid4()
-                mock_spt.masa_pajak = "2026-05"
-                mock_spt.total_ppn_keluaran = Decimal("0")
-                mock_spt.total_ppn_masukan = Decimal("0")
-                mock_spt.ppn_kurang_bayar = Decimal("0")
-                mock_spt.ppn_lebih_bayar = Decimal("0")
-                mock_spt.pk_count = 0
-                mock_spt.pm_count = 0
-                mock_spt.status = SPTStatus.DRAFT
+                mock_spt = make_mock_spt(
+                    spt_id=uuid.uuid4(),
+                    masa_pajak="2026-05",
+                    total_ppn_keluaran=Decimal("0"),
+                    total_ppn_masukan=Decimal("0"),
+                    ppn_kurang_bayar=Decimal("0"),
+                    ppn_lebih_bayar=Decimal("0"),
+                    pk_count=0,
+                    pm_count=0,
+                    status=SPTStatus.DRAFT,
+                )
                 sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
                 mock_spt.collect_pk_data = MagicMock(return_value=mock_spt)
                 mock_spt.collect_pm_data = MagicMock(return_value=mock_spt)
@@ -766,18 +969,21 @@ class TestSPTMasaPPNBuilder:
                 result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
                 assert result["success"]
                 assert "spt_id" in result
+                sample_builder._repository.update.assert_called_once_with(mock_spt)
 
+    @pytest.mark.asyncio
     async def test_build_existing_spt(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.masa_pajak = "2026-05"
-        mock_spt.total_ppn_keluaran = Decimal("0")
-        mock_spt.total_ppn_masukan = Decimal("0")
-        mock_spt.ppn_kurang_bayar = Decimal("0")
-        mock_spt.ppn_lebih_bayar = Decimal("0")
-        mock_spt.pk_count = 0
-        mock_spt.pm_count = 0
-        mock_spt.status = SPTStatus.DRAFT
+        mock_spt = make_mock_spt(
+            spt_id=uuid.uuid4(),
+            masa_pajak="2026-05",
+            total_ppn_keluaran=Decimal("0"),
+            total_ppn_masukan=Decimal("0"),
+            ppn_kurang_bayar=Decimal("0"),
+            ppn_lebih_bayar=Decimal("0"),
+            pk_count=0,
+            pm_count=0,
+            status=SPTStatus.DRAFT,
+        )
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
         with patch.object(sample_builder, "collect_data", return_value={
             "detail_pk": [], "detail_pm": [], "kompensasi": Decimal("0"), "ntpn": None
@@ -791,8 +997,34 @@ class TestSPTMasaPPNBuilder:
             result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
             assert result["success"]
 
+    @pytest.mark.asyncio
+    async def test_build_collect_data_error_short_circuits(self, sample_builder):
+        # Negative path: jika collect_data mengembalikan "error", build()
+        # harus berhenti dan mengembalikan error tanpa menyentuh repository.update.
+        mock_spt = make_mock_spt(spt_id=uuid.uuid4())
+        sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+        with patch.object(sample_builder, "collect_data", return_value={"error": "DB error"}):
+            result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
+        assert not result["success"]
+        assert result["error"] == "DB error"
+        sample_builder._repository.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_build_when_create_fails_propagates_error(self, sample_builder):
+        # Negative path: jika SPT belum ada dan create() gagal, build()
+        # harus meneruskan error dari create() tanpa lanjut mengumpulkan data.
+        sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=None)
+        with patch.object(sample_builder, "create", return_value={"success": False, "error": "already exists"}):
+            with patch.object(sample_builder, "collect_data") as mock_collect_data:
+                result = await sample_builder.build("123", 2026, 5, uuid.uuid4())
+        assert not result["success"]
+        assert result["error"] == "already exists"
+        mock_collect_data.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_validate_spt_success(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt(npwp="123", tahun=2026, bulan=5, spt_id=uuid.uuid4(), status=SPTStatus.VALIDATED)
         mock_spt.validate = MagicMock(return_value=mock_spt)
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         sample_builder._repository.update = AsyncMock()
@@ -801,42 +1033,71 @@ class TestSPTMasaPPNBuilder:
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
         assert result["success"]
         assert result["valid"]
+        sample_builder._repository.update.assert_called_once_with(mock_spt)
 
+    @pytest.mark.asyncio
     async def test_validate_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_validate_spt_validation_error(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt()
         mock_spt.validate = MagicMock(side_effect=SPTValidationError("Invalid"))
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
         result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
         assert not result["success"]
         assert not result["valid"]
         assert "Invalid" in result["error"]
+        # Negative path: kalau validasi gagal, repository.update tidak boleh
+        # dipanggil (state tidak boleh dipersist).
+        sample_builder._repository.update.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_validate_spt_locked_error(self, sample_builder):
+        # Negative path: SPTLockedError harus ditangani terpisah dari
+        # SPTValidationError dan tidak mengembalikan key "valid".
+        mock_spt = make_mock_spt()
+        mock_spt.validate = MagicMock(side_effect=SPTLockedError("SPT is locked"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
+        assert not result["success"]
+        assert "locked" in result["error"]
+        assert "valid" not in result
+
+    @pytest.mark.asyncio
+    async def test_validate_spt_invalid_state_error(self, sample_builder):
+        mock_spt = make_mock_spt()
+        mock_spt.validate = MagicMock(side_effect=SPTInvalidStateError("Cannot validate"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        result = await sample_builder.validate_spt(uuid.uuid4(), uuid.uuid4())
+        assert not result["success"]
+        assert "Cannot validate" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_submit_spt_success(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.masa_pajak = "2026-05"
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
+        mock_spt = make_mock_spt(
+            status=SPTStatus.SUBMITTED,
+            spt_id=uuid.uuid4(),
+            npwp="123",
+            tahun=2026,
+            bulan=5,
+            masa_pajak="2026-05",
+            spt_type=SPTType.NORMAL,
+            correction_number=0,
+            spt_number="SPT-001",
+            tracking_id="TRK-123",
+            coretax_id="COR-456",
+        )
         mock_spt._generate_xml = MagicMock(return_value="<xml/>")
         mock_spt.calculate = MagicMock(return_value=mock_spt)
         mock_spt.validate = MagicMock(return_value=mock_spt)
         mock_spt.submit = MagicMock(return_value=mock_spt)
         mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
         mock_spt.transition = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
 
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         sample_builder._repository.update = AsyncMock()
@@ -850,15 +1111,30 @@ class TestSPTMasaPPNBuilder:
         assert result["spt_number"] == "SPT-001"
         assert result["tracking_id"] == "TRK-123"
 
+        # Mock quality: pastikan payload yang dikirim ke Coretax memuat data
+        # SPT yang benar, bukan hanya bahwa client.post dipanggil.
+        client.post.assert_called_once_with(
+            CORETAX_SPT_PPN_ENDPOINT,
+            {
+                "spt_xml": ANY,
+                "npwp": "123",
+                "tahun": 2026,
+                "bulan": 5,
+                "spt_type": SPTType.NORMAL.value,
+                "correction_number": 0,
+            },
+        )
+
+    @pytest.mark.asyncio
     async def test_submit_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.submit_spt(uuid.uuid4(), uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_submit_spt_validation_error(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.DRAFT
+        mock_spt = make_mock_spt(status=SPTStatus.DRAFT)
         mock_spt.calculate = MagicMock(return_value=mock_spt)
         mock_spt.validate = MagicMock(side_effect=SPTValidationError("Invalid"))
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
@@ -866,16 +1142,18 @@ class TestSPTMasaPPNBuilder:
         assert not result["success"]
         assert "Invalid" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_submit_spt_coretax_auth_error(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.masa_pajak = "2026-05"
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
+        mock_spt = make_mock_spt(
+            status=SPTStatus.CALCULATED,
+            spt_id=uuid.uuid4(),
+            npwp="123",
+            tahun=2026,
+            bulan=5,
+            masa_pajak="2026-05",
+            spt_type=SPTType.NORMAL,
+            correction_number=0,
+        )
         mock_spt._generate_xml = MagicMock(return_value="<xml/>")
         mock_spt.calculate = MagicMock(return_value=mock_spt)
         mock_spt.validate = MagicMock(return_value=mock_spt)
@@ -892,25 +1170,64 @@ class TestSPTMasaPPNBuilder:
         assert not result["success"]
         assert "Coretax authentication failed" in result["error"]
         mock_spt.transition.assert_called_with(SPTStatus.ERROR, ANY, ANY)
+        # Negative path: SPT dengan status ERROR tetap harus dipersist supaya
+        # tidak "hilang" di status lama.
+        sample_builder._repository.update.assert_called_with(mock_spt)
 
+    @pytest.mark.asyncio
+    async def test_submit_spt_generic_exception_transitions_to_error(self, sample_builder):
+        # Negative path yang sebelumnya tidak diuji: kegagalan non-auth
+        # (mis. koneksi putus berulang kali) harus tetap masuk ke branch
+        # except Exception, men-transition ke ERROR, dan mencoba trigger_alert
+        # tanpa membuat test meledak walau modul alert tidak tersedia.
+        mock_spt = make_mock_spt(
+            status=SPTStatus.CALCULATED,
+            spt_id=uuid.uuid4(),
+            npwp="123",
+            tahun=2026,
+            bulan=5,
+            masa_pajak="2026-05",
+            spt_type=SPTType.NORMAL,
+            correction_number=0,
+        )
+        mock_spt._generate_xml = MagicMock(return_value="<xml/>")
+        mock_spt.calculate = MagicMock(return_value=mock_spt)
+        mock_spt.validate = MagicMock(return_value=mock_spt)
+        mock_spt.submit = MagicMock(return_value=mock_spt)
+        mock_spt.transition = MagicMock(return_value=mock_spt)
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+
+        client = sample_builder._coretax_client
+        client.post = AsyncMock(side_effect=ConnectionError("network down"))
+
+        result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
+        assert not result["success"]
+        assert "network down" in result["error"]
+        mock_spt.transition.assert_called_with(SPTStatus.ERROR, ANY, "network down")
+        sample_builder._repository.update.assert_called_with(mock_spt)
+        # Retry harus dicoba MAX_RETRY_ATTEMPTS kali sebelum menyerah.
+        assert client.post.call_count == 3
+
+    @pytest.mark.asyncio
     async def test_submit_spt_retry_success(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.status = SPTStatus.CALCULATED
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.spt_type = SPTType.NORMAL
-        mock_spt.correction_number = 0
+        mock_spt = make_mock_spt(
+            status=SPTStatus.CALCULATED,
+            spt_id=uuid.uuid4(),
+            npwp="123",
+            tahun=2026,
+            bulan=5,
+            spt_type=SPTType.NORMAL,
+            correction_number=0,
+            spt_number="SPT-001",
+            tracking_id="TRK-123",
+            coretax_id="COR-456",
+        )
         mock_spt._generate_xml = MagicMock(return_value="<xml/>")
         mock_spt.calculate = MagicMock(return_value=mock_spt)
         mock_spt.validate = MagicMock(return_value=mock_spt)
         mock_spt.submit = MagicMock(return_value=mock_spt)
         mock_spt.set_coretax_response = MagicMock(return_value=mock_spt)
-        mock_spt.spt_number = "SPT-001"
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.coretax_id = "COR-456"
-        mock_spt.status = SPTStatus.SUBMITTED
 
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         sample_builder._repository.update = AsyncMock()
@@ -921,26 +1238,28 @@ class TestSPTMasaPPNBuilder:
 
         result = await sample_builder.submit_spt(mock_spt.spt_id, uuid.uuid4())
         assert result["success"]
+        # Mock quality: pastikan memang retry terjadi (dipanggil 2x), bukan
+        # kebetulan sukses di percobaan pertama.
+        assert client.post.call_count == 2
 
+    @pytest.mark.asyncio
     async def test_check_spt_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.check_spt_status(uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_check_spt_status_no_tracking_id(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.tracking_id = None
-        mock_spt.status = SPTStatus.DRAFT
+        mock_spt = make_mock_spt(tracking_id=None, status=SPTStatus.DRAFT)
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.check_spt_status(uuid.uuid4())
         assert result["success"]
         assert result["message"] == "Not yet submitted to Coretax"
 
+    @pytest.mark.asyncio
     async def test_check_spt_status_success(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.status = SPTStatus.SUBMITTED
+        mock_spt = make_mock_spt(tracking_id="TRK-123", status=SPTStatus.SUBMITTED)
         mock_spt.approve = MagicMock(return_value=mock_spt)
         mock_spt.reject = MagicMock(return_value=mock_spt)
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
@@ -952,15 +1271,52 @@ class TestSPTMasaPPNBuilder:
         result = await sample_builder.check_spt_status(uuid.uuid4())
         assert result["success"]
         assert result["status"] == SPTStatus.APPROVED.value
+        mock_spt.approve.assert_called_once()
+        mock_spt.reject.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_check_spt_status_rejected(self, sample_builder):
+        mock_spt = make_mock_spt(tracking_id="TRK-123", status=SPTStatus.SUBMITTED)
+        mock_spt.approve = MagicMock(return_value=mock_spt)
+        mock_spt.reject = MagicMock(return_value=mock_spt)
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+
+        client = sample_builder._coretax_client
+        client.get = AsyncMock(return_value={"status": "rejected", "rejection_reason": "data tidak sesuai"})
+
+        result = await sample_builder.check_spt_status(uuid.uuid4())
+        assert result["success"]
+        mock_spt.reject.assert_called_once_with(UUID_ZERO, "data tidak sesuai")
+        mock_spt.approve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_check_spt_status_error(self, sample_builder):
+        # Negative path yang sebelumnya tidak diuji: kalau client Coretax
+        # melempar exception, check_spt_status harus mengembalikan error
+        # terstruktur, bukan meledak ke pemanggil.
+        mock_spt = make_mock_spt(tracking_id="TRK-123", status=SPTStatus.SUBMITTED)
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+
+        client = sample_builder._coretax_client
+        client.get = AsyncMock(side_effect=Exception("timeout"))
+
+        result = await sample_builder.check_spt_status(uuid.uuid4())
+        assert not result["success"]
+        assert "timeout" in result["error"]
+        sample_builder._repository.update.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_cancel_spt_success(self, sample_builder):
-        mock_spt = MagicMock()
-        mock_spt.spt_id = uuid.uuid4()
-        mock_spt.tracking_id = "TRK-123"
-        mock_spt.npwp = "123"
-        mock_spt.tahun = 2026
-        mock_spt.bulan = 5
-        mock_spt.status = SPTStatus.DRAFT
+        mock_spt = make_mock_spt(
+            spt_id=uuid.uuid4(),
+            tracking_id="TRK-123",
+            npwp="123",
+            tahun=2026,
+            bulan=5,
+            status=SPTStatus.DRAFT,
+        )
         mock_spt.cancel = MagicMock(return_value=mock_spt)
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         sample_builder._repository.update = AsyncMock()
@@ -973,69 +1329,158 @@ class TestSPTMasaPPNBuilder:
         result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
         assert result["success"]
         assert result["cancelled"]
+        mock_spt.cancel.assert_called_once()
+        client.post.assert_called_once_with(
+            "/api/v1/spt/cancel", {"tracking_id": "TRK-123", "reason": "reason"}
+        )
 
+    @pytest.mark.asyncio
     async def test_cancel_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_cancel_spt_locked_error(self, sample_builder):
+        # Negative path: SPT yang terkunci tidak boleh berhasil dibatalkan.
+        mock_spt = make_mock_spt()
+        mock_spt.cancel = MagicMock(side_effect=SPTLockedError("SPT is locked"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+
+        result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
+        assert not result["success"]
+        assert "locked" in result["error"]
+        sample_builder._repository.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancel_spt_invalid_state_error(self, sample_builder):
+        mock_spt = make_mock_spt()
+        mock_spt.cancel = MagicMock(side_effect=SPTInvalidStateError("Cannot cancel"))
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+
+        result = await sample_builder.cancel_spt(uuid.uuid4(), uuid.uuid4(), "reason")
+        assert not result["success"]
+        assert "Cannot cancel" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_cancel_spt_coretax_notify_failure_still_succeeds(self, sample_builder):
+        # Negative path: kegagalan memberi tahu Coretax tentang pembatalan
+        # tidak boleh membuat keseluruhan operasi cancel_spt gagal, karena
+        # SPT sudah terlanjur dibatalkan secara lokal.
+        mock_spt = make_mock_spt(
+            spt_id=uuid.uuid4(),
+            tracking_id="TRK-123",
+            npwp="123",
+            tahun=2026,
+            bulan=5,
+            status=SPTStatus.DRAFT,
+        )
+        mock_spt.cancel = MagicMock(return_value=mock_spt)
+        sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
+        sample_builder._repository.update = AsyncMock()
+        sample_builder._cache = {}
+        sample_builder._get_cache_key = MagicMock(return_value="key")
+
+        client = sample_builder._coretax_client
+        client.post = AsyncMock(side_effect=Exception("Coretax down"))
+
+        result = await sample_builder.cancel_spt(mock_spt.spt_id, uuid.uuid4(), "reason")
+        assert result["success"]
+        assert result["cancelled"]
+
+    @pytest.mark.asyncio
     async def test_create_correction_spt_success(self, sample_builder):
-        previous_spt = MagicMock()
-        previous_spt.create_correction = MagicMock(return_value=MagicMock(spt_id=uuid.uuid4(), masa_pajak="2026-05", correction_number=1, status=SPTStatus.DRAFT))
+        correction_result = make_mock_spt(
+            spt_id=uuid.uuid4(), masa_pajak="2026-05", correction_number=1, status=SPTStatus.DRAFT
+        )
+        previous_spt = make_mock_spt()
+        previous_spt.create_correction = MagicMock(return_value=correction_result)
         sample_builder._repository.get_by_id = AsyncMock(return_value=previous_spt)
         sample_builder._repository.add = AsyncMock()
         result = await sample_builder.create_correction_spt("123", 2026, 5, uuid.uuid4(), 1, uuid.uuid4())
         assert result["success"]
         assert result["correction_number"] == 1
+        sample_builder._repository.add.assert_called_once_with(correction_result)
 
+    @pytest.mark.asyncio
     async def test_create_correction_spt_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        sample_builder._repository.add = AsyncMock()
         result = await sample_builder.create_correction_spt("123", 2026, 5, uuid.uuid4(), 1, uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
+        sample_builder._repository.add.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_get_by_id(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt()
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_by_id(uuid.uuid4())
         assert result is mock_spt
 
+    @pytest.mark.asyncio
+    async def test_get_by_id_not_found_returns_none(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.get_by_id(uuid.uuid4())
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_get_by_npwp_period(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt()
         sample_builder._repository.get_by_npwp_period = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_by_npwp_period("123", 2026, 5)
         assert result is mock_spt
 
+    @pytest.mark.asyncio
     async def test_get_status(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt()
         mock_spt.get_status = MagicMock(return_value={"status": "draft"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_status(uuid.uuid4())
         assert result["success"]
         assert result["status"] == "draft"
 
+    @pytest.mark.asyncio
     async def test_get_status_not_found(self, sample_builder):
         sample_builder._repository.get_by_id = AsyncMock(return_value=None)
         result = await sample_builder.get_status(uuid.uuid4())
         assert not result["success"]
         assert "not found" in result["error"]
 
+    @pytest.mark.asyncio
     async def test_get_history(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt()
         mock_spt.get_history = MagicMock(return_value=[{"event": "test"}])
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.get_history(uuid.uuid4())
         assert result["success"]
         assert len(result["history"]) == 1
 
+    @pytest.mark.asyncio
+    async def test_get_history_not_found(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.get_history(uuid.uuid4())
+        assert not result["success"]
+        assert "not found" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_snapshot(self, sample_builder):
-        mock_spt = MagicMock()
+        mock_spt = make_mock_spt()
         mock_spt.snapshot = MagicMock(return_value={"spt_id": "123"})
         sample_builder._repository.get_by_id = AsyncMock(return_value=mock_spt)
         result = await sample_builder.snapshot(uuid.uuid4())
         assert result["success"]
         assert result["spt_id"] == "123"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_not_found(self, sample_builder):
+        sample_builder._repository.get_by_id = AsyncMock(return_value=None)
+        result = await sample_builder.snapshot(uuid.uuid4())
+        assert not result["success"]
+        assert "not found" in result["error"]
 
     def test_build_sync(self, sample_builder):
         faktur_list = [
@@ -1049,6 +1494,29 @@ class TestSPTMasaPPNBuilder:
         assert spt.total_ppn_terutang == Decimal("110000")
         assert spt.masa == 5
         assert spt.tahun == 2026
+
+    def test_build_sync_empty_list_returns_zero(self, sample_builder):
+        # Negative/edge path: daftar faktur kosong tidak boleh membuat
+        # error, hasilnya harus total nol.
+        spt = sample_builder.build_sync([], 5, 2026)
+        assert spt.total_ppn_terutang == Decimal("0")
+
+    def test_build_sync_unrecognized_faktur_shape_defaults_to_zero(self, sample_builder):
+        # Negative/edge path: item yang bukan dict, tidak punya atribut ppn,
+        # dan tidak punya atribut data harus dianggap PPN 0, bukan error.
+        class Unknown:
+            pass
+
+        spt = sample_builder.build_sync([Unknown()], 5, 2026)
+        assert spt.total_ppn_terutang == Decimal("0")
+
+    def test_init_file_storage_import_failure_leaves_file_storage_none(self):
+        # Negative path yang sebelumnya tidak diuji: kalau S3FileStorageAdapter
+        # tidak tersedia (ImportError), builder tidak boleh crash saat init,
+        # cukup log warning dan _file_storage tetap None.
+        with patch.dict("sys.modules", {"infrastructure.file_storage.s3_adapter": None}):
+            builder = SPTMasaPPNBuilder(config={})
+        assert builder._file_storage is None
 
 
 # ============================================================================

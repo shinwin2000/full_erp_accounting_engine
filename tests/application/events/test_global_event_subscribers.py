@@ -34,7 +34,8 @@ async def test_handle_any_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_any_event needs specific input data: {e}")
         return
-    assert True
+    # The function returns None
+    assert result is None
 
 
 async def test_handle_account_reactivated_event_smoke():
@@ -44,7 +45,7 @@ async def test_handle_account_reactivated_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_account_reactivated_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_bank_account_updated_event_smoke():
@@ -54,7 +55,7 @@ async def test_handle_bank_account_updated_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_bank_account_updated_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_dividend_paid_event_smoke():
@@ -64,7 +65,7 @@ async def test_handle_dividend_paid_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_dividend_paid_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_faktur_rejected_event_smoke():
@@ -74,7 +75,7 @@ async def test_handle_faktur_rejected_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_faktur_rejected_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_intangible_asset_revaluated_event_smoke():
@@ -84,7 +85,7 @@ async def test_handle_intangible_asset_revaluated_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_intangible_asset_revaluated_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_production_completed_event_smoke():
@@ -94,7 +95,7 @@ async def test_handle_production_completed_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_production_completed_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_project_activated_event_smoke():
@@ -104,7 +105,7 @@ async def test_handle_project_activated_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_project_activated_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_role_revoked_event_smoke():
@@ -114,7 +115,7 @@ async def test_handle_role_revoked_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_role_revoked_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_time_entry_approved_event_smoke():
@@ -124,7 +125,7 @@ async def test_handle_time_entry_approved_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_time_entry_approved_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 async def test_handle_work_order_completed_event_smoke():
@@ -134,7 +135,7 @@ async def test_handle_work_order_completed_event_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_work_order_completed_event needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 def test_register_global_subscribers_smoke():
@@ -144,7 +145,7 @@ def test_register_global_subscribers_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"register_global_subscribers needs specific input data: {e}")
         return
-    assert True
+    assert result is None
 
 
 def test_register_all_subscribers_smoke():
@@ -154,4 +155,4 @@ def test_register_all_subscribers_smoke():
     except (Exception, SystemExit) as e:
         pytest.skip(f"register_all_subscribers needs specific input data: {e}")
         return
-    assert True
+    assert result is None

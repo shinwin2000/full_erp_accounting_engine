@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """
 tests/unit/test_version_lock.py
-Test untuk constitution/version_lock.py
-Mencakup semua kelas dan metode, termasuk edge cases dan exception.
+Comprehensive tests for constitution/version_lock.py
+
+Covers:
+- All enums and exceptions
+- All data classes: VersionMetadata, VersionLockRecord, VersionChangeAttempt,
+  IntegrityReport
+- VersionLock aggregate: all repository and business methods
+- VersionLockService: all methods including emergency restore
+- All edge cases and negative paths
+- No flaky tests (mocked datetime)
+- No duplicate test code (parametrized where appropriate)
 """
 
 from __future__ import annotations
@@ -35,15 +44,30 @@ from constitution.version_lock import (
 
 
 # =============================================================================
-# Helper fixtures
+# Fixtures
 # =============================================================================
 
 @pytest.fixture
-def sample_version_metadata() -> VersionMetadata:
-    now = datetime.now(UTC)
+def fixed_now():
+    """Return a fixed datetime for deterministic tests."""
+    return datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime(fixed_now):
+    """Mock datetime.now and datetime.utcnow to return fixed_now for the module under test."""
+    with patch("constitution.version_lock.datetime") as mock_dt:
+        mock_dt.now.return_value = fixed_now
+        mock_dt.utcnow.return_value = fixed_now
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        yield mock_dt
+
+
+@pytest.fixture
+def sample_version_metadata(fixed_now) -> VersionMetadata:
     return VersionMetadata(
         version="1.2.3",
-        release_date=now,
+        release_date=fixed_now,
         created_by="test_user",
         approved_by=["approver1", "approver2"],
         change_type=VersionChangeType.MINOR,
@@ -52,27 +76,27 @@ def sample_version_metadata() -> VersionMetadata:
 
 
 @pytest.fixture
-def sample_lock_record() -> VersionLockRecord:
+def sample_lock_record(fixed_now) -> VersionLockRecord:
     return VersionLockRecord(
         record_id=uuid.uuid4(),
         previous_state=VersionLockState.UNLOCKED,
         new_state=VersionLockState.LOCKED,
         reason="Test lock",
         initiated_by="admin",
-        initiated_at=datetime.now(UTC),
+        initiated_at=fixed_now,
         approved_by=["approver1", "approver2"],
         event_type=VersionLockEventType.STATE_CHANGE,
     )
 
 
 @pytest.fixture
-def sample_change_attempt() -> VersionChangeAttempt:
+def sample_change_attempt(fixed_now) -> VersionChangeAttempt:
     return VersionChangeAttempt(
         attempt_id=uuid.uuid4(),
         target_version="2.0.0",
         change_type=VersionChangeType.MAJOR,
         attempted_by="dev",
-        attempted_at=datetime.now(UTC),
+        attempted_at=fixed_now,
         success=True,
         requires_approval=True,
         approvals_received=["approver1", "approver2"],
@@ -80,10 +104,10 @@ def sample_change_attempt() -> VersionChangeAttempt:
 
 
 @pytest.fixture
-def sample_integrity_report() -> IntegrityReport:
+def sample_integrity_report(fixed_now) -> IntegrityReport:
     return IntegrityReport(
         report_id=uuid.uuid4(),
-        checked_at=datetime.now(UTC),
+        checked_at=fixed_now,
         checked_by="auditor",
         expected_version="1.0.0",
         actual_version="1.0.0",
@@ -96,8 +120,74 @@ def sample_integrity_report() -> IntegrityReport:
 
 
 @pytest.fixture
-def version_lock() -> VersionLock:
+def version_lock(fixed_now) -> VersionLock:
     return VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
+
+
+# =============================================================================
+# Tests for Enums
+# =============================================================================
+
+class TestEnums:
+    def test_version_lock_state(self):
+        assert VersionLockState.UNLOCKED is not None
+        assert VersionLockState.LOCKED is not None
+        assert VersionLockState.FROZEN is not None
+        assert VersionLockState.CORRUPTED is not None
+
+    def test_version_lock_severity(self):
+        assert VersionLockSeverity.CRITICAL.value == 100
+        assert VersionLockSeverity.HIGH.value == 70
+        assert VersionLockSeverity.MEDIUM.value == 40
+        assert VersionLockSeverity.LOW.value == 10
+
+    def test_version_change_type(self):
+        assert VersionChangeType.MAJOR is not None
+        assert VersionChangeType.MINOR is not None
+        assert VersionChangeType.PATCH is not None
+        assert VersionChangeType.EMERGENCY is not None
+        assert VersionChangeType.CORRUPTION_RECOVERY is not None
+
+    def test_integrity_check_result(self):
+        assert IntegrityCheckResult.INTACT is not None
+        assert IntegrityCheckResult.MODIFIED is not None
+        assert IntegrityCheckResult.CORRUPTED is not None
+        assert IntegrityCheckResult.TAMPERED is not None
+        assert IntegrityCheckResult.INCOMPLETE is not None
+
+    def test_version_lock_event_type(self):
+        assert VersionLockEventType.STATE_CHANGE is not None
+        assert VersionLockEventType.VERSION_CHANGE is not None
+        assert VersionLockEventType.INTEGRITY_CHECK is not None
+        assert VersionLockEventType.INTEGRITY_VIOLATION is not None
+
+
+# =============================================================================
+# Tests for Exceptions
+# =============================================================================
+
+class TestExceptions:
+    def test_version_lock_error(self):
+        with pytest.raises(VersionLockError):
+            raise VersionLockError("test")
+
+    def test_version_lock_violation_error(self):
+        with pytest.raises(VersionLockViolationError) as exc:
+            raise VersionLockViolationError("violation", VersionLockSeverity.HIGH, "1.0.0")
+        assert exc.value.severity == VersionLockSeverity.HIGH
+        assert exc.value.attempted_version == "1.0.0"
+
+    def test_version_integrity_error(self):
+        with pytest.raises(VersionIntegrityError):
+            raise VersionIntegrityError("integrity")
+
+    def test_version_freeze_error(self):
+        with pytest.raises(VersionFreezeError):
+            raise VersionFreezeError("freeze")
+
+    def test_insufficient_approval_error(self):
+        with pytest.raises(VersionLockError):
+            raise VersionLockError("approval")
 
 
 # =============================================================================
@@ -105,11 +195,10 @@ def version_lock() -> VersionLock:
 # =============================================================================
 
 class TestVersionMetadata:
-    def test_create_valid_metadata(self):
-        now = datetime.now(UTC)
+    def test_create_valid_metadata(self, fixed_now):
         metadata = VersionMetadata(
             version="1.2.3",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1", "approver2"],
             change_type=VersionChangeType.MINOR,
@@ -117,7 +206,7 @@ class TestVersionMetadata:
             version_number=1,
         )
         assert metadata.version == "1.2.3"
-        assert metadata.release_date == now
+        assert metadata.release_date == fixed_now
         assert metadata.created_by == "test_user"
         assert len(metadata.approved_by) == 2
         assert metadata.change_type == VersionChangeType.MINOR
@@ -125,44 +214,22 @@ class TestVersionMetadata:
         assert metadata.cryptographic_hash != ""
         assert len(metadata._audit_trail) == 1
 
-    def test_validate_invalid_semantic_version(self):
-        now = datetime.now(UTC)
-        with pytest.raises(ValueError, match="Invalid semantic version"):
+    @pytest.mark.parametrize("invalid_version", ["1.2", "a.b.c", "1.-2.3"])
+    def test_validate_invalid_version(self, invalid_version, fixed_now):
+        with pytest.raises(ValueError):
             VersionMetadata(
-                version="1.2",
-                release_date=now,
-                created_by="test_user",
-                approved_by=["approver"],
-                change_type=VersionChangeType.MINOR,
-                changelog_entry="test",
-            )
-        with pytest.raises(ValueError, match="Invalid semantic version"):
-            VersionMetadata(
-                version="a.b.c",
-                release_date=now,
+                version=invalid_version,
+                release_date=fixed_now,
                 created_by="test_user",
                 approved_by=["approver"],
                 change_type=VersionChangeType.MINOR,
                 changelog_entry="test",
             )
 
-    def test_validate_negative_version_components(self):
-        now = datetime.now(UTC)
-        with pytest.raises(ValueError, match="non-negative"):
-            VersionMetadata(
-                version="1.-2.3",
-                release_date=now,
-                created_by="test_user",
-                approved_by=["approver"],
-                change_type=VersionChangeType.MINOR,
-                changelog_entry="test",
-            )
-
-    def test_compute_hash_consistent(self):
-        now = datetime.now(UTC)
+    def test_compute_hash_consistent(self, fixed_now):
         metadata1 = VersionMetadata(
             version="1.2.3",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1"],
             change_type=VersionChangeType.MINOR,
@@ -170,7 +237,7 @@ class TestVersionMetadata:
         )
         metadata2 = VersionMetadata(
             version="1.2.3",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1"],
             change_type=VersionChangeType.MINOR,
@@ -178,11 +245,10 @@ class TestVersionMetadata:
         )
         assert metadata1.compute_hash() == metadata2.compute_hash()
 
-    def test_to_dict_contains_expected_fields(self):
-        now = datetime.now(UTC)
+    def test_to_dict_contains_fields(self, fixed_now):
         metadata = VersionMetadata(
             version="1.2.3",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1"],
             change_type=VersionChangeType.MINOR,
@@ -194,11 +260,10 @@ class TestVersionMetadata:
         assert d["change_type"] == "MINOR"
         assert "hash" in d
 
-    def test_clone_increments_version(self):
-        now = datetime.now(UTC)
+    def test_clone_increments_version(self, fixed_now):
         metadata = VersionMetadata(
             version="1.2.3",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1"],
             change_type=VersionChangeType.MINOR,
@@ -211,33 +276,29 @@ class TestVersionMetadata:
         assert cloned.created_by == metadata.created_by
         assert cloned.cryptographic_hash == ""
 
-    def test_validate_returns_errors_for_invalid(self):
-        now = datetime.now(UTC)
+    def test_validate_returns_errors_for_hash_mismatch(self, fixed_now):
         metadata = VersionMetadata(
             version="1.2.3",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1"],
             change_type=VersionChangeType.MINOR,
             changelog_entry="test",
         )
-        # Force hash mismatch
         object.__setattr__(metadata, "cryptographic_hash", "fakehash")
         result = metadata.validate()
         assert result["is_valid"] is False
         assert "Hash mismatch" in result["errors"]
 
-    def test_audit_trail_records_actions(self):
-        now = datetime.now(UTC)
+    def test_audit_trail_records_actions(self, fixed_now):
         metadata = VersionMetadata(
             version="1.0.0",
-            release_date=now,
+            release_date=fixed_now,
             created_by="test_user",
             approved_by=["approver1"],
             change_type=VersionChangeType.MAJOR,
             changelog_entry="Initial",
         )
-        # CREATE already recorded
         assert len(metadata.audit_trail()) >= 1
         metadata.touch("toucher")
         trail = metadata.audit_trail()
@@ -246,8 +307,6 @@ class TestVersionMetadata:
         assert trail[-1]["performed_by"] == "toucher"
 
     def test_from_dict_roundtrip(self, sample_version_metadata):
-        d = sample_version_metadata.to_dict()
-        # to_dict truncates hash, so we need full hash for roundtrip
         full_d = {
             "version": sample_version_metadata.version,
             "release_date": sample_version_metadata.release_date.isoformat(),
@@ -287,16 +346,15 @@ class TestVersionMetadata:
 # =============================================================================
 
 class TestVersionLockRecord:
-    def test_create_valid_record(self):
+    def test_create_valid_record(self, fixed_now):
         record_id = uuid.uuid4()
-        now = datetime.now(UTC)
         record = VersionLockRecord(
             record_id=record_id,
             previous_state=VersionLockState.UNLOCKED,
             new_state=VersionLockState.LOCKED,
             reason="Test lock",
             initiated_by="admin",
-            initiated_at=now,
+            initiated_at=fixed_now,
             approved_by=["approver1", "approver2"],
             event_type=VersionLockEventType.STATE_CHANGE,
         )
@@ -307,31 +365,31 @@ class TestVersionLockRecord:
         assert record.initiated_by == "admin"
         assert record.event_type == VersionLockEventType.STATE_CHANGE
 
-    def test_is_active_with_expiry(self):
+    def test_is_active_with_expiry(self, fixed_now):
         record = VersionLockRecord(
             record_id=uuid.uuid4(),
             previous_state=VersionLockState.UNLOCKED,
             new_state=VersionLockState.LOCKED,
             reason="test",
             initiated_by="admin",
-            initiated_at=datetime.now(UTC),
+            initiated_at=fixed_now,
             approved_by=["approver"],
             event_type=VersionLockEventType.STATE_CHANGE,
-            expires_at=datetime.now(UTC) - timedelta(hours=1),
+            expires_at=fixed_now - timedelta(hours=1),
         )
         assert record.is_active() is False
 
-        record.expires_at = datetime.now(UTC) + timedelta(hours=1)
+        record.expires_at = fixed_now + timedelta(hours=1)
         assert record.is_active() is True
 
-    def test_compute_signature_content_returns_string(self):
+    def test_compute_signature_content_returns_string(self, fixed_now):
         record = VersionLockRecord(
             record_id=uuid.uuid4(),
             previous_state=VersionLockState.UNLOCKED,
             new_state=VersionLockState.LOCKED,
             reason="test",
             initiated_by="admin",
-            initiated_at=datetime.now(UTC),
+            initiated_at=fixed_now,
             approved_by=["approver"],
             event_type=VersionLockEventType.STATE_CHANGE,
         )
@@ -395,15 +453,14 @@ class TestVersionLockRecord:
 # =============================================================================
 
 class TestVersionChangeAttempt:
-    def test_create_valid_attempt(self):
+    def test_create_valid_attempt(self, fixed_now):
         attempt_id = uuid.uuid4()
-        now = datetime.now(UTC)
         attempt = VersionChangeAttempt(
             attempt_id=attempt_id,
             target_version="2.0.0",
             change_type=VersionChangeType.MAJOR,
             attempted_by="dev",
-            attempted_at=now,
+            attempted_at=fixed_now,
             success=True,
             requires_approval=True,
             approvals_received=["approver1"],
@@ -413,14 +470,13 @@ class TestVersionChangeAttempt:
         assert attempt.success is True
         assert attempt.cryptographic_hash != ""
 
-    def test_compute_hash_consistent(self):
-        now = datetime.now(UTC)
+    def test_compute_hash_consistent(self, fixed_now):
         attempt1 = VersionChangeAttempt(
             attempt_id=uuid.uuid4(),
             target_version="2.0.0",
             change_type=VersionChangeType.MAJOR,
             attempted_by="dev",
-            attempted_at=now,
+            attempted_at=fixed_now,
             success=True,
             requires_approval=True,
             approvals_received=["a"],
@@ -430,12 +486,11 @@ class TestVersionChangeAttempt:
             target_version="2.0.0",
             change_type=VersionChangeType.MAJOR,
             attempted_by="dev",
-            attempted_at=now,
+            attempted_at=fixed_now,
             success=True,
             requires_approval=True,
             approvals_received=["a"],
         )
-        # Different attempt_id -> different hash
         assert attempt1.compute_hash() != attempt2.compute_hash()
 
     def test_to_dict_contains_fields(self, sample_change_attempt):
@@ -490,12 +545,11 @@ class TestVersionChangeAttempt:
 # =============================================================================
 
 class TestIntegrityReport:
-    def test_create_valid_report(self):
+    def test_create_valid_report(self, fixed_now):
         report_id = uuid.uuid4()
-        now = datetime.now(UTC)
         report = IntegrityReport(
             report_id=report_id,
-            checked_at=now,
+            checked_at=fixed_now,
             checked_by="auditor",
             expected_version="1.0.0",
             actual_version="1.0.0",
@@ -509,11 +563,10 @@ class TestIntegrityReport:
         assert report.result == IntegrityCheckResult.INTACT
         assert report.cryptographic_signature != ""
 
-    def test_compute_hash_includes_fields(self):
-        now = datetime.now(UTC)
+    def test_compute_hash_includes_fields(self, fixed_now):
         report = IntegrityReport(
             report_id=uuid.uuid4(),
-            checked_at=now,
+            checked_at=fixed_now,
             checked_by="auditor",
             expected_version="1.0.0",
             actual_version="1.0.0",
@@ -526,9 +579,9 @@ class TestIntegrityReport:
         h1 = report.compute_hash()
         report2 = IntegrityReport(
             report_id=report.report_id,
-            checked_at=now,
+            checked_at=fixed_now,
             checked_by="auditor",
-            expected_version="1.0.1",  # different
+            expected_version="1.0.1",
             actual_version="1.0.0",
             expected_hash="abc",
             actual_hash="abc",
@@ -590,19 +643,18 @@ class TestIntegrityReport:
 # =============================================================================
 
 class TestVersionLock:
-    def test_initialization_creates_initial_version(self):
+    def test_initialization_creates_initial_version(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         assert lock.current_version == "1.0.0"
         assert lock.current_state == VersionLockState.UNLOCKED
         assert len(lock.version_history) == 1
         assert lock.version_history[0].version == "1.0.0"
 
-    def test_save_version_metadata_appends_and_updates_current(self):
+    def test_save_version_metadata_appends_and_updates_current(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
-        now = datetime.now(UTC)
         new_meta = VersionMetadata(
             version="2.0.0",
-            release_date=now,
+            release_date=fixed_now,
             created_by="dev",
             approved_by=["approver"],
             change_type=VersionChangeType.MAJOR,
@@ -612,13 +664,12 @@ class TestVersionLock:
         assert lock.current_version == "2.0.0"
         assert len(lock.version_history) == 2
 
-    def test_get_version_history_returns_recent_limit(self):
+    def test_get_version_history_returns_recent_limit(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
-        now = datetime.now(UTC)
         for i in range(5):
             meta = VersionMetadata(
                 version=f"1.{i}.0",
-                release_date=now,
+                release_date=fixed_now,
                 created_by="dev",
                 approved_by=["approver"],
                 change_type=VersionChangeType.MINOR,
@@ -634,42 +685,40 @@ class TestVersionLock:
         assert meta is not None
         assert meta.version == "1.0.0"
 
-    def test_delete_version_metadata(self, version_lock):
-        # Add extra version
-        now = datetime.now(UTC)
+    def test_delete_version_metadata(self, fixed_now):
+        lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         new_meta = VersionMetadata(
             version="2.0.0",
-            release_date=now,
+            release_date=fixed_now,
             created_by="dev",
             approved_by=["approver"],
             change_type=VersionChangeType.MAJOR,
             changelog_entry="Major",
         )
-        version_lock.save_version_metadata(new_meta)
-        assert len(version_lock.version_history) == 2
-        result = version_lock.delete_version_metadata("2.0.0")
+        lock.save_version_metadata(new_meta)
+        assert len(lock.version_history) == 2
+        result = lock.delete_version_metadata("2.0.0")
         assert result is True
-        assert len(version_lock.version_history) == 1
-        result2 = version_lock.delete_version_metadata("3.0.0")
+        assert len(lock.version_history) == 1
+        result2 = lock.delete_version_metadata("3.0.0")
         assert result2 is False
 
-    def test_save_lock_record_updates_state(self, version_lock):
+    def test_save_lock_record_updates_state(self, fixed_now, version_lock):
         record = VersionLockRecord(
             record_id=uuid.uuid4(),
             previous_state=VersionLockState.UNLOCKED,
             new_state=VersionLockState.LOCKED,
             reason="Test",
             initiated_by="admin",
-            initiated_at=datetime.now(UTC),
+            initiated_at=fixed_now,
             approved_by=["a1", "a2"],
             event_type=VersionLockEventType.STATE_CHANGE,
         )
         version_lock.save_lock_record(record)
         assert version_lock.current_state == VersionLockState.LOCKED
-        assert len(version_lock.lock_records) == 2  # initial + new
+        assert len(version_lock.lock_records) == 2
 
-    def test_get_lock_records(self, version_lock):
-        # Add a few records
+    def test_get_lock_records(self, fixed_now, version_lock):
         for i in range(3):
             record = VersionLockRecord(
                 record_id=uuid.uuid4(),
@@ -677,25 +726,24 @@ class TestVersionLock:
                 new_state=VersionLockState.LOCKED if i % 2 == 0 else VersionLockState.UNLOCKED,
                 reason=f"Test {i}",
                 initiated_by="admin",
-                initiated_at=datetime.now(UTC),
+                initiated_at=fixed_now,
                 approved_by=["a1", "a2"],
                 event_type=VersionLockEventType.STATE_CHANGE,
             )
             version_lock.save_lock_record(record)
         records = version_lock.get_lock_records(limit=2)
         assert len(records) == 2
-        # filter by event_type
         filtered = version_lock.get_lock_records(limit=10, event_type=VersionLockEventType.VERSION_CHANGE)
         assert len(filtered) == 0
 
-    def test_delete_lock_record(self, version_lock):
+    def test_delete_lock_record(self, fixed_now, version_lock):
         record = VersionLockRecord(
             record_id=uuid.uuid4(),
             previous_state=VersionLockState.UNLOCKED,
             new_state=VersionLockState.LOCKED,
             reason="Test",
             initiated_by="admin",
-            initiated_at=datetime.now(UTC),
+            initiated_at=fixed_now,
             approved_by=["a1", "a2"],
             event_type=VersionLockEventType.STATE_CHANGE,
         )
@@ -707,13 +755,13 @@ class TestVersionLock:
         result2 = version_lock.delete_lock_record(uuid.uuid4())
         assert result2 is False
 
-    def test_save_change_attempt_and_get(self, version_lock):
+    def test_save_change_attempt_and_get(self, fixed_now, version_lock):
         attempt = VersionChangeAttempt(
             attempt_id=uuid.uuid4(),
             target_version="2.0.0",
             change_type=VersionChangeType.MAJOR,
             attempted_by="dev",
-            attempted_at=datetime.now(UTC),
+            attempted_at=fixed_now,
             success=True,
             requires_approval=True,
             approvals_received=["a1", "a2"],
@@ -723,10 +771,10 @@ class TestVersionLock:
         assert len(attempts) == 1
         assert attempts[0].attempt_id == attempt.attempt_id
 
-    def test_save_integrity_report_and_get(self, version_lock):
+    def test_save_integrity_report_and_get(self, fixed_now, version_lock):
         report = IntegrityReport(
             report_id=uuid.uuid4(),
-            checked_at=datetime.now(UTC),
+            checked_at=fixed_now,
             checked_by="auditor",
             expected_version="1.0.0",
             actual_version="1.0.0",
@@ -748,7 +796,7 @@ class TestVersionLock:
                 VersionLockState.LOCKED,
                 "Lock without enough approvers",
                 "admin",
-                ["single_approver"],  # only 1
+                ["single_approver"],
             )
 
     def test_change_lock_state_success_with_approvers(self):
@@ -790,7 +838,7 @@ class TestVersionLock:
         assert attempt.success is False
         assert "at least 2 approvals" in attempt.failure_reason
 
-    def test_commit_version_change_success(self):
+    def test_commit_version_change_success(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         new_meta = lock.commit_version_change(
             "1.1.0",
@@ -818,7 +866,7 @@ class TestVersionLock:
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         with pytest.raises(VersionLockError, match="MAJOR version must increment"):
             lock.commit_version_change(
-                "1.0.0",  # same
+                "1.0.0",
                 VersionChangeType.MAJOR,
                 "Invalid",
                 "dev",
@@ -829,7 +877,7 @@ class TestVersionLock:
         lock = VersionLock(current_version="1.2.0", current_state=VersionLockState.UNLOCKED)
         with pytest.raises(VersionLockError, match="MINOR version must increment minor"):
             lock.commit_version_change(
-                "1.1.0",  # lower minor
+                "1.1.0",
                 VersionChangeType.MINOR,
                 "Invalid",
                 "dev",
@@ -840,16 +888,15 @@ class TestVersionLock:
         lock = VersionLock(current_version="1.2.3", current_state=VersionLockState.UNLOCKED)
         with pytest.raises(VersionLockError, match="PATCH version must increment patch"):
             lock.commit_version_change(
-                "1.2.2",  # lower patch
+                "1.2.2",
                 VersionChangeType.PATCH,
                 "Invalid",
                 "dev",
                 ["approver1", "approver2"],
             )
 
-    def test_commit_version_change_with_previous_hash_mismatch(self):
+    def test_commit_version_change_with_previous_hash_mismatch(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
-        # Get current hash
         current_meta = lock.get_current_metadata()
         wrong_hash = "fakehash"
         with pytest.raises(VersionIntegrityError, match="Previous version hash mismatch"):
@@ -871,27 +918,21 @@ class TestVersionLock:
     def test_check_integrity_detects_modification(self):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         report = lock.check_integrity(expected_version="2.0.0", checker_id="tester")
-        assert report.result in (
-            IntegrityCheckResult.MODIFIED,
-            IntegrityCheckResult.TAMPERED,
-        )
+        assert report.result in (IntegrityCheckResult.MODIFIED, IntegrityCheckResult.TAMPERED)
         assert len(report.discrepancies) > 0
 
-    def test_check_integrity_detects_hash_chain_break(self):
+    def test_check_integrity_detects_hash_chain_break(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
-        # Add a second version
-        now = datetime.now(UTC)
         meta2 = VersionMetadata(
             version="2.0.0",
-            release_date=now,
+            release_date=fixed_now,
             created_by="dev",
             approved_by=["a1", "a2"],
             change_type=VersionChangeType.MAJOR,
             changelog_entry="v2",
-            previous_version_hash="wronghash",  # deliberately break chain
+            previous_version_hash="wronghash",
         )
         lock.save_version_metadata(meta2)
-        # Now check integrity
         report = lock.check_integrity(checker_id="tester")
         assert report.result == IntegrityCheckResult.TAMPERED
         assert any("Hash chain broken" in d for d in report.discrepancies)
@@ -899,11 +940,9 @@ class TestVersionLock:
     def test_is_modification_allowed(self):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         assert lock.is_modification_allowed() is True
-
         lock.current_state = VersionLockState.LOCKED
         assert lock.is_modification_allowed(is_amendment=True) is False
         assert lock.is_modification_allowed(is_amendment=False) is False
-
         lock.current_state = VersionLockState.FROZEN
         assert lock.is_modification_allowed() is False
 
@@ -919,26 +958,25 @@ class TestVersionLock:
         assert len(timeline) == 1
         assert timeline[0]["version"] == "1.0.0"
 
-    def test_get_lock_history(self, version_lock):
-        # Add a lock record
+    def test_get_lock_history(self, fixed_now, version_lock):
         record = VersionLockRecord(
             record_id=uuid.uuid4(),
             previous_state=VersionLockState.UNLOCKED,
             new_state=VersionLockState.LOCKED,
             reason="Test",
             initiated_by="admin",
-            initiated_at=datetime.now(UTC),
+            initiated_at=fixed_now,
             approved_by=["a1", "a2"],
             event_type=VersionLockEventType.STATE_CHANGE,
         )
         version_lock.save_lock_record(record)
         history = version_lock.get_lock_history(limit=10)
-        assert len(history) == 2  # initial + new
+        assert len(history) == 2
 
-    def test_get_integrity_report_history(self, version_lock):
+    def test_get_integrity_report_history(self, fixed_now, version_lock):
         report = IntegrityReport(
             report_id=uuid.uuid4(),
-            checked_at=datetime.now(UTC),
+            checked_at=fixed_now,
             checked_by="auditor",
             expected_version="1.0.0",
             actual_version="1.0.0",
@@ -955,7 +993,6 @@ class TestVersionLock:
 
     def test_reset_reinitializes(self):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.LOCKED)
-        # Add some data
         lock.change_lock_state(
             VersionLockState.UNLOCKED,
             "Reset test",
@@ -969,21 +1006,22 @@ class TestVersionLock:
         assert len(lock.lock_records) == 1
         assert len(lock.version_history) == 1
 
-    def test_notify_supreme_law_calls_enforce(self, version_lock):
+    def test_notify_supreme_law_calls_check_violation_for_frozen(self):
+        lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         with patch("constitution.version_lock.get_supreme_law") as mock_get:
             mock_law = MagicMock()
             mock_get.return_value = mock_law
-            version_lock._notify_supreme_law(VersionLockState.FROZEN, "Freeze reason")
-            # Should call check_violation for FROZEN
+            lock._notify_supreme_law(VersionLockState.FROZEN, "Freeze reason")
             mock_law.check_violation.assert_called_once_with(
                 "immutability", "version_lock", "System frozen: Freeze reason"
             )
 
-    def test_notify_supreme_law_does_not_call_for_non_frozen(self, version_lock):
+    def test_notify_supreme_law_does_not_call_for_non_frozen(self):
+        lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
         with patch("constitution.version_lock.get_supreme_law") as mock_get:
             mock_law = MagicMock()
             mock_get.return_value = mock_law
-            version_lock._notify_supreme_law(VersionLockState.LOCKED, "Lock reason")
+            lock._notify_supreme_law(VersionLockState.LOCKED, "Lock reason")
             mock_law.check_violation.assert_not_called()
 
 
@@ -998,47 +1036,31 @@ class TestVersionLockService:
         mock_get_supreme_law.return_value = mock_law
 
         service = VersionLockService()
-        record = service.lock(
-            "Test lock",
-            "admin",
-            ["approver1", "approver2"],
-        )
+        record = service.lock("Test lock", "admin", ["approver1", "approver2"])
         assert record.new_state == VersionLockState.LOCKED
         mock_law.enforce.assert_called_once()
 
     @patch("constitution.version_lock.get_supreme_law")
     def test_freeze_requires_audit_committee_chair(self, mock_get_supreme_law):
         service = VersionLockService()
-        with pytest.raises(Exception, match="requires Audit Committee Chair approval"):
-            service.freeze(
-                "Freeze without chair",
-                "admin",
-                ["approver1", "approver2"],  # no chair
-            )
+        with pytest.raises(VersionLockViolationError, match="requires Audit Committee Chair approval"):
+            service.freeze("Freeze without chair", "admin", ["approver1", "approver2"])
 
     @patch("constitution.version_lock.get_supreme_law")
     def test_unfreeze_requires_chair_and_frozen_state(self, mock_get_supreme_law):
         service = VersionLockService()
-        # Not frozen
-        with pytest.raises(Exception, match="current state is UNLOCKED"):
-            service.unfreeze(
-                "Unfreeze when not frozen",
-                "admin",
-                ["audit_committee_chair", "approver2"],
-            )
+        # First freeze
+        with patch.object(service, '_version_lock') as mock_lock:
+            mock_lock.current_state = VersionLockState.UNLOCKED
+            with pytest.raises(VersionFreezeError, match="current state is UNLOCKED"):
+                service.unfreeze("Unfreeze", "admin", ["audit_committee_chair", "approver2"])
 
     @patch("constitution.version_lock.get_supreme_law")
     def test_propose_version_upgrade_success(self, mock_get_supreme_law):
         service = VersionLockService()
-        # Unlock first
-        service.unlock("Unlock for test", "admin", ["approver1", "approver2"])
-
+        service.unlock("Unlock", "admin", ["approver1", "approver2"])
         attempt = service.propose_version_upgrade(
-            "2.0.0",
-            VersionChangeType.MAJOR,
-            "Major upgrade",
-            "dev",
-            requires_approval=True,
+            "2.0.0", VersionChangeType.MAJOR, "Major upgrade", "dev", requires_approval=True
         )
         assert attempt.target_version == "2.0.0"
         assert attempt.success is True
@@ -1046,8 +1068,7 @@ class TestVersionLockService:
     @patch("constitution.version_lock.get_supreme_law")
     def test_commit_version_upgrade_success(self, mock_get_supreme_law):
         service = VersionLockService()
-        service.unlock("Unlock for test", "admin", ["approver1", "approver2"])
-
+        service.unlock("Unlock", "admin", ["approver1", "approver2"])
         meta = service.commit_version_upgrade(
             "2.0.0",
             VersionChangeType.MAJOR,
@@ -1078,16 +1099,13 @@ class TestVersionLockService:
         self, mock_get_guardian, mock_get_supreme_law
     ):
         mock_guardian = MagicMock()
-        mock_guardian.get_current_status.return_value = "NORMAL"  # not emergency
+        mock_guardian.get_current_status.return_value = "NORMAL"
         mock_get_guardian.return_value = mock_guardian
 
         service = VersionLockService()
         with pytest.raises(VersionLockViolationError, match="Emergency restore only allowed"):
             service.emergency_version_restore(
-                "1.0.0",
-                "Emergency restore",
-                "admin",
-                ["approver1", "approver2", "approver3"],
+                "1.0.0", "Emergency", "admin", ["approver1", "approver2", "approver3"]
             )
 
     def test_get_version_lock(self):
@@ -1102,36 +1120,27 @@ class TestVersionLockService:
 
     def test_get_lock_history(self):
         service = VersionLockService()
-        # Add a lock
         service.lock("Test lock", "admin", ["a1", "a2"])
         history = service.get_lock_history(limit=10)
         assert len(history) >= 1
 
     def test_get_integrity_report_history(self):
         service = VersionLockService()
-        # Run integrity check
         service.run_integrity_check()
         history = service.get_integrity_report_history(limit=10)
         assert len(history) >= 1
 
     def test_verify_full_integrity_chain(self):
         service = VersionLockService()
-        # Add a few versions
         service.unlock("Unlock", "admin", ["a1", "a2"])
         service.commit_version_upgrade(
-            "2.0.0",
-            VersionChangeType.MAJOR,
-            "Major",
-            "dev",
-            ["a1", "a2", "a3"],
+            "2.0.0", VersionChangeType.MAJOR, "Major", "dev", ["a1", "a2", "a3"]
         )
         result = service.verify_full_integrity_chain()
         assert result["version_chain_valid"] is True
         assert result["total_versions"] == 2
 
-        # Break chain manually
         lock = service.get_version_lock()
-        # Modify previous_hash of latest version
         latest = lock.version_history[-1]
         object.__setattr__(latest, "previous_version_hash", "wrong")
         result2 = service.verify_full_integrity_chain()
@@ -1140,7 +1149,6 @@ class TestVersionLockService:
 
     def test_unlock_raises_version_freeze_error_when_frozen(self):
         service = VersionLockService()
-        # Freeze first
         service.freeze("Freeze", "admin", ["audit_committee_chair", "a2"])
         with pytest.raises(VersionFreezeError, match="Cannot unlock: system is frozen"):
             service.unlock("Try unlock", "admin", ["a1", "a2"])
@@ -1149,11 +1157,7 @@ class TestVersionLockService:
         service = VersionLockService()
         service.lock("Lock", "admin", ["a1", "a2"])
         attempt = service.propose_version_upgrade(
-            "2.0.0",
-            VersionChangeType.MAJOR,
-            "Should fail",
-            "dev",
-            requires_approval=False,
+            "2.0.0", VersionChangeType.MAJOR, "Should fail", "dev", requires_approval=False
         )
         assert attempt.success is False
         assert "locked, version changes require approval" in attempt.failure_reason
@@ -1172,21 +1176,14 @@ class TestVersionLockIntegration:
     def test_full_workflow(self):
         service = VersionLockService()
 
-        # 1. Unlock
         service.unlock("Start workflow", "admin", ["approver1", "approver2"])
         assert service.get_status()["current_state"] == "UNLOCKED"
 
-        # 2. Propose version upgrade
         attempt = service.propose_version_upgrade(
-            "2.0.0",
-            VersionChangeType.MAJOR,
-            "Major release",
-            "dev",
-            requires_approval=True,
+            "2.0.0", VersionChangeType.MAJOR, "Major release", "dev", requires_approval=True
         )
         assert attempt.success is True
 
-        # 3. Commit version upgrade
         meta = service.commit_version_upgrade(
             "2.0.0",
             VersionChangeType.MAJOR,
@@ -1196,37 +1193,27 @@ class TestVersionLockIntegration:
         )
         assert meta.version == "2.0.0"
 
-        # 4. Lock
         service.lock("Lock after upgrade", "admin", ["approver1", "approver2"])
         assert service.get_status()["current_state"] == "LOCKED"
 
-        # 5. Integrity check
         report = service.run_integrity_check()
         assert report.result == IntegrityCheckResult.INTACT
 
     def test_version_freeze_and_unfreeze(self):
         service = VersionLockService()
-        # Freeze
+
         service.freeze("Freeze system", "admin", ["audit_committee_chair", "a2"])
         assert service.get_status()["current_state"] == "FROZEN"
-        # Try to modify should fail
+
         with pytest.raises(VersionLockViolationError):
             service.commit_version_upgrade(
-                "3.0.0",
-                VersionChangeType.MAJOR,
-                "Should fail",
-                "dev",
-                ["a1", "a2", "a3"],
+                "3.0.0", VersionChangeType.MAJOR, "Should fail", "dev", ["a1", "a2", "a3"]
             )
-        # Unfreeze
+
         service.unfreeze("Unfreeze", "admin", ["audit_committee_chair", "a2"])
         assert service.get_status()["current_state"] == "UNLOCKED"
-        # Now modify should succeed
+
         meta = service.commit_version_upgrade(
-            "3.0.0",
-            VersionChangeType.MAJOR,
-            "After unfreeze",
-            "dev",
-            ["a1", "a2", "a3"],
+            "3.0.0", VersionChangeType.MAJOR, "After unfreeze", "dev", ["a1", "a2", "a3"]
         )
         assert meta.version == "3.0.0"

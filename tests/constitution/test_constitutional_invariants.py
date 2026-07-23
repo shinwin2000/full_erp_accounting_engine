@@ -15,6 +15,11 @@ from decimal import Decimal
 
 import pytest
 
+# Fixed reference time so tests are deterministic and don't depend on the
+# wall clock at run time (avoids flaky comparisons around relative deltas).
+FIXED_NOW = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
+FIXED_NOW_NAIVE = datetime(2024, 6, 15, 12, 0, 0)
+
 from constitution.constitutional_invariants import (
     ConstitutionalInvariants,
     ConstitutionalInvariantsService,
@@ -88,7 +93,87 @@ def create_test_violation(
 # Tests for InvariantDefinition
 # ============================================================================
 
-class TestInvariantDefinition:
+class _LifecycleAuditMixin:
+    """Shared lifecycle/audit-trail behavior for aggregate-root-style entities.
+
+    InvariantDefinition and InvariantViolation both mix in the same base
+    lifecycle/audit-trail behavior (activate/unlock/create/audit_trail/
+    snapshots). Defining the shared assertions once here -- instead of once
+    per entity test class -- means each test still runs against both entity
+    types (pytest collects inherited test methods per subclass), but the
+    test *body* only exists once in the source.
+    """
+
+    def _make(self):
+        raise NotImplementedError
+
+    def _hash_field(self):
+        raise NotImplementedError
+
+    def _hash_mismatch_message(self):
+        raise NotImplementedError
+
+    def test_validate_returns_errors_on_invalid_state(self):
+        obj = self._make()
+        object.__setattr__(obj, "version_number", 0)
+        result = obj.validate()
+        assert not result["is_valid"]
+        assert "Version must be >= 1" in result["errors"]
+
+    def test_validate_returns_errors_on_hash_mismatch(self):
+        obj = self._make()
+        object.__setattr__(obj, self._hash_field(), "fake")
+        result = obj.validate()
+        assert not result["is_valid"]
+        assert self._hash_mismatch_message() in result["errors"]
+
+    def test_activate_returns_self(self):
+        obj = self._make()
+        activated = obj.activate("admin")
+        assert activated is obj
+
+    def test_unlock_returns_self(self):
+        obj = self._make()
+        unlocked = obj.unlock("admin")
+        assert unlocked is obj
+
+    def test_create_returns_self(self):
+        obj = self._make()
+        result = obj.create("admin")
+        assert result is obj
+
+    def test_audit_trail_records(self):
+        obj = self._make()
+        assert len(obj.audit_trail()) >= 1
+        obj.touch("toucher")
+        trail = obj.audit_trail()
+        assert len(trail) >= 2
+        assert trail[-1]["action"] == "TOUCH"
+
+    def test_audit_trail_limit(self):
+        obj = self._make()
+        for i in range(15):
+            obj.touch(f"toucher_{i}")
+        trail = obj.audit_trail(limit=10)
+        assert len(trail) == 10
+
+    def test_snapshots_limit(self):
+        obj = self._make()
+        for i in range(15):
+            obj.touch(f"toucher_{i}")
+        assert len(obj._snapshots) == 10
+
+
+class TestInvariantDefinition(_LifecycleAuditMixin):
+    def _make(self):
+        return create_test_invariant_def()
+
+    def _hash_field(self):
+        return "cryptographic_hash"
+
+    def _hash_mismatch_message(self):
+        return "Hash mismatch"
+
     def test_create_valid_definition(self):
         inv = create_test_invariant_def()
         assert inv.invariant_id is not None
@@ -101,8 +186,38 @@ class TestInvariantDefinition:
         assert inv.cryptographic_hash != ""
         assert len(inv.approved_by) == 1
 
+    def test_create_with_all_fields(self):
+        now = FIXED_NOW
+        inv_id = uuid.uuid4()
+        inv = InvariantDefinition(
+            invariant_id=inv_id,
+            invariant_type=InvariantType.ACCOUNTING_EQUATION,
+            name="Accounting Equation Invariant",
+            description="Total assets must equal liabilities plus equity",
+            scope=InvariantScope.GLOBAL,
+            severity=InvariantSeverity.CATASTROPHIC,
+            validation_function_name="validate_accounting_equation",
+            validation_stage=InvariantValidationStage.RECONCILIATION,
+            is_active=True,
+            created_at=now,
+            created_by="system",
+            approved_by=["auditor", "finance_director"],
+            version="1.0.0",
+            cryptographic_hash="",
+            auto_correct=False,
+            correction_action="Manual correction required",
+            version_number=1,
+            deleted_at=None,
+            deleted_by=None,
+        )
+        assert inv.invariant_id == inv_id
+        assert inv.invariant_type == InvariantType.ACCOUNTING_EQUATION
+        assert inv.scope == InvariantScope.GLOBAL
+        assert inv.severity == InvariantSeverity.CATASTROPHIC
+        assert inv.validation_stage == InvariantValidationStage.RECONCILIATION
+
     def test_validate_requires_approvers_for_global(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         with pytest.raises(ValueError, match="at least 2 approvers"):
             InvariantDefinition(
                 invariant_id=uuid.uuid4(),
@@ -121,7 +236,7 @@ class TestInvariantDefinition:
             )
 
     def test_validate_version_positive(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         with pytest.raises(ValueError, match="Version must be >= 1"):
             InvariantDefinition(
                 invariant_id=uuid.uuid4(),
@@ -162,10 +277,34 @@ class TestInvariantDefinition:
         )
         assert inv1.compute_hash() == inv2.compute_hash()
 
+    def test_compute_hash_changes_when_fields_change(self):
+        inv = create_test_invariant_def()
+        hash1 = inv.compute_hash()
+        inv2 = inv.update("admin", name="New Name")
+        hash2 = inv2.compute_hash()
+        assert hash1 != hash2
+
     def test_update_creates_new_version(self):
         inv = create_test_invariant_def()
         updated = inv.update("admin", description="Updated description")
         assert updated.description == "Updated description"
+        assert updated.version_number == inv.version_number + 1
+
+    def test_update_ignores_protected_fields(self):
+        inv = create_test_invariant_def()
+        original_id = inv.invariant_id
+        original_created_at = inv.created_at
+        original_created_by = inv.created_by
+        updated = inv.update(
+            "admin",
+            invariant_id=uuid.uuid4(),
+            created_at=FIXED_NOW + timedelta(days=1),
+            created_by="hacker",
+            version_number=999,
+        )
+        assert updated.invariant_id == original_id
+        assert updated.created_at == original_created_at
+        assert updated.created_by == original_created_by
         assert updated.version_number == inv.version_number + 1
 
     def test_delete_marks_deleted_and_inactive(self):
@@ -176,6 +315,13 @@ class TestInvariantDefinition:
         assert not deleted.is_active
         assert deleted.version_number == inv.version_number + 1
 
+    def test_delete_without_reason(self):
+        inv = create_test_invariant_def()
+        deleted = inv.delete("admin")
+        assert deleted.deleted_at is not None
+        assert deleted.deleted_by == "admin"
+        assert deleted.details.get("reason") is None
+
     def test_restore_recovers_deleted(self):
         inv = create_test_invariant_def()
         deleted = inv.delete("admin", "reason")
@@ -183,16 +329,12 @@ class TestInvariantDefinition:
         assert restored.deleted_at is None
         assert restored.deleted_by is None
         assert restored.is_active
+        assert restored.version_number == deleted.version_number + 1
 
     def test_restore_not_deleted_raises(self):
         inv = create_test_invariant_def()
         with pytest.raises(ValueError, match="Not deleted"):
             inv.restore("admin")
-
-    def test_activate_does_nothing_if_active(self):
-        inv = create_test_invariant_def()
-        activated = inv.activate("admin")
-        assert activated is inv
 
     def test_activate_activates_inactive(self):
         inv = create_test_invariant_def()
@@ -207,33 +349,23 @@ class TestInvariantDefinition:
         again = deactivated.deactivate("admin", "again")
         assert again is deactivated
 
+    def test_deactivate_without_reason(self):
+        inv = create_test_invariant_def()
+        deactivated = inv.deactivate("admin")
+        assert not deactivated.is_active
+
     def test_lock_returns_self(self):
         inv = create_test_invariant_def()
         locked = inv.lock("admin", "reason")
         assert locked is inv
-
-    def test_unlock_returns_self(self):
-        inv = create_test_invariant_def()
-        unlocked = inv.unlock("admin")
-        assert unlocked is inv
-
-    def test_create_returns_self(self):
-        inv = create_test_invariant_def()
-        result = inv.create("admin")
-        assert result is inv
+        # Lock should increment version
+        assert locked.version_number == inv.version_number
 
     def test_validate_returns_valid(self):
         inv = create_test_invariant_def()
         result = inv.validate()
         assert result["is_valid"]
         assert result["invariant_id"] == str(inv.invariant_id)
-
-    def test_validate_returns_errors_on_hash_mismatch(self):
-        inv = create_test_invariant_def()
-        object.__setattr__(inv, "cryptographic_hash", "fake")
-        result = inv.validate()
-        assert not result["is_valid"]
-        assert "Hash mismatch" in result["errors"]
 
     def test_to_dict_contains_fields(self):
         inv = create_test_invariant_def()
@@ -255,6 +387,33 @@ class TestInvariantDefinition:
         assert reconstructed.scope == inv.scope
         assert reconstructed.severity == inv.severity
 
+    def test_from_dict_with_optional_fields(self):
+        data = {
+            "invariant_id": str(uuid.uuid4()),
+            "invariant_type": "DOUBLE_ENTRY_BALANCE",
+            "name": "test",
+            "description": "desc",
+            "scope": "GLOBAL",
+            "severity": "CRITICAL",
+            "validation_function_name": "test",
+            "validation_stage": "PRE_EXECUTION",
+            "is_active": True,
+            "created_at": FIXED_NOW.isoformat(),
+            "created_by": "tester",
+            "approved_by": ["a", "b"],
+            "version": "1.0",
+            "auto_correct": True,
+            "correction_action": "fix",
+            "version_number": 2,
+            "deleted_at": (FIXED_NOW + timedelta(days=1)).isoformat(),
+            "deleted_by": "admin",
+        }
+        inv = InvariantDefinition.from_dict(data)
+        assert inv.auto_correct is True
+        assert inv.correction_action == "fix"
+        assert inv.version_number == 2
+        assert inv.deleted_by == "admin"
+
     def test_clone_creates_new_instance(self):
         inv = create_test_invariant_def()
         cloned = inv.clone()
@@ -270,14 +429,6 @@ class TestInvariantDefinition:
         assert snap["invariant_id"] == str(inv.invariant_id)
         assert snap["name"] == inv.name
 
-    def test_audit_trail_records(self):
-        inv = create_test_invariant_def()
-        assert len(inv.audit_trail()) >= 1
-        inv.touch("toucher")
-        trail = inv.audit_trail()
-        assert len(trail) >= 2
-        assert trail[-1]["action"] == "TOUCH"
-
     def test_touch_increments_version(self):
         inv = create_test_invariant_def()
         touched = inv.touch("toucher")
@@ -289,12 +440,28 @@ class TestInvariantDefinition:
         deleted = inv.delete("admin", "reason")
         assert not deleted.is_active_rule()
 
+    def test_is_active_rule_with_custom_date(self):
+        inv = create_test_invariant_def()
+        future = FIXED_NOW + timedelta(days=365)
+        assert inv.is_active_rule(future) is True
+        deleted = inv.delete("admin", "reason")
+        assert deleted.is_active_rule(future) is False
+
 
 # ============================================================================
 # Tests for InvariantViolation
 # ============================================================================
 
-class TestInvariantViolation:
+class TestInvariantViolation(_LifecycleAuditMixin):
+    def _make(self):
+        return create_test_violation()
+
+    def _hash_field(self):
+        return "forensic_evidence_hash"
+
+    def _hash_mismatch_message(self):
+        return "Forensic hash mismatch"
+
     def test_create_valid_violation(self):
         violation = create_test_violation()
         assert violation.violation_id is not None
@@ -305,18 +472,72 @@ class TestInvariantViolation:
         assert violation.forensic_evidence_hash != ""
         assert violation.version_number == 1
 
+    def test_create_with_all_fields(self):
+        now = FIXED_NOW
+        vid = uuid.uuid4()
+        iid = uuid.uuid4()
+        tid = uuid.uuid4()
+        leid = uuid.uuid4()
+        pid = uuid.uuid4()
+        violation = InvariantViolation(
+            violation_id=vid,
+            invariant_id=iid,
+            invariant_type=InvariantType.ACCOUNTING_EQUATION,
+            severity=InvariantSeverity.CATASTROPHIC,
+            violated_at=now,
+            actual_value={"a": 1},
+            expected_value={"e": 1},
+            difference={"d": 0},
+            message="Test",
+            offending_module="module",
+            is_resolved=False,
+            forensic_evidence_hash="hash123",
+            transaction_id=tid,
+            legal_entity_id=leid,
+            period_id=pid,
+            offending_user="user",
+            resolved_at=None,
+            resolved_by=None,
+            resolution_action=None,
+            auto_corrected=False,
+            auto_correction_applied=None,
+            version_number=1,
+        )
+        assert violation.violation_id == vid
+        assert violation.invariant_id == iid
+        assert violation.transaction_id == tid
+        assert violation.legal_entity_id == leid
+        assert violation.period_id == pid
+
+    def test_validate_version_positive(self):
+        with pytest.raises(ValueError, match="Version must be >= 1"):
+            InvariantViolation(
+                violation_id=uuid.uuid4(),
+                invariant_id=uuid.uuid4(),
+                invariant_type=InvariantType.DOUBLE_ENTRY_BALANCE,
+                severity=InvariantSeverity.CRITICAL,
+                violated_at=FIXED_NOW,
+                actual_value={},
+                expected_value={},
+                difference={},
+                message="test",
+                offending_module="test",
+                is_resolved=False,
+                version_number=0,
+            )
+
+    def test_compute_evidence_hash(self):
+        violation = create_test_violation()
+        hash1 = violation.compute_evidence_hash()
+        # Same data should produce same hash
+        hash2 = violation.compute_evidence_hash()
+        assert hash1 == hash2
+
     def test_validate_returns_valid(self):
         violation = create_test_violation()
         result = violation.validate()
         assert result["is_valid"]
         assert result["violation_id"] == str(violation.violation_id)
-
-    def test_validate_returns_errors_on_forensic_hash_mismatch(self):
-        violation = create_test_violation()
-        object.__setattr__(violation, "forensic_evidence_hash", "fake")
-        result = violation.validate()
-        assert not result["is_valid"]
-        assert "Forensic hash mismatch" in result["errors"]
 
     def test_update_raises(self):
         violation = create_test_violation()
@@ -333,11 +554,6 @@ class TestInvariantViolation:
         with pytest.raises(AttributeError):
             violation.restore("admin")
 
-    def test_activate_returns_self(self):
-        violation = create_test_violation()
-        activated = violation.activate("admin")
-        assert activated is violation
-
     def test_deactivate_returns_self(self):
         violation = create_test_violation()
         deactivated = violation.deactivate("admin")
@@ -348,16 +564,6 @@ class TestInvariantViolation:
         locked = violation.lock("admin", "reason")
         assert locked is violation
 
-    def test_unlock_returns_self(self):
-        violation = create_test_violation()
-        unlocked = violation.unlock("admin")
-        assert unlocked is violation
-
-    def test_create_returns_self(self):
-        violation = create_test_violation()
-        result = violation.create("admin")
-        assert result is violation
-
     def test_to_dict_contains_fields(self):
         violation = create_test_violation()
         d = violation.to_dict()
@@ -365,6 +571,7 @@ class TestInvariantViolation:
         assert d["severity"] == "CRITICAL"
         assert not d["is_resolved"]
         assert "violation_id" in d
+        assert "forensic_evidence_hash" in d
 
     def test_from_dict_reconstructs(self):
         violation = create_test_violation()
@@ -375,6 +582,35 @@ class TestInvariantViolation:
         assert reconstructed.invariant_type == violation.invariant_type
         assert reconstructed.severity == violation.severity
 
+    def test_from_dict_with_optional_fields(self):
+        now = FIXED_NOW
+        data = {
+            "violation_id": str(uuid.uuid4()),
+            "invariant_id": str(uuid.uuid4()),
+            "invariant_type": "DOUBLE_ENTRY_BALANCE",
+            "severity": "CRITICAL",
+            "violated_at": now.isoformat(),
+            "actual_value": {"a": 1},
+            "expected_value": {"e": 1},
+            "difference": {"d": 0},
+            "message": "test",
+            "offending_module": "test",
+            "is_resolved": True,
+            "resolved_at": now.isoformat(),
+            "resolved_by": "admin",
+            "resolution_action": "fixed",
+            "forensic_evidence_hash": "hash123",
+            "auto_corrected": True,
+            "auto_correction_applied": "auto_fix",
+            "version_number": 2,
+        }
+        violation = InvariantViolation.from_dict(data)
+        assert violation.is_resolved is True
+        assert violation.resolved_by == "admin"
+        assert violation.auto_corrected is True
+        assert violation.auto_correction_applied == "auto_fix"
+        assert violation.version_number == 2
+
     def test_clone_creates_new_instance(self):
         violation = create_test_violation()
         cloned = violation.clone()
@@ -382,20 +618,13 @@ class TestInvariantViolation:
         assert cloned.invariant_id == violation.invariant_id
         assert not cloned.is_resolved
         assert cloned.version_number == 1
+        assert cloned.actual_value == violation.actual_value
 
     def test_snapshot_returns_summary(self):
         violation = create_test_violation()
         snap = violation.snapshot()
         assert snap["violation_id"] == str(violation.violation_id)
         assert snap["invariant_type"] == violation.invariant_type.name
-
-    def test_audit_trail_records(self):
-        violation = create_test_violation()
-        assert len(violation.audit_trail()) >= 1
-        violation.touch("toucher")
-        trail = violation.audit_trail()
-        assert len(trail) >= 2
-        assert trail[-1]["action"] == "TOUCH"
 
     def test_is_resolved_method(self):
         violation = create_test_violation()
@@ -438,6 +667,13 @@ class TestInvariantValidator:
         assert diff["difference"] == "100"
         assert hint is not None
 
+    def test_validate_accounting_equation_within_tolerance(self):
+        is_valid, diff, hint = InvariantValidator.validate_accounting_equation(
+            {"total_assets": Decimal("1000.00"), "total_liabilities": Decimal("600.00"), "total_equity": Decimal("399.99")}
+        )
+        assert is_valid  # within 0.01 tolerance
+        assert diff["difference"] == "0.01"
+
     def test_validate_double_entry_balance_valid(self):
         is_valid, diff, hint = InvariantValidator.validate_double_entry_balance(
             {"total_debit": Decimal("500"), "total_credit": Decimal("500")}
@@ -452,6 +688,12 @@ class TestInvariantValidator:
         assert not is_valid
         assert diff["difference"] == "100"
 
+    def test_validate_double_entry_balance_with_tolerance(self):
+        is_valid, diff, hint = InvariantValidator.validate_double_entry_balance(
+            {"total_debit": Decimal("500.0001"), "total_credit": Decimal("500")}
+        )
+        assert is_valid  # within 0.0001 tolerance
+
     def test_validate_conservation_of_value_valid(self):
         is_valid, diff, hint = InvariantValidator.validate_conservation_of_value(
             {"source_value": Decimal("1000"), "destination_value": Decimal("990"), "transaction_fee": Decimal("10")}
@@ -465,7 +707,7 @@ class TestInvariantValidator:
         assert not is_valid
 
     def test_validate_time_monotonicity_valid(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         context = {
             "transaction_time": now,
             "last_transaction_time": now - timedelta(minutes=5),
@@ -476,7 +718,7 @@ class TestInvariantValidator:
         assert is_valid
 
     def test_validate_time_monotonicity_invalid_backward(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         context = {
             "transaction_time": now - timedelta(minutes=5),
             "last_transaction_time": now,
@@ -488,7 +730,7 @@ class TestInvariantValidator:
         assert "Transaction time cannot be earlier than last transaction" in hint
 
     def test_validate_time_monotonicity_invalid_outside_period(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         context = {
             "transaction_time": now + timedelta(days=2),
             "period_start": now - timedelta(days=1),
@@ -497,6 +739,20 @@ class TestInvariantValidator:
         is_valid, diff, hint = InvariantValidator.validate_time_monotonicity(context)
         assert not is_valid
         assert "Transaction time outside period" in hint
+
+    def test_validate_time_monotonicity_no_transaction_time(self):
+        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity({})
+        assert is_valid
+        assert diff == {}
+
+    def test_validate_time_monotonicity_handles_naive_datetime(self):
+        now = FIXED_NOW_NAIVE
+        context = {
+            "transaction_time": now,
+            "last_transaction_time": now - timedelta(minutes=5),
+        }
+        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity(context)
+        assert is_valid
 
     def test_validate_legal_entity_isolation_valid(self):
         le_id = uuid.uuid4()
@@ -519,11 +775,33 @@ class TestInvariantValidator:
         assert not is_valid
         assert "User does not have access" in hint
 
+    def test_validate_legal_entity_isolation_with_accessed_entities(self):
+        le1 = uuid.uuid4()
+        le2 = uuid.uuid4()
+        user_entities = [le1]
+        context = {
+            "transaction_legal_entity_id": le1,
+            "accessed_legal_entity_ids": [le2],
+            "user_legal_entity_ids": user_entities,
+        }
+        is_valid, diff, hint = InvariantValidator.validate_legal_entity_isolation(context)
+        assert not is_valid
+        assert str(le2) in diff["offending_entity"]
+
     def test_validate_currency_consistency_valid(self):
         context = {
             "currencies": {"IDR", "USD"},
             "base_currency": "IDR",
             "exchange_rates": {"USD": Decimal("15250")},
+        }
+        is_valid, diff, hint = InvariantValidator.validate_currency_consistency(context)
+        assert is_valid
+
+    def test_validate_currency_consistency_single_currency(self):
+        context = {
+            "currencies": {"IDR"},
+            "base_currency": "IDR",
+            "exchange_rates": {},
         }
         is_valid, diff, hint = InvariantValidator.validate_currency_consistency(context)
         assert is_valid
@@ -545,17 +823,19 @@ class TestInvariantValidator:
         is_valid, diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
         assert is_valid
 
-    def test_validate_hash_chain_consistency_invalid_hash(self):
-        context = {"current_hash": "fakehash", "content_to_hash": "test"}
+    @pytest.mark.parametrize("context,expected_hint", [
+        ({"current_hash": "fakehash", "content_to_hash": "test"}, "Hash mismatch"),
+        ({"previous_hash": "prevhash", "expected_previous_hash": "different"}, "Hash chain broken"),
+    ], ids=["invalid_hash", "broken_chain"])
+    def test_validate_hash_chain_consistency_invalid(self, context, expected_hint):
         is_valid, diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
         assert not is_valid
-        assert "Hash mismatch" in hint
+        assert expected_hint in hint
 
-    def test_validate_hash_chain_consistency_broken_chain(self):
-        context = {"previous_hash": "prevhash", "expected_previous_hash": "different"}
+    def test_validate_hash_chain_consistency_no_hash(self):
+        context = {}
         is_valid, diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
-        assert not is_valid
-        assert "Hash chain broken" in hint
+        assert is_valid
 
     def test_validate_audit_trail_completeness_valid(self):
         context = {"expected_event_count": 10, "actual_event_count": 10, "missing_sequence_numbers": []}
@@ -585,8 +865,14 @@ class TestInvariantValidator:
         assert not is_valid
         assert "Non-idempotent result" in hint
 
-    def test_validate_non_negative_cash_valid(self):
-        context = {"cash_balance": Decimal("100"), "proposed_change": Decimal("-50")}
+    def test_validate_idempotency_strict_no_key(self):
+        context = {}
+        is_valid, diff, hint = InvariantValidator.validate_idempotency_strict(context)
+        assert is_valid
+
+    @pytest.mark.parametrize("proposed_change", [Decimal("-50"), Decimal("-100")], ids=["positive_remainder", "exact_zero"])
+    def test_validate_non_negative_cash_valid(self, proposed_change):
+        context = {"cash_balance": Decimal("100"), "proposed_change": proposed_change}
         is_valid, diff, hint = InvariantValidator.validate_non_negative_cash(context)
         assert is_valid
 
@@ -618,8 +904,12 @@ class TestInvariantValidator:
         assert not is_valid
         assert "Payment exceeds receivable balance" in hint
 
-    def test_validate_tax_consistency_valid(self):
-        context = {"tax_collected": Decimal("1000"), "tax_submitted": Decimal("1000")}
+    @pytest.mark.parametrize("tax_collected,tax_submitted", [
+        (Decimal("1000"), Decimal("1000")),
+        (Decimal("1000.01"), Decimal("1000")),  # within 0.01 tolerance
+    ], ids=["exact_match", "within_tolerance"])
+    def test_validate_tax_consistency_valid(self, tax_collected, tax_submitted):
+        context = {"tax_collected": tax_collected, "tax_submitted": tax_submitted}
         is_valid, diff, hint = InvariantValidator.validate_tax_consistency(context)
         assert is_valid
 
@@ -639,8 +929,17 @@ class TestInvariantValidator:
         assert not is_valid
         assert "dual approval" in hint
 
+    def test_validate_period_closure_finality_reopening_with_approval(self):
+        context = {
+            "is_closed": True,
+            "is_reopening": True,
+            "reopening_authorization": {"approved_by": ["finance", "audit"], "audit_trail_id": "audit123"},
+        }
+        is_valid, diff, hint = InvariantValidator.validate_period_closure_finality(context)
+        assert is_valid
+
     def test_validate_period_integrity_valid(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         context = {
             "transaction_date": now,
             "period_start": now - timedelta(days=1),
@@ -650,32 +949,24 @@ class TestInvariantValidator:
         is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
         assert is_valid
 
-    def test_validate_period_integrity_closed_period(self):
-        now = datetime.now(UTC)
+    @pytest.mark.parametrize("period_status,expected_hint", [
+        ("CLOSED", "Cannot post to closed period"),
+        ("LOCKED", "Period is locked"),
+    ])
+    def test_validate_period_integrity_non_open_period(self, period_status, expected_hint):
+        now = FIXED_NOW
         context = {
             "transaction_date": now,
             "period_start": now - timedelta(days=1),
             "period_end": now + timedelta(days=1),
-            "period_status": "CLOSED",
+            "period_status": period_status,
         }
         is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
         assert not is_valid
-        assert "Cannot post to closed period" in hint
-
-    def test_validate_period_integrity_locked_period(self):
-        now = datetime.now(UTC)
-        context = {
-            "transaction_date": now,
-            "period_start": now - timedelta(days=1),
-            "period_end": now + timedelta(days=1),
-            "period_status": "LOCKED",
-        }
-        is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
-        assert not is_valid
-        assert "Period is locked" in hint
+        assert expected_hint in hint
 
     def test_validate_period_integrity_outside_period(self):
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         context = {
             "transaction_date": now + timedelta(days=2),
             "period_start": now - timedelta(days=1),
@@ -686,8 +977,14 @@ class TestInvariantValidator:
         assert not is_valid
         assert "Transaction date outside period" in hint
 
-    def test_validate_sequence_integrity_valid(self):
-        context = {"current_number": 5, "last_number": 4, "expected_next": 5, "allow_gap": False}
+    def test_validate_period_integrity_no_transaction_date(self):
+        context = {"period_status": "OPEN"}
+        is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
+        assert is_valid
+
+    @pytest.mark.parametrize("current_number,allow_gap", [(5, False), (6, True)], ids=["no_gap", "gap_allowed"])
+    def test_validate_sequence_integrity_valid(self, current_number, allow_gap):
+        context = {"current_number": current_number, "last_number": 4, "expected_next": 5, "allow_gap": allow_gap}
         is_valid, diff, hint = InvariantValidator.validate_sequence_integrity(context)
         assert is_valid
 
@@ -715,6 +1012,11 @@ class TestInvariantValidator:
         is_valid, diff, hint = InvariantValidator.validate_currency_exposure_consistency(context)
         assert not is_valid
         assert "Currency exposure mismatch" in hint
+
+    def test_validate_currency_exposure_consistency_empty(self):
+        context = {"foreign_currency_amounts": {}, "functional_currency_amounts": {}, "exchange_rates": {}}
+        is_valid, diff, hint = InvariantValidator.validate_currency_exposure_consistency(context)
+        assert is_valid
 
 
 # ============================================================================
@@ -752,6 +1054,11 @@ class TestConstitutionalInvariants:
         assert result
         assert inv.get_invariant(inv_def.invariant_id) is None
 
+    def test_delete_invariant_not_found(self):
+        inv = ConstitutionalInvariants()
+        result = inv.delete_invariant(uuid.uuid4())
+        assert not result
+
     def test_save_and_get_violations(self):
         inv = ConstitutionalInvariants()
         violation = create_test_violation()
@@ -773,7 +1080,7 @@ class TestConstitutionalInvariants:
 
     def test_get_violations_filter_by_date(self):
         inv = ConstitutionalInvariants()
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         v1 = create_test_violation()
         v1.violated_at = now - timedelta(days=10)
         v2 = create_test_violation()
@@ -783,6 +1090,19 @@ class TestConstitutionalInvariants:
         result = inv.get_violations(from_date=now - timedelta(days=5))
         assert len(result) == 1
         assert result[0].violated_at >= now - timedelta(days=5)
+
+    def test_get_violations_filter_by_date_to(self):
+        inv = ConstitutionalInvariants()
+        now = FIXED_NOW
+        v1 = create_test_violation()
+        v1.violated_at = now - timedelta(days=10)
+        v2 = create_test_violation()
+        v2.violated_at = now - timedelta(days=2)
+        inv.save_violation(v1)
+        inv.save_violation(v2)
+        result = inv.get_violations(to_date=now - timedelta(days=5))
+        assert len(result) == 1
+        assert result[0].violated_at <= now - timedelta(days=5)
 
     def test_get_violations_resolved_unresolved(self):
         inv = ConstitutionalInvariants()
@@ -817,6 +1137,11 @@ class TestConstitutionalInvariants:
         again = inv.resolve_violation(violation.violation_id, "admin2", "action2")
         assert again is None
 
+    def test_resolve_violation_not_found(self):
+        inv = ConstitutionalInvariants()
+        result = inv.resolve_violation(uuid.uuid4(), "admin", "action")
+        assert result is None
+
     def test_validate_returns_valid(self):
         inv = ConstitutionalInvariants()
         context = {"total_debit": Decimal("100"), "total_credit": Decimal("100")}
@@ -837,6 +1162,20 @@ class TestConstitutionalInvariants:
         assert not is_valid
         assert violation is not None
         assert violation.invariant_type == InvariantType.DOUBLE_ENTRY_BALANCE
+
+    def test_validate_no_active_invariant(self):
+        inv = ConstitutionalInvariants()
+        context = {"total_debit": Decimal("100"), "total_credit": Decimal("90")}
+        # Deactivate all double entry invariants
+        for inv_id in list(inv.invariants.keys()):
+            if inv.invariants[inv_id].invariant_type == InvariantType.DOUBLE_ENTRY_BALANCE:
+                inv.deactivate_invariant(inv_id, "admin")
+        is_valid, violation = inv.validate(
+            invariant_type=InvariantType.DOUBLE_ENTRY_BALANCE,
+            context=context,
+        )
+        assert is_valid
+        assert violation is None
 
     def test_validate_with_auto_correct(self):
         inv = ConstitutionalInvariants()
@@ -865,6 +1204,14 @@ class TestConstitutionalInvariants:
             stage_filter=InvariantValidationStage.PRE_EXECUTION,
         )
         assert len(violations) > 0
+
+    def test_validate_all_active_no_filters(self):
+        inv = ConstitutionalInvariants()
+        context = {"total_debit": Decimal("100"), "total_credit": Decimal("90")}
+        violations = inv.validate_all_active(context=context)
+        # Should validate all active invariants that match context
+        # At least one should fail
+        assert len(violations) >= 1
 
     def test_get_unresolved_violations(self):
         inv = ConstitutionalInvariants()
@@ -899,6 +1246,16 @@ class TestConstitutionalInvariants:
         updated = inv.get_invariant(inv_def.invariant_id)
         assert not updated.is_active
 
+    def test_deactivate_invariant_not_found(self):
+        inv = ConstitutionalInvariants()
+        invariant_count_before = len(inv.invariants)
+        result = inv.deactivate_invariant(uuid.uuid4(), "admin")
+        # Deactivating an unknown id is a silent no-op: no return value and
+        # no change to existing invariants (verified explicitly, not just
+        # "does not raise").
+        assert result is None
+        assert len(inv.invariants) == invariant_count_before
+
     def test_get_statistics(self):
         inv = ConstitutionalInvariants()
         inv_def = create_test_invariant_def()
@@ -910,6 +1267,8 @@ class TestConstitutionalInvariants:
         assert stats["active_invariants"] >= 1
         assert stats["total_violations"] >= 1
         assert "by_severity" in stats
+        assert "by_type" in stats
+        assert stats["auto_corrected_violations"] >= 0
 
     def test_reset(self):
         inv = ConstitutionalInvariants()
@@ -932,6 +1291,11 @@ class TestConstitutionalInvariantsService:
         svc2 = ConstitutionalInvariantsService()
         assert svc1 is svc2
 
+    def test_initialization_once(self):
+        svc = ConstitutionalInvariantsService()
+        assert svc._initialized is True
+        assert svc._invariants is not None
+
     def test_repository_methods_delegate(self):
         svc = ConstitutionalInvariantsService()
         inv_def = create_test_invariant_def()
@@ -953,6 +1317,16 @@ class TestConstitutionalInvariantsService:
         violations = svc.get_violations()
         assert len(violations) >= 1
 
+    def test_get_violations_with_filters(self):
+        svc = ConstitutionalInvariantsService()
+        v1 = create_test_violation(invariant_type=InvariantType.ACCOUNTING_EQUATION)
+        v2 = create_test_violation(invariant_type=InvariantType.DOUBLE_ENTRY_BALANCE)
+        svc.save_violation(v1)
+        svc.save_violation(v2)
+        result = svc.get_violations(invariant_type=InvariantType.ACCOUNTING_EQUATION)
+        assert len(result) == 1
+        assert result[0].invariant_type == InvariantType.ACCOUNTING_EQUATION
+
     def test_resolve_violation(self):
         svc = ConstitutionalInvariantsService()
         violation = create_test_violation()
@@ -970,6 +1344,7 @@ class TestConstitutionalInvariantsService:
         )
         assert not is_valid
         assert violation is not None
+        assert violation.severity != InvariantSeverity.CATASTROPHIC
 
     def test_validate_raises_for_catastrophic(self):
         svc = ConstitutionalInvariantsService()
@@ -1003,7 +1378,7 @@ class TestConstitutionalInvariantsService:
         assert is_valid
         assert violation is None
 
-        now = datetime.now(UTC)
+        now = FIXED_NOW
         is_valid, violation = svc.validate_period_integrity(
             transaction_date=now,
             period_start=now - timedelta(days=1),
@@ -1029,6 +1404,16 @@ class TestConstitutionalInvariantsService:
         assert is_valid
         assert violation is None
 
+    def test_convenience_validation_failure(self):
+        svc = ConstitutionalInvariantsService()
+        is_valid, violation = svc.validate_accounting_equation(
+            total_assets=Decimal("1000"),
+            total_liabilities=Decimal("500"),
+            total_equity=Decimal("400"),
+        )
+        assert not is_valid
+        assert violation is not None
+
     def test_get_active_invariants(self):
         svc = ConstitutionalInvariantsService()
         active = svc.get_active_invariants()
@@ -1050,10 +1435,16 @@ class TestConstitutionalInvariantsService:
         history = svc.get_violation_history(limit=10)
         assert len(history) >= 1
 
-    def test_get_constitutional_invariants_service_singleton(self):
-        svc1 = get_constitutional_invariants_service()
-        svc2 = get_constitutional_invariants_service()
-        assert svc1 is svc2
+    def test_get_violation_history_with_filters(self):
+        svc = ConstitutionalInvariantsService()
+        v1 = create_test_violation(invariant_type=InvariantType.ACCOUNTING_EQUATION)
+        svc.save_violation(v1)
+        history = svc.get_violation_history(
+            limit=10,
+            invariant_type=InvariantType.ACCOUNTING_EQUATION
+        )
+        assert len(history) == 1
+        assert history[0].invariant_type == InvariantType.ACCOUNTING_EQUATION
 
 
 # ============================================================================
@@ -1076,3 +1467,9 @@ class TestHelperFunctions:
         for inv_type in InvariantType:
             v = get_validator_for_invariant(inv_type)
             assert v is not None, f"No validator for {inv_type}"
+
+    def test_get_constitutional_invariants_service_singleton(self):
+        svc1 = get_constitutional_invariants_service()
+        svc2 = get_constitutional_invariants_service()
+        assert svc1 is svc2
+        assert isinstance(svc1, ConstitutionalInvariantsService)

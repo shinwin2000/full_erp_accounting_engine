@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
 tests/unit/test_entity_isolation.py
-Test untuk axioms/entity_isolation.py
-Mencakup: LegalEntityDefinition, InterEntityAuthorization, EntityIsolationViolation,
-EntityIsolationValidator, EntityIsolationAxiom
+Comprehensive tests for axioms/entity_isolation.py
+Covers: LegalEntityDefinition, InterEntityAuthorization, EntityIsolationViolation,
+EntityIsolationValidator, EntityIsolationAxiom, helper functions.
+Uses parameterized tests to eliminate duplication and fixed datetime to avoid flakiness.
 """
 
 from __future__ import annotations
@@ -31,6 +32,21 @@ from axioms.entity_isolation import (
 )
 
 # ============================================================================
+# FIXED DATETIME FIXTURE (to avoid flakiness)
+# ============================================================================
+
+@pytest.fixture
+def fixed_now():
+    """Fixed datetime for deterministic tests."""
+    return datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def fixed_past():
+    return datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC)
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -41,6 +57,7 @@ def create_test_entity(
     functional_currency: str = "IDR",
     fiscal_year_start: int = 1,
     country_code: str = "ID",
+    **kwargs,
 ) -> LegalEntityDefinition:
     return LegalEntityDefinition(
         entity_id=uuid.uuid4(),
@@ -51,6 +68,7 @@ def create_test_entity(
         fiscal_year_start=fiscal_year_start,
         country_code=country_code,
         is_active=True,
+        **kwargs,
     )
 
 
@@ -59,6 +77,7 @@ def create_test_authorization(
     to_entity_id: uuid.UUID | None = None,
     auth_type: InterEntityAuthorizationType = InterEntityAuthorizationType.CONSOLIDATION,
     allowed_operations: list[str] | None = None,
+    expires_at: datetime | None = None,
 ) -> InterEntityAuthorization:
     if from_entity_id is None:
         from_entity_id = uuid.uuid4()
@@ -72,15 +91,17 @@ def create_test_authorization(
         to_entity_id=to_entity_id,
         auth_type=auth_type,
         granted_by="admin",
-        granted_at=datetime.now(UTC),
-        expires_at=None,
+        granted_at=datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+        expires_at=expires_at,
         approvers=["approver1", "approver2"],
         purpose="Test purpose",
         allowed_operations=allowed_operations,
     )
 
 
-def create_test_violation() -> EntityIsolationViolation:
+def create_test_violation(
+    severity: EntityIsolationViolationSeverity = EntityIsolationViolationSeverity.MEDIUM,
+) -> EntityIsolationViolation:
     return EntityIsolationViolation(
         violation_id=uuid.uuid4(),
         source_entity_id=uuid.uuid4(),
@@ -88,10 +109,10 @@ def create_test_violation() -> EntityIsolationViolation:
         attempted_operation="READ",
         user_id=uuid.uuid4(),
         module="test_module",
-        severity=EntityIsolationViolationSeverity.MEDIUM,
+        severity=severity,
         message="Test violation",
         was_blocked=False,
-        detected_at=datetime.now(UTC),
+        detected_at=datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
         resolved=False,
         resolved_at=None,
         resolved_by=None,
@@ -111,96 +132,93 @@ class TestLegalEntityDefinition:
         assert entity.cryptographic_hash != ""
         assert entity.version == 1
 
-    def test_validate_entity_code_too_short(self):
-        with pytest.raises(ValueError, match="Entity code too short"):
-            LegalEntityDefinition(
-                entity_id=uuid.uuid4(),
-                entity_code="A",  # too short
-                entity_name="Test",
-                tax_id="12345",
-                functional_currency="IDR",
-                fiscal_year_start=1,
-                country_code="ID",
-                is_active=True,
-            )
+    @pytest.mark.parametrize("field,value,expected_error", [
+        ("entity_code", "A", "Entity code too short"),
+        ("tax_id", "1234", "Tax ID too short"),
+        ("fiscal_year_start", 13, "Fiscal year start must be 1-12"),
+        ("fiscal_year_start", 0, "Fiscal year start must be 1-12"),
+        ("version", 0, "Version must be >= 1"),
+    ])
+    def test_validation_errors(self, field, value, expected_error):
+        with pytest.raises(ValueError, match=expected_error):
+            kwargs = {
+                "entity_id": uuid.uuid4(),
+                "entity_code": "TEST",
+                "entity_name": "Test",
+                "tax_id": "12345",
+                "functional_currency": "IDR",
+                "fiscal_year_start": 1,
+                "country_code": "ID",
+                "is_active": True,
+                "version": 1,
+            }
+            kwargs[field] = value
+            LegalEntityDefinition(**kwargs)
 
-    def test_validate_tax_id_too_short(self):
-        with pytest.raises(ValueError, match="Tax ID too short"):
-            LegalEntityDefinition(
-                entity_id=uuid.uuid4(),
-                entity_code="TEST",
-                entity_name="Test",
-                tax_id="1234",  # too short
-                functional_currency="IDR",
-                fiscal_year_start=1,
-                country_code="ID",
-                is_active=True,
-            )
+    def test_update_creates_new_version(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            updated = entity.update("admin", entity_name="Updated Name")
+            assert updated.entity_name == "Updated Name"
+            assert updated.version == entity.version + 1
+            trail = updated.audit_trail()
+            assert trail[-1]["action"] == "UPDATE"
+            assert trail[-1]["performed_by"] == "admin"
 
-    def test_validate_fiscal_year_start_range(self):
-        with pytest.raises(ValueError, match="Fiscal year start must be 1-12"):
-            LegalEntityDefinition(
-                entity_id=uuid.uuid4(),
-                entity_code="TEST",
-                entity_name="Test",
-                tax_id="12345",
-                functional_currency="IDR",
-                fiscal_year_start=13,
-                country_code="ID",
-                is_active=True,
-            )
-
-    def test_update_creates_new_version(self):
-        entity = create_test_entity()
-        updated = entity.update("admin", entity_name="Updated Name")
-        assert updated.entity_name == "Updated Name"
-        assert updated.version == entity.version + 1
-
-    def test_update_does_not_change_id(self):
+    def test_update_does_not_change_id_or_created_at(self):
         entity = create_test_entity()
         updated = entity.update("admin", entity_name="Updated")
         assert updated.entity_id == entity.entity_id
         assert updated.created_at == entity.created_at
 
-    def test_delete_marks_deleted_and_inactive(self):
-        entity = create_test_entity()
-        deleted = entity.delete("admin", "test")
-        assert deleted.deleted_at is not None
-        assert deleted.deleted_by == "admin"
-        assert not deleted.is_active
-        assert deleted.version == entity.version + 1
+    def test_delete_marks_deleted_and_inactive(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            deleted = entity.delete("admin", "test reason")
+            assert deleted.deleted_at is not None
+            assert deleted.deleted_by == "admin"
+            assert not deleted.is_active
+            assert deleted.version == entity.version + 1
+            trail = deleted.audit_trail()
+            assert trail[-1]["action"] == "DELETE"
 
-    def test_restore_recovers_deleted_entity(self):
-        entity = create_test_entity()
-        deleted = entity.delete("admin", "test")
-        restored = deleted.restore("admin")
-        assert restored.deleted_at is None
-        assert restored.deleted_by is None
-        assert restored.is_active
-        assert restored.version == deleted.version + 1
+    def test_restore_recovers_deleted_entity(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            deleted = entity.delete("admin", "test")
+            restored = deleted.restore("admin")
+            assert restored.deleted_at is None
+            assert restored.deleted_by is None
+            assert restored.is_active
+            assert restored.version == deleted.version + 1
 
     def test_restore_not_deleted_raises(self):
         entity = create_test_entity()
         with pytest.raises(ValueError, match="Entity not deleted"):
             entity.restore("admin")
 
-    def test_activate_does_nothing_if_already_active(self):
+    def test_activate_does_nothing_if_active(self):
         entity = create_test_entity()
         activated = entity.activate("admin")
-        assert activated is entity  # returns self when already active
+        assert activated is entity
 
-    def test_activate_activates_inactive_entity(self):
-        entity = create_test_entity()
-        deactivated = entity.deactivate("admin", "test")
-        activated = deactivated.activate("admin")
-        assert activated.is_active
-        assert activated.version == deactivated.version + 1
+    def test_activate_activates_inactive(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            deactivated = entity.deactivate("admin", "test")
+            activated = deactivated.activate("admin")
+            assert activated.is_active
+            assert activated.version == deactivated.version + 1
 
     def test_deactivate_does_nothing_if_inactive(self):
         entity = create_test_entity()
         deactivated = entity.deactivate("admin", "test")
         again = deactivated.deactivate("admin", "test2")
-        assert again is deactivated  # returns self
+        assert again is deactivated
 
     def test_lock_returns_self(self):
         entity = create_test_entity()
@@ -254,31 +272,37 @@ class TestLegalEntityDefinition:
         assert cloned.version == 1
         assert cloned.parent_entity_id == entity.entity_id
 
-    def test_snapshot_returns_summary(self):
-        entity = create_test_entity()
-        snap = entity.snapshot()
-        assert snap["entity_id"] == str(entity.entity_id)
-        assert snap["entity_code"] == entity.entity_code
-        assert snap["is_active"] == entity.is_active
-        assert "timestamp" in snap
+    def test_snapshot_returns_summary(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            snap = entity.snapshot()
+            assert snap["entity_id"] == str(entity.entity_id)
+            assert snap["entity_code"] == entity.entity_code
+            assert snap["is_active"] == entity.is_active
+            assert "timestamp" in snap
 
     def test_get_version(self):
         entity = create_test_entity()
         assert entity.get_version() == 1
 
-    def test_audit_trail_records_actions(self):
-        entity = create_test_entity()
-        assert len(entity.audit_trail()) >= 1
-        entity.touch("toucher")
-        trail = entity.audit_trail()
-        assert len(trail) >= 2
-        assert trail[-1]["action"] == "TOUCH"
-        assert trail[-1]["performed_by"] == "toucher"
+    def test_audit_trail_records_actions(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            assert len(entity.audit_trail()) >= 1
+            entity.touch("toucher")
+            trail = entity.audit_trail()
+            assert len(trail) >= 2
+            assert trail[-1]["action"] == "TOUCH"
+            assert trail[-1]["performed_by"] == "toucher"
 
-    def test_touch_increments_version(self):
-        entity = create_test_entity()
-        touched = entity.touch("toucher")
-        assert touched.version == entity.version + 1
+    def test_touch_increments_version(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            entity = create_test_entity()
+            touched = entity.touch("toucher")
+            assert touched.version == entity.version + 1
 
 
 # ============================================================================
@@ -303,52 +327,64 @@ class TestInterEntityAuthorization:
                 to_entity_id=uuid.uuid4(),
                 auth_type=InterEntityAuthorizationType.CONSOLIDATION,
                 granted_by="admin",
-                granted_at=datetime.now(UTC),
+                granted_at=datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
                 expires_at=None,
                 approvers=["a"],
                 purpose="test",
                 allowed_operations=[],
             )
 
-    def test_update_creates_new_version(self):
-        auth = create_test_authorization()
-        updated = auth.update("admin", purpose="Updated purpose")
-        assert updated.purpose == "Updated purpose"
-        assert updated.version == auth.version + 1
+    def test_update_creates_new_version(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            updated = auth.update("admin", purpose="Updated purpose")
+            assert updated.purpose == "Updated purpose"
+            assert updated.version == auth.version + 1
+            trail = updated.audit_trail()
+            assert trail[-1]["action"] == "UPDATE"
 
-    def test_delete_revokes_authorization(self):
-        auth = create_test_authorization()
-        deleted = auth.delete("admin", "test")
-        assert deleted.revoked
-        assert deleted.revoked_at is not None
-        assert deleted.revoked_by == "admin"
-        assert deleted.version == auth.version + 1
+    def test_delete_revokes_authorization(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            deleted = auth.delete("admin", "test reason")
+            assert deleted.revoked
+            assert deleted.revoked_at is not None
+            assert deleted.revoked_by == "admin"
+            assert deleted.version == auth.version + 1
 
-    def test_restore_revives_revoked_authorization(self):
-        auth = create_test_authorization()
-        deleted = auth.delete("admin", "test")
-        restored = deleted.restore("admin")
-        assert not restored.revoked
-        assert restored.revoked_at is None
-        assert restored.revoked_by is None
-        assert restored.version == deleted.version + 1
+    def test_restore_revives_revoked_authorization(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            deleted = auth.delete("admin", "test")
+            restored = deleted.restore("admin")
+            assert not restored.revoked
+            assert restored.revoked_at is None
+            assert restored.revoked_by is None
+            assert restored.version == deleted.version + 1
 
     def test_restore_not_revoked_raises(self):
         auth = create_test_authorization()
         with pytest.raises(ValueError, match="Authorization not revoked"):
             auth.restore("admin")
 
-    def test_activate_restores_if_revoked(self):
-        auth = create_test_authorization()
-        deleted = auth.delete("admin", "test")
-        activated = deleted.activate("admin")
-        assert not activated.revoked
+    def test_activate_restores_if_revoked(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            deleted = auth.delete("admin", "test")
+            activated = deleted.activate("admin")
+            assert not activated.revoked
 
-    def test_deactivate_deletes_if_not_revoked(self):
-        auth = create_test_authorization()
-        deactivated = auth.deactivate("admin", "test")
-        assert deactivated.revoked
-        assert deactivated.revoked_by == "admin"
+    def test_deactivate_deletes_if_not_revoked(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            deactivated = auth.deactivate("admin", "test")
+            assert deactivated.revoked
+            assert deactivated.revoked_by == "admin"
 
     def test_lock_returns_self(self):
         auth = create_test_authorization()
@@ -399,40 +435,47 @@ class TestInterEntityAuthorization:
         assert cloned.auth_type == auth.auth_type
         assert cloned.version == 1
 
-    def test_snapshot_returns_summary(self):
-        auth = create_test_authorization()
-        snap = auth.snapshot()
-        assert snap["auth_id"] == str(auth.auth_id)
-        assert snap["auth_type"] == auth.auth_type.name
+    def test_snapshot_returns_summary(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            snap = auth.snapshot()
+            assert snap["auth_id"] == str(auth.auth_id)
+            assert snap["auth_type"] == auth.auth_type.name
 
     def test_get_version(self):
         auth = create_test_authorization()
         assert auth.get_version() == 1
 
-    def test_audit_trail_records(self):
-        auth = create_test_authorization()
-        assert len(auth.audit_trail()) >= 1
-        auth.touch("toucher")
-        trail = auth.audit_trail()
-        assert trail[-1]["action"] == "TOUCH"
+    def test_audit_trail_records(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            assert len(auth.audit_trail()) >= 1
+            auth.touch("toucher")
+            trail = auth.audit_trail()
+            assert trail[-1]["action"] == "TOUCH"
 
-    def test_touch_increments_version(self):
-        auth = create_test_authorization()
-        touched = auth.touch("toucher")
-        assert touched.version == auth.version + 1
+    def test_touch_increments_version(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            auth = create_test_authorization()
+            touched = auth.touch("toucher")
+            assert touched.version == auth.version + 1
 
-    def test_is_valid_handles_expiry(self):
-        now = datetime.now(UTC)
-        auth = create_test_authorization()
-        auth.expires_at = now + timedelta(days=1)
-        assert auth.is_valid()
-        auth.expires_at = now - timedelta(days=1)
-        assert not auth.is_valid()
+    def test_is_valid_with_expiry(self):
+        future = datetime(2026, 12, 31, 23, 59, 59, tzinfo=UTC)
+        past = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        auth = create_test_authorization(expires_at=future)
+        assert auth.is_valid() is True
+        auth.expires_at = past
+        assert auth.is_valid() is False
 
-    def test_is_valid_handles_revoked(self):
+    def test_is_valid_with_revoked(self):
         auth = create_test_authorization()
+        assert auth.is_valid() is True
         deleted = auth.delete("admin", "test")
-        assert not deleted.is_valid()
+        assert deleted.is_valid() is False
 
     def test_allows_operation_case_insensitive(self):
         auth = create_test_authorization(allowed_operations=["READ", "WRITE"])
@@ -493,30 +536,36 @@ class TestEntityIsolationViolation:
         assert not cloned.resolved
         assert cloned.version == 1
 
-    def test_snapshot_returns_summary(self):
-        violation = create_test_violation()
-        snap = violation.snapshot()
-        assert snap["violation_id"] == str(violation.violation_id)
-        assert snap["severity"] == violation.severity.name
+    def test_snapshot_returns_summary(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            violation = create_test_violation()
+            snap = violation.snapshot()
+            assert snap["violation_id"] == str(violation.violation_id)
+            assert snap["severity"] == violation.severity.name
 
     def test_get_version(self):
         violation = create_test_violation()
         assert violation.get_version() == 1
 
-    def test_audit_trail_records(self):
-        violation = create_test_violation()
-        assert len(violation.audit_trail()) >= 1
-        violation.touch("toucher")
-        trail = violation.audit_trail()
-        assert trail[-1]["action"] == "TOUCH"
+    def test_audit_trail_records(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            violation = create_test_violation()
+            assert len(violation.audit_trail()) >= 1
+            violation.touch("toucher")
+            trail = violation.audit_trail()
+            assert trail[-1]["action"] == "TOUCH"
 
-    def test_resolve_marks_resolved(self):
-        violation = create_test_violation()
-        resolved = violation.resolve("admin")
-        assert resolved.resolved
-        assert resolved.resolved_at is not None
-        assert resolved.resolved_by == "admin"
-        assert resolved.version == violation.version + 1
+    def test_resolve_marks_resolved(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            violation = create_test_violation()
+            resolved = violation.resolve("admin")
+            assert resolved.resolved
+            assert resolved.resolved_at is not None
+            assert resolved.resolved_by == "admin"
+            assert resolved.version == violation.version + 1
 
     def test_resolve_already_resolved_raises(self):
         violation = create_test_violation()
@@ -538,7 +587,7 @@ class TestEntityIsolationValidator:
             operation="READ",
             user_authorizations=[],
         )
-        assert allowed
+        assert allowed is True
         assert violation is None
 
     def test_validate_access_with_valid_auth_allows(self):
@@ -549,10 +598,10 @@ class TestEntityIsolationValidator:
             operation="READ",
             user_authorizations=[auth],
         )
-        assert allowed
+        assert allowed is True
         assert violation is None
 
-    def test_validate_access_no_auth_blocks(self):
+    def test_validate_access_no_auth_blocks_strict(self):
         from_entity = uuid.uuid4()
         to_entity = uuid.uuid4()
         with patch("axioms.entity_isolation.EntityIsolationValidator._notify_constitution"):
@@ -563,9 +612,9 @@ class TestEntityIsolationValidator:
                 user_authorizations=[],
                 check_level=EntityIsolationCheckLevel.STRICT,
             )
-        assert not allowed
+        assert allowed is False
         assert violation is not None
-        assert violation.was_blocked
+        assert violation.was_blocked is True
 
     def test_validate_access_permissive_level_allows_even_no_auth(self):
         from_entity = uuid.uuid4()
@@ -577,8 +626,8 @@ class TestEntityIsolationValidator:
             user_authorizations=[],
             check_level=EntityIsolationCheckLevel.PERMISSIVE,
         )
-        assert allowed
-        assert violation is None  # PERMISSIVE returns no violation
+        assert allowed is True
+        assert violation is None
 
     def test_validate_access_moderate_allows_read_even_no_auth(self):
         from_entity = uuid.uuid4()
@@ -591,8 +640,9 @@ class TestEntityIsolationValidator:
                 user_authorizations=[],
                 check_level=EntityIsolationCheckLevel.MODERATE,
             )
-        assert allowed  # READ allowed in MODERATE
-        assert violation is not None  # violation still created, but not blocked
+        assert allowed is True
+        assert violation is not None
+        assert violation.was_blocked is False
 
     def test_validate_access_moderate_blocks_write(self):
         from_entity = uuid.uuid4()
@@ -605,9 +655,32 @@ class TestEntityIsolationValidator:
                 user_authorizations=[],
                 check_level=EntityIsolationCheckLevel.MODERATE,
             )
-        assert not allowed
+        assert allowed is False
         assert violation is not None
-        assert violation.was_blocked
+        assert violation.was_blocked is True
+
+    @pytest.mark.parametrize("operation,expected_severity", [
+        ("WRITE", EntityIsolationViolationSeverity.CRITICAL),
+        ("UPDATE", EntityIsolationViolationSeverity.CRITICAL),
+        ("DELETE", EntityIsolationViolationSeverity.CRITICAL),
+        ("TRANSFER", EntityIsolationViolationSeverity.CRITICAL),
+        ("CONSOLIDATE", EntityIsolationViolationSeverity.HIGH),
+        ("AGGREGATE", EntityIsolationViolationSeverity.HIGH),
+        ("READ", EntityIsolationViolationSeverity.MEDIUM),
+        ("SELECT", EntityIsolationViolationSeverity.MEDIUM),
+        ("UNKNOWN", EntityIsolationViolationSeverity.LOW),
+    ])
+    def test_determine_severity(self, operation, expected_severity):
+        with patch("axioms.entity_isolation.EntityIsolationValidator._notify_constitution"):
+            _, violation = EntityIsolationValidator.validate_access(
+                source_entity_id=uuid.uuid4(),
+                target_entity_id=uuid.uuid4(),
+                operation=operation,
+                user_authorizations=[],
+                check_level=EntityIsolationCheckLevel.STRICT,
+            )
+        assert violation is not None
+        assert violation.severity == expected_severity
 
 
 # ============================================================================
@@ -645,13 +718,29 @@ class TestEntityIsolationAxiom:
         entities = axiom.get_all_entities(active_only=True)
         assert len(entities) >= 2
 
+    def test_get_all_entities_active_only(self):
+        axiom = EntityIsolationAxiom()
+        active = create_test_entity(entity_code="ACTIVE")
+        inactive = create_test_entity(entity_code="INACTIVE")
+        inactive.is_active = False
+        axiom.save_entity(active)
+        axiom.save_entity(inactive)
+        entities = axiom.get_all_entities(active_only=True)
+        assert len(entities) == 1
+        assert entities[0].entity_code == "ACTIVE"
+
     def test_delete_entity(self):
         axiom = EntityIsolationAxiom()
         entity = create_test_entity()
         axiom.save_entity(entity)
         result = axiom.delete_entity(entity.entity_id)
-        assert result
+        assert result is True
         assert axiom.get_entity(entity.entity_id) is None
+
+    def test_delete_entity_not_found(self):
+        axiom = EntityIsolationAxiom()
+        result = axiom.delete_entity(uuid.uuid4())
+        assert result is False
 
     def test_save_and_get_authorization(self):
         axiom = EntityIsolationAxiom()
@@ -665,7 +754,7 @@ class TestEntityIsolationAxiom:
         axiom = EntityIsolationAxiom()
         auth_valid = create_test_authorization()
         auth_expired = create_test_authorization()
-        auth_expired.expires_at = datetime.now(UTC) - timedelta(days=1)
+        auth_expired.expires_at = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
         axiom.save_authorization(auth_valid)
         axiom.save_authorization(auth_expired)
         auths = axiom.get_authorizations(
@@ -673,6 +762,11 @@ class TestEntityIsolationAxiom:
         )
         assert len(auths) == 1
         assert auths[0].auth_id == auth_valid.auth_id
+
+        auths_all = axiom.get_authorizations(
+            auth_valid.from_entity_id, auth_valid.to_entity_id, only_valid=False
+        )
+        assert len(auths_all) == 2
 
     def test_get_authorizations_by_entity_as_source(self):
         axiom = EntityIsolationAxiom()
@@ -694,9 +788,14 @@ class TestEntityIsolationAxiom:
         auth = create_test_authorization()
         axiom.save_authorization(auth)
         result = axiom.delete_authorization(auth.auth_id)
-        assert result
+        assert result is True
         auths = axiom.get_authorizations(auth.from_entity_id, auth.to_entity_id)
         assert len(auths) == 0
+
+    def test_delete_authorization_not_found(self):
+        axiom = EntityIsolationAxiom()
+        result = axiom.delete_authorization(uuid.uuid4())
+        assert result is False
 
     def test_save_and_get_violations(self):
         axiom = EntityIsolationAxiom()
@@ -707,13 +806,30 @@ class TestEntityIsolationAxiom:
         found = next((v for v in violations if v.violation_id == violation.violation_id), None)
         assert found is not None
 
-    def test_resolve_violation(self):
+    def test_resolve_violation(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            axiom = EntityIsolationAxiom()
+            violation = create_test_violation()
+            axiom.save_violation(violation)
+            resolved = axiom.resolve_violation(violation.violation_id, "admin")
+            assert resolved is not None
+            assert resolved.resolved
+
+    def test_resolve_violation_not_found(self):
         axiom = EntityIsolationAxiom()
-        violation = create_test_violation()
-        axiom.save_violation(violation)
-        resolved = axiom.resolve_violation(violation.violation_id, "admin")
-        assert resolved is not None
-        assert resolved.resolved
+        result = axiom.resolve_violation(uuid.uuid4(), "admin")
+        assert result is None
+
+    def test_resolve_violation_already_resolved(self, fixed_now):
+        with patch("axioms.entity_isolation.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            axiom = EntityIsolationAxiom()
+            violation = create_test_violation()
+            axiom.save_violation(violation)
+            axiom.resolve_violation(violation.violation_id, "admin")
+            result2 = axiom.resolve_violation(violation.violation_id, "admin2")
+            assert result2 is None
 
     def test_set_and_get_check_level(self):
         axiom = EntityIsolationAxiom()
@@ -767,7 +883,7 @@ class TestEntityIsolationAxiom:
             operation="READ",
             raise_on_violation=False,
         )
-        assert allowed
+        assert allowed is True
         assert violation is None
 
     def test_enforce_access_with_valid_auth_allows(self):
@@ -780,46 +896,48 @@ class TestEntityIsolationAxiom:
             operation="READ",
             raise_on_violation=False,
         )
-        assert allowed
+        assert allowed is True
         assert violation is None
 
     def test_enforce_access_no_auth_raises(self):
         axiom = EntityIsolationAxiom()
         from_entity = uuid.uuid4()
         to_entity = uuid.uuid4()
-        with pytest.raises(EntityIsolationViolationError):
-            axiom.enforce_access(
-                source_entity_id=from_entity,
-                target_entity_id=to_entity,
-                operation="WRITE",
-                raise_on_violation=True,
-            )
+        with patch("axioms.entity_isolation.EntityIsolationValidator._notify_constitution"):
+            with pytest.raises(EntityIsolationViolationError):
+                axiom.enforce_access(
+                    source_entity_id=from_entity,
+                    target_entity_id=to_entity,
+                    operation="WRITE",
+                    raise_on_violation=True,
+                )
 
     def test_enforce_access_no_auth_returns_violation(self):
         axiom = EntityIsolationAxiom()
         from_entity = uuid.uuid4()
         to_entity = uuid.uuid4()
-        allowed, violation = axiom.enforce_access(
-            source_entity_id=from_entity,
-            target_entity_id=to_entity,
-            operation="READ",
-            raise_on_violation=False,
-            module="test",
-        )
-        assert not allowed
+        with patch("axioms.entity_isolation.EntityIsolationValidator._notify_constitution"):
+            allowed, violation = axiom.enforce_access(
+                source_entity_id=from_entity,
+                target_entity_id=to_entity,
+                operation="READ",
+                raise_on_violation=False,
+                module="test",
+            )
+        assert allowed is False
         assert violation is not None
         assert violation.module == "test"
 
     def test_is_same_entity(self):
         axiom = EntityIsolationAxiom()
         eid = uuid.uuid4()
-        assert axiom.is_same_entity(eid, eid)
-        assert not axiom.is_same_entity(eid, uuid.uuid4())
+        assert axiom.is_same_entity(eid, eid) is True
+        assert axiom.is_same_entity(eid, uuid.uuid4()) is False
 
     def test_is_related_entity_same_entity(self):
         axiom = EntityIsolationAxiom()
         eid = uuid.uuid4()
-        assert axiom.is_related_entity(eid, eid)
+        assert axiom.is_related_entity(eid, eid) is True
 
     def test_is_related_entity_parent_child(self):
         axiom = EntityIsolationAxiom()
@@ -827,8 +945,10 @@ class TestEntityIsolationAxiom:
         child = create_test_entity()
         child.parent_entity_id = parent_id
         axiom.save_entity(child)
-        assert axiom.is_related_entity(parent_id, child.entity_id)
-        assert axiom.is_related_entity(child.entity_id, parent_id)
+        parent = create_test_entity(entity_id=parent_id)
+        axiom.save_entity(parent)
+        assert axiom.is_related_entity(parent_id, child.entity_id) is True
+        assert axiom.is_related_entity(child.entity_id, parent_id) is True
 
     def test_is_related_entity_consolidation_group(self):
         axiom = EntityIsolationAxiom()
@@ -836,7 +956,7 @@ class TestEntityIsolationAxiom:
         entity2 = create_test_entity(consolidation_group="GROUP1")
         axiom.save_entity(entity1)
         axiom.save_entity(entity2)
-        assert axiom.is_related_entity(entity1.entity_id, entity2.entity_id)
+        assert axiom.is_related_entity(entity1.entity_id, entity2.entity_id) is True
 
     def test_is_related_entity_not_related(self):
         axiom = EntityIsolationAxiom()
@@ -844,7 +964,7 @@ class TestEntityIsolationAxiom:
         e2 = create_test_entity()
         axiom.save_entity(e1)
         axiom.save_entity(e2)
-        assert not axiom.is_related_entity(e1.entity_id, e2.entity_id)
+        assert axiom.is_related_entity(e1.entity_id, e2.entity_id) is False
 
     def test_get_statistics(self):
         axiom = EntityIsolationAxiom()
@@ -857,6 +977,14 @@ class TestEntityIsolationAxiom:
         assert stats["active_entities"] >= 1
         assert stats["total_authorizations"] >= 1
         assert stats["valid_authorizations"] >= 1
+
+    def test_get_statistics_with_violations(self):
+        axiom = EntityIsolationAxiom()
+        violation = create_test_violation()
+        axiom.save_violation(violation)
+        stats = axiom.get_statistics()
+        assert stats["total_violations"] >= 1
+        assert stats["unresolved_violations"] >= 1
 
     def test_reset(self):
         axiom = EntityIsolationAxiom()
@@ -877,6 +1005,7 @@ class TestEntityIsolationAxiom:
 
 class TestHelperFunctions:
     def test_create_legal_entity(self):
+        parent_id = uuid.uuid4()
         entity = create_legal_entity(
             entity_code="CUST",
             entity_name="Customer Entity",
@@ -884,14 +1013,14 @@ class TestHelperFunctions:
             functional_currency="USD",
             fiscal_year_start=1,
             country_code="US",
-            parent_entity_id=uuid.uuid4(),
+            parent_entity_id=parent_id,
             consolidation_group="GROUP1",
         )
         assert entity.entity_code == "CUST"
         assert entity.entity_name == "Customer Entity"
         assert entity.functional_currency == "USD"
         assert entity.country_code == "US"
-        assert entity.parent_entity_id is not None
+        assert entity.parent_entity_id == parent_id
         assert entity.consolidation_group == "GROUP1"
         assert entity.is_active
 
@@ -912,7 +1041,22 @@ class TestHelperFunctions:
         assert data["allowed_operations"] == ["READ"]
         assert data["expires_at"] is not None
 
-    def test_get_entity_isolation_axiom_singleton(self):
-        axiom1 = get_entity_isolation_axiom()
-        axiom2 = get_entity_isolation_axiom()
-        assert axiom1 is axiom2
+    def test_create_inter_entity_authorization_dict_no_expiry(self):
+        data = create_inter_entity_authorization_dict(
+            from_entity_id=uuid.uuid4(),
+            to_entity_id=uuid.uuid4(),
+            auth_type="CONSOLIDATION",
+            purpose="Test",
+            allowed_operations=["READ"],
+        )
+        assert data["expires_at"] is None
+
+
+# ============================================================================
+# SINGLETON ACCESSOR TEST
+# ============================================================================
+
+def test_get_entity_isolation_axiom_singleton():
+    axiom1 = get_entity_isolation_axiom()
+    axiom2 = get_entity_isolation_axiom()
+    assert axiom1 is axiom2
