@@ -325,8 +325,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ==================== BUAT IAMSERVICE SECARA ASYNC ====================
     try:
         container = _get_container()
-        from ports.primary.token_issuer_port import TokenIssuerPort
-        from application.service_layer.service_iam import IAMService
+        from application.service_layer.service_iam import IAMService, TokenIssuerPort
         from ports.primary.cache_port import CachePort
         from ports.primary.event_publisher_port import EventPublisherPort
         from ports.primary.iam_repository_port import IAMRepositoryPort
@@ -405,8 +404,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 if callable(attr):
                     return attr() if not asyncio.iscoroutinefunction(attr) else await attr()
                 return attr
-        outbox_repo = await resolve_async_dependency("outbox_repository")
-        message_broker = await resolve_async_dependency("message_broker")
+        from ports.primary.outbox_repository_port import OutboxRepositoryPort
+        outbox_repo = await container.resolve_async(OutboxRepositoryPort)
+
+        # Message broker menggunakan KafkaProducer (string registration yang benar)
+        message_broker = await resolve_async_dependency("KafkaProducer")
         # Inject session_factory ke outbox_repo agar relay loop bisa membuat
         # session baru per-batch tanpa perlu session eksplisit dari luar
         try:

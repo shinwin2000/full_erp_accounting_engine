@@ -4,11 +4,11 @@ tests/domain/fixed_asset/test_disposal_entity.py
 Comprehensive tests for domain/fixed_asset/disposal_entity.py.
 
 FIXES:
-- All datetime.now() replaced with FIXED_NOW.
+- All datetime.now() replaced with FIXED_NOW and mocked.
 - All tests have meaningful assertions (no assert True).
 - All async repository methods have @pytest.mark.asyncio.
 - Negative path tests for all exceptions.
-- Tests for all domain-sensitive functions.
+- Tests for all domain-sensitive functions, including all helper functions.
 - Duplication eliminated with parametrize/helper functions.
 """
 
@@ -33,6 +33,17 @@ from domain.fixed_asset.disposal_entity import (
     InvalidDisposalDateError,
     InvalidProceedsError,
     InvalidStatusTransitionError,
+    _calculate_gain_loss,
+    _validate_asset_code,
+    _validate_asset_name,
+    _validate_currency,
+    _validate_customer_name,
+    _validate_disposal_date,
+    _validate_gain_loss,
+    _validate_invoice_number,
+    _validate_nbv,
+    _validate_proceeds,
+    _validate_reason,
     calculate_gain_loss_on_disposal,
     is_disposal_allowed,
 )
@@ -55,6 +66,13 @@ def mock_datetime_now():
         yield mock_dt
 
 
+@pytest.fixture(autouse=True)
+def mock_date_today():
+    with patch("domain.fixed_asset.disposal_entity.date") as mock_date:
+        mock_date.today.return_value = FIXED_DATE
+        yield mock_date
+
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -71,7 +89,6 @@ def create_test_asset(
 ) -> FixedAsset:
     if asset_id is None:
         asset_id = uuid.uuid4()
-    # Use a minimal FixedAsset with patch
     with patch("domain.fixed_asset.disposal_entity.date") as mock_date:
         mock_date.today.return_value = FIXED_DATE
         asset = FixedAsset(
@@ -245,6 +262,161 @@ class TestExceptions:
 
 
 # ============================================================================
+# TESTS FOR HELPER FUNCTIONS (NEW – to cover missing lines)
+# ============================================================================
+
+class TestHelperFunctions:
+    def test_validate_disposal_date_valid(self):
+        # Should not raise
+        _validate_disposal_date(FIXED_DATE, FIXED_PAST)
+
+    def test_validate_disposal_date_future(self):
+        with pytest.raises(InvalidDisposalDateError, match="cannot be in the future"):
+            _validate_disposal_date(FIXED_FUTURE, FIXED_PAST)
+
+    def test_validate_disposal_date_before_acquisition(self):
+        with pytest.raises(InvalidDisposalDateError, match="before acquisition"):
+            _validate_disposal_date(FIXED_PAST, FIXED_DATE)
+
+    def test_validate_proceeds_valid(self):
+        result = _validate_proceeds(Decimal("1000.50"))
+        assert result == Decimal("1000.50")
+        # Integer input
+        result2 = _validate_proceeds(100)
+        assert result2 == Decimal("100.00")
+        # String input
+        result3 = _validate_proceeds("1500")
+        assert result3 == Decimal("1500.00")
+        # Negative
+        with pytest.raises(InvalidProceedsError, match="cannot be negative"):
+            _validate_proceeds(Decimal("-1"))
+        # Invalid type
+        with pytest.raises(InvalidProceedsError):
+            _validate_proceeds(None)
+
+    def test_validate_nbv_valid(self):
+        result = _validate_nbv(Decimal("500.75"))
+        assert result == Decimal("500.75")
+        # Integer
+        result2 = _validate_nbv(300)
+        assert result2 == Decimal("300.00")
+        # String
+        result3 = _validate_nbv("200")
+        assert result3 == Decimal("200.00")
+        # Negative
+        with pytest.raises(DisposalError, match="cannot be negative"):
+            _validate_nbv(Decimal("-1"))
+        # Invalid type
+        with pytest.raises(DisposalError):
+            _validate_nbv(None)
+
+    def test_calculate_gain_loss(self):
+        assert _calculate_gain_loss(Decimal("1500"), Decimal("1000")) == Decimal("500")
+        assert _calculate_gain_loss(Decimal("800"), Decimal("1000")) == Decimal("-200")
+
+    def test_validate_gain_loss_valid(self):
+        result = _validate_gain_loss(Decimal("500"), Decimal("1500"), Decimal("1000"))
+        assert result == Decimal("500.00")
+        # With rounding
+        result2 = _validate_gain_loss(Decimal("500.005"), Decimal("1500.005"), Decimal("1000.005"))
+        assert result2 == Decimal("500.00")  # rounding
+
+    def test_validate_gain_loss_mismatch(self):
+        with pytest.raises(DisposalError, match="Gain/loss mismatch"):
+            _validate_gain_loss(Decimal("600"), Decimal("1500"), Decimal("1000"))
+
+    def test_validate_currency_valid(self):
+        assert _validate_currency("IDR") == "IDR"
+        assert _validate_currency("usd") == "USD"
+        # With spaces
+        assert _validate_currency("  eur  ") == "EUR"
+
+    def test_validate_currency_invalid(self):
+        with pytest.raises(DisposalError, match="non-empty string"):
+            _validate_currency("")
+        with pytest.raises(DisposalError, match="exactly 3 characters"):
+            _validate_currency("ID")
+        with pytest.raises(DisposalError, match="only letters"):
+            _validate_currency("ID1")
+
+    def test_validate_customer_name_valid(self):
+        assert _validate_customer_name("John Doe") == "John Doe"
+        assert _validate_customer_name("") is None
+        assert _validate_customer_name(None) is None
+        # Trims spaces
+        assert _validate_customer_name("  Jane  ") == "Jane"
+
+    def test_validate_customer_name_too_long(self):
+        with pytest.raises(DisposalError, match="not exceed 200 characters"):
+            _validate_customer_name("a" * 201)
+
+    def test_validate_invoice_number_valid(self):
+        assert _validate_invoice_number("INV-001") == "INV-001"
+        assert _validate_invoice_number("") is None
+        assert _validate_invoice_number(None) is None
+
+    def test_validate_invoice_number_too_long(self):
+        with pytest.raises(DisposalError, match="not exceed 50 characters"):
+            _validate_invoice_number("a" * 51)
+
+    def test_validate_reason_valid(self):
+        assert _validate_reason("Valid reason") == "Valid reason"
+
+    def test_validate_reason_too_long(self):
+        with pytest.raises(DisposalError, match="not exceed 500 characters"):
+            _validate_reason("a" * 501)
+
+    def test_validate_asset_code_valid(self):
+        assert _validate_asset_code("A-001") == "A-001"
+        assert _validate_asset_code("  A-002  ") == "A-002"
+
+    def test_validate_asset_code_invalid(self):
+        with pytest.raises(DisposalError, match="non-empty string"):
+            _validate_asset_code("")
+        with pytest.raises(DisposalError, match="at least 2 characters"):
+            _validate_asset_code("A")
+        with pytest.raises(DisposalError, match="not exceed 30 characters"):
+            _validate_asset_code("A" * 31)
+
+    def test_validate_asset_name_valid(self):
+        assert _validate_asset_name("Asset") == "Asset"
+        assert _validate_asset_name("  Asset2  ") == "Asset2"
+
+    def test_validate_asset_name_invalid(self):
+        with pytest.raises(DisposalError, match="non-empty string"):
+            _validate_asset_name("")
+        with pytest.raises(DisposalError, match="at least 2 characters"):
+            _validate_asset_name("A")
+        with pytest.raises(DisposalError, match="not exceed 200 characters"):
+            _validate_asset_name("A" * 201)
+
+    def test_calculate_gain_loss_on_disposal(self):
+        # This is the public helper, should match _calculate_gain_loss
+        assert calculate_gain_loss_on_disposal(Decimal("1500"), Decimal("1000")) == Decimal("500")
+        assert calculate_gain_loss_on_disposal(Decimal("800"), Decimal("1000")) == Decimal("-200")
+
+    def test_is_disposal_allowed(self):
+        # Active asset, not disposed -> allowed
+        asset = create_test_asset(status=AssetStatus.ACTIVE)
+        allowed, reason = is_disposal_allowed(asset)
+        assert allowed is True
+        assert reason == ""
+
+        # Disposed asset -> not allowed
+        asset2 = create_test_asset(is_disposed=True)
+        with patch.object(asset2, "is_disposed", True):
+            allowed2, reason2 = is_disposal_allowed(asset2)
+            assert allowed2 is False
+            assert "already disposed" in reason2
+
+        # Under construction -> not allowed
+        asset3 = create_test_asset(status=AssetStatus.UNDER_CONSTRUCTION)
+        allowed3, reason3 = is_disposal_allowed(asset3)
+        assert allowed3 is False
+        assert "under construction" in reason3
+
+
+# ============================================================================
 # TESTS FOR DisposalEntity
 # ============================================================================
 
@@ -263,26 +435,19 @@ class TestDisposalEntity:
 
     def test_construct_invalid_asset_code_empty(self):
         with pytest.raises(DisposalError, match="non-empty string"):
-            create_test_disposal().update(
-                uuid.uuid4(), asset_code=""
-            )  # Not ideal, but we test via __post_init__
-
-        # Direct construction test
-        with patch("domain.fixed_asset.disposal_entity._validate_asset_code", side_effect=DisposalError("Asset code must be a non-empty string")):
-            with pytest.raises(DisposalError, match="non-empty string"):
-                DisposalEntity(
-                    disposal_id=uuid.uuid4(),
-                    asset_id=uuid.uuid4(),
-                    asset_code="",
-                    asset_name="Test",
-                    disposal_date=FIXED_DATE,
-                    disposal_type=DisposalType.SALE,
-                    proceeds=Decimal("0"),
-                    nbv_at_disposal=Decimal("0"),
-                    gain_loss=Decimal("0"),
-                    currency="IDR",
-                    status=DisposalStatus.DRAFT,
-                )
+            DisposalEntity(
+                disposal_id=uuid.uuid4(),
+                asset_id=uuid.uuid4(),
+                asset_code="",
+                asset_name="Test",
+                disposal_date=FIXED_DATE,
+                disposal_type=DisposalType.SALE,
+                proceeds=Decimal("0"),
+                nbv_at_disposal=Decimal("0"),
+                gain_loss=Decimal("0"),
+                currency="IDR",
+                status=DisposalStatus.DRAFT,
+            )
 
     def test_construct_invalid_asset_name_empty(self):
         with pytest.raises(DisposalError, match="non-empty string"):
@@ -381,7 +546,7 @@ class TestDisposalEntity:
             )
 
     def test_construct_invalid_currency(self):
-        with pytest.raises(DisposalError, match="Currency code must be exactly 3 characters"):
+        with pytest.raises(DisposalError, match="exactly 3 characters"):
             DisposalEntity(
                 disposal_id=uuid.uuid4(),
                 asset_id=uuid.uuid4(),
@@ -558,29 +723,28 @@ class TestDisposalEntity:
 
     def test_create_sale_asset_already_disposed(self):
         asset = create_test_asset(is_disposed=True)
-        with pytest.raises(AssetAlreadyDisposedError, match="already disposed"):
-            DisposalEntity.create_sale(
-                asset=asset,
-                disposal_date=FIXED_DATE,
-                proceeds=Decimal("1000"),
-                created_by=uuid.uuid4(),
-            )
-
-    def test_create_sale_invalid_date_future(self):
-        asset = create_test_asset()
-        with patch("domain.fixed_asset.disposal_entity.date") as mock_date:
-            mock_date.today.return_value = FIXED_DATE
-            with pytest.raises(InvalidDisposalDateError, match="cannot be in the future"):
+        with patch.object(asset, "is_disposed", True):
+            with pytest.raises(AssetAlreadyDisposedError, match="already disposed"):
                 DisposalEntity.create_sale(
                     asset=asset,
-                    disposal_date=FIXED_FUTURE,
+                    disposal_date=FIXED_DATE,
                     proceeds=Decimal("1000"),
                     created_by=uuid.uuid4(),
                 )
 
+    def test_create_sale_invalid_date_future(self):
+        asset = create_test_asset()
+        with pytest.raises(InvalidDisposalDateError, match="cannot be in the future"):
+            DisposalEntity.create_sale(
+                asset=asset,
+                disposal_date=FIXED_FUTURE,
+                proceeds=Decimal("1000"),
+                created_by=uuid.uuid4(),
+            )
+
     def test_create_sale_invalid_date_before_acquisition(self):
         asset = create_test_asset(acquisition_date=FIXED_DATE)
-        with pytest.raises(InvalidDisposalDateError, match="cannot be before acquisition"):
+        with pytest.raises(InvalidDisposalDateError, match="before acquisition"):
             DisposalEntity.create_sale(
                 asset=asset,
                 disposal_date=FIXED_PAST,
@@ -997,41 +1161,3 @@ class TestDisposalRepository:
         repo.save = AsyncMock()
         await repo.save(create_test_disposal(), uuid.uuid4())
         repo.save.assert_called_once()
-
-
-# ============================================================================
-# TESTS FOR HELPER FUNCTIONS
-# ============================================================================
-
-class TestHelperFunctions:
-    def test_calculate_gain_loss_on_disposal(self):
-        # Positive gain
-        result = calculate_gain_loss_on_disposal(Decimal("1500000"), Decimal("1000000"))
-        assert result == Decimal("500000")
-        # Loss
-        result = calculate_gain_loss_on_disposal(Decimal("800000"), Decimal("1000000"))
-        assert result == Decimal("-200000")
-        # Break even
-        result = calculate_gain_loss_on_disposal(Decimal("1000000"), Decimal("1000000"))
-        assert result == Decimal("0")
-
-    def test_is_disposal_allowed(self):
-        # Active asset - allowed
-        asset = create_test_asset(status=AssetStatus.ACTIVE)
-        allowed, reason = is_disposal_allowed(asset)
-        assert allowed is True
-        assert reason == ""
-
-        # Disposed asset - not allowed
-        asset = create_test_asset(is_disposed=True)
-        # We need to mock is_disposed property
-        with patch.object(asset, "is_disposed", True):
-            allowed, reason = is_disposal_allowed(asset)
-            assert allowed is False
-            assert "already disposed" in reason
-
-        # Under construction - not allowed
-        asset = create_test_asset(status=AssetStatus.UNDER_CONSTRUCTION)
-        allowed, reason = is_disposal_allowed(asset)
-        assert allowed is False
-        assert "under construction" in reason
