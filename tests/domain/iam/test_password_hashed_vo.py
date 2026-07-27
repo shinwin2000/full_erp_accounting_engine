@@ -1,4 +1,5 @@
 # test_password_hashed_vo.py
+# ===========================
 # Comprehensive tests for domain/iam/password_hashed_vo.py
 # Covers all classes, methods, edge cases, exceptions, and helper functions.
 
@@ -6,12 +7,19 @@ import hashlib
 import hmac
 import secrets
 from datetime import UTC, datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from domain.iam.password_hashed_vo import (
+    ARGON2_AVAILABLE,
     BCRYPT_AVAILABLE,
+    COMMON_PASSWORDS,
+    DEFAULT_BCRYPT_ROUNDS,
+    DEFAULT_PBKDF2_ITERATIONS,
+    MAX_PASSWORD_LENGTH,
+    MIN_PASSWORD_LENGTH,
+    SPECIAL_CHARS,
     PasswordCommonError,
     PasswordError,
     PasswordHashedVO,
@@ -28,13 +36,6 @@ from domain.iam.password_hashed_vo import (
     hash_password,
     is_password_strong,
     verify_password,
-    COMMON_PASSWORDS,
-    MIN_PASSWORD_LENGTH,
-    MAX_PASSWORD_LENGTH,
-    SPECIAL_CHARS,
-    DEFAULT_PBKDF2_ITERATIONS,
-    DEFAULT_BCRYPT_ROUNDS,
-    ARGON2_AVAILABLE,
 )
 
 
@@ -61,11 +62,6 @@ def strict_policy():
 
 @pytest.fixture
 def valid_password():
-    return "SecureP@ssw0rd123!"
-
-
-@pytest.fixture
-def valid_password_username():
     return "SecureP@ssw0rd123!"
 
 
@@ -120,8 +116,8 @@ class TestExceptions:
 # -------------------- Tests for PasswordPolicy --------------------
 class TestPasswordPolicy:
     def test_default_policy(self, default_policy):
-        assert default_policy.min_length == 8
-        assert default_policy.max_length == 128
+        assert default_policy.min_length == MIN_PASSWORD_LENGTH
+        assert default_policy.max_length == MAX_PASSWORD_LENGTH
         assert default_policy.require_uppercase is True
         assert default_policy.require_lowercase is True
         assert default_policy.require_digit is True
@@ -131,8 +127,7 @@ class TestPasswordPolicy:
         assert default_policy.max_repeated_chars == 3
 
     def test_validate_valid_password(self, default_policy, valid_password):
-        # Should not raise
-        default_policy.validate(valid_password)
+        default_policy.validate(valid_password)  # Should not raise
 
     def test_validate_empty_password(self, default_policy):
         with pytest.raises(PasswordError, match="Password cannot be empty"):
@@ -143,7 +138,7 @@ class TestPasswordPolicy:
             default_policy.validate("Abc12!")
 
     def test_validate_too_long(self, default_policy):
-        long_pwd = "A" * 129
+        long_pwd = "A" * (MAX_PASSWORD_LENGTH + 1)
         with pytest.raises(PasswordTooLongError, match="cannot exceed 128 characters"):
             default_policy.validate(long_pwd)
 
@@ -168,8 +163,9 @@ class TestPasswordPolicy:
             default_policy.validate("aaaa123!")
 
     def test_validate_common_password(self, default_policy):
-        with pytest.raises(PasswordCommonError, match="too common"):
-            default_policy.validate("password")
+        for common in list(COMMON_PASSWORDS)[:3]:
+            with pytest.raises(PasswordCommonError, match="too common"):
+                default_policy.validate(common)
 
     def test_validate_contains_username(self, default_policy, username):
         with pytest.raises(PasswordError, match="cannot contain username"):
@@ -178,26 +174,24 @@ class TestPasswordPolicy:
     def test_custom_policy(self, strict_policy):
         # min length 10
         with pytest.raises(PasswordTooShortError):
-            strict_policy.validate("Abc123!!", username=None)
+            strict_policy.validate("Abc123!!")
         # max length 20
         long_pwd = "A" * 21
         with pytest.raises(PasswordTooLongError):
             strict_policy.validate(long_pwd)
         # max repeated chars 2
         with pytest.raises(PasswordError, match="more than 2 repeated"):
-            strict_policy.validate("aaA123!!", username=None)
+            strict_policy.validate("aaA123!!")
 
 
 # -------------------- Tests for PasswordHashedVO --------------------
 class TestPasswordHashedVO:
     def test_construction_valid_bcrypt(self):
-        # For bcrypt, we need a valid hash. We'll mock bcrypt to create one.
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
             with patch("domain.iam.password_hashed_vo.bcrypt") as mock_bcrypt:
                 mock_bcrypt.gensalt.return_value = b"salt"
-                mock_bcrypt.hashpw.return_value = b"$2b$12$hash..."
+                mock_bcrypt.hashpw.return_value = b"$2b$12$hash"
                 pwd = PasswordHashedVO.create_from_plain("ValidP@ss123")
-                # Now test construction with that hash
                 vo = PasswordHashedVO(
                     hashed_value=pwd.hashed_value,
                     algorithm="bcrypt",
@@ -209,7 +203,7 @@ class TestPasswordHashedVO:
 
     def test_construction_invalid_hash_short(self):
         with pytest.raises(PasswordHashError, match="Invalid password hash"):
-            PasswordHashedVO(hashed_value="short", algorithm="pbkdf2_sha256")
+            PasswordHashedVO(hashed_value="short")
 
     def test_construction_invalid_iterations_bcrypt(self):
         with pytest.raises(PasswordHashError, match="Invalid bcrypt rounds"):
@@ -252,7 +246,6 @@ class TestPasswordHashedVO:
                 assert vo.algorithm == "pbkdf2_sha256"
                 assert vo.salt is not None
                 assert vo.iterations == DEFAULT_PBKDF2_ITERATIONS
-                # Check hash format
                 parts = vo.hashed_value.split("$")
                 assert len(parts) == 4
                 assert parts[0] == "pbkdf2_sha256"
@@ -266,24 +259,26 @@ class TestPasswordHashedVO:
                 mock_hasher = MagicMock()
                 mock_hasher.hash.return_value = "argon2_hash"
                 mock_argon2.PasswordHasher.return_value = mock_hasher
-                vo = PasswordHashedVO.create_from_plain(
-                    "ValidP@ss123", algorithm="argon2"
-                )
+                vo = PasswordHashedVO.create_from_plain("ValidP@ss123", algorithm="argon2")
                 assert vo.algorithm == "argon2"
                 assert vo.hashed_value == "argon2_hash"
                 assert vo.iterations == 2  # default time_cost
+
+    def test_create_from_plain_username_validation(self, username):
+        with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", False):
+            with patch("domain.iam.password_hashed_vo.ARGON2_AVAILABLE", False):
+                # Password contains username -> should raise
+                with pytest.raises(PasswordError, match="cannot contain username"):
+                    PasswordHashedVO.create_from_plain(f"{username}123!", username)
 
     def test_create_from_plain_invalid_password_policy(self):
         with pytest.raises(PasswordTooShortError):
             PasswordHashedVO.create_from_plain("Abc12!")
 
     def test_create_from_plain_unknown_algorithm(self):
-        # Should fallback to PBKDF2 if algorithm unknown
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", False):
             with patch("domain.iam.password_hashed_vo.ARGON2_AVAILABLE", False):
-                vo = PasswordHashedVO.create_from_plain(
-                    "ValidP@ss123", algorithm="unknown"
-                )
+                vo = PasswordHashedVO.create_from_plain("ValidP@ss123", algorithm="unknown")
                 assert vo.algorithm == "pbkdf2_sha256"
 
     # ---- _hash_bcrypt ----
@@ -326,11 +321,7 @@ class TestPasswordHashedVO:
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
             with patch("domain.iam.password_hashed_vo.bcrypt") as mock_bcrypt:
                 mock_bcrypt.checkpw.return_value = True
-                vo = PasswordHashedVO(
-                    hashed_value="$2b$12$hash",
-                    algorithm="bcrypt",
-                    iterations=12,
-                )
+                vo = PasswordHashedVO(hashed_value="$2b$12$hash", algorithm="bcrypt", iterations=12)
                 assert vo.verify("password") is True
                 mock_bcrypt.checkpw.assert_called_once()
 
@@ -338,11 +329,7 @@ class TestPasswordHashedVO:
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
             with patch("domain.iam.password_hashed_vo.bcrypt") as mock_bcrypt:
                 mock_bcrypt.checkpw.return_value = False
-                vo = PasswordHashedVO(
-                    hashed_value="$2b$12$hash",
-                    algorithm="bcrypt",
-                    iterations=12,
-                )
+                vo = PasswordHashedVO(hashed_value="$2b$12$hash", algorithm="bcrypt", iterations=12)
                 assert vo.verify("wrong") is False
 
     def test_verify_argon2_success(self):
@@ -351,10 +338,7 @@ class TestPasswordHashedVO:
                 mock_hasher = MagicMock()
                 mock_hasher.verify.return_value = None
                 mock_argon2.PasswordHasher.return_value = mock_hasher
-                vo = PasswordHashedVO(
-                    hashed_value="argon2_hash",
-                    algorithm="argon2",
-                )
+                vo = PasswordHashedVO(hashed_value="argon2_hash", algorithm="argon2")
                 assert vo.verify("password") is True
 
     def test_verify_argon2_failure(self):
@@ -363,15 +347,14 @@ class TestPasswordHashedVO:
                 mock_hasher = MagicMock()
                 mock_hasher.verify.side_effect = mock_argon2.exceptions.VerificationError()
                 mock_argon2.PasswordHasher.return_value = mock_hasher
-                mock_argon2.exceptions.VerificationError = Exception
-                vo = PasswordHashedVO(
-                    hashed_value="argon2_hash",
-                    algorithm="argon2",
-                )
+                # Create a dummy exception class
+                class VerificationError(Exception):
+                    pass
+                mock_argon2.exceptions.VerificationError = VerificationError
+                vo = PasswordHashedVO(hashed_value="argon2_hash", algorithm="argon2")
                 assert vo.verify("wrong") is False
 
     def test_verify_pbkdf2_success(self):
-        # Create a known hash
         salt = b"salt123"
         iterations = 100000
         password = "password"
@@ -395,112 +378,72 @@ class TestPasswordHashedVO:
         assert vo.verify("wrong") is False
 
     def test_verify_pbkdf2_invalid_format(self):
-        vo = PasswordHashedVO(
-            hashed_value="invalid_format",
-            algorithm="pbkdf2_sha256",
-        )
+        vo = PasswordHashedVO(hashed_value="invalid_format", algorithm="pbkdf2_sha256")
         assert vo.verify("password") is False
 
-    def test_verify_pbkdf2_invalid_salt(self):
+    def test_verify_pbkdf2_invalid_hash(self):
         salt = b"salt123"
         iterations = 100000
         password = "password"
         hash_obj = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
         hashed_value = f"pbkdf2_sha256${iterations}${salt.hex()}${hash_obj.hex()}"
-        vo = PasswordHashedVO(hashed_value=hashed_value, algorithm="pbkdf2_sha256")
-        # Modify salt in object to corrupt
-        object.__setattr__(vo, "salt", "invalid")
-        # The verification will parse from hashed_value, so salt in object is not used.
-        # Instead, we can create a corrupted hashed_value.
-        corrupted = f"pbkdf2_sha256${iterations}${'a'*10}${hash_obj.hex()}"
-        vo2 = PasswordHashedVO(hashed_value=corrupted, algorithm="pbkdf2_sha256")
-        assert vo2.verify(password) is False
+        # Corrupt the hash part
+        corrupted = hashed_value[:-5] + "xxxxx"
+        vo = PasswordHashedVO(hashed_value=corrupted, algorithm="pbkdf2_sha256")
+        assert vo.verify(password) is False
 
     def test_verify_unknown_algorithm(self):
-        vo = PasswordHashedVO(
-            hashed_value="hash",
-            algorithm="unknown",
-        )
+        vo = PasswordHashedVO(hashed_value="hash", algorithm="unknown")
         assert vo.verify("password") is False
 
     def test_verify_empty_password(self):
-        vo = PasswordHashedVO(
-            hashed_value="somehash1234567890",
-            algorithm="pbkdf2_sha256",
-        )
+        vo = PasswordHashedVO(hashed_value="somehash1234567890", algorithm="pbkdf2_sha256")
         assert vo.verify("") is False
 
     def test_verify_handles_exception(self):
-        # Simulate an error in bcrypt.checkpw
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
             with patch("domain.iam.password_hashed_vo.bcrypt") as mock_bcrypt:
                 mock_bcrypt.checkpw.side_effect = ValueError("bad")
-                vo = PasswordHashedVO(
-                    hashed_value="$2b$12$hash",
-                    algorithm="bcrypt",
-                    iterations=12,
-                )
+                vo = PasswordHashedVO(hashed_value="$2b$12$hash", algorithm="bcrypt", iterations=12)
                 # Should return False (not raise)
                 assert vo.verify("password") is False
 
     # ---- needs_rehash ----
     def test_needs_rehash_bcrypt_ok(self):
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
-            vo = PasswordHashedVO(
-                hashed_value="$2b$12$hash",
-                algorithm="bcrypt",
-                iterations=12,
-            )
+            vo = PasswordHashedVO(hashed_value="$2b$12$hash", algorithm="bcrypt", iterations=12)
             # DEFAULT_BCRYPT_ROUNDS is also 12, so False
             assert vo.needs_rehash() is False
 
     def test_needs_rehash_bcrypt_low_rounds(self):
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
-            vo = PasswordHashedVO(
-                hashed_value="$2b$10$hash",
-                algorithm="bcrypt",
-                iterations=10,
-            )
+            vo = PasswordHashedVO(hashed_value="$2b$10$hash", algorithm="bcrypt", iterations=10)
             assert vo.needs_rehash() is True
 
     def test_needs_rehash_bcrypt_invalid_format(self):
         with patch("domain.iam.password_hashed_vo.BCRYPT_AVAILABLE", True):
-            vo = PasswordHashedVO(
-                hashed_value="invalid",
-                algorithm="bcrypt",
-                iterations=12,
-            )
+            vo = PasswordHashedVO(hashed_value="invalid", algorithm="bcrypt", iterations=12)
             # Should return True if parsing fails
             assert vo.needs_rehash() is True
 
     def test_needs_rehash_argon2(self):
-        vo = PasswordHashedVO(
-            hashed_value="argon2_hash",
-            algorithm="argon2",
-        )
+        vo = PasswordHashedVO(hashed_value="argon2_hash", algorithm="argon2")
         assert vo.needs_rehash() is False
 
     def test_needs_rehash_pbkdf2_low_iterations(self):
-        vo = PasswordHashedVO(
-            hashed_value="somehash",
-            algorithm="pbkdf2_sha256",
-            iterations=10000,
-        )
+        vo = PasswordHashedVO(hashed_value="somehash", algorithm="pbkdf2_sha256", iterations=10000)
         assert vo.needs_rehash() is True  # lower than DEFAULT_PBKDF2_ITERATIONS
 
     def test_needs_rehash_pbkdf2_ok(self):
         vo = PasswordHashedVO(
             hashed_value="somehash",
             algorithm="pbkdf2_sha256",
-            iterations=100000,
+            iterations=DEFAULT_PBKDF2_ITERATIONS,
         )
         assert vo.needs_rehash() is False
 
     def test_needs_rehash_unknown(self):
-        vo = PasswordHashedVO(
-            hashed_value="somehash",
-            algorithm="unknown",
-        )
+        vo = PasswordHashedVO(hashed_value="somehash", algorithm="unknown")
         assert vo.needs_rehash() is True
 
     # ---- upgrade_hash ----
@@ -526,6 +469,49 @@ class TestPasswordHashedVO:
                 # Verify that the upgraded hash still verifies
                 assert upgraded.verify(password) is True
 
+    # ---- validate_password_strength ----
+    def test_validate_password_strength_valid(self):
+        # Should not raise
+        PasswordHashedVO.validate_password_strength("ValidP@ss123")
+
+    def test_validate_password_strength_invalid(self):
+        with pytest.raises(PasswordTooShortError):
+            PasswordHashedVO.validate_password_strength("Abc12!")
+
+    def test_validate_password_strength_with_username(self):
+        username = "john"
+        # Password contains username
+        with pytest.raises(PasswordError, match="cannot contain username"):
+            PasswordHashedVO.validate_password_strength("john123!", username)
+
+    # ---- check_password_strength ----
+    def test_check_password_strength_strong(self):
+        result = PasswordHashedVO.check_password_strength("StrongP@ss123!")
+        assert result["score"] >= 80
+        assert result["strength"] == "strong"
+        assert result["is_valid"] is True
+        assert len(result["issues"]) == 0
+
+    def test_check_password_strength_medium(self):
+        # Missing special char
+        result = PasswordHashedVO.check_password_strength("StrongPass123")
+        assert result["score"] >= 60
+        assert result["strength"] == "medium"
+        assert result["is_valid"] is True
+        assert any("special" in issue.lower() for issue in result["issues"])
+
+    def test_check_password_strength_weak(self):
+        result = PasswordHashedVO.check_password_strength("password")
+        assert result["score"] < 60
+        assert result["strength"] == "very_weak"
+        assert result["is_valid"] is False
+        assert len(result["issues"]) > 0
+
+    def test_check_password_strength_with_username(self):
+        result = PasswordHashedVO.check_password_strength("john123!", "john")
+        assert result["is_valid"] is False
+        assert any("username" in issue.lower() for issue in result["issues"])
+
     # ---- from_dict ----
     def test_from_dict(self):
         data = {
@@ -543,10 +529,7 @@ class TestPasswordHashedVO:
         assert vo.created_at == datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     def test_from_dict_missing_created_at(self):
-        data = {
-            "hashed_value": "hash123",
-            "algorithm": "bcrypt",
-        }
+        data = {"hashed_value": "hash123", "algorithm": "bcrypt"}
         vo = PasswordHashedVO.from_dict(data)
         assert vo.created_at is not None
         assert vo.created_at.tzinfo == UTC
@@ -585,10 +568,7 @@ class TestPasswordHashedVO:
 
     # ---- dunder methods ----
     def test_str_and_repr(self):
-        vo = PasswordHashedVO(
-            hashed_value="hash1234567890",
-            algorithm="bcrypt",
-        )
+        vo = PasswordHashedVO(hashed_value="hash1234567890", algorithm="bcrypt")
         assert str(vo).startswith("PasswordHashedVO(algorithm=bcrypt, hash=hash1234567890...")
         assert repr(vo).startswith("PasswordHashedVO(algorithm=bcrypt, hash_length=")
 
@@ -640,7 +620,6 @@ class TestHelpers:
         assert result is True
 
     def test_is_password_strong_valid(self):
-        # Use a password that satisfies default policy
         strong = is_password_strong("ValidP@ss123")
         assert strong is True
 

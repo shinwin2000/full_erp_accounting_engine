@@ -120,7 +120,7 @@ class ContributionTab(QWidget):
         self.date_edit.setCalendarPopup(True)
         form.addRow("Tanggal", self.date_edit)
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["cash", "asset", "receivable_conversion"])
+        self.type_combo.addItems(["CASH", "ASSET", "INVENTORY", "INTELLECTUAL_PROPERTY"])
         form.addRow("Tipe Kontribusi", self.type_combo)
         self.contributor_edit = QLineEdit()
         self.contributor_edit.setPlaceholderText("UUID kontributor (opsional)")

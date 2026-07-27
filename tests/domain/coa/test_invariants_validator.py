@@ -196,13 +196,17 @@ class TestValidateAccountName:
 class TestValidateParentExists:
     @pytest.mark.parametrize("parent_id,existing_ids,expected_valid", [
         (None, set(), True),
-        (uuid4(), {uuid4()}, True),  # but we need same ID for both; can't use uuid4() inside param
+        (uuid4(), set(), False),   # parent_id not in existing_ids
     ])
-    def test_parent_exists(self, validator, legal_entity_id):
+    def test_parent_exists(self, validator, parent_id, existing_ids, expected_valid):
+        result = validator.validate_parent_exists(parent_id, existing_ids)
+        assert bool(result) is expected_valid
+
+    def test_parent_exists_with_valid_parent(self, validator):
         parent_id = uuid4()
-        assert bool(validator.validate_parent_exists(None, set())) is True
-        assert bool(validator.validate_parent_exists(parent_id, {parent_id})) is True
-        assert bool(validator.validate_parent_exists(uuid4(), set())) is False
+        existing_ids = {parent_id}
+        result = validator.validate_parent_exists(parent_id, existing_ids)
+        assert bool(result) is True
 
 
 class TestValidateParentNotSelf:

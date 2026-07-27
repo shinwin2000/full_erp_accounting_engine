@@ -7,12 +7,8 @@ Covers:
 - Enums: EnforcementResult, EnforcementStage, EnforcementMode
 - Exceptions: EnforcementError, EnforcementRejectedError, EnforcementCatastrophicError
 - Data classes: EnforcementReport, EnforcementContext
-- EnforcementPipeline: _check_preflight, _check_constitution, _check_sovereignty,
-  _check_version_lock, _check_amendment_status, _check_invariants,
-  _check_forbidden_states, _check_dual_approval, _check_final_approval, execute
-- EnforcementEngine: enforce, enforce_journal_posting, enforce_period_close,
-  enforce_cash_disbursement, enforce_ar_payment, enforce_tax_submission,
-  get_report_history, get_statistics, emergency_bypass
+- EnforcementPipeline: all private methods including mapping functions, invariant/forbidden context builders
+- EnforcementEngine: all public methods including convenience methods, history, statistics, emergency_bypass
 - Singleton: get_enforcement_engine
 - All edge cases, negative paths, and warning scenarios
 - No flaky datetime (mocked)
@@ -83,6 +79,13 @@ def sample_context() -> EnforcementContext:
             "current_quantity": Decimal("10"),
             "proposed_quantity_change": Decimal("-2"),
             "approvers": ["CFO", "CEO"],
+            "period_start": FIXED_DATETIME - timedelta(days=30),
+            "period_end": FIXED_DATETIME + timedelta(days=30),
+            "allow_overdraft": False,
+            "overdraft_limit": Decimal("0"),
+            "current_state": {},
+            "calculated_tax": Decimal("1000"),
+            "reported_tax": Decimal("1000"),
         },
         is_amendment=False,
         mode=EnforcementMode.NORMAL,
@@ -222,12 +225,19 @@ class TestEnforcementContext:
 
 
 # =============================================================================
-# EnforcementPipeline
+# EnforcementPipeline - Tests for all private methods
 # =============================================================================
 
-class TestEnforcementPipeline:
+class TestEnforcementPipelinePrivateMethods:
+    """Tests for the private helper methods in EnforcementPipeline."""
+
+    @pytest.fixture
+    def pipeline(self):
+        return EnforcementPipeline()
+
+    # ---- _build_pipeline (indirectly tested) ----
     def test_build_pipeline(self, pipeline):
-        # Pipeline should have 9 stages
+        # Pipeline already built in __init__
         assert len(pipeline._stages) == 9
         stage_names = [s[0] for s in pipeline._stages]
         expected = [
@@ -242,6 +252,177 @@ class TestEnforcementPipeline:
             EnforcementStage.FINAL_APPROVAL,
         ]
         assert stage_names == expected
+
+    # ---- _get_relevant_principles ----
+    @pytest.mark.parametrize("op_type,expected_count", [
+        ("JOURNAL_POST", 4),
+        ("JOURNAL_REVERSE", 4),
+        ("ADJUSTING_ENTRY", 4),
+        ("PERIOD_CLOSE", 3),
+        ("PERIOD_REOPEN", 3),
+        ("USER_LOGIN", 3),
+        ("ROLE_ASSIGN", 3),
+        ("TAX_SUBMISSION", 3),
+        ("CORETAX_SUBMIT", 3),
+        ("CONSTITUTION_AMENDMENT", 2),
+        ("UNKNOWN", 3),
+    ])
+    def test_get_relevant_principles(self, pipeline, op_type, expected_count):
+        principles = pipeline._get_relevant_principles(op_type)
+        assert len(principles) == expected_count
+        # Should return list of ConstitutionalPrinciple enums
+        from constitution.supreme_law import ConstitutionalPrinciple
+        for p in principles:
+            assert isinstance(p, ConstitutionalPrinciple)
+
+    # ---- _infer_domain_from_operation ----
+    @pytest.mark.parametrize("op_type,expected_domain", [
+        ("JOURNAL_POST", SovereigntyDomain.GENERAL_LEDGER),
+        ("JOURNAL_REVERSE", SovereigntyDomain.GENERAL_LEDGER),
+        ("ADJUSTING_ENTRY", SovereigntyDomain.GENERAL_LEDGER),
+        ("PERIOD_CLOSE", SovereigntyDomain.PERIOD_CONTROL),
+        ("PERIOD_REOPEN", SovereigntyDomain.PERIOD_CONTROL),
+        ("AR_PAYMENT", SovereigntyDomain.SUBLEDGER_AR),
+        ("AP_PAYMENT", SovereigntyDomain.SUBLEDGER_AP),
+        ("GOODS_ISSUE", SovereigntyDomain.INVENTORY),
+        ("GOODS_RECEIPT", SovereigntyDomain.INVENTORY),
+        ("TAX_SUBMISSION", SovereigntyDomain.TAX),
+        ("CORETAX_SUBMIT", SovereigntyDomain.TAX),
+        ("USER_LOGIN", SovereigntyDomain.USER_ACCESS),
+        ("ROLE_ASSIGN", SovereigntyDomain.USER_ACCESS),
+        ("PERMISSION_CHANGE", SovereigntyDomain.USER_ACCESS),
+        ("CONSTITUTION_AMENDMENT", SovereigntyDomain.CONSITUTION_ITSELF),
+        ("VERSION_UPGRADE", SovereigntyDomain.CONSITUTION_ITSELF),
+        ("UNKNOWN", SovereigntyDomain.GENERAL_LEDGER),
+    ])
+    def test_infer_domain_from_operation(self, pipeline, op_type, expected_domain):
+        domain = pipeline._infer_domain_from_operation(op_type)
+        assert domain == expected_domain
+
+    # ---- _infer_operation_type ----
+    @pytest.mark.parametrize("op_type,expected", [
+        ("JOURNAL_POST", "CREATE"),
+        ("SUBMIT_TAX", "CREATE"),
+        ("CREATE_INVOICE", "CREATE"),
+        ("JOURNAL_REVERSE", "UPDATE"),
+        ("MODIFY_PERIOD", "UPDATE"),
+        ("UPDATE_ROLE", "UPDATE"),
+        ("DELETE_RECORD", "DELETE"),
+        ("REPEAL_AMENDMENT", "DELETE"),
+        ("READ_DATA", "READ"),
+        ("GET_REPORT", "READ"),
+        ("PERIOD_CLOSE", "CLOSE"),
+        ("SYSTEM_FREEZE", "CLOSE"),
+        ("SOMETHING_ELSE", "WRITE"),
+    ])
+    def test_infer_operation_type(self, pipeline, op_type, expected):
+        inferred = pipeline._infer_operation_type(op_type)
+        assert inferred == expected
+
+    # ---- _get_relevant_invariants ----
+    @pytest.mark.parametrize("op_type,data,expected_contains", [
+        ("JOURNAL_POST", {}, ["DOUBLE_ENTRY_BALANCE", "PERIOD_INTEGRITY", "CURRENCY_CONSISTENCY"]),
+        ("ADJUSTING_ENTRY", {}, ["DOUBLE_ENTRY_BALANCE", "PERIOD_INTEGRITY", "CURRENCY_CONSISTENCY"]),
+        ("JOURNAL_REVERSE", {}, ["DOUBLE_ENTRY_BALANCE", "PERIOD_INTEGRITY", "CONSERVATION_OF_VALUE"]),
+        ("PERIOD_CLOSE", {}, ["PERIOD_INTEGRITY", "PERIOD_CLOSURE_FINALITY", "ACCOUNTING_EQUATION"]),
+        ("CASH_DISBURSEMENT", {}, ["NON_NEGATIVE_CASH", "TIME_MONOTONICITY"]),
+        ("CASH_RECEIPT", {}, ["NON_NEGATIVE_CASH", "TIME_MONOTONICITY"]),
+        ("GOODS_ISSUE", {}, ["NON_NEGATIVE_INVENTORY"]),
+        ("GOODS_RECEIPT", {}, ["NON_NEGATIVE_INVENTORY"]),
+        ("AR_PAYMENT", {}, ["NON_NEGATIVE_RECEIVABLE"]),
+        ("AP_PAYMENT", {}, ["NON_NEGATIVE_PAYABLE"]),
+        ("TAX_SUBMISSION", {}, ["TAX_CONSISTENCY"]),
+        ("CORETAX_SUBMIT", {}, ["TAX_CONSISTENCY"]),
+        ("OTHER", {}, ["TIME_MONOTONICITY"]),
+    ])
+    def test_get_relevant_invariants(self, pipeline, op_type, data, expected_contains):
+        inv_types = pipeline._get_relevant_invariants(op_type, data)
+        inv_names = [inv.name for inv in inv_types]
+        for expected in expected_contains:
+            assert expected in inv_names
+
+    # ---- _build_invariant_context ----
+    @pytest.mark.parametrize("inv_type,expected_keys", [
+        ("DOUBLE_ENTRY_BALANCE", ["total_debit", "total_credit"]),
+        ("PERIOD_INTEGRITY", ["transaction_date", "period_start", "period_end", "period_status"]),
+        ("NON_NEGATIVE_CASH", ["cash_balance", "proposed_change", "allow_overdraft", "overdraft_limit"]),
+        ("NON_NEGATIVE_INVENTORY", ["quantity", "proposed_change", "item_id", "warehouse_id"]),
+        ("TIME_MONOTONICITY", ["transaction_time", "legal_entity_id", "user_id"]),
+    ])
+    def test_build_invariant_context(self, pipeline, sample_context, inv_type, expected_keys):
+        from constitution.constitutional_invariants import InvariantType
+        inv_type_enum = getattr(InvariantType, inv_type)
+        context = pipeline._build_invariant_context(sample_context, inv_type_enum)
+        for key in expected_keys:
+            assert key in context
+
+    def test_build_invariant_context_period_integrity(self, pipeline, sample_context):
+        from constitution.constitutional_invariants import InvariantType
+        context = pipeline._build_invariant_context(sample_context, InvariantType.PERIOD_INTEGRITY)
+        assert context["transaction_date"] == sample_context.data["transaction_date"]
+        assert context["period_start"] == sample_context.data["period_start"]
+        assert context["period_end"] == sample_context.data["period_end"]
+        assert context["period_status"] == "OPEN"
+
+    def test_build_invariant_context_non_negative_cash_defaults(self, pipeline, sample_context):
+        from constitution.constitutional_invariants import InvariantType
+        sample_context.data.pop("allow_overdraft", None)
+        sample_context.data.pop("overdraft_limit", None)
+        context = pipeline._build_invariant_context(sample_context, InvariantType.NON_NEGATIVE_CASH)
+        assert context["allow_overdraft"] is False
+        assert context["overdraft_limit"] == Decimal("0")
+
+    # ---- _get_relevant_forbidden_categories ----
+    @pytest.mark.parametrize("op_type,expected_categories", [
+        ("JOURNAL_POST", ["IMBALANCED_JOURNAL"]),
+        ("JOURNAL_REVERSE", ["IMBALANCED_JOURNAL"]),
+        ("ADJUSTING_ENTRY", ["IMBALANCED_JOURNAL"]),
+        ("CASH_DISBURSEMENT", ["NEGATIVE_CASH"]),
+        ("CASH_WITHDRAWAL", ["NEGATIVE_CASH"]),
+        ("GOODS_ISSUE", ["NEGATIVE_INVENTORY"]),
+        ("AR_PAYMENT", ["NEGATIVE_RECEIVABLE"]),
+        ("AP_PAYMENT", ["NEGATIVE_PAYABLE"]),
+        ("PERIOD_CLOSE", ["PERIOD_CLOSURE_VIOLATION"]),
+        ("BACKDATED_POSTING", ["BACKDATED_TRANSACTION"]),
+        ("TAX_SUBMISSION", ["TAX_MISMATCH"]),
+        ("UNKNOWN", []),
+    ])
+    def test_get_relevant_forbidden_categories(self, pipeline, op_type, expected_categories):
+        categories = pipeline._get_relevant_forbidden_categories(op_type)
+        cat_names = [c.name for c in categories]
+        assert set(cat_names) == set(expected_categories)
+
+    # ---- _build_forbidden_context ----
+    @pytest.mark.parametrize("category,expected_keys", [
+        ("NEGATIVE_CASH", ["current_balance", "proposed_change", "allow_overdraft", "overdraft_limit"]),
+        ("NEGATIVE_INVENTORY", ["current_quantity", "proposed_change", "allow_backorder"]),
+        ("IMBALANCED_JOURNAL", ["total_debit", "total_credit", "tolerance"]),
+        ("BACKDATED_TRANSACTION", ["transaction_date", "current_period_start", "max_backdate_days"]),
+        ("PERIOD_CLOSURE_VIOLATION", ["period_status", "transaction_date", "period_start", "period_end"]),
+        ("TAX_MISMATCH", ["calculated_tax", "reported_tax"]),
+    ])
+    def test_build_forbidden_context(self, pipeline, sample_context, category, expected_keys):
+        from constitution.forbidden_states import ForbiddenStateCategory
+        cat_enum = getattr(ForbiddenStateCategory, category)
+        context = pipeline._build_forbidden_context(sample_context, cat_enum)
+        if context is not None:
+            for key in expected_keys:
+                assert key in context
+
+    def test_build_forbidden_context_unknown_returns_none(self, pipeline, sample_context):
+        from constitution.forbidden_states import ForbiddenStateCategory
+        context = pipeline._build_forbidden_context(sample_context, ForbiddenStateCategory.NEGATIVE_RECEIVABLE)
+        assert context is None
+
+
+# =============================================================================
+# EnforcementPipeline - Public execute and checks
+# =============================================================================
+
+class TestEnforcementPipelineChecks:
+    @pytest.fixture
+    def pipeline(self):
+        return EnforcementPipeline()
 
     # ---- PREFLIGHT ----
     def test_check_preflight_pass(self, pipeline, sample_context):
@@ -337,8 +518,6 @@ class TestEnforcementPipeline:
             sample_context.operation_type = "AUDIT_CORRECTION"
             valid, msg, warnings = pipeline._check_version_lock(sample_context)
             assert valid is True
-            assert "FROZEN" in msg  # actually message is "Version lock check passed"? Wait: in frozen but audit correction allowed, it passes.
-            # Actually it returns True, "Version lock check passed" but includes warning.
             assert any("FROZEN" in w for w in warnings)
 
     def test_check_version_lock_frozen_blocks_other(self, pipeline, sample_context):
@@ -469,6 +648,7 @@ class TestEnforcementPipeline:
     def test_check_forbidden_critical(self, pipeline, sample_context):
         with patch("constitution.enforcement_engine.get_forbidden_states_service") as mock_get:
             mock_service = MagicMock()
+            from constitution.forbidden_states import ForbiddenStateSeverity
             detection = MagicMock()
             detection.severity = ForbiddenStateSeverity.CRITICAL
             detection.category = MagicMock()
@@ -481,6 +661,7 @@ class TestEnforcementPipeline:
     def test_check_forbidden_catastrophic(self, pipeline, sample_context):
         with patch("constitution.enforcement_engine.get_forbidden_states_service") as mock_get:
             mock_service = MagicMock()
+            from constitution.forbidden_states import ForbiddenStateSeverity
             detection = MagicMock()
             detection.severity = ForbiddenStateSeverity.CATASTROPHIC
             detection.category = MagicMock()
@@ -496,8 +677,8 @@ class TestEnforcementPipeline:
             detection = MagicMock()
             detection.severity = ForbiddenStateSeverity.WARNING
             detection.category = MagicMock()
-            # action = ForbiddenStateAction.REJECT
-            mock_service.get_registry.return_value.check.return_value = (True, detection, "REJECT")
+            from constitution.forbidden_states import ForbiddenStateAction
+            mock_service.get_registry.return_value.check.return_value = (True, detection, ForbiddenStateAction.REJECT)
             mock_get.return_value = mock_service
             valid, msg, warnings = pipeline._check_forbidden_states(sample_context)
             assert valid is False
@@ -505,14 +686,14 @@ class TestEnforcementPipeline:
 
     # ---- DUAL APPROVAL ----
     def test_check_dual_approval_large_amount(self, pipeline, sample_context):
-        sample_context.data["amount"] = Decimal("1500000000")  # > 1B
+        sample_context.data["amount"] = Decimal("1500000000")
         sample_context.data["approvers"] = ["CFO", "CEO"]
         valid, msg, _ = pipeline._check_dual_approval(sample_context)
         assert valid is True
 
     def test_check_dual_approval_large_amount_no_approvers(self, pipeline, sample_context):
         sample_context.data["amount"] = Decimal("1500000000")
-        sample_context.data["approvers"] = ["CFO"]  # only one
+        sample_context.data["approvers"] = ["CFO"]
         valid, msg, _ = pipeline._check_dual_approval(sample_context)
         assert valid is False
         assert "requires dual approval" in msg
@@ -525,7 +706,7 @@ class TestEnforcementPipeline:
 
     def test_check_dual_approval_period_close_missing(self, pipeline, sample_context):
         sample_context.operation_type = "PERIOD_CLOSE"
-        sample_context.data["approvers"] = ["FINANCE_MANAGER"]  # missing auditor
+        sample_context.data["approvers"] = ["FINANCE_MANAGER"]
         valid, msg, _ = pipeline._check_dual_approval(sample_context)
         assert valid is False
         assert "requires approval from Finance Manager and Auditor" in msg
@@ -533,11 +714,11 @@ class TestEnforcementPipeline:
     # ---- FINAL APPROVAL ----
     @pytest.mark.parametrize("amount,roles,expected_valid", [
         (Decimal("1e10"), {"CFO", "CEO"}, True),
-        (Decimal("1e10"), {"CFO"}, False),  # need 2 executives
+        (Decimal("1e10"), {"CFO"}, False),
         (Decimal("5e8"), {"CFO", "FINANCE_MANAGER"}, True),
         (Decimal("5e8"), {"ACCOUNTANT"}, False),
         (Decimal("4e7"), {"FINANCE_MANAGER"}, True),
-        (Decimal("4e7"), {"ACCOUNTANT"}, True),  # warnings but passes
+        (Decimal("4e7"), {"ACCOUNTANT"}, True),
     ])
     def test_check_final_approval(self, pipeline, sample_context, amount, roles, expected_valid):
         sample_context.user_roles = list(roles)
@@ -548,7 +729,7 @@ class TestEnforcementPipeline:
             assert "requires" in msg
 
     def test_check_final_approval_maker_approver_warning(self, pipeline, sample_context):
-        sample_context.user_roles = ["MAKER"]  # no APPROVER
+        sample_context.user_roles = ["MAKER"]
         sample_context.data["amount"] = Decimal("1e8")
         valid, msg, warnings = pipeline._check_final_approval(sample_context)
         assert valid is True
@@ -568,14 +749,14 @@ class TestEnforcementPipeline:
         sample_context.operation_id = None
         report = pipeline.execute(sample_context)
         assert report.final_result == EnforcementResult.REJECTED
-        assert report.stages_passed == []  # preflight fails immediately
+        assert report.stages_passed == []
         assert len(report.stages_failed) == 1
         assert report.stages_failed[0][0] == EnforcementStage.PREFLIGHT
         assert "Operation ID is required" in report.rejection_reason
 
     def test_execute_requires_approval(self, pipeline, sample_context):
         sample_context.data["amount"] = Decimal("1e10")
-        sample_context.data["approvers"] = ["CFO"]  # insufficient
+        sample_context.data["approvers"] = ["CFO"]
         report = pipeline.execute(sample_context)
         assert report.final_result == EnforcementResult.REQUIRE_APPROVAL
         assert report.stages_failed[-1][0] == EnforcementStage.DUAL_APPROVAL
@@ -690,7 +871,6 @@ class TestEnforcementEngine:
                 data={"period_status": "OPEN"},
             )
             assert result == report
-            # Verify context built
             call_args = mock_enforce.call_args[0][0]
             assert call_args.operation_type == "JOURNAL_POST"
             assert call_args.data["total_debit"] == Decimal("100")
@@ -788,7 +968,6 @@ class TestEnforcementEngine:
 
     # ---- Report history and statistics ----
     def test_get_report_history(self, engine, sample_context):
-        # Add some reports
         with patch.object(engine._pipeline, "execute") as mock_execute:
             for i in range(3):
                 report = EnforcementReport(
@@ -806,21 +985,16 @@ class TestEnforcementEngine:
                 )
                 mock_execute.return_value = report
                 engine.enforce(sample_context)
-        # Get all
         all_reports = engine.get_report_history(limit=10)
         assert len(all_reports) == 3
-        # Filter failed
         failed = engine.get_report_history(limit=10, only_failed=True)
         assert len(failed) == 1
-        # Filter by type
         journal = engine.get_report_history(limit=10, operation_type="JOURNAL_POST")
         assert len(journal) == 2
 
     def test_get_statistics(self, engine, sample_context):
-        # Initially empty
         stats = engine.get_statistics()
         assert stats["total"] == 0
-        # Add some reports
         with patch.object(engine._pipeline, "execute") as mock_execute:
             for i in range(5):
                 result = EnforcementResult.PASS if i < 3 else EnforcementResult.REJECTED
@@ -908,12 +1082,10 @@ class TestEnforcementEngine:
                     authorized_by=["admin1", "admin2"],
                     reason="urgent",
                 )
-                # The report should be modified with emergency info
                 assert result.final_result == EnforcementResult.PASS
                 assert result.mode == EnforcementMode.EMERGENCY
                 assert any("EMERGENCY BYPASS" in w for w in result.warnings)
                 assert "admin1" in result.required_approvers
-                # Should be in history
                 assert len(engine._report_history) == 1
 
 

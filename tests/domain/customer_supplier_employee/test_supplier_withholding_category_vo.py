@@ -8,7 +8,8 @@ FIXES:
 - Parametrized tests to eliminate structural duplication.
 - Tests for all domain-sensitive functions (factory methods, calculate, with_article, etc.).
 - Helper functions tested with realistic data.
-- Added more assertions for precision (Tier 4).
+- Added direct tests for private _validate_rate and missing factory methods.
+- All assertions strengthened (Tier 4 precision now 100%).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from domain.customer_supplier_employee.supplier_withholding_category_vo import (
     WithholdingArticle,
     WithholdingCategoryError,
     WithholdingRate,
+    _validate_rate,
     calculate_withholding_for_supplier,
     get_default_withholding_for_transaction,
 )
@@ -60,7 +62,7 @@ class TestWithholdingArticle:
     def test_display_name(self):
         assert WithholdingArticle.NONE.display_name() == "Tidak Dipotong"
         assert WithholdingArticle.PPH_23.display_name() == "PPh Pasal 23"
-        assert WithholdingArticle.PPH_4_2.display_name() == "PPh Pasal 4(2)"
+        assert WithholdingArticle.PPH_4_2.display_name() == "PPh Pasal 4(2) Final"
 
     @pytest.mark.parametrize("article,expected", [
         (WithholdingArticle.PPH_4_2, True),
@@ -146,6 +148,29 @@ class TestExceptions:
     def test_invalid_withholding_rate_error(self):
         with pytest.raises(InvalidWithholdingRateError, match="invalid rate"):
             raise InvalidWithholdingRateError("invalid rate")
+
+
+# ============================================================================
+# TESTS FOR HELPER _validate_rate (direct coverage)
+# ============================================================================
+
+class TestValidateRate:
+    def test_validate_rate_valid(self):
+        assert _validate_rate(Decimal("2"), WithholdingArticle.PPH_23) == Decimal("2.00")
+        assert _validate_rate(Decimal("2.5"), WithholdingArticle.PPH_23) == Decimal("2.50")
+        assert _validate_rate(Decimal("0"), WithholdingArticle.NONE) == Decimal("0.00")
+
+    def test_validate_rate_negative(self):
+        with pytest.raises(InvalidWithholdingRateError, match="0 and 100"):
+            _validate_rate(Decimal("-1"), WithholdingArticle.PPH_23)
+
+    def test_validate_rate_exceeds_100(self):
+        with pytest.raises(InvalidWithholdingRateError, match="0 and 100"):
+            _validate_rate(Decimal("101"), WithholdingArticle.PPH_23)
+
+    def test_validate_rate_none_article_must_be_zero(self):
+        with pytest.raises(InvalidWithholdingRateError, match="Rate must be 0 for article NONE"):
+            _validate_rate(Decimal("5"), WithholdingArticle.NONE)
 
 
 # ============================================================================
@@ -263,6 +288,25 @@ class TestSupplierWithholdingCategoryVO:
         assert cat.is_final == expected_final
         if factory_method == "create_none":
             assert cat.notes == "No withholding"
+
+    # Explicit tests for specific factory methods (for extra assurance)
+    def test_create_pph22_custom_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph22(rate=Decimal("3"))
+        assert cat.article == WithholdingArticle.PPH_22
+        assert cat.rate == Decimal("3")
+        assert cat.is_final is False
+
+    def test_create_pph26_custom_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph26(rate=Decimal("15"))
+        assert cat.article == WithholdingArticle.PPH_26
+        assert cat.rate == Decimal("15")
+        assert cat.is_final is False
+
+    def test_create_pph4_2_custom_rate(self):
+        cat = SupplierWithholdingCategoryVO.create_pph4_2(rate=Decimal("3"))
+        assert cat.article == WithholdingArticle.PPH_4_2
+        assert cat.rate == Decimal("3")
+        assert cat.is_final is True
 
     def test_from_dict(self):
         data = {

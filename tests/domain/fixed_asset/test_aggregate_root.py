@@ -1,9 +1,11 @@
-# test_aggregate_root.py
-# Comprehensive tests for domain/fixed_asset/aggregate_root.py
-# Covers all methods and edge cases.
+# tests/domain/fixed_asset/test_aggregate_root.py
+"""
+Comprehensive tests for domain/fixed_asset/aggregate_root.py.
+Covers all methods and edge cases with mocked datetime to avoid flakiness.
+"""
 
 import pytest
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
@@ -28,8 +30,36 @@ from domain.fixed_asset.domain_events import (
     AssetUpdatedEvent,
 )
 
+# =============================================================================
+# Fixed datetime for deterministic tests
+# =============================================================================
 
-# -------------------- Fixtures --------------------
+FIXED_NOW = datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
+FIXED_DATE = date(2026, 7, 23)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now and date.today in aggregate_root module."""
+    with patch("domain.fixed_asset.aggregate_root.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_NOW
+        mock_dt.utcnow.return_value = FIXED_NOW
+        mock_dt.UTC = UTC
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        yield mock_dt
+
+
+@pytest.fixture(autouse=True)
+def mock_date_today():
+    with patch("domain.fixed_asset.aggregate_root.date") as mock_date:
+        mock_date.today.return_value = FIXED_DATE
+        yield mock_date
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
 @pytest.fixture
 def legal_entity_id() -> UUID:
     return uuid4()
@@ -45,7 +75,7 @@ def sample_asset(legal_entity_id) -> FixedAsset:
         description="Test Description",
         asset_type=AssetType.EQUIPMENT,
         category="Machinery",
-        acquisition_date=date(2020, 1, 1),
+        acquisition_date=FIXED_DATE,
         acquisition_cost=Decimal("10000.00"),
         residual_value=Decimal("1000.00"),
         useful_life_years=10,
@@ -55,9 +85,9 @@ def sample_asset(legal_entity_id) -> FixedAsset:
         status=AssetStatus.ACTIVE,
         accumulated_depreciation=Decimal("0.00"),
         revaluation_surplus=Decimal("0.00"),
-        last_depreciation_date=date(2020, 1, 1),
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+        last_depreciation_date=FIXED_DATE,
+        created_at=FIXED_NOW,
+        updated_at=FIXED_NOW,
         created_by="system",
         version=1,
     )
@@ -73,7 +103,7 @@ def sample_asset2(legal_entity_id) -> FixedAsset:
         description="Another asset",
         asset_type=AssetType.BUILDING,
         category="Infrastructure",
-        acquisition_date=date(2019, 6, 1),
+        acquisition_date=FIXED_DATE - timedelta(days=365),
         acquisition_cost=Decimal("50000.00"),
         residual_value=Decimal("5000.00"),
         useful_life_years=20,
@@ -83,9 +113,9 @@ def sample_asset2(legal_entity_id) -> FixedAsset:
         status=AssetStatus.ACTIVE,
         accumulated_depreciation=Decimal("0.00"),
         revaluation_surplus=Decimal("0.00"),
-        last_depreciation_date=date(2019, 6, 1),
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+        last_depreciation_date=FIXED_DATE - timedelta(days=365),
+        created_at=FIXED_NOW,
+        updated_at=FIXED_NOW,
         created_by="system",
         version=1,
     )
@@ -101,7 +131,7 @@ def sample_disposed_asset(legal_entity_id) -> FixedAsset:
         description="To be disposed",
         asset_type=AssetType.VEHICLE,
         category="Transport",
-        acquisition_date=date(2018, 1, 1),
+        acquisition_date=FIXED_DATE - timedelta(days=365 * 3),
         acquisition_cost=Decimal("20000.00"),
         residual_value=Decimal("2000.00"),
         useful_life_years=10,
@@ -111,9 +141,9 @@ def sample_disposed_asset(legal_entity_id) -> FixedAsset:
         status=AssetStatus.DISPOSED,
         accumulated_depreciation=Decimal("18000.00"),
         revaluation_surplus=Decimal("0.00"),
-        last_depreciation_date=date(2021, 1, 1),
-        created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC),
+        last_depreciation_date=FIXED_DATE - timedelta(days=365 * 2),
+        created_at=FIXED_NOW,
+        updated_at=FIXED_NOW,
         created_by="system",
         version=1,
     )
@@ -138,12 +168,12 @@ def empty_collection(legal_entity_id) -> FixedAssetCollection:
     )
 
 
-# -------------------- Tests for FixedAssetCollection --------------------
-class TestFixedAssetCollection:
-    """Comprehensive tests for FixedAssetCollection aggregate root."""
+# =============================================================================
+# Tests for FixedAssetCollection
+# =============================================================================
 
+class TestFixedAssetCollection:
     def test_construction(self, legal_entity_id):
-        """Test basic construction."""
         collection = FixedAssetCollection(
             asset_id=uuid4(),
             legal_entity_id=legal_entity_id,
@@ -155,31 +185,24 @@ class TestFixedAssetCollection:
         assert collection._events == []
 
     def test_event_contract(self, collection):
-        """Test event registration and retrieval."""
         event = MagicMock(spec=AssetAcquiredEvent)
         collection.register_event(event)
         assert len(collection._events) == 1
         assert collection.get_events() == [event]
-        # pull_events clears
         events = collection.pull_events()
         assert events == [event]
         assert collection._events == []
-        # clear_events
         collection.register_event(event)
         collection.clear_events()
         assert collection._events == []
 
     def test_domain_events_property(self, collection):
-        """Test compatibility property."""
         event = MagicMock(spec=AssetAcquiredEvent)
         collection.register_event(event)
         assert collection.domain_events == [event]
 
     def test_take_snapshot(self, collection):
-        """Test internal snapshotting."""
-        # __post_init__ takes initial snapshot
         assert len(collection._snapshots) == 1
-        # add more assets to trigger snapshot again
         for i in range(12):
             collection.add_asset(FixedAsset(
                 id=uuid4(),
@@ -187,7 +210,7 @@ class TestFixedAssetCollection:
                 asset_code=f"AST-{i}",
                 name=f"Asset {i}",
                 asset_type=AssetType.EQUIPMENT,
-                acquisition_date=date.today(),
+                acquisition_date=FIXED_DATE,
                 acquisition_cost=Decimal("100"),
                 residual_value=Decimal("0"),
                 useful_life_years=5,
@@ -197,11 +220,9 @@ class TestFixedAssetCollection:
                 created_by="system",
                 version=1,
             ))
-        # should keep only last 10 snapshots
-        assert len(collection._snapshots) == 10  # Initial + 9 more? Actually we added 12, so total 13 but capped at 10.
+        assert len(collection._snapshots) == 10
 
     def test_audit_trail(self, collection):
-        """Test audit trail recording."""
         collection._record_audit("TEST", "user", {"foo": "bar"})
         trail = collection.audit_trail()
         assert len(trail) == 1
@@ -210,58 +231,48 @@ class TestFixedAssetCollection:
 
     # --- Entity basic methods ---
     def test_create(self, collection):
-        """Test create method."""
         new_collection = collection.create("creator")
-        assert new_collection.version == collection.version  # version not incremented? Actually create does not increment version.
-        # audit trail should have an entry
+        assert new_collection.version == collection.version
         trail = new_collection.audit_trail()
         assert any(entry["action"] == "CREATE" for entry in trail)
 
     def test_update(self, collection):
-        """Test update method."""
         new_collection = collection.update("updater", location="New Location")
         assert new_collection.version == collection.version + 1
-        assert new_collection.updated_at > collection.updated_at
-        # created_by changed to updater? Actually update uses updated_by as created_by? It sets created_by = updated_by.
+        assert new_collection.updated_at == FIXED_NOW
         assert new_collection.created_by == "updater"
         trail = new_collection.audit_trail()
         assert any(entry["action"] == "UPDATE" for entry in trail)
 
     def test_delete_raises_if_assets_present(self, collection):
-        """Delete should raise if assets exist."""
         with pytest.raises(ValueError, match="Cannot delete collection with existing assets"):
             collection.delete("deleter")
 
     def test_delete_empty_ok(self, empty_collection):
-        """Delete allowed when no assets."""
         new_collection = empty_collection.delete("deleter", "no assets")
         assert new_collection.version == empty_collection.version + 1
         trail = new_collection.audit_trail()
         assert any(entry["action"] == "DELETE" for entry in trail)
 
     def test_restore(self, collection):
-        """Test restore."""
         new_collection = collection.restore("restorer")
         assert new_collection.version == collection.version + 1
         trail = new_collection.audit_trail()
         assert any(entry["action"] == "RESTORE" for entry in trail)
 
     def test_activate(self, collection):
-        """Test activate."""
         new_collection = collection.activate("activator")
         assert new_collection.version == collection.version + 1
         trail = new_collection.audit_trail()
         assert any(entry["action"] == "ACTIVATE" for entry in trail)
 
     def test_deactivate(self, collection):
-        """Test deactivate."""
         new_collection = collection.deactivate("deactivator", "reason")
         assert new_collection.version == collection.version + 1
         trail = new_collection.audit_trail()
         assert any(entry["action"] == "DEACTIVATE" for entry in trail)
 
     def test_lock_unlock(self, collection):
-        """Test lock and unlock."""
         locked = collection.lock("locker", "reason")
         assert locked.version == collection.version + 1
         unlocked = locked.unlock("unlocker")
@@ -271,31 +282,23 @@ class TestFixedAssetCollection:
         assert any(entry["action"] == "UNLOCK" for entry in trail)
 
     def test_validate(self, collection):
-        """Test validate method."""
         result = collection.validate()
         assert result["is_valid"] is True
-        # Add duplicate code to trigger error
         asset = collection.assets[next(iter(collection.assets))]
         duplicate = asset.clone()
-        duplicate.id = uuid4()  # new id but same code
+        duplicate.id = uuid4()
         new_collection = collection.add_asset(duplicate)
         result = new_collection.validate()
         assert result["is_valid"] is False
         assert "Duplicate asset code" in result["errors"][0]
 
     def test_to_dict(self, collection):
-        """Test to_dict conversion."""
         data = collection.to_dict()
         assert "asset_id" in data
         assert data["total_assets"] == 1
         assert data["version"] == 1
 
     def test_from_dict(self, collection):
-        """Test from_dict reconstruction."""
-        data = collection.to_dict()
-        # Need to add assets list because to_dict doesn't include full asset details?
-        # Actually to_dict returns a summary, not full asset details. So from_dict would fail.
-        # We need to create a proper dict with full asset data.
         asset_data = collection.assets[next(iter(collection.assets))].to_dict()
         full_data = {
             "asset_id": str(collection.asset_id),
@@ -314,74 +317,60 @@ class TestFixedAssetCollection:
         assert len(new_collection.assets) == 1
 
     def test_clone(self, collection):
-        """Test clone."""
         cloned = collection.clone()
         assert cloned.asset_id != collection.asset_id
         assert cloned.legal_entity_id == collection.legal_entity_id
         assert len(cloned.assets) == len(collection.assets)
         assert cloned.version == 1
-        # assets are cloned (new ids)
         for orig_asset, new_asset in zip(collection.assets.values(), cloned.assets.values()):
             assert orig_asset.id != new_asset.id
             assert orig_asset.asset_code == new_asset.asset_code
 
     def test_snapshot(self, collection):
-        """Test snapshot method."""
         snap = collection.snapshot()
         assert "version" in snap
         assert snap["total_assets"] == 1
 
     def test_version_method(self, collection):
-        """Test version method."""
         assert collection.version() == collection.version
 
     def test_touch(self, collection):
-        """Test touch."""
         touched = collection.touch("toucher")
         assert touched.version == collection.version + 1
-        assert touched.updated_at > collection.updated_at
+        assert touched.updated_at == FIXED_NOW
         trail = touched.audit_trail()
         assert any(entry["action"] == "TOUCH" for entry in trail)
 
     # --- Aggregate root command methods ---
     def test_add_child(self, collection, sample_asset2):
-        """Test add_child (alias for add_asset)."""
         new_collection = collection.add_child(sample_asset2, "creator")
         assert len(new_collection.assets) == 2
         assert new_collection.version == collection.version + 1
-        # event should be registered
         events = new_collection.pull_events()
         assert any(isinstance(e, AssetAcquiredEvent) for e in events)
 
     def test_remove_child(self, collection, sample_asset):
-        """Test remove_child (alias for remove_asset)."""
-        # First, we need an asset with status DISPOSED to remove.
-        disposed = sample_asset.dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
-        collection_with_disposed = collection.update_asset(disposed)  # Replace
+        disposed = sample_asset.dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
+        collection_with_disposed = collection.update_asset(disposed)
         new_collection = collection_with_disposed.remove_child(disposed.id, "remover")
         assert len(new_collection.assets) == 0
         assert new_collection.version == collection_with_disposed.version + 1
 
     def test_can_post(self, collection):
-        """Test can_post."""
         asset_id = next(iter(collection.assets))
-        assert collection.can_post(asset_id) is True  # asset is ACTIVE
-        # Change status to INACTIVE
+        assert collection.can_post(asset_id) is True
         asset = collection.assets[asset_id]
         inactive = asset.deactivate("user", "reason")
         collection_inactive = collection.update_asset(inactive)
         assert collection_inactive.can_post(asset_id) is False
 
     def test_post_depreciation(self, collection):
-        """Test post method for depreciation."""
         asset_id = next(iter(collection.assets))
         amount = Decimal("100.00")
         new_collection = collection.post(asset_id, amount, "poster", "depreciation")
-        # Should call post_depreciation
         assert len(new_collection.assets) == 1
         updated_asset = new_collection.assets[asset_id]
         assert updated_asset.accumulated_depreciation == amount
-        # event registered
         events = new_collection.pull_events()
         assert any(isinstance(e, AssetDepreciationPostedEvent) for e in events)
 
@@ -392,18 +381,17 @@ class TestFixedAssetCollection:
     def test_can_approve(self, collection):
         asset_id = next(iter(collection.assets))
         assert collection.can_approve(asset_id, "finance_manager") is True
-        assert collection.can_approve(asset_id, "user") is False  # only manager/admin
+        assert collection.can_approve(asset_id, "user") is False
 
     def test_approve(self, collection):
         asset_id = next(iter(collection.assets))
-        # approve should not raise if can_approve true
         new_collection = collection.approve(asset_id, "approver")
-        assert new_collection is collection  # returns self
+        assert new_collection is collection
 
     def test_approve_fails(self, collection):
         asset_id = next(iter(collection.assets))
         with pytest.raises(ValueError, match="Cannot approve"):
-            collection.approve(asset_id, "user")  # not manager
+            collection.approve(asset_id, "user")
 
     def test_can_reject(self, collection):
         asset_id = next(iter(collection.assets))
@@ -416,10 +404,8 @@ class TestFixedAssetCollection:
 
     def test_can_cancel(self, collection):
         asset_id = next(iter(collection.assets))
-        assert collection.can_cancel(asset_id) is False  # not UNDER_CONSTRUCTION
-        # Change asset to UNDER_CONSTRUCTION
+        assert collection.can_cancel(asset_id) is False
         asset = collection.assets[asset_id]
-        # We need to set status to UNDER_CONSTRUCTION; we'll use a new asset with that status.
         under_constr = FixedAsset(
             id=asset_id,
             legal_entity_id=asset.legal_entity_id,
@@ -447,34 +433,34 @@ class TestFixedAssetCollection:
         assert collection_under.can_cancel(asset_id) is True
 
     def test_cancel(self, collection):
-        # Setup as above
         asset_id = next(iter(collection.assets))
+        asset = collection.assets[asset_id]
         under_constr = FixedAsset(
             id=asset_id,
-            legal_entity_id=collection.legal_entity_id,
-            asset_code=collection.assets[asset_id].asset_code,
-            name=collection.assets[asset_id].name,
-            asset_type=collection.assets[asset_id].asset_type,
-            category=collection.assets[asset_id].category,
-            acquisition_date=collection.assets[asset_id].acquisition_date,
-            acquisition_cost=collection.assets[asset_id].acquisition_cost,
-            residual_value=collection.assets[asset_id].residual_value,
-            useful_life_years=collection.assets[asset_id].useful_life_years,
-            depreciation_method=collection.assets[asset_id].depreciation_method,
-            location=collection.assets[asset_id].location,
-            responsible_person=collection.assets[asset_id].responsible_person,
+            legal_entity_id=asset.legal_entity_id,
+            asset_code=asset.asset_code,
+            name=asset.name,
+            asset_type=asset.asset_type,
+            category=asset.category,
+            acquisition_date=asset.acquisition_date,
+            acquisition_cost=asset.acquisition_cost,
+            residual_value=asset.residual_value,
+            useful_life_years=asset.useful_life_years,
+            depreciation_method=asset.depreciation_method,
+            location=asset.location,
+            responsible_person=asset.responsible_person,
             status=AssetStatus.UNDER_CONSTRUCTION,
-            accumulated_depreciation=collection.assets[asset_id].accumulated_depreciation,
-            revaluation_surplus=collection.assets[asset_id].revaluation_surplus,
-            last_depreciation_date=collection.assets[asset_id].last_depreciation_date,
-            created_at=collection.assets[asset_id].created_at,
-            updated_at=collection.assets[asset_id].updated_at,
-            created_by=collection.assets[asset_id].created_by,
-            version=collection.assets[asset_id].version,
+            accumulated_depreciation=asset.accumulated_depreciation,
+            revaluation_surplus=asset.revaluation_surplus,
+            last_depreciation_date=asset.last_depreciation_date,
+            created_at=asset.created_at,
+            updated_at=asset.updated_at,
+            created_by=asset.created_by,
+            version=asset.version,
         )
         collection_under = collection.update_asset(under_constr)
         new_collection = collection_under.cancel(asset_id, "canceller", "reason")
-        assert new_collection is collection_under  # returns self
+        assert new_collection is collection_under
 
     def test_cancel_fails_if_not_under_construction(self, collection):
         asset_id = next(iter(collection.assets))
@@ -490,18 +476,17 @@ class TestFixedAssetCollection:
 
     def test_can_close(self, collection):
         asset_id = next(iter(collection.assets))
-        assert collection.can_close(asset_id) is False  # not DISPOSED
-        # Change to DISPOSED
-        disposed = collection.assets[asset_id].dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
+        assert collection.can_close(asset_id) is False
+        disposed = collection.assets[asset_id].dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
         collection_disposed = collection.update_asset(disposed)
         assert collection_disposed.can_close(asset_id) is True
 
     def test_close(self, collection):
         asset_id = next(iter(collection.assets))
-        disposed = collection.assets[asset_id].dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
+        disposed = collection.assets[asset_id].dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
         collection_disposed = collection.update_asset(disposed)
         new_collection = collection_disposed.close(asset_id, "closer", "closed")
-        assert new_collection is collection_disposed  # returns self
+        assert new_collection is collection_disposed
 
     def test_close_fails_if_not_disposed(self, collection):
         with pytest.raises(ValueError, match="Cannot close"):
@@ -510,13 +495,13 @@ class TestFixedAssetCollection:
     def test_can_reopen(self, collection):
         asset_id = next(iter(collection.assets))
         assert collection.can_reopen(asset_id) is False
-        disposed = collection.assets[asset_id].dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
+        disposed = collection.assets[asset_id].dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
         collection_disposed = collection.update_asset(disposed)
         assert collection_disposed.can_reopen(asset_id) is True
 
     def test_reopen(self, collection):
         asset_id = next(iter(collection.assets))
-        disposed = collection.assets[asset_id].dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
+        disposed = collection.assets[asset_id].dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
         collection_disposed = collection.update_asset(disposed)
         new_collection = collection_disposed.reopen(asset_id, "reopener", "reopen")
         assert new_collection is collection_disposed
@@ -561,7 +546,6 @@ class TestFixedAssetCollection:
     def test_get_active_assets(self, collection):
         active = collection.get_active_assets()
         assert len(active) == 1
-        # add an inactive asset
         asset = collection.assets[next(iter(collection.assets))]
         inactive = asset.deactivate("user", "reason")
         new_collection = collection.update_asset(inactive)
@@ -569,20 +553,16 @@ class TestFixedAssetCollection:
         assert len(active) == 0
 
     def test_get_disposed_assets(self, collection):
-        # start with no disposed
         assert len(collection.get_disposed_assets()) == 0
-        # add disposed asset
         asset = collection.assets[next(iter(collection.assets))]
-        disposed = asset.dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
+        disposed = asset.dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
         new_collection = collection.update_asset(disposed)
         disposed_list = new_collection.get_disposed_assets()
         assert len(disposed_list) == 1
         assert disposed_list[0].id == disposed.id
 
     def test_get_fully_depreciated_assets(self, collection):
-        # asset not fully depreciated
         assert len(collection.get_fully_depreciated_assets()) == 0
-        # set accumulated depreciation >= cost - residual
         asset = collection.assets[next(iter(collection.assets))]
         fully = asset.record_depreciation("2024", Decimal("9000"), uuid4())
         new_collection = collection.update_asset(fully)
@@ -605,7 +585,6 @@ class TestFixedAssetCollection:
     def test_get_total_accumulated_depreciation(self, collection):
         total = collection.get_total_accumulated_depreciation()
         assert total == Decimal("0.00")
-        # add some depreciation
         asset = collection.assets[next(iter(collection.assets))]
         depreciated = asset.record_depreciation("2024", Decimal("1000"), uuid4())
         new_collection = collection.update_asset(depreciated)
@@ -615,19 +594,17 @@ class TestFixedAssetCollection:
         assert collection.get_total_nbv() == Decimal("10000.00")
 
     def test_get_revaluations_for_asset(self, collection):
-        # no revaluations yet
         asset_id = next(iter(collection.assets))
         assert collection.get_revaluations_for_asset(asset_id) == []
-        # add a revaluation
         reval = RevaluationEntity(
             id=uuid4(),
             asset_id=asset_id,
             old_value=Decimal("10000"),
             new_value=Decimal("12000"),
             revaluation_method=RevaluationMethod.REVALUATION_SURPLUS,
-            revaluation_date=date.today(),
+            revaluation_date=FIXED_DATE,
             approved_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
             created_by="system",
         )
         new_collection = collection.add_revaluation(asset_id, reval)
@@ -638,20 +615,19 @@ class TestFixedAssetCollection:
     def test_get_disposals_for_asset(self, collection):
         asset_id = next(iter(collection.assets))
         assert collection.get_disposals_for_asset(asset_id) == []
-        # dispose asset
         asset = collection.assets[asset_id]
-        disposed = asset.dispose(date.today(), "Sale", Decimal("0"), "reason", uuid4())
+        disposed = asset.dispose(FIXED_DATE, "Sale", Decimal("0"), "reason", uuid4())
         new_collection = collection.update_asset(disposed)
         disposal = DisposalEntity(
             id=uuid4(),
             asset_id=asset_id,
-            disposal_date=date.today(),
+            disposal_date=FIXED_DATE,
             disposal_type=DisposalType.SALE,
             proceeds=Decimal("0"),
             gain_loss=Decimal("0"),
             reason="reason",
             disposed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         new_collection = new_collection.add_disposal(asset_id, disposal)
         disposals = new_collection.get_disposals_for_asset(asset_id)
@@ -660,17 +636,16 @@ class TestFixedAssetCollection:
     def test_get_transfers_for_asset(self, collection):
         asset_id = next(iter(collection.assets))
         assert collection.get_transfers_for_asset(asset_id) == []
-        # add transfer
         transfer = TransferEntity(
             id=uuid4(),
             asset_id=asset_id,
             source="loc1",
             destination="loc2",
             transfer_type=TransferType.INTERNAL,
-            transfer_date=date.today(),
+            transfer_date=FIXED_DATE,
             status="completed",
             completed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         new_collection = collection.add_transfer(asset_id, transfer)
         transfers = new_collection.get_transfers_for_asset(asset_id)
@@ -686,20 +661,19 @@ class TestFixedAssetCollection:
 
     def test_add_asset_duplicate_id(self, collection, sample_asset):
         with pytest.raises(ValueError, match="already exists"):
-            collection.add_asset(sample_asset)  # same id
+            collection.add_asset(sample_asset)
 
     def test_add_asset_duplicate_code(self, collection, sample_asset):
         dup = sample_asset.clone()
-        dup.id = uuid4()  # new id but same code
+        dup.id = uuid4()
         with pytest.raises(ValueError, match="already exists"):
             collection.add_asset(dup)
 
     def test_remove_asset(self, collection, sample_disposed_asset):
-        # add disposed asset first
         new_collection = collection.add_asset(sample_disposed_asset)
         asset_id = sample_disposed_asset.id
         removed = new_collection.remove_asset(asset_id, "remover")
-        assert len(removed.assets) == 1  # only the original asset remains
+        assert len(removed.assets) == 1
         assert removed.version == new_collection.version + 1
 
     def test_remove_asset_not_found(self, collection):
@@ -725,7 +699,7 @@ class TestFixedAssetCollection:
             asset_code="TEMP",
             name="temp",
             asset_type=AssetType.EQUIPMENT,
-            acquisition_date=date.today(),
+            acquisition_date=FIXED_DATE,
             acquisition_cost=Decimal("0"),
             residual_value=Decimal("0"),
             useful_life_years=1,
@@ -740,15 +714,13 @@ class TestFixedAssetCollection:
 
     def test_calculate_depreciation(self, collection):
         asset_id = next(iter(collection.assets))
-        as_of = datetime.now(UTC)
-        amount = collection.calculate_depreciation(asset_id, as_of)
-        # DepreciationScheduleEngine is mocked? Actually we use real one; it should compute something.
+        amount = collection.calculate_depreciation(asset_id, FIXED_NOW)
         assert isinstance(amount, Decimal)
-        # We can't predict exact amount, but it should be >= 0.
+        assert amount >= Decimal("0")
 
     def test_calculate_depreciation_asset_not_found(self, collection):
         with pytest.raises(ValueError, match="not found"):
-            collection.calculate_depreciation(uuid4(), datetime.now(UTC))
+            collection.calculate_depreciation(uuid4(), FIXED_NOW)
 
     def test_post_depreciation(self, collection):
         asset_id = next(iter(collection.assets))
@@ -776,9 +748,9 @@ class TestFixedAssetCollection:
             old_value=Decimal("10000"),
             new_value=Decimal("12000"),
             revaluation_method=RevaluationMethod.REVALUATION_SURPLUS,
-            revaluation_date=date.today(),
+            revaluation_date=FIXED_DATE,
             approved_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
             created_by="system",
         )
         new_collection = collection.add_revaluation(asset_id, reval)
@@ -795,9 +767,9 @@ class TestFixedAssetCollection:
             old_value=Decimal("0"),
             new_value=Decimal("0"),
             revaluation_method=RevaluationMethod.REVALUATION_SURPLUS,
-            revaluation_date=date.today(),
+            revaluation_date=FIXED_DATE,
             approved_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
             created_by="system",
         )
         with pytest.raises(ValueError, match="not found"):
@@ -808,13 +780,13 @@ class TestFixedAssetCollection:
         disposal = DisposalEntity(
             id=uuid4(),
             asset_id=asset_id,
-            disposal_date=date.today(),
+            disposal_date=FIXED_DATE,
             disposal_type=DisposalType.SALE,
             proceeds=Decimal("0"),
             gain_loss=Decimal("0"),
             reason="reason",
             disposed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         new_collection = collection.add_disposal(asset_id, disposal)
         updated = new_collection.assets[asset_id]
@@ -825,30 +797,28 @@ class TestFixedAssetCollection:
 
     def test_add_disposal_already_disposed(self, collection):
         asset_id = next(iter(collection.assets))
-        # first disposal
         disposal1 = DisposalEntity(
             id=uuid4(),
             asset_id=asset_id,
-            disposal_date=date.today(),
+            disposal_date=FIXED_DATE,
             disposal_type=DisposalType.SALE,
             proceeds=Decimal("0"),
             gain_loss=Decimal("0"),
             reason="reason",
             disposed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         new_collection = collection.add_disposal(asset_id, disposal1)
-        # second disposal
         disposal2 = DisposalEntity(
             id=uuid4(),
             asset_id=asset_id,
-            disposal_date=date.today(),
+            disposal_date=FIXED_DATE,
             disposal_type=DisposalType.SALE,
             proceeds=Decimal("0"),
             gain_loss=Decimal("0"),
             reason="reason2",
             disposed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         with pytest.raises(ValueError, match="already disposed"):
             new_collection.add_disposal(asset_id, disposal2)
@@ -861,10 +831,10 @@ class TestFixedAssetCollection:
             source="loc1",
             destination="loc2",
             transfer_type=TransferType.INTERNAL,
-            transfer_date=date.today(),
+            transfer_date=FIXED_DATE,
             status="completed",
             completed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         new_collection = collection.add_transfer(asset_id, transfer)
         updated = new_collection.assets[asset_id]
@@ -880,10 +850,10 @@ class TestFixedAssetCollection:
             source="loc1",
             destination="loc2",
             transfer_type=TransferType.INTERNAL,
-            transfer_date=date.today(),
+            transfer_date=FIXED_DATE,
             status="completed",
             completed_by=uuid4(),
-            created_at=datetime.now(UTC),
+            created_at=FIXED_NOW,
         )
         with pytest.raises(ValueError, match="not found"):
             collection.add_transfer(uuid4(), transfer)
@@ -898,14 +868,15 @@ class TestFixedAssetCollection:
     def test_copy(self, collection):
         copied = collection._copy()
         assert copied.asset_id == collection.asset_id
-        assert copied.assets is not collection.assets  # shallow copy
+        assert copied.assets is not collection.assets
         assert len(copied.assets) == len(collection.assets)
 
 
-# -------------------- Tests for FixedAssetAggregate --------------------
-class TestFixedAssetAggregate:
-    """Comprehensive tests for FixedAssetAggregate."""
+# =============================================================================
+# Tests for FixedAssetAggregate
+# =============================================================================
 
+class TestFixedAssetAggregate:
     def test_construction(self):
         agg = FixedAssetAggregate()
         assert agg._asset is None
@@ -927,7 +898,6 @@ class TestFixedAssetAggregate:
         events = agg.pull_events()
         assert events == [event]
         assert agg._events == []
-        # clear
         agg.register_event(event)
         agg.clear_events()
         assert agg._events == []
@@ -1037,7 +1007,7 @@ class TestFixedAssetAggregate:
 
     def test_dispose(self, sample_asset):
         agg = FixedAssetAggregate(sample_asset)
-        agg.dispose(date.today(), "SALE", Decimal("0"), "reason", uuid4(), Decimal("0"))
+        agg.dispose(FIXED_DATE, "SALE", Decimal("0"), "reason", uuid4(), Decimal("0"))
         assert agg.asset.status == AssetStatus.DISPOSED
         events = agg.pull_events()
         assert isinstance(events[0], AssetDisposedEvent)
@@ -1049,15 +1019,16 @@ class TestFixedAssetAggregate:
         assert agg._events == [event]
         agg.replay([event, event])
         assert len(agg._events) == 3
-        assert agg.version == sample_asset.version + 2  # replay increments by len
+        assert agg.version == sample_asset.version + 2
         agg.reconstruct([event])
         assert len(agg._events) == 4
 
 
-# -------------------- Tests for FixedAssetRepository --------------------
-class TestFixedAssetRepository:
-    """Tests for in-memory repository."""
+# =============================================================================
+# Tests for FixedAssetRepository
+# =============================================================================
 
+class TestFixedAssetRepository:
     @pytest.fixture(autouse=True)
     def clear_repo(self):
         FixedAssetRepository.clear()
@@ -1074,7 +1045,6 @@ class TestFixedAssetRepository:
         await FixedAssetRepository.save(collection)
         retrieved = await FixedAssetRepository.get_by_legal_entity(collection.legal_entity_id)
         assert retrieved == collection
-        # non-existent
         assert await FixedAssetRepository.get_by_legal_entity(uuid4()) is None
 
     @pytest.mark.asyncio
@@ -1083,9 +1053,7 @@ class TestFixedAssetRepository:
         asset_id = next(iter(collection.assets))
         asset = await FixedAssetRepository.get_asset_by_id(asset_id, collection.legal_entity_id)
         assert asset == collection.assets[asset_id]
-        # wrong legal entity
         assert await FixedAssetRepository.get_asset_by_id(asset_id, uuid4()) is None
-        # non-existent asset
         assert await FixedAssetRepository.get_asset_by_id(uuid4(), collection.legal_entity_id) is None
 
     @pytest.mark.asyncio

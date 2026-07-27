@@ -3,6 +3,9 @@
 tests/unit/test_faktur_keluaran_generator.py
 Test untuk adapters/coretax_djp/faktur_keluaran_generator.py
 Mencakup: FakturKeluaran, FakturKeluaranGenerator
+
+Revisi: Menambah cakupan test untuk properti yang belum diuji, method print,
+        negative path, dan private methods secara tidak langsung.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Pastikan import FakturStatus dan semua konstanta
 from adapters.coretax_djp.faktur_keluaran_generator import (
     PPN_RATE,
     FakturInvalidStateError,
@@ -27,6 +31,8 @@ from adapters.coretax_djp.faktur_keluaran_generator import (
 
 
 class TestFakturKeluaran:
+    """Test untuk entity FakturKeluaran."""
+
     def test_create_valid_faktur(self):
         """Test creation of valid FakturKeluaran."""
         faktur = FakturKeluaran(
@@ -85,6 +91,134 @@ class TestFakturKeluaran:
             jenis_transaksi="01",
         )
         assert faktur.jenis_transaksi_text == "Penyerahan BKP"
+
+    # --- Test properti yang sebelumnya belum diuji ---
+    def test_property_nama_penjual(self):
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+        )
+        assert faktur.nama_penjual == "PT Maju Jaya"
+
+    def test_property_alamat_pembeli(self):
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            alamat_pembeli="Jl. Sudirman 1",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+        )
+        assert faktur.alamat_pembeli == "Jl. Sudirman 1"
+
+    def test_property_referensi(self):
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+            referensi="PO-123",
+        )
+        assert faktur.referensi == "PO-123"
+
+    def test_property_jenis_transaksi(self):
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+            jenis_transaksi="02",
+        )
+        assert faktur.jenis_transaksi == "02"
+
+    def test_property_status_pembayaran_text(self):
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+            status_pembayaran="2",
+        )
+        assert faktur.status_pembayaran_text == "Cicilan"
+
+    def test_property_printed_at(self):
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+        )
+        assert faktur.printed_at is None
+        # Simulate printed
+        faktur._printed_at = datetime.now()
+        assert faktur.printed_at is not None
+
+    # --- Test method print ---
+    @patch("adapters.coretax_djp.faktur_keluaran_generator.FakturKeluaran._create_pdf")
+    def test_print_method(self, mock_create_pdf):
+        mock_create_pdf.return_value = b"PDF content"
+        faktur = FakturKeluaran(
+            faktur_number="010.2026.05.00000001",
+            nsfp="00000001",
+            npwp_penjual="123456789012345",
+            nama_penjual="PT Maju Jaya",
+            npwp_pembeli="987654321098765",
+            nama_pembeli="PT Sejahtera",
+            dpp=Decimal("100000000"),
+            ppn=Decimal("11000000"),
+            tanggal_faktur=date.today(),
+            tahun=2026,
+            bulan=5,
+        )
+        printed_by = uuid.uuid4()
+        pdf = faktur.print(printed_by)
+        assert pdf == b"PDF content"
+        assert faktur.printed_at is not None
+        assert faktur.status == FakturStatus.PRINTED
+        assert faktur.version == 2  # karena print menambah version
 
     def test_validate_validation_passes(self):
         """Test validate passes for valid faktur."""
@@ -486,6 +620,8 @@ class TestFakturKeluaran:
 
 
 class TestFakturKeluaranGenerator:
+    """Test untuk FakturKeluaranGenerator."""
+
     @pytest.mark.asyncio
     async def test_create_faktur(self):
         """Test create creates new faktur."""
@@ -744,6 +880,30 @@ class TestFakturKeluaranGenerator:
         gen2 = await get_faktur_generator()
         # They should be the same instance (singleton)
         assert gen1 is gen2
+
+    # --- Test untuk private method _load_signing_key secara tidak langsung ---
+    def test_load_signing_key_without_file(self, caplog):
+        """Test _load_signing_key handles missing file gracefully."""
+        with patch("builtins.open", side_effect=FileNotFoundError):
+            with caplog.at_level("WARNING"):
+                generator = FakturKeluaranGenerator(config={})
+                assert generator._private_key is None
+                assert "Failed to load signing key" in caplog.text
+
+    def test_load_signing_key_with_hsm_fallback(self):
+        """Test _load_signing_key falls back to file when HSM fails."""
+        with patch("adapters.coretax_djp.faktur_keluaran_generator.HSMSigner", side_effect=Exception("HSM error")):
+            with patch("builtins.open", create=True) as mock_open:
+                # Mock file content
+                mock_open.return_value.__enter__.return_value.read.return_value = b"dummy key"
+                # We need to mock serialization.load_pem_private_key to avoid actual parsing
+                with patch("adapters.coretax_djp.faktur_keluaran_generator.serialization.load_pem_private_key") as mock_load:
+                    mock_load.return_value = MagicMock()
+                    generator = FakturKeluaranGenerator(config={"coretax_djp": {"faktur_keluaran": {"use_hsm": True}}})
+                    # Should have private key from file
+                    assert generator._private_key is not None
+                    # HSM signer should be None because init failed
+                    assert generator._hsm_signer is None
 
 
 class TestFakturKeluaranAdditional:
@@ -1332,8 +1492,7 @@ class TestFakturKeluaranAdditional:
             tahun=2026,
             bulan=5,
         )
-        # Simulate failure during signing by passing a key that is not compatible
-        # Actually we can patch the sign method to raise
+        # Simulate failure during signing by patching
         with patch("cryptography.hazmat.primitives.asymmetric.rsa.RSAPrivateKey.sign", side_effect=Exception("Signing error")):
             faktur._create_xml_faktur()
             with pytest.raises(FakturSigningError, match="Failed to sign"):

@@ -5,6 +5,7 @@ Menguji semua event handler yang didefinisikan di application.events.all_event_h
 Pendekatan dinamis: impor modul, ambil semua fungsi handle_*, dan parametrize.
 """
 
+import inspect
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -13,19 +14,27 @@ from application.events.publisher_application import EventEnvelope
 
 
 # Ambil semua fungsi yang namanya diawali "handle_" (kecuali register)
+# dan pastikan itu adalah fungsi callable yang memiliki __name__
 ALL_HANDLERS = [
     getattr(handlers_module, name)
     for name in dir(handlers_module)
-    if name.startswith("handle_") and callable(getattr(handlers_module, name))
+    if name.startswith("handle_")
+    and callable(getattr(handlers_module, name))
     and name != "handle_register_all_handlers"
+    and hasattr(getattr(handlers_module, name), "__name__")
+    and inspect.isfunction(getattr(handlers_module, name))
 ]
 
-# Filter: hanya yang mengandung "Event" (semua handler event punya "Event")
+# Filter: hanya yang mengandung "Event" dalam nama fungsinya
 EVENT_HANDLERS = [h for h in ALL_HANDLERS if "Event" in h.__name__]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("handler", EVENT_HANDLERS, ids=lambda h: h.__name__)
+@pytest.mark.parametrize(
+    "handler",
+    EVENT_HANDLERS,
+    ids=lambda h: h.__name__ if hasattr(h, "__name__") else str(h)
+)
 async def test_event_handler_logs_info(handler):
     """
     Test bahwa setiap event handler memanggil logger.info setidaknya sekali.
@@ -43,7 +52,11 @@ async def test_event_handler_logs_info(handler):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("handler", EVENT_HANDLERS, ids=lambda h: h.__name__)
+@pytest.mark.parametrize(
+    "handler",
+    EVENT_HANDLERS,
+    ids=lambda h: h.__name__ if hasattr(h, "__name__") else str(h)
+)
 async def test_event_handler_handles_invalid_envelope(handler):
     """
     Negative path: pastikan handler tidak raise exception

@@ -124,7 +124,7 @@ class TestReversalApproval:
 
 class TestReversalRequest:
     @pytest.fixture
-    def request(self):
+    def reversal_request(self):
         return ReversalRequest(
             request_id=uuid4(),
             journal_id=uuid4(),
@@ -139,74 +139,74 @@ class TestReversalRequest:
             expires_at=FIXED_NOW + timedelta(days=7),
         )
 
-    def test_construction(self, request):
-        assert isinstance(request, ReversalRequest)
-        assert request.status == ReversalStatus.PENDING
-        assert request.created_at == FIXED_NOW
-        assert request.expires_at == FIXED_NOW + timedelta(days=7)
-        assert request._hash is not None
-        assert len(request._hash) == 64  # SHA256
+    def test_construction(self, reversal_request):
+        assert isinstance(reversal_request, ReversalRequest)
+        assert reversal_request.status == ReversalStatus.PENDING
+        assert reversal_request.created_at == FIXED_NOW
+        assert reversal_request.expires_at == FIXED_NOW + timedelta(days=7)
+        assert reversal_request._hash is not None
+        assert len(reversal_request._hash) == 64  # SHA256
 
-    def test_hash_consistency(self, request):
-        h1 = request._hash
+    def test_hash_consistency(self, reversal_request):
+        h1 = reversal_request._hash
         # modify something, hash should change
-        request.justification = "Changed"
-        h2 = request._compute_hash()
+        reversal_request.justification = "Changed"
+        h2 = reversal_request._compute_hash()
         assert h1 != h2
 
-    def test_add_approval(self, request):
+    def test_add_approval(self, reversal_request):
         approver_id = uuid4()
-        request.add_approval(
+        reversal_request.add_approval(
             approver_id=approver_id,
             approver_name="Supervisor",
             level=ReversalApprovalLevel.SUPERVISOR,
             notes="Approved",
         )
-        assert len(request.approvals) == 1
-        assert request.approvals[0].approver_id == approver_id
-        assert request.approvals[0].level == ReversalApprovalLevel.SUPERVISOR
-        assert request.approvals[0].decision == "approved"
-        assert request.approvals[0].approved_at == FIXED_NOW
+        assert len(reversal_request.approvals) == 1
+        assert reversal_request.approvals[0].approver_id == approver_id
+        assert reversal_request.approvals[0].level == ReversalApprovalLevel.SUPERVISOR
+        assert reversal_request.approvals[0].decision == "approved"
+        assert reversal_request.approvals[0].approved_at == FIXED_NOW
         # status remains PENDING unless enough approvals; we'll test later in policy
 
-    def test_add_rejection(self, request):
+    def test_add_rejection(self, reversal_request):
         approver_id = uuid4()
-        request.add_rejection(
+        reversal_request.add_rejection(
             approver_id=approver_id,
             approver_name="Manager",
             level=ReversalApprovalLevel.MANAGER,
             reason="Insufficient documentation",
         )
-        assert len(request.approvals) == 1
-        assert request.approvals[0].decision == "rejected"
-        assert request.approvals[0].notes == "Insufficient documentation"
-        assert request.status == ReversalStatus.REJECTED
-        assert request.rejection_reason == "Insufficient documentation"
+        assert len(reversal_request.approvals) == 1
+        assert reversal_request.approvals[0].decision == "rejected"
+        assert reversal_request.approvals[0].notes == "Insufficient documentation"
+        assert reversal_request.status == ReversalStatus.REJECTED
+        assert reversal_request.rejection_reason == "Insufficient documentation"
 
-    def test_mark_implemented(self, request):
-        request.status = ReversalStatus.APPROVED  # simulate approved
+    def test_mark_implemented(self, reversal_request):
+        reversal_request.status = ReversalStatus.APPROVED  # simulate approved
         impl_by = uuid4()
         rev_journal_id = uuid4()
-        request.mark_implemented(impl_by, rev_journal_id)
-        assert request.status == ReversalStatus.IMPLEMENTED
-        assert request.implemented_by == impl_by
-        assert request.implemented_at == FIXED_NOW
-        assert request.reversal_journal_id == rev_journal_id
+        reversal_request.mark_implemented(impl_by, rev_journal_id)
+        assert reversal_request.status == ReversalStatus.IMPLEMENTED
+        assert reversal_request.implemented_by == impl_by
+        assert reversal_request.implemented_at == FIXED_NOW
+        assert reversal_request.reversal_journal_id == rev_journal_id
 
-    def test_is_expired(self, request):
+    def test_is_expired(self, reversal_request):
         # not expired
-        assert request.is_expired() is False
+        assert reversal_request.is_expired() is False
         # manually set expired
-        request.expires_at = FIXED_NOW - timedelta(days=1)
-        assert request.is_expired() is True
+        reversal_request.expires_at = FIXED_NOW - timedelta(days=1)
+        assert reversal_request.is_expired() is True
 
-    def test_to_dict(self, request):
-        d = request.to_dict()
-        assert d["request_id"] == str(request.id)
-        assert d["journal_id"] == str(request.journal_id)
-        assert d["journal_amount"] == str(request.journal_amount)
-        assert d["reason"] == request.reason.value
-        assert d["status"] == request.status.value
+    def test_to_dict(self, reversal_request):
+        d = reversal_request.to_dict()
+        assert d["request_id"] == str(reversal_request.id)
+        assert d["journal_id"] == str(reversal_request.journal_id)
+        assert d["journal_amount"] == str(reversal_request.journal_amount)
+        assert d["reason"] == reversal_request.reason.value
+        assert d["status"] == reversal_request.status.value
         assert "approvals" in d
         assert "hash" in d
 

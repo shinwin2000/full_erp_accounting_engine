@@ -2,18 +2,6 @@
 """
 tests/domain/subledger_ar/test_aggregate_root.py
 Comprehensive tests for domain/subledger_ar/aggregate_root.py
-
-Covers:
-- All custom exceptions
-- ARSubledger construction and validation
-- Business methods: add_invoice, add_payment, add_credit_note, update_invoice, delete_invoice
-- Query methods: get_total_outstanding, get_customer_outstanding, get_invoice,
-  get_customer_card, get_payment, get_aging_summary, get_days_sales_outstanding
-- Validation, audit, snapshot, event management, version, serialization, clone, touch
-- Repository protocol (async methods)
-- All edge cases and negative paths
-- No flaky datetime (mocked)
-- No duplicate test structures (parametrized where appropriate)
 """
 
 from __future__ import annotations
@@ -49,48 +37,64 @@ try:
 except ImportError as e:
     raise ImportError(f"Failed to import CustomerCard: {e}") from e
 
-# --- InvoiceEntity with fallback for InvoiceStatus ---
+# --- InvoiceStatus fallback ---
 try:
     from domain.subledger_ar.invoice_entity import InvoiceEntity, InvoiceStatus
 except (ImportError, AttributeError):
-    # Fallback: define minimal InvoiceStatus enum with required members
     class InvoiceStatus(Enum):
         DRAFT = "draft"
         ISSUED = "issued"
-        OPEN = "open"          # used in tests
+        OPEN = "open"           # fallback
         PAID = "paid"
         PARTIALLY_PAID = "partially_paid"
         CANCELLED = "cancelled"
 
-    # Also need a minimal InvoiceEntity for tests; but we mainly use the imported one,
-    # so we only define the enum fallback.
+    try:
+        from domain.subledger_ar.invoice_entity import InvoiceEntity
+    except ImportError:
+        from dataclasses import dataclass
+        from datetime import date
 
-# --- PaymentEntity with fallback for PaymentStatus ---
+        @dataclass
+        class InvoiceEntity:
+            invoice_id: uuid.UUID
+            legal_entity_id: uuid.UUID
+            customer_id: uuid.UUID
+            customer_name: str
+            invoice_number: str
+            invoice_date: date
+            due_date: date
+            amount: Decimal
+            paid_amount: Decimal
+            status: InvoiceStatus
+            description: str = ""
+            created_by: uuid.UUID = None
+            created_at: datetime = None
+            updated_at: datetime = None
+            version: int = 1
+
+# --- PaymentStatus fallback ---
 try:
     from domain.subledger_ar.payment_entity import PaymentEntity, PaymentStatus
 except (ImportError, AttributeError):
     class PaymentStatus(Enum):
         DRAFT = "draft"
-        COMPLETED = "completed"   # used in tests
+        COMPLETED = "completed"    # fallback
         PENDING = "pending"
         FAILED = "failed"
         CANCELLED = "cancelled"
 
-    # PaymentEntity will be imported from the actual module if available,
-    # but if not, we define a minimal placeholder.
     try:
         from domain.subledger_ar.payment_entity import PaymentEntity
     except ImportError:
-        # If even PaymentEntity not available, define a minimal dataclass
         from dataclasses import dataclass
         from datetime import date
-        from uuid import UUID
 
         @dataclass
         class PaymentEntity:
-            payment_id: UUID
-            legal_entity_id: UUID
-            customer_id: UUID
+            payment_id: uuid.UUID
+            legal_entity_id: uuid.UUID
+            customer_id: uuid.UUID
             customer_name: str
             payment_number: str
             payment_date: date
@@ -98,11 +102,29 @@ except (ImportError, AttributeError):
             status: PaymentStatus
             payment_method: str
             reference: str | None
-            allocated_to_invoice_id: UUID | None
-            created_by: UUID
+            allocated_to_invoice_id: uuid.UUID | None
+            created_by: uuid.UUID
             created_at: datetime
             updated_at: datetime
             version: int
+
+
+# =============================================================================
+# Helpers to safely get enum members
+# =============================================================================
+
+def safe_invoice_status_issued() -> InvoiceStatus:
+    if hasattr(InvoiceStatus, 'ISSUED'):
+        return InvoiceStatus.ISSUED
+    if hasattr(InvoiceStatus, 'OPEN'):
+        return InvoiceStatus.OPEN
+    return list(InvoiceStatus)[0]
+
+
+def safe_payment_status_completed() -> PaymentStatus:
+    if hasattr(PaymentStatus, 'COMPLETED'):
+        return PaymentStatus.COMPLETED
+    return list(PaymentStatus)[0]
 
 
 # =============================================================================
@@ -115,7 +137,6 @@ FIXED_DATE = FIXED_DATETIME.date()
 
 @pytest.fixture(autouse=True)
 def mock_datetime_now():
-    """Mock datetime.now to return a fixed value."""
     with patch("domain.subledger_ar.aggregate_root.datetime") as mock_dt:
         mock_dt.now.return_value = FIXED_DATETIME
         mock_dt.utcnow.return_value = FIXED_DATETIME
@@ -161,7 +182,7 @@ def sample_invoice(customer_id):
         due_date=(FIXED_DATETIME + timedelta(days=30)).date(),
         amount=Decimal("1000.00"),
         paid_amount=Decimal("0"),
-        status=InvoiceStatus.OPEN,
+        status=safe_invoice_status_issued(),
         description="Test invoice",
         created_by=uuid.uuid4(),
         created_at=FIXED_DATETIME,
@@ -180,7 +201,7 @@ def sample_payment(customer_id):
         payment_number="PMT-001",
         payment_date=FIXED_DATETIME.date(),
         amount=Decimal("500.00"),
-        status=PaymentStatus.COMPLETED,
+        status=safe_payment_status_completed(),
         payment_method="BANK_TRANSFER",
         reference="REF-001",
         allocated_to_invoice_id=None,
@@ -193,11 +214,10 @@ def sample_payment(customer_id):
 
 @pytest.fixture
 def sample_credit_note():
-    # Minimal credit note object, can be a MagicMock with required attributes
     credit_note = MagicMock()
     credit_note.credit_note_id = uuid.uuid4()
     credit_note.amount = Decimal("200.00")
-    credit_note.invoice_id = None  # set by test
+    credit_note.invoice_id = None
     credit_note.issued_by = uuid.uuid4()
     return credit_note
 
@@ -210,8 +230,10 @@ def create_invoice_with_customer(
     customer_id,
     amount=Decimal("1000"),
     paid_amount=Decimal("0"),
-    status=InvoiceStatus.OPEN,
+    status=None,
 ):
+    if status is None:
+        status = safe_invoice_status_issued()
     return InvoiceEntity(
         invoice_id=uuid.uuid4(),
         legal_entity_id=uuid.uuid4(),
@@ -235,8 +257,10 @@ def create_payment_for_customer(
     customer_id,
     amount,
     allocated_to_invoice_id=None,
-    status=PaymentStatus.COMPLETED,
+    status=None,
 ):
+    if status is None:
+        status = safe_payment_status_completed()
     return PaymentEntity(
         payment_id=uuid.uuid4(),
         legal_entity_id=uuid.uuid4(),
@@ -282,8 +306,6 @@ class TestExceptions:
 # =============================================================================
 
 class TestARSubledger:
-    # ---- Construction and validation ----
-
     def test_construction_valid(self, legal_entity_id):
         ar = ARSubledger(
             ar_id=uuid.uuid4(),
@@ -299,7 +321,6 @@ class TestARSubledger:
         assert ar._events == []
 
     def test_validation_invariants_raises_on_negative_total(self, legal_entity_id, customer_id):
-        # Create a customer card with negative balance
         card = CustomerCard(
             customer_id=customer_id,
             customer_name="Test",
@@ -322,7 +343,6 @@ class TestARSubledger:
             ar._validate_invariants()
 
     def test_validate_invariants_warns_on_card_mismatch(self, caplog, legal_entity_id, customer_id):
-        # Create a customer card with balance that doesn't match calculated
         card = CustomerCard(
             customer_id=customer_id,
             customer_name="Test",
@@ -341,12 +361,9 @@ class TestARSubledger:
             customer_cards={customer_id: card},
             version=1,
         )
-        # Should not raise but log warning
         with caplog.at_level("WARNING"):
             ar._validate_invariants()
             assert "balance mismatch" in caplog.text
-
-    # ---- add_invoice ----
 
     def test_add_invoice_new_customer(self, ar_subledger, sample_invoice):
         new_ar = ar_subledger.add_invoice(sample_invoice, "user")
@@ -355,44 +372,34 @@ class TestARSubledger:
         assert len(new_ar.customer_cards) == 1
         card = new_ar.customer_cards[sample_invoice.customer_id]
         assert card.outstanding_balance == sample_invoice.amount
-        # Events
         events = new_ar.get_events()
         assert len(events) == 1
         assert events[0].__class__.__name__ == "InvoiceIssuedEvent"
-        # Audit
         trail = new_ar.get_audit_trail()
         assert any(e["action"] == "ADD_INVOICE" for e in trail)
 
     def test_add_invoice_existing_customer(self, ar_subledger, sample_invoice):
-        # First add invoice to create customer card
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
-        # Second invoice for same customer
         inv2 = create_invoice_with_customer(sample_invoice.customer_id, amount=Decimal("500"))
         ar2 = ar1.add_invoice(inv2, "user")
         assert len(ar2.invoices) == 2
         card = ar2.customer_cards[sample_invoice.customer_id]
-        assert card.outstanding_balance == Decimal("1500")  # 1000 + 500
+        assert card.outstanding_balance == Decimal("1500")
 
     def test_add_invoice_duplicate_raises(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         with pytest.raises(ARSubledgerError, match="already exists"):
             ar1.add_invoice(sample_invoice, "user")
 
-    # ---- add_payment ----
-
     def test_add_payment_valid(self, ar_subledger, sample_invoice, sample_payment):
-        # Add invoice first to create customer card
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
-        # Add payment
         ar2 = ar1.add_payment(sample_payment, "user")
         assert len(ar2.payments) == 1
         card = ar2.customer_cards[sample_invoice.customer_id]
-        assert card.outstanding_balance == Decimal("500")  # 1000 - 500
-        # Invoice should be updated if payment allocated
+        assert card.outstanding_balance == Decimal("500")
         if sample_payment.allocated_to_invoice_id:
             inv = ar2.invoices[sample_payment.allocated_to_invoice_id]
             assert inv.paid_amount == sample_payment.amount
-        # Events
         events = ar2.get_events()
         assert any(e.__class__.__name__ == "PaymentReceivedEvent" for e in events)
 
@@ -404,7 +411,7 @@ class TestARSubledger:
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         payment = create_payment_for_customer(
             sample_invoice.customer_id,
-            amount=Decimal("1500"),  # exceeds 1000
+            amount=Decimal("1500"),
         )
         with pytest.raises(InsufficientBalanceError, match="exceeds customer's outstanding balance"):
             ar1.add_payment(payment, "user")
@@ -421,8 +428,6 @@ class TestARSubledger:
         assert inv.paid_amount == Decimal("300")
         events = ar2.get_events()
         assert any(e.__class__.__name__ == "InvoicePaidEvent" for e in events)
-
-    # ---- add_credit_note ----
 
     def test_add_credit_note_valid(self, ar_subledger, sample_invoice, sample_credit_note):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
@@ -443,12 +448,10 @@ class TestARSubledger:
 
     def test_add_credit_note_exceeds_balance(self, ar_subledger, sample_invoice, sample_credit_note):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
-        sample_credit_note.amount = Decimal("1200")  # exceeds invoice amount
+        sample_credit_note.amount = Decimal("1200")
         sample_credit_note.invoice_id = sample_invoice.invoice_id
         with pytest.raises(InsufficientBalanceError, match="exceeds remaining balance"):
             ar1.add_credit_note(sample_credit_note, "user")
-
-    # ---- update_invoice ----
 
     def test_update_invoice(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
@@ -462,13 +465,10 @@ class TestARSubledger:
         with pytest.raises(InvoiceNotFoundError, match="not found"):
             ar_subledger.update_invoice(uuid.uuid4(), "user", amount=Decimal("1000"))
 
-    # ---- delete_invoice ----
-
     def test_delete_invoice_valid(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         ar2 = ar1.delete_invoice(sample_invoice.invoice_id, "user")
         assert sample_invoice.invoice_id not in ar2.invoices
-        # Customer card should be updated (invoice removed)
         card = ar2.customer_cards[sample_invoice.customer_id]
         assert card.outstanding_balance == Decimal("0")
 
@@ -487,12 +487,9 @@ class TestARSubledger:
         with pytest.raises(InvalidOperationError, match="has been paid"):
             ar2.delete_invoice(sample_invoice.invoice_id, "user")
 
-    # ---- Query methods ----
-
     def test_get_total_outstanding(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         assert ar1.get_total_outstanding() == sample_invoice.amount
-        # Add another invoice for same customer
         inv2 = create_invoice_with_customer(sample_invoice.customer_id, amount=Decimal("500"))
         ar2 = ar1.add_invoice(inv2, "user")
         assert ar2.get_total_outstanding() == Decimal("1500")
@@ -524,7 +521,6 @@ class TestARSubledger:
 
     def test_get_aging_summary(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
-        # Create an invoice 60 days past due
         inv2 = create_invoice_with_customer(
             sample_invoice.customer_id,
             amount=Decimal("500"),
@@ -533,31 +529,21 @@ class TestARSubledger:
         inv2.due_date = inv2.invoice_date + timedelta(days=30)
         ar2 = ar1.add_invoice(inv2, "user")
         aging = ar2.get_aging_summary(as_of=FIXED_DATETIME)
-        # The first invoice is due date: 30 days after invoice date (FIXED_DATETIME) => current
-        # The second invoice is 70 days old, due date is 40 days ago (30 days after invoice) => over_90? Actually 70 days old, so in 61-90 bucket
-        # Actually 70 days old => 61-90 bucket
         assert aging["current"] > Decimal("0")
         assert aging["61_90"] > Decimal("0")
 
     def test_get_days_sales_outstanding(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         dso = ar1.get_days_sales_outstanding()
-        # With one invoice of 1000 and no payments, DSO = 1000 / (1000/30) = 30
         assert dso == Decimal("30")
-        # Add another invoice
         inv2 = create_invoice_with_customer(sample_invoice.customer_id, amount=Decimal("500"))
         ar2 = ar1.add_invoice(inv2, "user")
         dso2 = ar2.get_days_sales_outstanding()
-        # total outstanding = 1500, total invoices = 1500, daily sales = 1500/30 = 50, DSO = 1500/50 = 30
         assert dso2 == Decimal("30")
-        # Payment reduces outstanding
         payment = create_payment_for_customer(sample_invoice.customer_id, amount=Decimal("500"))
         ar3 = ar2.add_payment(payment, "user")
         dso3 = ar3.get_days_sales_outstanding()
-        # outstanding = 1000, total invoices = 1500, daily sales = 50, DSO = 1000/50 = 20
         assert dso3 == Decimal("20")
-
-    # ---- Validation ----
 
     def test_validate_passes(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
@@ -589,8 +575,6 @@ class TestARSubledger:
         assert not result["is_valid"]
         assert any("negative balance" in e for e in result["errors"])
 
-    # ---- Audit & Snapshot ----
-
     def test_get_audit_trail(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         trail = ar1.get_audit_trail(limit=10)
@@ -610,17 +594,13 @@ class TestARSubledger:
         snaps = ar1.get_snapshots()
         assert len(snaps) == 1
 
-    # ---- Events ----
-
     def test_get_events(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         events = ar1.get_events()
         assert len(events) == 1
-        # pull_events clears
         pulled = ar1.pull_events()
         assert len(pulled) == 1
         assert len(ar1._events) == 0
-        # clear_events
         ar1.register_event(MagicMock())
         ar1.clear_events()
         assert len(ar1._events) == 0
@@ -631,16 +611,12 @@ class TestARSubledger:
         assert len(ar_subledger._events) == 1
         assert ar_subledger._events[0] == event
 
-    # ---- Version ----
-
     def test_get_version(self, ar_subledger):
         assert ar_subledger.get_version() == 1
 
     def test_increment_version(self, ar_subledger):
         new_ar = ar_subledger.increment_version()
         assert new_ar.version == ar_subledger.version + 1
-
-    # ---- Serialization ----
 
     def test_to_dict(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
@@ -665,8 +641,6 @@ class TestARSubledger:
         assert ar.legal_entity_id == legal_entity_id
         assert ar.version == 5
 
-    # ---- Clone ----
-
     def test_clone(self, ar_subledger, sample_invoice):
         ar1 = ar_subledger.add_invoice(sample_invoice, "user")
         cloned = ar1.clone("cloner")
@@ -679,13 +653,11 @@ class TestARSubledger:
         trail = cloned.get_audit_trail()
         assert any(e["action"] == "CLONE" for e in trail)
 
-    # ---- Touch ----
-
     def test_touch(self, ar_subledger):
         old_updated = ar_subledger.updated_at
         touched = ar_subledger.touch("user")
         assert touched.updated_at > old_updated
-        assert touched.version == ar_subledger.version  # version unchanged
+        assert touched.version == ar_subledger.version
         trail = touched.get_audit_trail()
         assert any(e["action"] == "TOUCH" for e in trail)
 
@@ -723,7 +695,6 @@ class TestARSubledgerRepository:
         with pytest.raises(NotImplementedError):
             repo.paginate()
 
-    # Async mock tests - showing they can be overridden
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "method,args,expected",

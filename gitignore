@@ -1,3 +1,4 @@
+--- .gitignore (原始)
 # ============================================================
 # PYTHON
 # ============================================================
@@ -132,57 +133,51 @@ temp/
 .env.*
 
 +++ .gitignore (修改后)
-```
-# Environment files
+```python
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
 .env
 .env.local
 .env.*
 
-# Python specific
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.venv.bak/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.DS_Store
-Thumbs.db
-
-# Reports
-smoke_test_report.json
-
-# Dependencies
-node_modules/
-julia-*/
-zig*/
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-
 # Editors
 .vscode/
 .idea/
-*.swp
-*.swo
 
-# System
+# Coverage reports
+.coverage
+coverage/
+htmlcov/
+
+# Python specific
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+
+# Backup files
+*~
+*.bak
+*.backup
+
+# OS generated files
 .DS_Store
 Thumbs.db
+```
 
 # Compressed files
 *.zip

@@ -105,9 +105,13 @@ class ConstitutionException(Exception):
         super().__init__(full_message)
         self._original_message = message
 
-    @property
     def original_message(self) -> str:
         """Mendapatkan pesan asli tanpa prefix."""
+        return self._original_message
+
+    @property
+    def message(self) -> str:
+        """Get the original message without prefix."""
         return self._original_message
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,7 +121,7 @@ class ConstitutionException(Exception):
             "severity": self.severity.name,
             "severity_value": self.severity.value,
             "category": self.category.name,
-            "message": self.original_message,
+            "message": self._original_message,
             "module": self.module,
             "user_id": self.user_id,
             "command_id": str(self.command_id) if self.command_id else None,

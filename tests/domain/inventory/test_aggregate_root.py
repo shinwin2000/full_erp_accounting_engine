@@ -20,8 +20,6 @@ Covers:
 - to_dict, from_dict
 - FIFO layers logic and validation
 - All edge cases and negative paths
-- No flaky datetime (mocked)
-- No duplicate test code (parametrized where appropriate)
 """
 
 from __future__ import annotations
@@ -63,7 +61,7 @@ def mock_datetime_now():
     with patch("domain.inventory.aggregate_root.datetime") as mock_dt:
         mock_dt.now.return_value = FIXED_DATETIME
         mock_dt.utcnow.return_value = FIXED_DATETIME
-        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        # We don't need side_effect that interferes
         yield mock_dt
 
 
@@ -448,8 +446,9 @@ class TestInventoryAggregate:
 
     def test_receive_stock_warehouse_mismatch(self, sample_aggregate, stock_movement, user_id):
         agg = sample_aggregate
+        # Set warehouse_id on aggregate to a specific value
         agg._warehouse_id = uuid.uuid4()
-        # warehouse_id in movement should match; we'll set a different one
+        # Set movement warehouse to a different one
         stock_movement.warehouse_id = uuid.uuid4()
         with pytest.raises(ValueError, match="Warehouse mismatch"):
             agg.receive_stock(stock_movement, user_id)
@@ -461,16 +460,13 @@ class TestInventoryAggregate:
         initial_stock = agg.current_stock
         initial_value = agg.current_stock_value
 
-        # FIFO cost for quantity
-        # Our initial layer has 100 at 50, so consuming 50 should cost 2500
+        # FIFO cost for quantity: initial layer 100 at 50, consuming 50 costs 2500
         stock_movement.quantity = Decimal("50")
         stock_movement.unit_cost = Decimal("50")  # Not used in FIFO, but for record
         agg.issue_stock(stock_movement, user_id)
 
         expected_stock = initial_stock - stock_movement.quantity
-        expected_value = initial_value - Decimal("2500")  # 50 * 50
-        expected_avg = agg.average_cost  # stays same unless stock goes to zero
-
+        expected_value = initial_value - Decimal("2500")
         assert agg.current_stock == expected_stock
         assert agg.current_stock_value == expected_value
         # average_cost unchanged
@@ -664,7 +660,6 @@ class TestInventoryAggregate:
 
     # ---- Reconcile (dummy) ----
     def test_reconcile(self, sample_aggregate):
-        # This is a dummy method, but we can test it returns difference
         system_qty = Decimal("100")
         physical_qty = Decimal("95")
         diff = sample_aggregate.reconcile(system_qty, physical_qty)
@@ -784,6 +779,17 @@ class TestInventoryAggregate:
         agg2 = InventoryAggregate(id=agg.id, legal_entity_id=agg.legal_entity_id, version=0)
         agg2.replay(events)
         assert agg2._item.current_stock == new_agg._item.current_stock
+        assert agg2.version == len(events)
+
+    def test_replay_events_alias(self, sample_item, user_id):
+        """Test replay_events alias specifically."""
+        agg = InventoryAggregate.create(sample_item, user_id)
+        events = agg.pop_events()  # ItemCreated
+
+        # Create a new aggregate and replay using replay_events
+        agg2 = InventoryAggregate(id=agg.id, legal_entity_id=agg.legal_entity_id, version=0)
+        agg2.replay_events(events)
+        assert agg2._item.sku == sample_item.sku
         assert agg2.version == len(events)
 
     def test_reconstruct_no_events(self):

@@ -1,3 +1,4 @@
+
 # tests/infrastructure/database/test_transaction_manager.py
 """
 Unit tests for transaction_manager.py with comprehensive coverage.
@@ -87,8 +88,6 @@ from infrastructure.database.transaction_manager import (
     transaction,
     transactional,
 )
-
-pytestmark = pytest.mark.asyncio
 
 
 # ============================================================================

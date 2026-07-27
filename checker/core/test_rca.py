@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import pytest
 from rca import (
-    _SEVERITY_ORDER,
     Category,
     ErrorCode,
     RCAEngine,
@@ -19,6 +18,9 @@ from rca import (
     _ThreadSafeLRUCache,
     get_all_causes,
 )
+
+# Helper for severity ordering (replaces missing _SEVERITY_ORDER export)
+_SEVERITY_ORDER = {s: s.order for s in Severity}
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

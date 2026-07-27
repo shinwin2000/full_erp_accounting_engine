@@ -1,8 +1,8 @@
 # tests/domain/journal/test_invariants.py
 """
-Unit tests for invariants.py.
+Comprehensive unit tests for invariants.py.
 Covers all public methods with strong assertions using mocks where needed.
-All tests PASS.
+All datetime usage is mocked to avoid flakiness.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -23,52 +23,78 @@ from domain.journal.journal_entity import JournalEntity, JournalStatus
 from domain.journal.journal_line_vo import JournalLineVO, JournalSide
 from domain.journal.state_machine import JournalStateMachine
 
+# ============================================================================
+# Fixed datetime for deterministic tests
+# ============================================================================
+
+FIXED_NOW = datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
+FIXED_FUTURE = FIXED_NOW + timedelta(days=5)
+FIXED_PAST = FIXED_NOW - timedelta(days=5)
+FIXED_OLD_PAST = FIXED_NOW - timedelta(days=60)
+FIXED_PERIOD_START = FIXED_NOW - timedelta(days=10)
+FIXED_PERIOD_END = FIXED_NOW + timedelta(days=10)
+
+
+@pytest.fixture(autouse=True)
+def mock_datetime_now():
+    """Mock datetime.now in invariants module to fixed time."""
+    with patch("domain.journal.invariants.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_NOW
+        mock_dt.UTC = UTC
+        yield mock_dt
+
 
 # ============================================================================
-# Helper fixtures
+# Helper functions and fixtures
 # ============================================================================
+
+def create_line(
+    amount: Decimal = Decimal("1000"),
+    side: JournalSide = JournalSide.DEBIT,
+    legal_entity_id: UUID | None = None,
+    currency: str = "IDR",
+    account_id: UUID | None = None,
+    account_code: str = "1000",
+) -> JournalLineVO:
+    if legal_entity_id is None:
+        legal_entity_id = uuid4()
+    if account_id is None:
+        account_id = uuid4()
+    return JournalLineVO(
+        line_id=uuid4(),
+        journal_id=uuid4(),
+        account_id=account_id,
+        account_code=account_code,
+        account_name="Test Account",
+        side=side,
+        amount=amount,
+        description="Test line",
+        legal_entity_id=legal_entity_id,
+        currency=currency,
+    )
+
 
 @pytest.fixture
-def sample_lines():
-    """Create sample journal lines for testing."""
-    legal_id = uuid4()
+def legal_entity_id():
+    return uuid4()
+
+
+@pytest.fixture
+def sample_lines(legal_entity_id):
     return [
-        JournalLineVO(
-            line_id=uuid4(),
-            journal_id=uuid4(),
-            account_id=uuid4(),
-            account_code="1000",
-            account_name="Cash",
-            side=JournalSide.DEBIT,
-            amount=Decimal("1000"),
-            description="Test debit",
-            legal_entity_id=legal_id,
-            currency="IDR",
-        ),
-        JournalLineVO(
-            line_id=uuid4(),
-            journal_id=uuid4(),
-            account_id=uuid4(),
-            account_code="2000",
-            account_name="Revenue",
-            side=JournalSide.CREDIT,
-            amount=Decimal("1000"),
-            description="Test credit",
-            legal_entity_id=legal_id,
-            currency="IDR",
-        ),
+        create_line(amount=Decimal("1000"), side=JournalSide.DEBIT, legal_entity_id=legal_entity_id),
+        create_line(amount=Decimal("1000"), side=JournalSide.CREDIT, legal_entity_id=legal_entity_id),
     ]
 
 
 @pytest.fixture
-def sample_journal():
-    """Create a sample journal entity."""
+def sample_journal(legal_entity_id):
     return JournalEntity(
         journal_id=uuid4(),
         journal_number="JRN-001",
-        legal_entity_id=uuid4(),
-        transaction_date=datetime.now(UTC),
-        posting_date=datetime.now(UTC),
+        legal_entity_id=legal_entity_id,
+        transaction_date=FIXED_NOW,
+        posting_date=FIXED_NOW,
         status=JournalStatus.DRAFT,
         description="Test journal",
         created_by="system",
@@ -77,27 +103,26 @@ def sample_journal():
 
 @pytest.fixture
 def account_getter():
-    """Mock account getter that returns a valid account."""
     def getter(account_id: UUID) -> AccountEntity | None:
         account = MagicMock(spec=AccountEntity)
         account.is_active = True
+        account.account_code = "1000"
         return account
     return getter
 
 
 @pytest.fixture
 def account_getter_inactive():
-    """Mock account getter that returns an inactive account."""
     def getter(account_id: UUID) -> AccountEntity | None:
         account = MagicMock(spec=AccountEntity)
         account.is_active = False
+        account.account_code = "1000"
         return account
     return getter
 
 
 @pytest.fixture
 def account_getter_not_found():
-    """Mock account getter that returns None."""
     def getter(account_id: UUID) -> AccountEntity | None:
         return None
     return getter
@@ -105,7 +130,6 @@ def account_getter_not_found():
 
 @pytest.fixture
 def journal_number_checker():
-    """Mock journal number checker returning existing numbers."""
     async def checker(legal_entity_id: UUID) -> set[str]:
         return {"JRN-001", "JRN-002"}
     return checker
@@ -113,14 +137,8 @@ def journal_number_checker():
 
 @pytest.fixture
 def period_checker():
-    """Mock period checker returning valid period."""
     async def checker(legal_entity_id: UUID, tx_date: datetime) -> tuple[datetime | None, datetime | None]:
-        start = datetime(tx_date.year, tx_date.month, 1, tzinfo=UTC)
-        if tx_date.month == 12:
-            end = datetime(tx_date.year + 1, 1, 1, tzinfo=UTC)
-        else:
-            end = datetime(tx_date.year, tx_date.month + 1, 1, tzinfo=UTC)
-        return start, end
+        return FIXED_PERIOD_START, FIXED_PERIOD_END
     return checker
 
 
@@ -174,6 +192,12 @@ class TestJournalInvariants:
         assert result.is_valid is False
         assert "not balanced" in result.errors[0]
 
+    def test_validate_balance_negative_tolerance(self):
+        result = JournalInvariants.validate_balance(
+            Decimal("1000"), Decimal("999.9995"), tolerance=Decimal("0.001")
+        )
+        assert result.is_valid is True
+
     def test_validate_lines_exist_valid(self):
         lines = [MagicMock()]
         result = JournalInvariants.validate_lines_exist(lines)
@@ -207,6 +231,14 @@ class TestJournalInvariants:
         assert result.is_valid is False
         assert "exceeds maximum" in result.errors[0]
 
+    def test_validate_line_amounts_zero(self):
+        line = MagicMock()
+        line.amount = Decimal("0")
+        line.line_id = uuid4()
+        result = JournalInvariants.validate_line_amounts([line])
+        assert result.is_valid is False
+        assert "invalid amount" in result.errors[0]
+
     def test_validate_accounts_exist_valid(self, account_getter):
         line = MagicMock()
         line.account_id = uuid4()
@@ -217,6 +249,7 @@ class TestJournalInvariants:
     def test_validate_accounts_exist_not_found(self, account_getter_not_found):
         line = MagicMock()
         line.account_id = uuid4()
+        line.account_code = "1000"
         result = JournalInvariants.validate_accounts_exist([line], account_getter_not_found)
         assert result.is_valid is False
         assert "not found" in result.errors[0]
@@ -229,9 +262,8 @@ class TestJournalInvariants:
         assert result.is_valid is False
         assert "not active" in result.errors[0]
 
-    def test_validate_legal_entity_consistency_valid(self, sample_lines):
-        le_id = sample_lines[0].legal_entity_id
-        result = JournalInvariants.validate_legal_entity_consistency(sample_lines, le_id)
+    def test_validate_legal_entity_consistency_valid(self, sample_lines, legal_entity_id):
+        result = JournalInvariants.validate_legal_entity_consistency(sample_lines, legal_entity_id)
         assert result.is_valid is True
 
     def test_validate_legal_entity_consistency_invalid(self, sample_lines):
@@ -241,42 +273,40 @@ class TestJournalInvariants:
         assert "legal_entity_id" in result.errors[0]
 
     def test_validate_transaction_date_valid(self):
-        now = datetime.now(UTC)
-        result = JournalInvariants.validate_transaction_date(now - timedelta(days=1))
+        result = JournalInvariants.validate_transaction_date(FIXED_PAST)
         assert result.is_valid is True
 
     def test_validate_transaction_date_future(self):
-        future = datetime.now(UTC) + timedelta(days=5)
-        result = JournalInvariants.validate_transaction_date(future)
+        result = JournalInvariants.validate_transaction_date(FIXED_FUTURE)
         assert result.is_valid is False
         assert "cannot be in the future" in result.errors[0]
 
     def test_validate_transaction_date_backdate_exceeds(self):
-        past = datetime.now(UTC) - timedelta(days=60)
-        result = JournalInvariants.validate_transaction_date(past, max_backdate_days=30)
+        result = JournalInvariants.validate_transaction_date(FIXED_OLD_PAST, max_backdate_days=30)
         assert result.is_valid is False
         assert "exceeds limit" in result.errors[0]
 
     def test_validate_transaction_date_with_period_valid(self):
-        now = datetime.now(UTC)
-        start = now - timedelta(days=5)
-        end = now + timedelta(days=5)
-        result = JournalInvariants.validate_transaction_date(now, period_start=start, period_end=end)
+        result = JournalInvariants.validate_transaction_date(
+            FIXED_NOW, period_start=FIXED_PERIOD_START, period_end=FIXED_PERIOD_END
+        )
         assert result.is_valid is True
 
     def test_validate_transaction_date_before_period(self):
-        now = datetime.now(UTC)
-        start = now + timedelta(days=1)
-        end = now + timedelta(days=10)
-        result = JournalInvariants.validate_transaction_date(now, period_start=start, period_end=end)
+        result = JournalInvariants.validate_transaction_date(
+            FIXED_PERIOD_START - timedelta(days=1),
+            period_start=FIXED_PERIOD_START,
+            period_end=FIXED_PERIOD_END
+        )
         assert result.is_valid is False
         assert "before period start" in result.errors[0]
 
     def test_validate_transaction_date_after_period(self):
-        now = datetime.now(UTC)
-        start = now - timedelta(days=10)
-        end = now - timedelta(days=1)
-        result = JournalInvariants.validate_transaction_date(now, period_start=start, period_end=end)
+        result = JournalInvariants.validate_transaction_date(
+            FIXED_PERIOD_END + timedelta(days=1),
+            period_start=FIXED_PERIOD_START,
+            period_end=FIXED_PERIOD_END
+        )
         assert result.is_valid is False
         assert "after period end" in result.errors[0]
 
@@ -296,6 +326,13 @@ class TestJournalInvariants:
         result = JournalInvariants.validate_journal_number_unique(long_number, set())
         assert result.is_valid is False
         assert "exceeds maximum length" in result.errors[0]
+
+    def test_validate_journal_number_unique_empty(self):
+        result = JournalInvariants.validate_journal_number_unique("", set())
+        # Empty string is not duplicate, but we check length? Actually len("") is 0, no error for length.
+        # But the method doesn't validate non-empty, so we need to check that it passes.
+        # However, empty string would cause validation errors elsewhere, but here it passes.
+        assert result.is_valid is True
 
     @patch("domain.journal.invariants.JournalStateMachine.validate_transition")
     def test_validate_status_transition_valid(self, mock_validate):
@@ -357,20 +394,20 @@ class TestJournalInvariants:
         assert "not posted" in result.errors[0]
 
     def test_validate_date_consistency_valid(self):
-        tx_date = datetime.now(UTC)
+        tx_date = FIXED_NOW
         posting_date = tx_date + timedelta(days=1)
         result = JournalInvariants.validate_date_consistency(tx_date, posting_date)
         assert result.is_valid is True
 
     def test_validate_date_consistency_posting_before_transaction(self):
-        tx_date = datetime.now(UTC)
+        tx_date = FIXED_NOW
         posting_date = tx_date - timedelta(days=1)
         result = JournalInvariants.validate_date_consistency(tx_date, posting_date)
         assert result.is_valid is False
         assert "cannot be before transaction date" in result.errors[0]
 
     def test_validate_date_consistency_posting_none(self):
-        tx_date = datetime.now(UTC)
+        tx_date = FIXED_NOW
         result = JournalInvariants.validate_date_consistency(tx_date, None)
         assert result.is_valid is True
 
@@ -391,21 +428,26 @@ class TestJournalInvariants:
             amount=line.amount,
             description=line.description,
             legal_entity_id=line.legal_entity_id,
-            currency="USD",  # Different currency
+            currency="USD",
         )
         lines = [invalid_line, sample_lines[1]]
         result = JournalInvariants.validate_currency_consistency(lines)
         assert result.is_valid is False
         assert "currency" in result.errors[0]
 
+    def test_validate_currency_consistency_empty(self):
+        result = JournalInvariants.validate_currency_consistency([])
+        assert result.is_valid is True
+
 
 # ============================================================================
 # Test JournalInvariantEnforcer
 # ============================================================================
 
+@pytest.mark.asyncio
 class TestJournalInvariantEnforcer:
-    @pytest.mark.asyncio
-    async def test_enforce_create_valid(self, sample_journal, sample_lines, account_getter, journal_number_checker, period_checker):
+    async def test_enforce_create_valid(self, sample_journal, sample_lines, account_getter,
+                                        journal_number_checker, period_checker):
         enforcer = JournalInvariantEnforcer(
             account_getter=account_getter,
             journal_number_checker=journal_number_checker,
@@ -414,33 +456,12 @@ class TestJournalInvariantEnforcer:
         result = await enforcer.enforce_create(sample_journal, sample_lines)
         assert result.is_valid is True
 
-    @pytest.mark.asyncio
-    async def test_enforce_create_invalid_balance(self, sample_journal, account_getter, journal_number_checker, period_checker):
-        # Create lines with unbalanced amounts
+    async def test_enforce_create_invalid_balance(self, sample_journal, account_getter,
+                                                  journal_number_checker, period_checker):
         le_id = sample_journal.legal_entity_id
         lines = [
-            JournalLineVO(
-                line_id=uuid4(),
-                journal_id=uuid4(),
-                account_id=uuid4(),
-                account_code="1000",
-                account_name="Cash",
-                side=JournalSide.DEBIT,
-                amount=Decimal("1000"),
-                description="Test",
-                legal_entity_id=le_id,
-            ),
-            JournalLineVO(
-                line_id=uuid4(),
-                journal_id=uuid4(),
-                account_id=uuid4(),
-                account_code="2000",
-                account_name="Revenue",
-                side=JournalSide.CREDIT,
-                amount=Decimal("999"),
-                description="Test",
-                legal_entity_id=le_id,
-            ),
+            create_line(amount=Decimal("1000"), side=JournalSide.DEBIT, legal_entity_id=le_id),
+            create_line(amount=Decimal("999"), side=JournalSide.CREDIT, legal_entity_id=le_id),
         ]
         enforcer = JournalInvariantEnforcer(
             account_getter=account_getter,
@@ -451,8 +472,19 @@ class TestJournalInvariantEnforcer:
         assert result.is_valid is False
         assert "not balanced" in result.errors[0]
 
-    @pytest.mark.asyncio
-    async def test_enforce_create_duplicate_number(self, sample_journal, sample_lines, account_getter, journal_number_checker, period_checker):
+    async def test_enforce_create_empty_lines(self, sample_journal, account_getter,
+                                              journal_number_checker, period_checker):
+        enforcer = JournalInvariantEnforcer(
+            account_getter=account_getter,
+            journal_number_checker=journal_number_checker,
+            period_checker=period_checker,
+        )
+        result = await enforcer.enforce_create(sample_journal, [])
+        assert result.is_valid is False
+        assert "at least one line" in result.errors[0]
+
+    async def test_enforce_create_duplicate_number(self, sample_journal, sample_lines,
+                                                   account_getter, journal_number_checker, period_checker):
         sample_journal.journal_number = "JRN-001"
         enforcer = JournalInvariantEnforcer(
             account_getter=account_getter,
@@ -463,7 +495,45 @@ class TestJournalInvariantEnforcer:
         assert result.is_valid is False
         assert "already exists" in result.errors[0]
 
-    @pytest.mark.asyncio
+    async def test_enforce_create_inactive_account(self, sample_journal, sample_lines,
+                                                   account_getter_inactive, journal_number_checker, period_checker):
+        enforcer = JournalInvariantEnforcer(
+            account_getter=account_getter_inactive,
+            journal_number_checker=journal_number_checker,
+            period_checker=period_checker,
+        )
+        result = await enforcer.enforce_create(sample_journal, sample_lines)
+        assert result.is_valid is False
+        assert "not active" in result.errors[0]
+
+    async def test_enforce_create_account_not_found(self, sample_journal, sample_lines,
+                                                    account_getter_not_found, journal_number_checker, period_checker):
+        enforcer = JournalInvariantEnforcer(
+            account_getter=account_getter_not_found,
+            journal_number_checker=journal_number_checker,
+            period_checker=period_checker,
+        )
+        result = await enforcer.enforce_create(sample_journal, sample_lines)
+        assert result.is_valid is False
+        assert "not found" in result.errors[0]
+
+    async def test_enforce_create_currency_mismatch(self, sample_journal, sample_lines,
+                                                    account_getter, journal_number_checker, period_checker):
+        # Create lines with different currencies
+        le_id = sample_journal.legal_entity_id
+        lines = [
+            create_line(amount=Decimal("1000"), side=JournalSide.DEBIT, legal_entity_id=le_id, currency="IDR"),
+            create_line(amount=Decimal("1000"), side=JournalSide.CREDIT, legal_entity_id=le_id, currency="USD"),
+        ]
+        enforcer = JournalInvariantEnforcer(
+            account_getter=account_getter,
+            journal_number_checker=journal_number_checker,
+            period_checker=period_checker,
+        )
+        result = await enforcer.enforce_create(sample_journal, lines)
+        assert result.is_valid is False
+        assert "currency" in result.errors[0]
+
     async def test_enforce_status_transition(self, sample_journal):
         enforcer = JournalInvariantEnforcer(
             account_getter=MagicMock(),
@@ -481,7 +551,24 @@ class TestJournalInvariantEnforcer:
             )
             assert result.is_valid is True
 
-    @pytest.mark.asyncio
+    async def test_enforce_status_transition_invalid(self, sample_journal):
+        enforcer = JournalInvariantEnforcer(
+            account_getter=MagicMock(),
+            journal_number_checker=MagicMock(),
+            period_checker=MagicMock(),
+        )
+        with patch("domain.journal.invariants.JournalStateMachine.validate_transition") as mock_validate:
+            mock_validate.return_value = (False, "Invalid")
+            result = await enforcer.enforce_status_transition(
+                journal=sample_journal,
+                new_status=JournalStatus.POSTED,
+                user_role="accountant",
+                is_balanced=True,
+                period_is_open=True,
+            )
+            assert result.is_valid is False
+            assert "Invalid" in result.errors[0]
+
     async def test_enforce_reversal_valid(self):
         enforcer = JournalInvariantEnforcer(
             account_getter=MagicMock(),
@@ -496,7 +583,6 @@ class TestJournalInvariantEnforcer:
         )
         assert result.is_valid is True
 
-    @pytest.mark.asyncio
     async def test_enforce_reversal_not_exists(self):
         enforcer = JournalInvariantEnforcer(
             account_getter=MagicMock(),
@@ -510,6 +596,22 @@ class TestJournalInvariantEnforcer:
             original_posted=True,
         )
         assert result.is_valid is False
+        assert "not found" in result.errors[0]
+
+    async def test_enforce_reversal_not_posted(self):
+        enforcer = JournalInvariantEnforcer(
+            account_getter=MagicMock(),
+            journal_number_checker=MagicMock(),
+            period_checker=MagicMock(),
+        )
+        original_id = uuid4()
+        result = await enforcer.enforce_reversal(
+            reversal_of=original_id,
+            original_exists=True,
+            original_posted=False,
+        )
+        assert result.is_valid is False
+        assert "not posted" in result.errors[0]
 
 
 # ============================================================================
@@ -538,20 +640,52 @@ class TestJournalInvariantsValidator:
         line.line_id = uuid4()
         result = validator.validate_line_amounts([line])
         assert result.is_valid is True
+        line2 = MagicMock()
+        line2.amount = Decimal("-100")
+        line2.line_id = uuid4()
+        result2 = validator.validate_line_amounts([line2])
+        assert result2.is_valid is False
 
     def test_validate_legal_entity_consistency(self, sample_lines):
         validator = JournalInvariantsValidator()
         le_id = sample_lines[0].legal_entity_id
         result = validator.validate_legal_entity_consistency(sample_lines, le_id)
         assert result.is_valid is True
+        other_id = uuid4()
+        result2 = validator.validate_legal_entity_consistency(sample_lines, other_id)
+        assert result2.is_valid is False
 
     def test_validate_transaction_date(self):
         validator = JournalInvariantsValidator()
-        now = datetime.now(UTC)
-        result = validator.validate_transaction_date(now - timedelta(days=1))
+        result = validator.validate_transaction_date(FIXED_PAST)
         assert result.is_valid is True
-        result2 = validator.validate_transaction_date(now + timedelta(days=5))
+        result2 = validator.validate_transaction_date(FIXED_FUTURE)
         assert result2.is_valid is False
+        result3 = validator.validate_transaction_date(FIXED_OLD_PAST, max_backdate_days=30)
+        assert result3.is_valid is False
+
+    def test_validate_transaction_date_with_period(self):
+        validator = JournalInvariantsValidator()
+        result = validator.validate_transaction_date(
+            FIXED_NOW,
+            period_start=FIXED_PERIOD_START,
+            period_end=FIXED_PERIOD_END
+        )
+        assert result.is_valid is True
+        # Before period
+        result2 = validator.validate_transaction_date(
+            FIXED_PERIOD_START - timedelta(days=1),
+            period_start=FIXED_PERIOD_START,
+            period_end=FIXED_PERIOD_END
+        )
+        assert result2.is_valid is False
+        # After period
+        result3 = validator.validate_transaction_date(
+            FIXED_PERIOD_END + timedelta(days=1),
+            period_start=FIXED_PERIOD_START,
+            period_end=FIXED_PERIOD_END
+        )
+        assert result3.is_valid is False
 
     def test_validate_accounts_exist(self, account_getter):
         validator = JournalInvariantsValidator()
@@ -567,6 +701,13 @@ class TestJournalInvariantsValidator:
         result = validator.validate_accounts_exist([line], account_getter_not_found)
         assert result.is_valid is False
 
+    def test_validate_accounts_exist_inactive(self, account_getter_inactive):
+        validator = JournalInvariantsValidator()
+        line = MagicMock()
+        line.account_id = uuid4()
+        result = validator.validate_accounts_exist([line], account_getter_inactive)
+        assert result.is_valid is False
+
     def test_validate_journal_number_unique(self):
         validator = JournalInvariantsValidator()
         existing = {"JRN-001", "JRN-002"}
@@ -574,6 +715,9 @@ class TestJournalInvariantsValidator:
         assert result.is_valid is True
         result2 = validator.validate_journal_number_unique("JRN-001", existing)
         assert result2.is_valid is False
+        long_number = "J" * 60
+        result3 = validator.validate_journal_number_unique(long_number, set())
+        assert result3.is_valid is False
 
     @patch("domain.journal.invariants.JournalStateMachine.validate_transition")
     def test_validate_status_transition(self, mock_validate):
@@ -585,14 +729,23 @@ class TestJournalInvariantsValidator:
             user_role="accountant",
         )
         assert result.is_valid is True
+        mock_validate.return_value = (False, "Invalid")
+        result2 = validator.validate_status_transition(
+            current_status=JournalStatus.DRAFT,
+            new_status=JournalStatus.POSTED,
+            user_role="accountant",
+        )
+        assert result2.is_valid is False
 
     def test_validate_reversal_reference(self):
         validator = JournalInvariantsValidator()
         original_id = uuid4()
-        result = validator.validate_reversal_reference(original_id, True)
+        result = validator.validate_reversal_reference(original_id, original_journal_exists=True)
         assert result.is_valid is True
-        result2 = validator.validate_reversal_reference(original_id, False)
+        result2 = validator.validate_reversal_reference(original_id, original_journal_exists=False)
         assert result2.is_valid is False
+        result3 = validator.validate_reversal_reference(None)
+        assert result3.is_valid is True
 
     def test_validate_currency_consistency(self, sample_lines):
         validator = JournalInvariantsValidator()
@@ -616,16 +769,20 @@ class TestJournalInvariantsValidator:
         lines = [invalid_line, sample_lines[1]]
         result = validator.validate_currency_consistency(lines)
         assert result.is_valid is False
+        result2 = validator.validate_currency_consistency([])
+        assert result2.is_valid is True
 
     def test_validate_date_consistency(self):
         validator = JournalInvariantsValidator()
-        tx_date = datetime.now(UTC)
+        tx_date = FIXED_NOW
         posting_date = tx_date + timedelta(days=1)
         result = validator.validate_date_consistency(tx_date, posting_date)
         assert result.is_valid is True
         posting_date2 = tx_date - timedelta(days=1)
         result2 = validator.validate_date_consistency(tx_date, posting_date2)
         assert result2.is_valid is False
+        result3 = validator.validate_date_consistency(tx_date, None)
+        assert result3.is_valid is True
 
     def test_validate_all_valid(self, sample_journal, sample_lines):
         validator = JournalInvariantsValidator()
@@ -638,73 +795,26 @@ class TestJournalInvariantsValidator:
         validator = JournalInvariantsValidator()
         le_id = sample_journal.legal_entity_id
         lines = [
-            JournalLineVO(
-                line_id=uuid4(),
-                journal_id=uuid4(),
-                account_id=uuid4(),
-                account_code="1000",
-                account_name="Cash",
-                side=JournalSide.DEBIT,
-                amount=Decimal("1000"),
-                description="Test",
-                legal_entity_id=le_id,
-            ),
-            JournalLineVO(
-                line_id=uuid4(),
-                journal_id=uuid4(),
-                account_id=uuid4(),
-                account_code="2000",
-                account_name="Revenue",
-                side=JournalSide.CREDIT,
-                amount=Decimal("999"),
-                description="Test",
-                legal_entity_id=le_id,
-            ),
+            create_line(amount=Decimal("1000"), side=JournalSide.DEBIT, legal_entity_id=le_id),
+            create_line(amount=Decimal("999"), side=JournalSide.CREDIT, legal_entity_id=le_id),
         ]
         result = validator.validate_all(sample_journal, lines)
         assert result.is_valid is False
         assert "not balanced" in result.errors[0]
 
+    def test_validate_all_invalid_legal_entity(self, sample_journal):
+        validator = JournalInvariantsValidator()
+        other_id = uuid4()
+        lines = [
+            create_line(amount=Decimal("1000"), side=JournalSide.DEBIT, legal_entity_id=other_id),
+            create_line(amount=Decimal("1000"), side=JournalSide.CREDIT, legal_entity_id=other_id),
+        ]
+        result = validator.validate_all(sample_journal, lines)
+        assert result.is_valid is False
+        assert "legal_entity_id" in result.errors[0]
 
-# ============================================================================
-# Direct calls to satisfy checker (module-level)
-# ============================================================================
-
-def _trigger_all_invariant_methods():
-    """Directly call methods to ensure checker detects them."""
-    # InvariantResult.__bool__
-    result = InvariantResult()
-    _ = bool(result)
-    _ = result.__bool__()
-
-    # JournalInvariants static methods
-    _ = JournalInvariants.validate_transaction_date(datetime.now(UTC))
-    _ = JournalInvariants.validate_journal_number_unique("TEST", set())
-    _ = JournalInvariants.validate_status_transition(
-        JournalStatus.DRAFT, JournalStatus.SUBMITTED, "accountant"
-    )
-    _ = JournalInvariants.validate_reversal_reference(None)
-    _ = JournalInvariants.validate_date_consistency(datetime.now(UTC), datetime.now(UTC))
-    _ = JournalInvariants.validate_currency_consistency([])
-
-    # JournalInvariantsValidator methods
-    validator = JournalInvariantsValidator()
-    _ = validator.validate_transaction_date(datetime.now(UTC))
-    _ = validator.validate_accounts_exist([], lambda x: None)
-    _ = validator.validate_journal_number_unique("TEST", set())
-    _ = validator.validate_status_transition(JournalStatus.DRAFT, JournalStatus.SUBMITTED, "accountant")
-    _ = validator.validate_reversal_reference(None)
-    _ = validator.validate_currency_consistency([])
-    _ = validator.validate_date_consistency(datetime.now(UTC), datetime.now(UTC))
-    
-    # Create a proper mock for validate_all with all required attributes
-    mock_journal = MagicMock(spec=JournalEntity)
-    mock_journal.transaction_date = datetime.now(UTC)
-    mock_journal.posting_date = datetime.now(UTC)   # <-- FIX: added posting_date
-    mock_journal.journal_number = "TEST-001"
-    mock_journal.legal_entity_id = uuid4()
-    mock_journal.status = JournalStatus.DRAFT
-    _ = validator.validate_all(mock_journal, [])
-
-
-_trigger_all_invariant_methods()
+    def test_validate_all_empty_lines(self, sample_journal):
+        validator = JournalInvariantsValidator()
+        result = validator.validate_all(sample_journal, [])
+        assert result.is_valid is False
+        assert "at least one line" in result.errors[0]

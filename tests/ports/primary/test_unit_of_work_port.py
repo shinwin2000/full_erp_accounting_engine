@@ -656,3 +656,113 @@ async def test_rollback_to_savepoint_updates_change_set(uow):
     assert len(uow._change_set["test_repo"]) == 2
     await uow.rollback_to_savepoint("sp1")
     assert "test_repo" not in uow._change_set
+
+
+# ============================================================================
+# ADDITIONAL COVERAGE TESTS untuk memastikan semua metode UnitOfWorkPort teruji
+# ============================================================================
+
+class TestUnitOfWorkPortCoverage:
+    """Test tambahan untuk memastikan semua metode UnitOfWorkPort terpanggil."""
+
+    def test_abstract_methods_exist(self):
+        """Pastikan semua metode abstract didefinisikan di UnitOfWorkPort."""
+        methods = [
+            "__aenter__", "__aexit__", "commit", "rollback",
+            "savepoint", "rollback_to_savepoint", "release_savepoint",
+            "register_repository", "get_repository",
+            "add_before_commit_hook", "add_after_commit_hook", "add_after_rollback_hook",
+            "flush", "execute_raw_sql", "is_active", "get_transaction_id",
+            "get_isolation_level", "transaction"
+        ]
+        for method in methods:
+            assert hasattr(UnitOfWorkPort, method)
+            # Pastikan metode tersebut abstract (kecuali transaction yang sudah punya implementasi default)
+            if method != "transaction":
+                assert getattr(UnitOfWorkPort, method).__isabstractmethod__ is True
+
+    @pytest.mark.asyncio
+    async def test_register_repository_on_interface(self):
+        """Uji register_repository melalui antarmuka UnitOfWorkPort."""
+        uow: UnitOfWorkPort = InMemoryUnitOfWork()
+        repo = MagicMock()
+        uow.register_repository("test_iface", repo)
+        # Verifikasi melalui get_repository
+        retrieved = uow.get_repository("test_iface")
+        assert retrieved is repo
+
+    @pytest.mark.asyncio
+    async def test_get_repository_on_interface(self):
+        """Uji get_repository melalui antarmuka UnitOfWorkPort."""
+        uow: UnitOfWorkPort = InMemoryUnitOfWork()
+        repo = MagicMock()
+        uow.register_repository("test_iface2", repo)
+        retrieved = uow.get_repository("test_iface2")
+        assert retrieved is repo
+        with pytest.raises(KeyError):
+            uow.get_repository("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_add_before_commit_hook_on_interface(self):
+        """Uji add_before_commit_hook melalui antarmuka UnitOfWorkPort."""
+        uow: UnitOfWorkPort = InMemoryUnitOfWork()
+        hook = AsyncMock(return_value=True)
+        uow.add_before_commit_hook(hook)
+        assert hook in uow._before_commit_hooks  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_add_after_commit_hook_on_interface(self):
+        """Uji add_after_commit_hook melalui antarmuka UnitOfWorkPort."""
+        uow: UnitOfWorkPort = InMemoryUnitOfWork()
+        hook = AsyncMock()
+        uow.add_after_commit_hook(hook)
+        assert hook in uow._after_commit_hooks  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_add_after_rollback_hook_on_interface(self):
+        """Uji add_after_rollback_hook melalui antarmuka UnitOfWorkPort."""
+        uow: UnitOfWorkPort = InMemoryUnitOfWork()
+        hook = AsyncMock()
+        uow.add_after_rollback_hook(hook)
+        assert hook in uow._after_rollback_hooks  # type: ignore
+
+    def test_record_change_method(self):
+        """Uji record_change secara langsung."""
+        uow = InMemoryUnitOfWork()
+        uow.record_change("repo_x", "change_1")
+        uow.record_change("repo_x", "change_2")
+        uow.record_change("repo_y", "change_3")
+        assert uow._change_set["repo_x"] == ["change_1", "change_2"]
+        assert uow._change_set["repo_y"] == ["change_3"]
+        # Pastikan get_change_summary berfungsi
+        summary = uow._get_change_summary()
+        assert summary["repo_x"] == 2
+        assert summary["repo_y"] == 1
+
+    @pytest.mark.asyncio
+    async def test_all_abstract_methods_implemented(self):
+        """Pastikan InMemoryUnitOfWork mengimplementasikan semua metode abstract."""
+        uow = InMemoryUnitOfWork()
+        for method in UnitOfWorkPort.__abstractmethods__:
+            assert hasattr(uow, method)
+            # Pastikan bisa dipanggil (minimal tidak raise AttributeError)
+            attr = getattr(uow, method)
+            assert callable(attr)
+
+    @pytest.mark.asyncio
+    async def test_register_repository_with_set_uow(self):
+        """Uji register_repository memanggil _set_uow pada repository."""
+        uow = InMemoryUnitOfWork()
+        repo = MagicMock()
+        repo._set_uow = MagicMock()
+        uow.register_repository("repo_with_set", repo)
+        repo._set_uow.assert_called_once_with(uow)
+
+    @pytest.mark.asyncio
+    async def test_register_repository_without_set_uow(self):
+        """Uji register_repository tidak error jika repository tidak punya _set_uow."""
+        uow = InMemoryUnitOfWork()
+        repo = MagicMock()
+        # Tidak memiliki _set_uow
+        uow.register_repository("repo_no_set", repo)
+        assert "repo_no_set" in uow._repositories

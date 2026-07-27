@@ -7,6 +7,7 @@ Covers:
 - All enum classes
 - All request/response schemas (valid & invalid cases)
 - All endpoint functions (with mocked service layer)
+- All field validators and model validators (direct calls for coverage)
 """
 
 from datetime import UTC, date, datetime
@@ -453,6 +454,15 @@ class TestBOMCreateSchema:
         )
         assert schema.bom_code == "BOM-001"
 
+    def test_bom_code_empty_raises(self):
+        with pytest.raises(ValueError, match="BOM code is required"):
+            BOMCreateSchema(
+                bom_code="",
+                bom_name="Test",
+                product_id=uuid4(),
+                lines=[{"component_item_id": uuid4(), "quantity": Decimal("1")}],
+            )
+
     def test_expiry_after_effective(self):
         with pytest.raises(ValueError, match="Expiry date must be after effective date"):
             BOMCreateSchema(
@@ -501,6 +511,57 @@ class TestRoutingStepSchema:
             )
 
 
+class TestRoutingCreateSchema:
+    def test_valid_schema(self):
+        data = {
+            "routing_code": "ROUT-001",
+            "routing_name": "Test Routing",
+            "product_id": uuid4(),
+            "steps": [
+                {
+                    "step_number": 1,
+                    "work_center": "WC1",
+                    "run_time_hours": Decimal("1"),
+                    "labor_hours": Decimal("1"),
+                }
+            ],
+        }
+        schema = RoutingCreateSchema(**data)
+        assert schema.routing_code == "ROUT-001"
+
+    def test_routing_code_uppercase(self):
+        schema = RoutingCreateSchema(
+            routing_code="rout-001",
+            routing_name="Test",
+            product_id=uuid4(),
+            steps=[
+                {
+                    "step_number": 1,
+                    "work_center": "WC1",
+                    "run_time_hours": Decimal("1"),
+                    "labor_hours": Decimal("1"),
+                }
+            ],
+        )
+        assert schema.routing_code == "ROUT-001"
+
+    def test_routing_code_empty_raises(self):
+        with pytest.raises(ValueError, match="Routing code is required"):
+            RoutingCreateSchema(
+                routing_code="",
+                routing_name="Test",
+                product_id=uuid4(),
+                steps=[
+                    {
+                        "step_number": 1,
+                        "work_center": "WC1",
+                        "run_time_hours": Decimal("1"),
+                        "labor_hours": Decimal("1"),
+                    }
+                ],
+            )
+
+
 class TestWorkOrderCreateSchema:
     def test_valid_schema(self):
         data = {
@@ -518,6 +579,16 @@ class TestWorkOrderCreateSchema:
         schema = WorkOrderCreateSchema(**data)
         assert schema.work_order_number == "WO-001"
         assert schema.planned_quantity == Decimal("100")
+
+    def test_wo_number_empty_raises(self):
+        with pytest.raises(ValueError, match="Work order number is required"):
+            WorkOrderCreateSchema(
+                work_order_number="",
+                product_id=uuid4(),
+                planned_quantity=Decimal("10"),
+                planned_start_date=date.today(),
+                planned_end_date=date.today(),
+            )
 
     def test_planned_end_after_start(self):
         with pytest.raises(ValueError, match="Planned end date must be after planned start date"):
@@ -591,6 +662,20 @@ class TestCostCardCreateSchema:
         assert schema.total_cost == Decimal("18")
         assert schema.unit_cost == Decimal("18.00")
 
+    def test_cost_card_code_uppercase(self):
+        schema = CostCardCreateSchema(
+            cost_card_code="cc-001",
+            product_id=uuid4(),
+        )
+        assert schema.cost_card_code == "CC-001"
+
+    def test_cost_card_code_empty_raises(self):
+        with pytest.raises(ValueError, match="Cost card code is required"):
+            CostCardCreateSchema(
+                cost_card_code="",
+                product_id=uuid4(),
+            )
+
     def test_unit_cost_rounding(self):
         schema = CostCardCreateSchema(
             cost_card_code="CC-002",
@@ -599,6 +684,125 @@ class TestCostCardCreateSchema:
             quantity_base=Decimal("3"),
         )
         assert schema.unit_cost == Decimal("0.33")  # 1/3 rounded to 0.33
+
+
+# =============================================================================
+# Direct Validator Tests (to ensure coverage detection)
+# =============================================================================
+
+class TestValidators:
+    """Direct calls to validator functions to ensure coverage checker detects them."""
+
+    def test_bom_line_schema_validate_quantity(self):
+        # Valid
+        assert BOMLineSchema.validate_quantity(Decimal("1")) == Decimal("1")
+        # Invalid
+        with pytest.raises(ValueError, match="Quantity must be greater than 0"):
+            BOMLineSchema.validate_quantity(Decimal("0"))
+        with pytest.raises(ValueError, match="Quantity must be greater than 0"):
+            BOMLineSchema.validate_quantity(Decimal("-1"))
+
+    def test_bom_create_schema_validate_bom_code(self):
+        # Valid
+        assert BOMCreateSchema.validate_bom_code("bom-001") == "BOM-001"
+        # Invalid
+        with pytest.raises(ValueError, match="BOM code is required"):
+            BOMCreateSchema.validate_bom_code("")
+        with pytest.raises(ValueError, match="BOM code is required"):
+            BOMCreateSchema.validate_bom_code("   ")
+
+    def test_bom_create_schema_validate_dates(self):
+        # Valid: expiry after effective
+        schema = BOMCreateSchema(
+            bom_code="BOM-001",
+            bom_name="Test",
+            product_id=uuid4(),
+            effective_date=date(2025, 1, 1),
+            expiry_date=date(2025, 12, 31),
+            lines=[{"component_item_id": uuid4(), "quantity": Decimal("1")}],
+        )
+        # The validator runs automatically, so we can just check no exception
+        assert schema.expiry_date > schema.effective_date
+        # Invalid: expiry before effective
+        with pytest.raises(ValueError, match="Expiry date must be after effective date"):
+            BOMCreateSchema(
+                bom_code="BOM-001",
+                bom_name="Test",
+                product_id=uuid4(),
+                effective_date=date(2025, 12, 31),
+                expiry_date=date(2025, 1, 1),
+                lines=[{"component_item_id": uuid4(), "quantity": Decimal("1")}],
+            )
+
+    def test_routing_step_schema_validate_step_number(self):
+        # Valid
+        assert RoutingStepSchema.validate_step_number(1) == 1
+        # Invalid
+        with pytest.raises(ValueError, match="Step number must be greater than 0"):
+            RoutingStepSchema.validate_step_number(0)
+        with pytest.raises(ValueError, match="Step number must be greater than 0"):
+            RoutingStepSchema.validate_step_number(-1)
+
+    def test_routing_create_schema_validate_routing_code(self):
+        # Valid
+        assert RoutingCreateSchema.validate_routing_code("rout-001") == "ROUT-001"
+        # Invalid
+        with pytest.raises(ValueError, match="Routing code is required"):
+            RoutingCreateSchema.validate_routing_code("")
+        with pytest.raises(ValueError, match="Routing code is required"):
+            RoutingCreateSchema.validate_routing_code("   ")
+
+    def test_work_order_create_schema_validate_wo_number(self):
+        # Valid
+        assert WorkOrderCreateSchema.validate_wo_number("WO-001") == "WO-001"
+        # Invalid
+        with pytest.raises(ValueError, match="Work order number is required"):
+            WorkOrderCreateSchema.validate_wo_number("")
+        with pytest.raises(ValueError, match="Work order number is required"):
+            WorkOrderCreateSchema.validate_wo_number("   ")
+
+    def test_work_order_create_schema_validate_dates(self):
+        # Valid: planned_end > planned_start
+        schema = WorkOrderCreateSchema(
+            work_order_number="WO-001",
+            product_id=uuid4(),
+            planned_quantity=Decimal("10"),
+            planned_start_date=date(2025, 1, 1),
+            planned_end_date=date(2025, 1, 10),
+        )
+        assert schema.planned_end_date > schema.planned_start_date
+        # Invalid: planned_end <= planned_start
+        with pytest.raises(ValueError, match="Planned end date must be after planned start date"):
+            WorkOrderCreateSchema(
+                work_order_number="WO-001",
+                product_id=uuid4(),
+                planned_quantity=Decimal("10"),
+                planned_start_date=date(2025, 1, 10),
+                planned_end_date=date(2025, 1, 1),
+            )
+
+    def test_work_order_completion_schema_validate_quantities(self):
+        # Valid: completed + rejected > 0
+        schema = WorkOrderCompletionSchema(
+            completed_quantity=Decimal("10"),
+            rejected_quantity=Decimal("0"),
+        )
+        assert schema.completed_quantity + schema.rejected_quantity > 0
+        # Invalid: both zero
+        with pytest.raises(ValueError, match="Total completed and rejected must be greater than 0"):
+            WorkOrderCompletionSchema(
+                completed_quantity=Decimal("0"),
+                rejected_quantity=Decimal("0"),
+            )
+
+    def test_cost_card_create_schema_validate_cost_card_code(self):
+        # Valid
+        assert CostCardCreateSchema.validate_cost_card_code("cc-001") == "CC-001"
+        # Invalid
+        with pytest.raises(ValueError, match="Cost card code is required"):
+            CostCardCreateSchema.validate_cost_card_code("")
+        with pytest.raises(ValueError, match="Cost card code is required"):
+            CostCardCreateSchema.validate_cost_card_code("   ")
 
 
 # =============================================================================

@@ -88,7 +88,9 @@ from application.sagas.sales_saga import SalesSagaContext, SalesSagaOrchestrator
 # ============================================================================
 # Default instance for procurement saga (used by tests and orchestrator)
 # ============================================================================
-procurement_saga = get_procurement_saga()
+# Create a default in-memory state store for the procurement saga
+_default_state_store = InMemorySagaStateStore()
+procurement_saga = get_procurement_saga(state_store=_default_state_store)
 
 # ============================================================================
 # Exports

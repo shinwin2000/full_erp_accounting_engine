@@ -137,7 +137,7 @@ except Exception as e:
 # ----------------------------------------------------------------------
 # Enum untuk level keparahan
 # ----------------------------------------------------------------------
-class TestSeverity(Enum):
+class SmokeTestSeverity(Enum):
     CRITICAL = "CRITICAL"
     ERROR = "ERROR"
     WARNING = "WARNING"
@@ -154,7 +154,7 @@ class SmokeTestResult:
     category: str
     passed: bool
     duration: float = 0.0
-    severity: TestSeverity = TestSeverity.INFO
+    severity: SmokeTestSeverity = SmokeTestSeverity.INFO
     details: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     exception: Exception | None = None
@@ -256,7 +256,7 @@ class ForensicSmokeTestRunner:
         error: str | None = None,
         exc: Exception | None = None,
         duration: float = 0.0,
-        severity: TestSeverity = TestSeverity.INFO,
+        severity: SmokeTestSeverity = SmokeTestSeverity.INFO,
         suggested_fix: str | None = None,
         evidence: list[str] | None = None,
         remediation_steps: list[str] | None = None,
@@ -281,14 +281,14 @@ class ForensicSmokeTestRunner:
             result.rca_analysis = self._analyze_with_rca(exc, name)
         self.results.append(result)
 
-        icon = "✅" if passed else ("❌" if severity in (TestSeverity.CRITICAL, TestSeverity.ERROR) else "⚠️")
+        icon = "✅" if passed else ("❌" if severity in (SmokeTestSeverity.CRITICAL, SmokeTestSeverity.ERROR) else "⚠️")
         log_level = (
             logging.CRITICAL
-            if (not passed and severity == TestSeverity.CRITICAL)
+            if (not passed and severity == SmokeTestSeverity.CRITICAL)
             else logging.ERROR
             if not passed
             else logging.WARNING
-            if severity == TestSeverity.WARNING
+            if severity == SmokeTestSeverity.WARNING
             else logging.INFO
         )
         logger.log(log_level, f"{icon} [{category}] {name} ({duration:.2f}s)")
@@ -353,7 +353,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error=f"Production environment terdeteksi: {', '.join(indicators)}",
-                    severity=TestSeverity.CRITICAL,
+                    severity=SmokeTestSeverity.CRITICAL,
                     suggested_fix="Gunakan --test-env atau set ENVIRONMENT=development",
                     duration=time.perf_counter() - start,
                 )
@@ -363,7 +363,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     context={"warning": "Production environment tetapi --test-env mengesampingkan safety check"},
                     suggested_fix="Hapus --test-env jika benar-benar production",
                     duration=time.perf_counter() - start,
@@ -374,7 +374,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     context={"warning": "Debug mode aktif di non-production"},
                     suggested_fix="Nonaktifkan DEBUG di production",
                     duration=time.perf_counter() - start,
@@ -390,7 +390,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.CRITICAL,
+                severity=SmokeTestSeverity.CRITICAL,
                 duration=time.perf_counter() - start,
             )
 
@@ -498,7 +498,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Tidak ditemukan DI Container di project",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat core.di_container.py dengan class Container atau get_container()",
                     evidence=["Dicari di: bootstrap.dependency_container, core.di_container, infrastructure.di_container, dll."],
                     duration=time.perf_counter() - start,
@@ -520,7 +520,7 @@ class ForensicSmokeTestRunner:
                         name, category, False,
                         error=f"Gagal menginstansiasi DI Container: {e}",
                         exc=e,
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="Periksa dependensi konstruktor",
                         duration=time.perf_counter() - start,
                     )
@@ -556,7 +556,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     error="UnitOfWork tidak terdaftar di DI Container",
                     suggested_fix="Daftarkan UnitOfWork jika diperlukan, atau abaikan jika menggunakan persistence lain",
                     duration=time.perf_counter() - start,
@@ -572,7 +572,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -658,7 +658,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Tidak ditemukan FastAPI app di project",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat app.main.py dengan fastapi_instance = FastAPI() atau app = FastAPI()",
                     evidence=["Dicari di: app.main, main, app, server, erp.asgi, asgi"],
                     duration=time.perf_counter() - start,
@@ -690,7 +690,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="Tidak ada route yang terdaftar",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Daftarkan route menggunakan @app.get() atau include_router()",
                     duration=time.perf_counter() - start,
                 )
@@ -698,7 +698,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     error=f"Ditemukan {len(set(duplicates))} duplikasi path route (dari include_router)",
                     suggested_fix="Tinjau registrasi route untuk menghindari tumpang tindih",
                     duration=time.perf_counter() - start,
@@ -714,7 +714,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -950,7 +950,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="DATABASE_URL tidak diset di environment atau .env",
-                    severity=TestSeverity.ERROR,
+                    severity=SmokeTestSeverity.ERROR,
                     suggested_fix="Set DATABASE_URL di .env",
                     duration=time.perf_counter() - start,
                 )
@@ -1020,7 +1020,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Tidak ditemukan session factory di project",
-                    severity=TestSeverity.ERROR,
+                    severity=SmokeTestSeverity.ERROR,
                     suggested_fix="Buat get_session_local() di infrastructure/database/session_factory_sqlalchemy.py",
                     duration=time.perf_counter() - start,
                 )
@@ -1036,7 +1036,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     error=f"Database test gagal: {results['error']}",
                     exc=Exception(results['error']) if results['error'] else None,
-                    severity=TestSeverity.CRITICAL,
+                    severity=SmokeTestSeverity.CRITICAL,
                     suggested_fix="Periksa DATABASE_URL dan pastikan server database berjalan",
                     duration=time.perf_counter() - start,
                 )
@@ -1046,7 +1046,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="SELECT 1 gagal",
-                    severity=TestSeverity.CRITICAL,
+                    severity=SmokeTestSeverity.CRITICAL,
                     suggested_fix="Periksa DATABASE_URL dan pastikan server database berjalan",
                     duration=time.perf_counter() - start,
                 )
@@ -1056,7 +1056,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Transaksi rollback gagal",
-                    severity=TestSeverity.ERROR,
+                    severity=SmokeTestSeverity.ERROR,
                     suggested_fix="Periksa izin database untuk CREATE TEMP TABLE dan transaksi",
                     duration=time.perf_counter() - start,
                 )
@@ -1066,7 +1066,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Rollback saat error gagal (transaksi tidak dirollback saat terjadi exception)",
-                    severity=TestSeverity.ERROR,
+                    severity=SmokeTestSeverity.ERROR,
                     suggested_fix="Pastikan transaksi dirollback saat terjadi error",
                     duration=time.perf_counter() - start,
                 )
@@ -1076,7 +1076,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details={"warning": "SELECT ... FOR UPDATE tidak didukung (mungkin SQLite)"},
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     duration=time.perf_counter() - start,
                 )
                 return
@@ -1101,7 +1101,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.CRITICAL,
+                severity=SmokeTestSeverity.CRITICAL,
                 duration=time.perf_counter() - start,
             )
 
@@ -1193,7 +1193,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error=", ".join(issues),
-                    severity=TestSeverity.ERROR,
+                    severity=SmokeTestSeverity.ERROR,
                     suggested_fix="Nonaktifkan DEBUG dan perbaiki konfigurasi keamanan",
                     duration=time.perf_counter() - start,
                 )
@@ -1201,7 +1201,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     context={"warnings": warnings},
                     suggested_fix="Periksa secret key, tambahkan HTTPS, rate limit, dan security headers",
                     duration=time.perf_counter() - start,
@@ -1217,7 +1217,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.ERROR,
+                severity=SmokeTestSeverity.ERROR,
                 duration=time.perf_counter() - start,
             )
 
@@ -1249,7 +1249,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     context={"note": f"Modul tidak ditemukan: {missing}"},
                     suggested_fix=f"Buat modul yang hilang: {', '.join(missing)}",
                     duration=time.perf_counter() - start,
@@ -1265,7 +1265,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1345,7 +1345,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="; ".join(issues),
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Tinjau siklus hidup objek dan pembersihan resource",
                     duration=time.perf_counter() - start,
                 )
@@ -1360,7 +1360,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1377,7 +1377,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="App instance tidak tersedia",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Pastikan FastAPI app ditemukan",
                     duration=time.perf_counter() - start,
                 )
@@ -1440,7 +1440,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error=f"Endpoint gagal: {', '.join(failures)}",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Pastikan endpoint /health, /docs berfungsi",
                     duration=time.perf_counter() - start,
                 )
@@ -1455,7 +1455,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1508,7 +1508,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error=f"Variabel environment wajib hilang: {', '.join(missing_required)}",
-                    severity=TestSeverity.ERROR,
+                    severity=SmokeTestSeverity.ERROR,
                     suggested_fix="Set variabel tersebut di .env atau environment",
                     duration=time.perf_counter() - start,
                 )
@@ -1516,7 +1516,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     context={"note": f"Variabel opsional tidak diset: {missing_optional}"},
                     suggested_fix="Set jika diperlukan untuk fitur tertentu",
                     duration=time.perf_counter() - start,
@@ -1532,7 +1532,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.ERROR,
+                severity=SmokeTestSeverity.ERROR,
                 duration=time.perf_counter() - start,
             )
 
@@ -1550,7 +1550,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Folder 'domain' tidak ditemukan",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat struktur domain/ dengan model-model",
                     duration=time.perf_counter() - start,
                 )
@@ -1583,7 +1583,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="Tidak ada file model di folder domain",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat model-model di domain/",
                     duration=time.perf_counter() - start,
                 )
@@ -1591,7 +1591,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     error="File model ditemukan tetapi tidak ada class yang terdeteksi",
                     suggested_fix="Pastikan model adalah class Python di dalam file",
                     duration=time.perf_counter() - start,
@@ -1607,7 +1607,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1666,7 +1666,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="Tidak ditemukan implementasi repository",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat repository pattern untuk akses data",
                     duration=time.perf_counter() - start,
                 )
@@ -1681,7 +1681,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1741,7 +1741,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="CORS tidak dikonfigurasi",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Tambahkan middleware CORS untuk keamanan lintas origin",
                     duration=time.perf_counter() - start,
                 )
@@ -1750,7 +1750,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1799,7 +1799,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="Tidak ada indikasi authentication/authorization",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Implementasikan JWT atau OAuth2 untuk keamanan API",
                     duration=time.perf_counter() - start,
                 )
@@ -1814,7 +1814,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1840,7 +1840,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="Folder domain tidak ditemukan",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat struktur domain/ dengan model ERP",
                     duration=time.perf_counter() - start,
                 )
@@ -1868,7 +1868,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.INFO,
+                    severity=SmokeTestSeverity.INFO,
                     duration=time.perf_counter() - start,
                 )
             else:
@@ -1876,7 +1876,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error=f"Hanya {len(found_models)} dari {len(core_models)} domain ERP terdeteksi (kurang dari 62%)",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Buat model-model bisnis di domain/ atau sesuaikan daftar core_models",
                     duration=time.perf_counter() - start,
                 )
@@ -1885,7 +1885,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -1902,7 +1902,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="App instance tidak tersedia",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Pastikan FastAPI app ditemukan",
                     duration=time.perf_counter() - start,
                 )
@@ -1917,7 +1917,7 @@ class ForensicSmokeTestRunner:
                     self._add_result(
                         name, category, False,
                         error=f"/openapi.json → {resp.status_code}",
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="Pastikan OpenAPI aktif di FastAPI",
                         duration=time.perf_counter() - start,
                     )
@@ -1928,7 +1928,7 @@ class ForensicSmokeTestRunner:
                     self._add_result(
                         name, category, False,
                         error="OpenAPI schema tidak valid (missing info atau paths)",
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="Perbaiki schema OpenAPI",
                         duration=time.perf_counter() - start,
                     )
@@ -1958,7 +1958,7 @@ class ForensicSmokeTestRunner:
                     self._add_result(
                         name, category, True,
                         details=details,
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         error=f"Ditemukan {len(duplicates)} Duplicate Operation ID",
                         suggested_fix="Perbaiki operation_id di router (gunakan unique=True atau beri nama unik)",
                         duration=time.perf_counter() - start,
@@ -1974,7 +1974,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error=str(e), exc=e,
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     duration=time.perf_counter() - start,
                 )
 
@@ -1982,7 +1982,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -2000,7 +2000,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error="BROKER_URL atau REDIS_URL tidak diset",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Set BROKER_URL jika menggunakan event-driven",
                     duration=time.perf_counter() - start,
                 )
@@ -2034,7 +2034,7 @@ class ForensicSmokeTestRunner:
                         self._add_result(
                             name, category, False,
                             error="Redis publish/consume gagal (set/get mismatch)",
-                            severity=TestSeverity.WARNING,
+                            severity=SmokeTestSeverity.WARNING,
                             suggested_fix="Periksa Redis dan jaringan",
                             duration=time.perf_counter() - start,
                         )
@@ -2042,7 +2042,7 @@ class ForensicSmokeTestRunner:
                     self._add_result(
                         name, category, False,
                         error="redis-py tidak terinstall",
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="pip install redis",
                         duration=time.perf_counter() - start,
                     )
@@ -2051,7 +2051,7 @@ class ForensicSmokeTestRunner:
                         name, category, False,
                         error=f"Redis error: {e}",
                         exc=e,
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="Periksa REDIS_URL dan pastikan Redis berjalan",
                         duration=time.perf_counter() - start,
                     )
@@ -2090,7 +2090,7 @@ class ForensicSmokeTestRunner:
                         self._add_result(
                             name, category, False,
                             error="RabbitMQ publish/consume gagal",
-                            severity=TestSeverity.WARNING,
+                            severity=SmokeTestSeverity.WARNING,
                             suggested_fix="Periksa RabbitMQ dan queue",
                             duration=time.perf_counter() - start,
                         )
@@ -2098,7 +2098,7 @@ class ForensicSmokeTestRunner:
                     self._add_result(
                         name, category, False,
                         error="pika tidak terinstall",
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="pip install pika",
                         duration=time.perf_counter() - start,
                     )
@@ -2107,7 +2107,7 @@ class ForensicSmokeTestRunner:
                         name, category, False,
                         error=f"RabbitMQ error: {e}",
                         exc=e,
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="Periksa BROKER_URL dan pastikan RabbitMQ berjalan",
                         duration=time.perf_counter() - start,
                     )
@@ -2115,7 +2115,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, False,
                     error=f"Broker type tidak dikenali: {broker_url}",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Gunakan redis:// atau amqp://",
                     duration=time.perf_counter() - start,
                 )
@@ -2124,7 +2124,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -2216,7 +2216,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error="Tidak ditemukan indikasi scheduler yang dapat dijalankan",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Jika diperlukan, tambahkan Celery atau APScheduler",
                     duration=time.perf_counter() - start,
                 )
@@ -2231,7 +2231,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -2252,7 +2252,7 @@ class ForensicSmokeTestRunner:
                     self._add_result(
                         name, category, False,
                         error="Folder domain tidak ditemukan",
-                        severity=TestSeverity.WARNING,
+                        severity=SmokeTestSeverity.WARNING,
                         suggested_fix="Buat struktur domain/ dengan model akuntansi",
                         duration=time.perf_counter() - start,
                     )
@@ -2298,7 +2298,7 @@ class ForensicSmokeTestRunner:
                 self._add_result(
                     name, category, True,
                     details=details,
-                    severity=TestSeverity.INFO,
+                    severity=SmokeTestSeverity.INFO,
                     duration=time.perf_counter() - start,
                 )
             else:
@@ -2306,7 +2306,7 @@ class ForensicSmokeTestRunner:
                     name, category, False,
                     details=details,
                     error=f"Struktur akuntansi tidak lengkap: Journal={has_journal}, Account={has_account}, Ledger={has_ledger}",
-                    severity=TestSeverity.WARNING,
+                    severity=SmokeTestSeverity.WARNING,
                     suggested_fix="Pastikan ada model JournalEntity, AccountEntity, dan LedgerEntity di domain/",
                     duration=time.perf_counter() - start,
                 )
@@ -2315,7 +2315,7 @@ class ForensicSmokeTestRunner:
             self._add_result(
                 name, category, False,
                 error=str(e), exc=e,
-                severity=TestSeverity.WARNING,
+                severity=SmokeTestSeverity.WARNING,
                 duration=time.perf_counter() - start,
             )
 
@@ -2390,8 +2390,8 @@ class ForensicSmokeTestRunner:
         total_duration = time.perf_counter() - total_start
 
         passed = sum(1 for r in self.results if r.passed)
-        failed = sum(1 for r in self.results if not r.passed and r.severity in (TestSeverity.CRITICAL, TestSeverity.ERROR))
-        warnings = sum(1 for r in self.results if not r.passed and r.severity == TestSeverity.WARNING)
+        failed = sum(1 for r in self.results if not r.passed and r.severity in (SmokeTestSeverity.CRITICAL, SmokeTestSeverity.ERROR))
+        warnings = sum(1 for r in self.results if not r.passed and r.severity == SmokeTestSeverity.WARNING)
         total = len(self.results)
         score = (passed / total * 100) if total > 0 else 0
 
@@ -2475,7 +2475,7 @@ def main():
 
     failed_critical = sum(
         1 for r in runner.results
-        if not r.passed and r.severity == TestSeverity.CRITICAL
+        if not r.passed and r.severity == SmokeTestSeverity.CRITICAL
     )
     sys.exit(1 if failed_critical > 0 else 0)
 

@@ -23,6 +23,13 @@ from disaster_recovery.dr_rto_rpo_verification_test import (
     HAS_PROMETHEUS,
 )
 
+# ============================================================================
+# Prevent pytest from collecting these imported classes as test classes
+# ============================================================================
+TestSchedule.__test__ = False
+TestScenario.__test__ = False
+TestStatus.__test__ = False
+
 
 # -------------------- Fixtures --------------------
 @pytest.fixture
@@ -91,8 +98,7 @@ def mock_datetime(monkeypatch, fixed_datetime):
         def fromisoformat(cls, iso):
             return datetime.fromisoformat(iso)
     monkeypatch.setattr("disaster_recovery.dr_rto_rpo_verification_test.datetime", MockDateTime)
-    # also patch datetime in module where it's used
-    # Actually we need to patch the module's datetime directly; done above
+    return MockDateTime
 
 
 @pytest.fixture
@@ -154,14 +160,12 @@ class TestDRMetrics:
         assert metrics.test_id == "test-1"
         assert metrics._version == 1
         assert len(metrics._snapshots) == 1
-        # snapshot taken
         snap = metrics._snapshots[0]
         assert snap["test_id"] == "test-1"
         assert snap["status"] == "success"
 
     def test_is_compliant(self, sample_dr_metrics):
         assert sample_dr_metrics.is_compliant() is True
-        # non-compliant when RTO not met
         non_comp = DRMetrics(
             test_id="x", scenario=TestScenario.DATABASE_FAILOVER,
             start_time=datetime.now(UTC), end_time=datetime.now(UTC),
@@ -170,7 +174,6 @@ class TestDRMetrics:
             rto_met=False, rpo_met=True, status=TestStatus.SUCCESS,
         )
         assert non_comp.is_compliant() is False
-        # status not success
         fail = DRMetrics(
             test_id="x", scenario=TestScenario.DATABASE_FAILOVER,
             start_time=datetime.now(UTC), end_time=datetime.now(UTC),
@@ -196,7 +199,6 @@ class TestDRMetrics:
 
     def test_from_dict(self, sample_dr_metrics):
         d = sample_dr_metrics.to_dict()
-        # from_dict expects full timestamps and Decimal from string
         restored = DRMetrics.from_dict(d)
         assert restored.test_id == sample_dr_metrics.test_id
         assert restored.scenario == sample_dr_metrics.scenario
@@ -211,7 +213,6 @@ class TestDRMetrics:
 
     def test_from_dict_missing_fields(self, sample_dr_metrics):
         d = sample_dr_metrics.to_dict()
-        # remove optional fields
         del d["data_loss_bytes"]
         del d["transaction_loss_count"]
         del d["data_loss_percentage"]
@@ -233,7 +234,6 @@ class TestDRMetrics:
         assert cloned._version == sample_dr_metrics._version + 1
         assert len(cloned._audit_trail) == 1
         assert cloned._audit_trail[0]["action"] == "CLONE"
-        # details copied
         assert cloned.details == sample_dr_metrics.details
 
     def test_snapshot(self, sample_dr_metrics):
@@ -263,18 +263,13 @@ class TestDRMetrics:
         assert len(touched._audit_trail) == 1
 
     def test_to_prometheus_metrics_when_enabled(self, sample_dr_metrics):
-        # Mock prometheus_client
         with patch("disaster_recovery.dr_rto_rpo_verification_test.HAS_PROMETHEUS", True):
             with patch("disaster_recovery.dr_rto_rpo_verification_test.Gauge") as mock_gauge:
                 mock_gauge_instance = MagicMock()
                 mock_gauge.return_value = mock_gauge_instance
                 sample_dr_metrics.to_prometheus_metrics()
-                # Expect two gauge labels: one for RTO, one for RPO
                 assert mock_gauge.call_count == 2
-                # Check that labels were called with correct args
                 mock_gauge_instance.labels.assert_any_call(scenario="database_failover", test_id="test-123")
-                # The second call sets RPO
-                # We can't easily check the set calls but at least no exception.
 
     def test_to_prometheus_metrics_disabled(self, sample_dr_metrics):
         with patch("disaster_recovery.dr_rto_rpo_verification_test.HAS_PROMETHEUS", False):
@@ -406,22 +401,18 @@ class TestRTO_RPO_VerificationTest:
         assert any("rpo_target_seconds must be positive" in e for e in errors)
         assert any("max_test_duration_seconds must be positive" in e for e in errors)
 
-    # ---- simulate_failure ----
     def test_simulate_failure_success(self, rto_rpo_tester, mock_datetime, mock_time):
-        # mock the failover function to return quickly
         failover_func = MagicMock(return_value="ok")
-        # mock time.time to control duration
         with patch("time.time") as mock_time_time:
-            mock_time_time.side_effect = [1000.0, 1005.0]  # start, end (5 seconds)
+            mock_time_time.side_effect = [1000.0, 1005.0]
             metrics = rto_rpo_tester.simulate_failure(failover_func, scenario=TestScenario.DATABASE_FAILOVER)
             assert metrics.status == TestStatus.SUCCESS
             assert metrics.rto_actual_seconds == Decimal("5.0")
-            assert metrics.rpo_actual_seconds == Decimal("0")  # because last successful tx set earlier
+            assert metrics.rpo_actual_seconds == Decimal("0")
             assert metrics.rto_met is True
             assert metrics.rpo_met is True
             assert metrics.is_compliant() is True
             assert len(rto_rpo_tester._metrics_history) == 1
-            # audit trail
             trail = rto_rpo_tester.audit_trail()
             assert any(entry["action"] == "SIMULATE_FAILURE" for entry in trail)
 
@@ -430,18 +421,15 @@ class TestRTO_RPO_VerificationTest:
             time.sleep(100)
             return "ok"
         with patch("time.time") as mock_time_time:
-            mock_time_time.side_effect = [1000.0, 1020.0]  # start, after 20s (timeout is 30 but we don't actually sleep)
-            # We need to mock thread join to simulate timeout
+            mock_time_time.side_effect = [1000.0, 1020.0]
             with patch("threading.Thread.join") as mock_join:
                 mock_join.side_effect = None
-                # we need to ensure thread is still alive to raise TimeoutError
                 with patch("threading.Thread.is_alive") as mock_is_alive:
                     mock_is_alive.return_value = True
                     metrics = rto_rpo_tester.simulate_failure(slow_func, timeout_seconds=30)
                     assert metrics.status == TestStatus.TIMEOUT
                     assert metrics.error_message == "Failover timeout after 30 seconds"
                     assert metrics.rto_met is False
-                    # RPO may be 0 or some value; we don't test exact
 
     def test_simulate_failure_exception(self, rto_rpo_tester, mock_datetime, mock_time):
         def failing_func():
@@ -465,7 +453,6 @@ class TestRTO_RPO_VerificationTest:
             assert metrics.status == TestStatus.SUCCESS
 
     def test_simulate_failure_prometheus_enabled(self, rto_rpo_tester, mock_datetime, mock_time):
-        # enable prometheus
         rto_rpo_tester.enable_prometheus = True
         with patch("disaster_recovery.dr_rto_rpo_verification_test.HAS_PROMETHEUS", True):
             with patch("disaster_recovery.dr_rto_rpo_verification_test.Gauge") as mock_gauge:
@@ -475,11 +462,8 @@ class TestRTO_RPO_VerificationTest:
                 with patch("time.time") as mock_time_time:
                     mock_time_time.side_effect = [1000.0, 1004.0]
                     metrics = rto_rpo_tester.simulate_failure(failover)
-                    # to_prometheus_metrics called
                     mock_gauge.assert_called()
-                    # We don't check exact calls, just no exception
 
-    # ---- _run_with_timeout ----
     def test_run_with_timeout_success(self, rto_rpo_tester):
         func = MagicMock(return_value="result")
         result = rto_rpo_tester._run_with_timeout(func, timeout=10)
@@ -487,13 +471,12 @@ class TestRTO_RPO_VerificationTest:
         func.assert_called_once()
 
     def test_run_with_timeout_timeout(self, rto_rpo_tester):
-        # We need to simulate thread not finishing
         def slow_func():
             time.sleep(100)
             return "ok"
         with patch("threading.Thread.join") as mock_join:
             with patch("threading.Thread.is_alive") as mock_is_alive:
-                mock_is_alive.return_value = True  # still alive => timeout
+                mock_is_alive.return_value = True
                 with pytest.raises(TimeoutError):
                     rto_rpo_tester._run_with_timeout(slow_func, timeout=1)
 
@@ -504,32 +487,24 @@ class TestRTO_RPO_VerificationTest:
             with pytest.raises(ValueError, match="bad"):
                 rto_rpo_tester._run_with_timeout(error_func, timeout=10)
 
-    # ---- get_last_metrics ----
     def test_get_last_metrics(self, rto_rpo_tester, sample_dr_metrics):
-        # empty
         assert rto_rpo_tester.get_last_metrics() is None
-        # add metrics
         rto_rpo_tester._metrics_history.append(sample_dr_metrics)
         assert rto_rpo_tester.get_last_metrics() == sample_dr_metrics
-        # filter by scenario
         assert rto_rpo_tester.get_last_metrics(TestScenario.DATABASE_FAILOVER) == sample_dr_metrics
         assert rto_rpo_tester.get_last_metrics(TestScenario.BACKUP_RESTORE) is None
 
-    # ---- get_test_history ----
     def test_get_test_history(self, rto_rpo_tester, sample_dr_metrics):
-        # add multiple
         m1 = sample_dr_metrics
         m2 = sample_dr_metrics.clone()
         m2.scenario = TestScenario.BACKUP_RESTORE
         rto_rpo_tester._metrics_history.extend([m1, m2])
         history = rto_rpo_tester.get_test_history(limit=10)
         assert len(history) == 2
-        # filter by scenario
         history_db = rto_rpo_tester.get_test_history(scenario=TestScenario.DATABASE_FAILOVER)
         assert len(history_db) == 1
         assert history_db[0].scenario == TestScenario.DATABASE_FAILOVER
 
-    # ---- get_compliance_report ----
     def test_get_compliance_report_no_tests(self, rto_rpo_tester, fixed_datetime):
         with patch("disaster_recovery.dr_rto_rpo_verification_test.datetime") as mock_dt:
             mock_dt.utcnow.return_value = fixed_datetime
@@ -538,7 +513,6 @@ class TestRTO_RPO_VerificationTest:
             assert report["total_tests"] == 0
 
     def test_get_compliance_report_with_tests(self, rto_rpo_tester, fixed_datetime):
-        # Create some metrics within period
         m1 = DRMetrics(
             test_id="1", scenario=TestScenario.DATABASE_FAILOVER,
             start_time=fixed_datetime - timedelta(days=5),
@@ -568,12 +542,12 @@ class TestRTO_RPO_VerificationTest:
             mock_dt.utcnow.return_value = fixed_datetime
             report = rto_rpo_tester.get_compliance_report(period_days=30)
             assert report["total_tests"] == 3
-            assert report["successful_tests"] == 3  # all success
-            assert report["rto_compliant_count"] == 2  # m2 fails
+            assert report["successful_tests"] == 3
+            assert report["rto_compliant_count"] == 2
             assert report["rpo_compliant_count"] == 2
             assert report["fully_compliant_count"] == 2
-            assert report["overall_compliance_rate"] == 66.67  # 2/3
-            assert report["status"] == "partially_compliant"  # because not all compliant
+            assert report["overall_compliance_rate"] == 66.67
+            assert report["status"] == "partially_compliant"
             assert "avg_rto_seconds" in report
             assert report["rto_target"] == 10.0
             assert report["rpo_target"] == 5.0
@@ -603,7 +577,6 @@ class TestRTO_RPO_VerificationTest:
             assert report["overall_compliance_rate"] == 100.0
 
     def test_get_compliance_report_old_tests_excluded(self, rto_rpo_tester, fixed_datetime):
-        # old test > period
         m_old = DRMetrics(
             test_id="old", scenario=TestScenario.DATABASE_FAILOVER,
             start_time=fixed_datetime - timedelta(days=40),
@@ -619,7 +592,6 @@ class TestRTO_RPO_VerificationTest:
             assert report["total_tests"] == 0
             assert report["status"] == "not_tested"
 
-    # ---- get_by_scenario_summary ----
     def test_get_by_scenario_summary(self, rto_rpo_tester, sample_dr_metrics):
         m1 = sample_dr_metrics
         m2 = sample_dr_metrics.clone()
@@ -642,7 +614,6 @@ class TestRTO_RPO_VerificationTest:
         assert br_sum["compliant_tests"] == 0
         assert br_sum["compliance_rate"] == 0.0
 
-    # ---- add_scheduled_test, _start_scheduled_thread, _send_notification, stop_scheduled_test ----
     def test_add_scheduled_test(self, rto_rpo_tester, mock_requests, mock_thread):
         failover_func = MagicMock(return_value="ok")
         schedule_id = rto_rpo_tester.add_scheduled_test(
@@ -658,15 +629,6 @@ class TestRTO_RPO_VerificationTest:
         assert schedule.scenario == TestScenario.DATABASE_FAILOVER
         assert schedule.interval_seconds == 60
         assert schedule.enabled is True
-        # The scheduled thread would have started, but we mocked Thread to execute immediately.
-        # Since our mock thread runs target immediately, the scheduled test will run.
-        # However we need to verify that the simulate_failure was called.
-        # We can check that _metrics_history has been updated.
-        # Since we mocked time.time to fixed 1000, the failover will run.
-        # But we also need to ensure the thread doesn't loop; in our mock we run target once, so after one iteration it stops because schedule.enabled becomes False? Actually it loops while enabled; we didn't stop it. In the mock thread we execute target once; but target has a while loop. So it will run forever. To avoid that, we can patch _start_scheduled_thread to not actually run or we can test differently.
-        # For testing, we can inspect that schedule was added and that _start_scheduled_thread was called.
-        # We'll test _start_scheduled_thread separately.
-        # For add_scheduled_test we just verify schedule added and audit trail.
         trail = rto_rpo_tester.audit_trail()
         assert any(entry["action"] == "ADD_SCHEDULED_TEST" for entry in trail)
 
@@ -681,20 +643,9 @@ class TestRTO_RPO_VerificationTest:
         )
         rto_rpo_tester._schedules[schedule_id] = schedule
         failover_func = MagicMock(return_value="ok")
-        # We need to control the while loop; we can set schedule.enabled = False after one run, but we want to test that simulate_failure is called.
-        # We'll patch simulate_failure to capture call.
         with patch.object(rto_rpo_tester, "simulate_failure") as mock_simulate:
             rto_rpo_tester._start_scheduled_thread(schedule_id, failover_func, None, None)
-            # The thread runs synchronously because of our mock, so it will enter the while loop.
-            # But we need to break out; we can set enabled to False after first iteration.
-            # However we can't set it from inside; we can mock time to advance so that next_run becomes past, and then set enabled false.
-            # Easier: we can just check that simulate_failure is called.
-            # Our mock thread starts and runs target; target will call simulate_failure, but we need to ensure it gets called.
-            # In the target, it checks if now >= schedule.next_run. Since we set next_run to now, it will trigger.
-            # So simulate_failure should be called.
             mock_simulate.assert_called_once()
-            # Check that schedule.last_result set
-            # We'll just check that schedule.last_run is set
             assert schedule.last_run is not None
 
     def test_send_notification(self, rto_rpo_tester, mock_requests, sample_dr_metrics):
@@ -745,10 +696,8 @@ class TestRTO_RPO_VerificationTest:
         assert schedule.enabled is False
         trail = rto_rpo_tester.audit_trail()
         assert any(entry["action"] == "STOP_SCHEDULED_TEST" for entry in trail)
-        # non-existent
         assert rto_rpo_tester.stop_scheduled_test("nonexistent") is False
 
-    # ---- export_to_json, reset_history, reset ----
     def test_export_to_json(self, rto_rpo_tester, sample_dr_metrics, tmp_path):
         rto_rpo_tester._metrics_history.append(sample_dr_metrics)
         file_path = tmp_path / "dr_test_results.json"
@@ -785,7 +734,6 @@ class TestRTO_RPO_VerificationTest:
         trail = rto_rpo_tester.audit_trail()
         assert any(entry["action"] == "RESET" for entry in trail)
 
-    # ---- entity methods for RTO_RPO_VerificationTest ----
     def test_to_dict(self, rto_rpo_tester):
         d = rto_rpo_tester.to_dict()
         assert d["rto_target_seconds"] == 10.0
@@ -836,15 +784,13 @@ class TestRTO_RPO_VerificationTest:
         assert touched._version == old_version + 1
         assert len(touched._audit_trail) == 1
 
-    # ---- edge: simulate_failure with pre-failure hook exception ----
     def test_simulate_failure_pre_hook_exception(self, rto_rpo_tester, mock_datetime, mock_time):
         pre_hook = MagicMock(side_effect=Exception("pre hook error"))
         failover = MagicMock(return_value="ok")
         with patch("time.time") as mock_time_time:
             mock_time_time.side_effect = [1000.0, 1002.0]
-            # should not raise; just log
             metrics = rto_rpo_tester.simulate_failure(failover, pre_failure_hook=pre_hook)
-            assert metrics.status == TestStatus.SUCCESS  # still success
+            assert metrics.status == TestStatus.SUCCESS
 
     def test_simulate_failure_post_hook_exception(self, rto_rpo_tester, mock_datetime, mock_time):
         post_hook = MagicMock(side_effect=Exception("post hook error"))
@@ -852,31 +798,23 @@ class TestRTO_RPO_VerificationTest:
         with patch("time.time") as mock_time_time:
             mock_time_time.side_effect = [1000.0, 1002.0]
             metrics = rto_rpo_tester.simulate_failure(failover, post_recovery_hook=post_hook)
-            assert metrics.status == TestStatus.SUCCESS  # still success
+            assert metrics.status == TestStatus.SUCCESS
 
-    # ---- test that simulate_failure updates last_successful_tx_time ----
     def test_simulate_failure_updates_last_tx_time(self, rto_rpo_tester, mock_datetime, mock_time):
         failover = MagicMock(return_value="ok")
         with patch("time.time") as mock_time_time:
             mock_time_time.side_effect = [1000.0, 1002.0]
             metrics = rto_rpo_tester.simulate_failure(failover)
-            # after success, last_successful_tx_time should be set to recovery_timestamp (end_time)
             assert rto_rpo_tester._last_successful_tx_time == metrics.end_time
 
-    # ---- test simulate_failure with rpo based on last tx ----
     def test_simulate_failure_rpo_from_last_tx(self, rto_rpo_tester, mock_datetime, mock_time):
-        # set last_successful_tx_time to 2 seconds before start
         rto_rpo_tester._last_successful_tx_time = datetime.now(UTC) - timedelta(seconds=2)
         failover = MagicMock(return_value="ok")
         with patch("time.time") as mock_time_time:
             mock_time_time.side_effect = [1000.0, 1001.0]
             metrics = rto_rpo_tester.simulate_failure(failover)
-            # RPO should be about 2 seconds
-            # Since we mocked utcnow to fixed, we need to ensure the difference is correct.
-            # We'll just check that rpo_actual_seconds is positive and likely equals the time between last tx and recovery
             assert metrics.rpo_actual_seconds > Decimal(0)
 
-    # ---- test get_compliance_report with some failures and partial ----
     def test_get_compliance_report_with_failures(self, rto_rpo_tester, fixed_datetime):
         m1 = DRMetrics(
             test_id="1", scenario=TestScenario.DATABASE_FAILOVER,

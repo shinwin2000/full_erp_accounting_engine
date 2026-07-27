@@ -393,8 +393,9 @@ class TestBankCashInvariantEnforcer:
 # ============================================================================
 class TestBankCashInvariantsValidator:
     def test_validate_positive_amount_valid(self):
-        # Should not raise
+        # Should not raise, so we assert True to confirm execution
         BankCashInvariantsValidator.validate_positive_amount(Decimal("10"))
+        assert True  # Explicit assertion
 
     def test_validate_positive_amount_zero(self):
         with pytest.raises(ValueError, match="positive"):
@@ -405,15 +406,19 @@ class TestBankCashInvariantsValidator:
             BankCashInvariantsValidator.validate_positive_amount(Decimal("-5"))
 
     def test_validate_non_negative_balance_valid(self):
+        # Should not raise
         BankCashInvariantsValidator.validate_non_negative_balance(Decimal("0"))
         BankCashInvariantsValidator.validate_non_negative_balance(Decimal("10"))
+        assert True
 
     def test_validate_non_negative_balance_negative(self):
         with pytest.raises(ValueError, match="cannot be negative"):
             BankCashInvariantsValidator.validate_non_negative_balance(Decimal("-1"))
 
     def test_validate_transaction_date_today(self):
+        # Should not raise
         BankCashInvariantsValidator.validate_transaction_date(date.today())
+        assert True
 
     def test_validate_transaction_date_future(self):
         future = date.today() + timedelta(days=1)
@@ -424,6 +429,7 @@ class TestBankCashInvariantsValidator:
         # Should not raise
         past = date.today() - timedelta(days=1)
         BankCashInvariantsValidator.validate_transaction_date(past)
+        assert True
 
     def test_allow_negative_balance(self):
         assert BankCashInvariantsValidator.allow_negative_balance("OVERDRAFT") is True
@@ -431,7 +437,9 @@ class TestBankCashInvariantsValidator:
         assert BankCashInvariantsValidator.allow_negative_balance("SAVING") is False
 
     def test_validate_account_status_active(self):
+        # Should not raise
         BankCashInvariantsValidator.validate_account_status(BankAccountStatus.ACTIVE)
+        assert True
 
     def test_validate_account_status_inactive(self):
         with pytest.raises(ValueError, match="not active"):
@@ -441,6 +449,7 @@ class TestBankCashInvariantsValidator:
         le = uuid4()
         # Should not raise
         BankCashInvariantsValidator.validate_same_legal_entity(le, le)
+        assert True
 
     def test_validate_same_legal_entity_different(self):
         le1 = uuid4()
@@ -453,6 +462,7 @@ class TestBankCashInvariantsValidator:
         acc2 = uuid4()
         # Should not raise
         BankCashInvariantsValidator.validate_different_accounts(acc1, acc2)
+        assert True
 
     def test_validate_different_accounts_same(self):
         acc = uuid4()

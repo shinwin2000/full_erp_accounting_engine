@@ -30,6 +30,13 @@ from policy_engine.psak.psak_73_leases import (
     PSAK73ValidationResult,
     PSAK73Validator,
     get_psak73_validator,
+    # import compat functions directly for explicit testing
+    _create_lease_compat,
+    _calculate_right_of_use_asset_compat,
+    _calculate_lease_liability_compat,
+    _record_lease_payment_compat,
+    _record_amortization_compat,
+    _validate_lease_compliance_compat,
 )
 
 
@@ -579,67 +586,166 @@ class TestPSAK73Validator:
         assert len(summary["disclosures"]) >= 4
 
 
-# -------------------- Tests for Compatibility Methods --------------------
+# -------------------- Tests for Compatibility Methods (Orchestration Bridge) --------------------
 class TestCompatibilityMethods:
+    """Tests for the compatibility methods added to PSAK73Validator (orchestration bridge)."""
+
     def test_create_lease_compat(self, validator, fixed_now):
+        asset_id = uuid4()
         lease = validator.create_lease(
-            lease_number="COMPAT-001",
-            asset_id=uuid4(),
-            asset_name="Compat Asset",
-            lessor_name="Compat Lessor",
+            lease_number="COMPAT-002",
+            asset_id=asset_id,
+            asset_name="Compat Asset 2",
+            lessor_name="Compat Lessor 2",
             commencement_date=fixed_now,
-            lease_term_years=3,
-            annual_payment=Decimal("100000000"),
-            discount_rate=Decimal("8"),
-            currency="IDR",
+            lease_term_years=2,
+            annual_payment=Decimal("50000000"),
+            discount_rate=Decimal("7"),
+            currency="USD",
             payment_timing=PSAK73PaymentTiming.IN_ADVANCE,
         )
-        assert lease.contract_number == "COMPAT-001"
-        assert lease.lease_term_years == 3
-        assert len(lease.payments) == 3
+        assert lease.contract_number == "COMPAT-002"
+        assert lease.lease_term_years == 2
+        assert len(lease.payments) == 2
+        # Check that first payment is in advance
+        assert lease.payment_timing == PSAK73PaymentTiming.IN_ADVANCE
 
     def test_calculate_right_of_use_asset_compat(self, validator, sample_lease_contract):
-        # The compat method sets initial_direct_costs and lease_incentives on the lease object
         rou = validator.calculate_right_of_use_asset(
             sample_lease_contract,
-            initial_direct_costs=Decimal("1000000"),
+            initial_direct_costs=Decimal("2000000"),
             lease_incentives=Decimal("500000")
         )
-        # It should update the contract object
-        assert sample_lease_contract.initial_direct_costs == Decimal("1000000")
+        assert sample_lease_contract.initial_direct_costs == Decimal("2000000")
         assert sample_lease_contract.lease_incentives_received == Decimal("500000")
-        assert rou.initial_measurement == sample_lease_contract.present_value_of_lease_payments() + 1000000 - 500000 + sample_lease_contract.restoration_cost_estimate
+        pv = sample_lease_contract.present_value_of_lease_payments()
+        expected = pv + Decimal("2000000") - Decimal("500000") + sample_lease_contract.restoration_cost_estimate
+        assert rou.initial_measurement == expected
 
     def test_calculate_lease_liability_compat(self, validator, sample_lease_contract):
         liability = validator.calculate_lease_liability(sample_lease_contract)
         assert isinstance(liability, PSAK73LeaseLiability)
+        assert liability.contract_id == sample_lease_contract.contract_id
+        pv = sample_lease_contract.present_value_of_lease_payments()
+        assert liability.initial_measurement == pv
+        assert liability.outstanding_balance == pv
 
-    def test_record_lease_payment_compat(self, validator, sample_lease_contract, sample_liability):
-        # compat method expects (liability, contract, payment_date) or (liability, payment_amount, discount_rate)
-        # Test with contract and payment date
+    def test_record_lease_payment_compat_with_contract(self, validator, sample_lease_contract, sample_liability):
         payment_date = datetime(2026, 12, 31, tzinfo=UTC)
         new_liability, interest, principal = validator.record_lease_payment(
             sample_liability, sample_lease_contract, payment_date
         )
         assert isinstance(new_liability, PSAK73LeaseLiability)
-        # Test with payment_amount and discount_rate (legacy)
-        new_liability2, interest2, principal2 = validator.record_lease_payment(
-            sample_liability, payment_amount=Decimal("120000000"), discount_rate=Decimal("8")
+        # Check that interest is calculated based on contract discount rate
+        expected_interest = (sample_liability.outstanding_balance * (sample_lease_contract.discount_rate / 100)).quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
+        assert interest == expected_interest
+
+    def test_record_lease_payment_compat_with_amount(self, validator, sample_liability):
+        # Test the legacy mode: (liability, payment_amount, discount_rate)
+        new_liability, interest, principal = validator.record_lease_payment(
+            sample_liability, payment_amount=Decimal("100000000"), discount_rate=Decimal("8")
         )
-        assert isinstance(new_liability2, PSAK73LeaseLiability)
+        expected_interest = (sample_liability.outstanding_balance * Decimal("0.08")).quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
+        assert interest == expected_interest
+        expected_principal = min(Decimal("100000000") - expected_interest, sample_liability.outstanding_balance)
+        assert principal == expected_principal
+        assert new_liability.outstanding_balance == sample_liability.outstanding_balance - principal
 
     def test_record_amortization_compat(self, validator, sample_rou_asset):
-        # compat method expects (asset, lease_term_years)
-        rou = validator.record_amortization(sample_rou_asset, lease_term_years=5)
-        assert rou.accumulated_depreciation == sample_rou_asset.initial_measurement / 5
+        rou = validator.record_amortization(sample_rou_asset, lease_term_years=3)
+        assert rou.accumulated_depreciation == sample_rou_asset.initial_measurement / 3
         # Without lease_term_years, uses asset.useful_life_years
-        sample_rou_asset.useful_life_years = 10
+        sample_rou_asset.useful_life_years = 4
         rou2 = validator.record_amortization(sample_rou_asset)
-        assert rou2.accumulated_depreciation == sample_rou_asset.initial_measurement / 10
+        assert rou2.accumulated_depreciation == sample_rou_asset.initial_measurement / 4
 
     def test_validate_lease_compliance_compat(self, validator, sample_lease_contract):
         result = validator.validate_lease_compliance(sample_lease_contract)
         assert isinstance(result, PSAK73ValidationResult)
+        # Should be compliant
+        assert result.is_compliant is True
+
+    # --- Explicit direct calls to the compat functions to ensure they are covered ---
+    def test_create_lease_compat_direct(self, validator, fixed_now):
+        # Call the function directly (imported)
+        asset_id = uuid4()
+        lease = _create_lease_compat(
+            validator,
+            lease_number="DIRECT-001",
+            asset_id=asset_id,
+            asset_name="Direct Asset",
+            lessor_name="Direct Lessor",
+            commencement_date=fixed_now,
+            lease_term_years=3,
+            annual_payment=Decimal("60000000"),
+            discount_rate=Decimal("8"),
+            currency="IDR",
+            payment_timing=PSAK73PaymentTiming.IN_ARREARS,
+        )
+        assert lease.contract_number == "DIRECT-001"
+        assert lease.lease_term_years == 3
+        assert len(lease.payments) == 3
+
+    def test_calculate_right_of_use_asset_compat_direct(self, validator, sample_lease_contract):
+        rou = _calculate_right_of_use_asset_compat(
+            validator,
+            sample_lease_contract,
+            initial_direct_costs=Decimal("3000000"),
+            lease_incentives=Decimal("500000")
+        )
+        # This modifies the contract in place, so check values
+        assert sample_lease_contract.initial_direct_costs == Decimal("3000000")
+        assert sample_lease_contract.lease_incentives_received == Decimal("500000")
+        pv = sample_lease_contract.present_value_of_lease_payments()
+        expected = pv + Decimal("3000000") - Decimal("500000") + sample_lease_contract.restoration_cost_estimate
+        assert rou.initial_measurement == expected
+
+    def test_calculate_lease_liability_compat_direct(self, validator, sample_lease_contract):
+        liability = _calculate_lease_liability_compat(validator, sample_lease_contract)
+        assert isinstance(liability, PSAK73LeaseLiability)
+        assert liability.contract_id == sample_lease_contract.contract_id
+        pv = sample_lease_contract.present_value_of_lease_payments()
+        assert liability.initial_measurement == pv
+        assert liability.outstanding_balance == pv
+
+    def test_record_lease_payment_compat_direct_with_contract(self, validator, sample_lease_contract, sample_liability):
+        payment_date = datetime(2026, 12, 31, tzinfo=UTC)
+        # Make the liability balance match the contract's PV for more realistic test
+        sample_liability.outstanding_balance = sample_lease_contract.present_value_of_lease_payments()
+        new_liability, interest, principal = _record_lease_payment_compat(
+            validator, sample_liability, sample_lease_contract, payment_date
+        )
+        assert isinstance(new_liability, PSAK73LeaseLiability)
+        expected_interest = (sample_liability.outstanding_balance * (sample_lease_contract.discount_rate / 100)).quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
+        assert interest == expected_interest
+
+    def test_record_lease_payment_compat_direct_with_amount(self, validator, sample_liability):
+        # Direct call with amount and discount_rate
+        new_liability, interest, principal = _record_lease_payment_compat(
+            validator, sample_liability, payment_amount=Decimal("90000000"), discount_rate=Decimal("8")
+        )
+        expected_interest = (sample_liability.outstanding_balance * Decimal("0.08")).quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
+        assert interest == expected_interest
+        expected_principal = min(Decimal("90000000") - expected_interest, sample_liability.outstanding_balance)
+        assert principal == expected_principal
+        assert new_liability.outstanding_balance == sample_liability.outstanding_balance - principal
+
+    def test_record_amortization_compat_direct(self, validator, sample_rou_asset):
+        rou = _record_amortization_compat(validator, sample_rou_asset, lease_term_years=4)
+        assert rou.accumulated_depreciation == sample_rou_asset.initial_measurement / 4
+        # Without term, uses useful_life_years
+        sample_rou_asset.useful_life_years = 5
+        rou2 = _record_amortization_compat(validator, sample_rou_asset)
+        assert rou2.accumulated_depreciation == sample_rou_asset.initial_measurement / 5
+
+    def test_validate_lease_compliance_compat_direct(self, validator, sample_lease_contract):
+        result = _validate_lease_compliance_compat(validator, sample_lease_contract)
+        assert isinstance(result, PSAK73ValidationResult)
+        assert result.is_compliant is True
+        # Test with invalid contract
+        sample_lease_contract.lease_term_years = 0
+        result2 = _validate_lease_compliance_compat(validator, sample_lease_contract)
+        assert result2.is_compliant is False
 
 
 # -------------------- Tests for PSAK73 Class --------------------

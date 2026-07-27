@@ -214,6 +214,15 @@ class TestCommandResultDataAccess:
         assert success_result.get_metadata("missing") is None
         assert success_result.get_metadata("missing", default=42) == 42
 
+    def test_get_warnings_returns_copy_of_warnings(self, success_result: CommandResult) -> None:
+        assert success_result.get_warnings() == []
+        warned = success_result.with_warning("test").with_warning("another")
+        assert warned.get_warnings() == ["test", "another"]
+        # ensure it returns a copy
+        warnings = warned.get_warnings()
+        warnings.append("modified")
+        assert warned.get_warnings() == ["test", "another"]
+
 
 class TestCommandResultTransformation:
     """Test with_metadata, with_warning, with_data (immutable transformations)."""

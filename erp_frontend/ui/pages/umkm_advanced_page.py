@@ -19,6 +19,7 @@ from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDateEdit,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -78,9 +79,21 @@ class ProfileTab(QWidget):
         self.business_type_edit.setPlaceholderText("mis. Perdagangan, Jasa, Manufaktur")
         form.addRow("Jenis Usaha", self.business_type_edit)
         self.npwp_edit = QLineEdit()
+        self.npwp_edit.setPlaceholderText("15 digit angka")
         form.addRow("NPWP", self.npwp_edit)
         self.industry_edit = QLineEdit()
         form.addRow("Industri", self.industry_edit)
+        self.address_edit = QLineEdit()
+        form.addRow("Alamat Usaha", self.address_edit)
+        self.phone_edit = QLineEdit()
+        form.addRow("Telepon", self.phone_edit)
+        self.email_edit = QLineEdit()
+        form.addRow("Email", self.email_edit)
+        self.website_edit = QLineEdit()
+        form.addRow("Website", self.website_edit)
+        self.established_date_edit = QDateEdit(QDate.currentDate())
+        self.established_date_edit.setCalendarPopup(True)
+        form.addRow("Tanggal Berdiri", self.established_date_edit)
         self.uses_final_tax_check = QCheckBox("Menggunakan PPh Final 0.5% (PP 23/2018)")
         self.uses_final_tax_check.setChecked(True)
         form.addRow("", self.uses_final_tax_check)
@@ -116,6 +129,16 @@ class ProfileTab(QWidget):
         self.business_type_edit.setText(data.get("business_type", ""))
         self.npwp_edit.setText(data.get("npwp") or "")
         self.industry_edit.setText(data.get("industry") or "")
+        self.address_edit.setText(data.get("business_address") or "")
+        self.phone_edit.setText(data.get("phone") or "")
+        self.email_edit.setText(data.get("email") or "")
+        self.website_edit.setText(data.get("website") or "")
+        if data.get("established_date"):
+            try:
+                y, m, d = str(data["established_date"])[:10].split("-")
+                self.established_date_edit.setDate(QDate(int(y), int(m), int(d)))
+            except (ValueError, IndexError):
+                pass
         self.uses_final_tax_check.setChecked(bool(data.get("uses_final_tax", True)))
         idx = self.accounting_method_combo.findText(data.get("accounting_method", "cash_basis"))
         if idx >= 0:
@@ -136,6 +159,11 @@ class ProfileTab(QWidget):
             "business_type": self.business_type_edit.text().strip(),
             "npwp": self.npwp_edit.text().strip() or None,
             "industry": self.industry_edit.text().strip() or None,
+            "business_address": self.address_edit.text().strip() or None,
+            "phone": self.phone_edit.text().strip() or None,
+            "email": self.email_edit.text().strip() or None,
+            "website": self.website_edit.text().strip() or None,
+            "established_date": self.established_date_edit.date().toString("yyyy-MM-dd"),
             "uses_final_tax": self.uses_final_tax_check.isChecked(),
             "accounting_method": self.accounting_method_combo.currentText(),
             "fiscal_year_start": self.fiscal_year_start_edit.value(),

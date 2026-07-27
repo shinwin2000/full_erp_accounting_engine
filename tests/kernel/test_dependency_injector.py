@@ -2,7 +2,7 @@
 """Tests for kernel.dependency_injector module."""
 
 import inspect
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,6 +15,7 @@ from kernel.dependency_injector import (
     ServiceNotFoundError,
     _FallbackIocContainer,
     _FallbackScope,
+    _get_ioc_container,
     autowired,
     get_dependency_injector,
     inject,
@@ -278,10 +279,27 @@ class Test_FallbackIocContainer:
         """Resolving circular dependencies raises CircularDependencyError."""
         container = _FallbackIocContainer()
 
-        # Simulate what happens during resolution with circular deps
-        stack = [MagicMock, MagicMock, MagicMock]
-        with pytest.raises(CircularDependencyError):
-            raise CircularDependencyError(f"Circular dependency detected: {stack}")
+        # Simulate circular dependency by having two interfaces depend on each other
+        class A:
+            pass
+
+        class B:
+            pass
+
+        # Register factories that depend on each other
+        def factory_a():
+            container.resolve(B)
+            return A()
+
+        def factory_b():
+            container.resolve(A)
+            return B()
+
+        container.register_factory(A, factory_a, ServiceLifetime.TRANSIENT)
+        container.register_factory(B, factory_b, ServiceLifetime.TRANSIENT)
+
+        with pytest.raises(CircularDependencyError, match="Circular dependency detected"):
+            container.resolve(A)
 
     def test_lifetime_from_scope_mapping(self):
         """_lifetime_from_scope correctly maps string to enum."""
@@ -292,6 +310,78 @@ class Test_FallbackIocContainer:
         assert container._lifetime_from_scope("scoped") == ServiceLifetime.SCOPED
         assert container._lifetime_from_scope("invalid") == ServiceLifetime.SINGLETON
         assert container._lifetime_from_scope(None) == ServiceLifetime.SINGLETON
+
+    # ---- _instantiate_with_injection ----
+    def test_instantiate_with_injection_success(self):
+        """_instantiate_with_injection resolves dependencies and instantiates class."""
+        container = _FallbackIocContainer()
+
+        class Dep:
+            pass
+
+        class Target:
+            def __init__(self, dep: Dep):
+                self.dep = dep
+
+        dep_instance = Dep()
+        container.register_instance(Dep, dep_instance)
+
+        resolving_stack = []
+        instance = container._instantiate_with_injection(Target, resolving_stack)
+
+        assert isinstance(instance, Target)
+        assert instance.dep is dep_instance
+        # Resolving stack should be unchanged after instantiation
+        assert resolving_stack == []
+
+    def test_instantiate_with_injection_missing_dep_raises(self):
+        """_instantiate_with_injection raises if required dependency not registered."""
+        container = _FallbackIocContainer()
+
+        class Dep:
+            pass
+
+        class Target:
+            def __init__(self, dep: Dep):
+                self.dep = dep
+
+        with pytest.raises(ServiceNotFoundError, match="Cannot resolve required parameter"):
+            container._instantiate_with_injection(Target, [])
+
+    def test_instantiate_with_injection_default_value(self):
+        """_instantiate_with_injection uses default value if dependency not registered."""
+        container = _FallbackIocContainer()
+
+        class Target:
+            def __init__(self, dep: str = "default"):
+                self.dep = dep
+
+        instance = container._instantiate_with_injection(Target, [])
+        assert instance.dep == "default"
+
+    def test_instantiate_with_injection_skips_self(self):
+        """_instantiate_with_injection skips 'self' parameter."""
+        container = _FallbackIocContainer()
+
+        class Target:
+            def __init__(self, self_param=None):  # not a real 'self', but named 'self'
+                pass
+
+        # Should not raise even though 'self' is not registered
+        instance = container._instantiate_with_injection(Target, [])
+        assert isinstance(instance, Target)
+
+    def test_instantiate_with_injection_empty_annotation(self):
+        """_instantiate_with_injection skips parameters with no annotation."""
+        container = _FallbackIocContainer()
+
+        class Target:
+            def __init__(self, arg):
+                self.arg = arg
+
+        # Should not raise because arg has no annotation
+        instance = container._instantiate_with_injection(Target, [])
+        assert isinstance(instance, Target)
 
 
 # =============================================================================
@@ -359,6 +449,21 @@ class TestBaseDependencyInjector:
         """Cannot instantiate BaseDependencyInjector directly."""
         with pytest.raises(TypeError):
             BaseDependencyInjector()
+
+
+# =============================================================================
+# Test_get_ioc_container
+# =============================================================================
+class TestGetIocContainer:
+    def test_returns_fallback_container(self):
+        """_get_ioc_container returns a _FallbackIocContainer instance."""
+        container = _get_ioc_container()
+        assert isinstance(container, _FallbackIocContainer)
+
+    def test_default_scope(self):
+        """_get_ioc_container uses provided default scope."""
+        container = _get_ioc_container(default_scope="scoped")
+        assert container._default_scope == "scoped"
 
 
 # =============================================================================
@@ -657,6 +762,25 @@ class TestDependencyInjector:
         trail = injector.audit_trail(limit=50)
         assert len(trail) == 50
 
+    # ---- _register_defaults ----
+    def test_register_defaults(self):
+        """_register_defaults registers lazy factories for kernel components."""
+        injector = DependencyInjector()
+        # Check that lazy factories are registered
+        assert hasattr(injector, "_lazy_factories")
+        assert "SealedGate" in injector._lazy_factories
+        assert "CommandDispatcher" in injector._lazy_factories
+        assert "CommandHandlerRegistry" in injector._lazy_factories
+        # etc.
+
+    # ---- _register_lazy ----
+    def test_register_lazy(self):
+        """_register_lazy stores factory in _lazy_factories."""
+        injector = DependencyInjector()
+        factory = lambda: "test"
+        injector._register_lazy("test_factory", factory)
+        assert injector._lazy_factories["test_factory"] is factory
+
 
 # =============================================================================
 # TestAutowired
@@ -711,6 +835,24 @@ class TestAutowired:
         result = obj.attr
 
         assert result is instance
+
+    def test_get_uses_cached(self):
+        """__get__ returns cached instance after first resolution."""
+        injector = get_dependency_injector()
+        interface = MagicMock
+        instance = MagicMock()
+        injector.register_instance(interface, instance)
+
+        autowired_desc = Autowired(interface)
+
+        class TestClass:
+            attr = autowired_desc
+
+        obj = TestClass()
+        first = obj.attr
+        second = obj.attr
+        assert first is second
+        assert first is instance
 
 
 # =============================================================================
@@ -788,35 +930,45 @@ class TestAutowiredDecorator:
         di_module._dependency_injector_instance = None
 
     def test_autowired_sync_function(self):
-        """autowired decorates sync function."""
+        """autowired decorates sync function and injects dependencies."""
         injector = get_dependency_injector()
         dep_class = MagicMock
         dep_instance = MagicMock()
         injector.register_instance(dep_class, dep_instance)
 
         @autowired
-        def my_func(dep=None):
+        def my_func(dep: dep_class):
             return dep
 
+        # With default argument, should inject
         result = my_func()
-        # autowired may not inject if no type annotation is provided
-        # This test verifies the decorator doesn't break the function
-        assert result is None or result is dep_instance
+        assert result is dep_instance
+
+        # With explicit argument, should use that instead
+        explicit = MagicMock()
+        result2 = my_func(dep=explicit)
+        assert result2 is explicit
 
     def test_autowired_async_function(self):
-        """autowired decorates async function."""
+        """autowired decorates async function and injects dependencies."""
         injector = get_dependency_injector()
         dep_class = MagicMock
         dep_instance = MagicMock()
         injector.register_instance(dep_class, dep_instance)
 
         @autowired
-        async def my_async_func(dep: dep_class = None):
+        async def my_async_func(dep: dep_class):
             return dep
 
-        # Note: In real usage, this would be awaited
-        # For testing, we just check it's callable
-        assert inspect.iscoroutinefunction(my_async_func)
+        # Run the async function
+        import asyncio
+        result = asyncio.run(my_async_func())
+        assert result is dep_instance
+
+        # With explicit argument
+        explicit = MagicMock()
+        result2 = asyncio.run(my_async_func(dep=explicit))
+        assert result2 is explicit
 
     def test_autowired_preserves_metadata(self):
         """autowired preserves function metadata."""
@@ -827,6 +979,39 @@ class TestAutowiredDecorator:
 
         assert my_named_func.__name__ == "my_named_func"
         assert my_named_func.__doc__ == "My docstring"
+
+    def test_autowired_with_default_param(self):
+        """autowired does not inject if parameter has a default and not provided."""
+        injector = get_dependency_injector()
+        dep_class = MagicMock
+        dep_instance = MagicMock()
+        injector.register_instance(dep_class, dep_instance)
+
+        @autowired
+        def my_func(dep: dep_class = None):
+            return dep
+
+        # Should inject because dep is None
+        result = my_func()
+        assert result is dep_instance
+
+        # With explicit argument, should use that
+        explicit = MagicMock()
+        result2 = my_func(dep=explicit)
+        assert result2 is explicit
+
+    def test_autowired_handles_injection_error(self):
+        """autowired gracefully handles injection error and leaves param unchanged."""
+        # No registration for dep_class
+        @autowired
+        def my_func(dep: MagicMock = None):
+            return dep
+
+        # Should return default (None) because injection fails
+        result = my_func()
+        assert result is None
+
+        # If no default, the param will be missing and function may fail, but we don't test that.
 
 
 # =============================================================================
@@ -952,3 +1137,5 @@ class TestIntegration:
         # (behavior depends on implementation)
         assert instance1 is not None
         assert instance2 is not None
+        # They should be different instances
+        assert instance1 is not instance2
