@@ -45,6 +45,8 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
+from application.service_layer.service_iam import AuthenticationError
+from domain.iam.user_entity import UserStatus
 
 logger = logging.getLogger(__name__)
 
@@ -97,18 +99,6 @@ _idempotency_manager = IdempotencyManager()
 # ============================================================================
 # CONSTANTS & ENUMS
 # ============================================================================
-
-
-class UserStatus(str, Enum):
-    """Status user."""
-
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    LOCKED = "locked"
-    SUSPENDED = "suspended"
-    PENDING_ACTIVATION = "pending_activation"
-    PASSWORD_EXPIRED = "password_expired"
-    DELETED = "deleted"
 
 
 class RoleStatus(str, Enum):
@@ -1742,7 +1732,7 @@ async def login(
                 department=result.user.department,
                 job_title=result.user.job_title,
                 phone_number=result.user.phone_number,
-                status=UserStatus(result.user.status),
+                status=result.user.status,
                 is_active=result.user.is_active,
                 is_locked=result.user.is_locked,
                 is_superuser=result.user.is_superuser,
@@ -1760,7 +1750,7 @@ async def login(
                 version=result.user.version,
             ),
         )
-    except service.AuthenticationError as e:
+    except AuthenticationError as e:
         # Handle specific authentication errors with 401
         logger.warning(f"Login failed: AuthenticationError - {str(e)}")
         raise HTTPException(status_code=401, detail="Invalid username or password")
@@ -1823,7 +1813,7 @@ async def refresh_token(
                 department=result.user.department,
                 job_title=result.user.job_title,
                 phone_number=result.user.phone_number,
-                status=UserStatus(result.user.status),
+                status=result.user.status,
                 is_active=result.user.is_active,
                 is_locked=result.user.is_locked,
                 is_superuser=result.user.is_superuser,

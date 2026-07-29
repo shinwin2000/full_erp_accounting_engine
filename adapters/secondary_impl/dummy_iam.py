@@ -121,6 +121,26 @@ class DummyIAMState:
         if not hasattr(user, 'created_by_name'):
             object.__setattr__(user, 'created_by_name', None)
 
+        # Property created_at (dari audit)
+        if not hasattr(user, 'created_at'):
+            object.__setattr__(user, 'created_at', user.audit.created_at)
+
+        # Property updated_at (dari audit)
+        if not hasattr(user, 'updated_at'):
+            object.__setattr__(user, 'updated_at', user.audit.updated_at)
+
+        # Property created_by (UUID dari string)
+        if not hasattr(user, 'created_by'):
+            from uuid import UUID
+            try:
+                object.__setattr__(user, 'created_by', UUID(user.audit.created_by) if user.audit.created_by and user.audit.created_by != 'system' else None)
+            except (ValueError, AttributeError):
+                object.__setattr__(user, 'created_by', None)
+
+        # Property version (dari audit)
+        if not hasattr(user, 'version'):
+            object.__setattr__(user, 'version', user.audit.version)
+
         # Override is_active dan is_locked menjadi property values
         object.__setattr__(user, 'is_active', user.is_active())
         object.__setattr__(user, 'is_locked', user.is_locked())

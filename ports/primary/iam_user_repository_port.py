@@ -12,13 +12,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-
-class UserStatus(Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    LOCKED = "locked"
-    PENDING_VERIFICATION = "pending_verification"
-    SUSPENDED = "suspended"
+from domain.iam.user_entity import UserStatus
 
 
 class MFAType(Enum):
