@@ -1760,13 +1760,17 @@ async def login(
                 version=result.user.version,
             ),
         )
+    except service.AuthenticationError as e:
+        # Handle specific authentication errors with 401
+        logger.warning(f"Login failed: AuthenticationError - {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid username or password")
     except ValueError as e:
-        # FIX: Jangan log detail error yang mungkin mengandung password
-        logger.warning("Login failed: invalid credentials")
-        raise HTTPException(status_code=401, detail=str(e))
+        # Handle validation errors
+        logger.warning(f"Login failed: invalid input - {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # FIX: Jangan log detail error yang mungkin mengandung password/token
-        logger.exception(f"Login failed: {type(e).__name__}")
+        # Handle unexpected internal errors with 500
+        logger.exception(f"Login failed: Unexpected error - {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
