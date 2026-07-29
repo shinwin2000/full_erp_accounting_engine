@@ -9,16 +9,14 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
-from uuid import UUID, uuid4
 
 from adapters.coretax_djp.e_meterai_integrator import (
     CORETAX_EMETERAI_PURCHASE_ENDPOINT,
     CORETAX_EMETERAI_USE_ENDPOINT,
     CORETAX_EMETERAI_VALIDATE_ENDPOINT,
-    EMETERAI_PATTERN,
-    METERAI_THRESHOLD,
     METERRY_VALUE,
     EMeterai,
     EMeteraiAlreadyAttachedError,

@@ -168,11 +168,11 @@ class TestFraudAlert:
             severity=FraudSeverity.CRITICAL,
             description="test_value",
             detected_at=datetime.now(UTC),
-            confidence_score=1.5,
+            confidence_score=0.5,
             supporting_data={},
             acknowledged=True,
             action_taken="test_value",
-            cryptographic_hash="test_value",
+            # cryptographic_hash dihilangkan agar tidak divalidasi, biarkan default ""
         )
 
     def test_construction_success(self):
@@ -185,6 +185,14 @@ class TestFraudAlert:
             return
         assert isinstance(instance, FraudAlert)
         assert instance.alert_id == kwargs['alert_id']
+
+    def test_compute_hash(self):
+        """FraudAlert.compute_hash returns a non-empty string."""
+        kwargs = self._build_kwargs()
+        instance = FraudAlert(**kwargs)
+        h = instance.compute_hash()
+        assert isinstance(h, str)
+        assert len(h) > 0
 
 
 class TestFraudCheckResult:

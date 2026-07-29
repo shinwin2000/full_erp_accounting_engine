@@ -1,7 +1,7 @@
 # test_salary_component_entity.py
 # Comprehensive tests for salary_component_entity.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -14,7 +14,6 @@ from domain.payroll.salary_component_entity import (
     SalaryComponentEntity,
     SalaryComponentRepository,
 )
-
 
 # ============================================================================
 # Fixtures

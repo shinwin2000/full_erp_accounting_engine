@@ -22,6 +22,7 @@ from domain.umkm_simplified.domain_events import (
     TransactionUpdatedEvent,
 )
 from domain.umkm_simplified.simplified_journal_entity import (
+    JournalStatus,
     PaymentMethod,
     SimplifiedJournalEntity,
     TransactionType,
@@ -106,9 +107,23 @@ class TestDomainEvent:
         assert result["errors"] == []
 
     def test_validate_invalid_type(self):
-        # We cannot create invalid type easily, but we can test the logic
-        # by creating an event with wrong type via dict? Not necessary.
-        pass
+        # Test that validation catches invalid event_type
+        # We cannot directly create an invalid enum, but we can test the logic
+        # by creating an event with a non-enum value via a mock or by bypassing validation
+        # Since DomainEvent validates event_type in __init__ via type checking,
+        # we need to test the validate method on a valid event that has an error condition.
+        # Actually, the validate method only checks for missing fields, not enum values.
+        # So we need to test the __init__ validation for event_type.
+        # It already checks that event_type is DomainEventType.
+        with pytest.raises(TypeError):
+            DomainEvent(
+                event_id=uuid4(),
+                event_type="invalid_type",  # type: ignore
+                aggregate_id=uuid4(),
+                aggregate_version=1,
+                occurred_at=datetime.now(UTC),
+                event_data={},
+            )
 
     def test_to_dict(self, sample_event):
         d = sample_event.to_dict()
@@ -169,7 +184,6 @@ class TestDomainEvent:
         # Initially empty
         trail = sample_event.audit_trail()
         assert trail == []
-        # We can't add to audit trail easily, but method exists.
 
     def test_touch(self, sample_event):
         touched = sample_event.touch("tester")
@@ -321,14 +335,38 @@ class TestDomainEventPublisher:
         events = await DomainEventPublisher.get_events()
         assert len(events) == 0
 
-    def test_get_statistics(self, sample_event):
-        # Need to run async to publish, but we can test stat method after publish.
-        # We'll do it in async test.
-        pass
-
     @pytest.mark.asyncio
     async def test_statistics(self, sample_event):
+        # Publish multiple events of different types
         await DomainEventPublisher.publish(sample_event)
+        tx_event = TransactionCreatedEvent(
+            aggregate_id=uuid4(),
+            aggregate_version=1,
+            transaction=SimplifiedJournalEntity(
+                journal_id=uuid4(),
+                journal_number="J",
+                transaction_type=TransactionType.INCOME,
+                amount=Decimal("1"),
+                description="",
+                transaction_date=datetime.now(UTC),
+                category="",
+                payment_method=PaymentMethod.CASH,
+                status=JournalStatus.ACTIVE,
+            ),
+            created_by="sys",
+        )
+        await DomainEventPublisher.publish(tx_event)
+
         stats = DomainEventPublisher.get_statistics()
-        assert stats["total_events"] == 1
-        assert stats["by_event_type"]["transaction_created"] == 1
+        assert stats["total_events"] == 2
+        # Check counts per type
+        by_type = stats["by_event_type"]
+        assert by_type["transaction_created"] == 2  # both are transaction_created
+
+    def test_get_statistics_sync_with_no_events(self):
+        # Test statistics when no events have been published
+        # but we need to ensure we don't have events from previous tests
+        DomainEventPublisher.reset()
+        stats = DomainEventPublisher.get_statistics()
+        assert stats["total_events"] == 0
+        assert stats["by_event_type"] == {}

@@ -2,9 +2,7 @@
 # Perbaikan kualitas assertions: semua assert True dihapus,
 # diganti dengan assertion yang memeriksa nilai aktual, efek samping, dan perilaku context.
 
-import asyncio
-from contextvars import ContextVar
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,11 +12,6 @@ from infrastructure.telemetry.correlation_id_injector import (
     CorrelationIdScope,
     RequestContextScope,
     UserContextInjector,
-    _correlation_id_ctx,
-    _legal_entity_id_ctx,
-    _method_ctx,
-    _request_path_ctx,
-    _user_id_ctx,
     generate_correlation_id,
     get_current_correlation_id,
     get_current_legal_entity_id,

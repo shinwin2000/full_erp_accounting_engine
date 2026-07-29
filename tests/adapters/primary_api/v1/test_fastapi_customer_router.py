@@ -2,11 +2,10 @@
 # Perbaikan kualitas assertions: mengganti semua assert True dengan
 # assertion yang memeriksa nilai aktual, efek samping, dan interaksi mock.
 
-import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI, Request
@@ -20,9 +19,8 @@ from adapters.primary_api.v1.fastapi_customer_router import (
     UpdateBalanceRequest,
     UpdateCreditLimitRequest,
     UpdateCustomerRequest,
-    router,
-    _idempotency_manager,
     get_correlation_id,
+    router,
     to_customer_response,
 )
 

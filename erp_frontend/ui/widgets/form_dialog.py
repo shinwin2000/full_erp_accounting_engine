@@ -8,8 +8,7 @@ oleh layar-layar khusus untuk sub-form (mis. baris jurnal).
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
-from typing import Any, Optional
+from typing import Any
 
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
@@ -20,7 +19,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QLabel,
     QLineEdit,
     QMessageBox,
     QScrollArea,
@@ -29,7 +27,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
 from registry.module_registry import FieldSpec, FieldType
 
 
@@ -40,8 +37,8 @@ class FormDialog(QDialog):
         self,
         title: str,
         fields: list[FieldSpec],
-        initial: Optional[dict[str, Any]] = None,
-        parent: Optional[QWidget] = None,
+        initial: dict[str, Any] | None = None,
+        parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.setWindowTitle(title)

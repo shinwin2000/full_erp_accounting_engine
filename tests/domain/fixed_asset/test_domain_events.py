@@ -6,12 +6,12 @@
 import json
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
-from domain.fixed_asset.asset_entity import FixedAsset, AssetStatus, AssetType
+from domain.fixed_asset.asset_entity import AssetStatus, AssetType, FixedAsset
 from domain.fixed_asset.domain_events import (
     AssetAcquiredEvent,
     AssetDepreciationPostedEvent,

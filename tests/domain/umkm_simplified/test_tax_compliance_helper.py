@@ -9,15 +9,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from domain.umkm_simplified.simplified_journal_entity import (
+    SimplifiedJournalEntity,
+    TransactionType,
+)
 from domain.umkm_simplified.tax_compliance_helper import (
     TaxCalculationResult,
     TaxComplianceHelper,
     UMKMStatus,
     UMKMTaxRegime,
-)
-from domain.umkm_simplified.simplified_journal_entity import (
-    SimplifiedJournalEntity,
-    TransactionType,
 )
 
 
@@ -239,9 +239,9 @@ class TestTaxCalculationResult:
 # ----------------------------------------------------------------------
 class TestTaxComplianceHelper:
     def test_initial_state(self, helper):
-        assert helper.PP23_THRESHOLD == Decimal("4800000000")
-        assert helper.PP23_RATE == Decimal("0.5")
-        assert helper.GENERAL_RATE == Decimal("22")
+        assert Decimal("4800000000") == helper.PP23_THRESHOLD
+        assert Decimal("0.5") == helper.PP23_RATE
+        assert Decimal("22") == helper.GENERAL_RATE
         assert helper._calculation_history == []
         assert helper._version == 1
         assert helper._audit_trail == []

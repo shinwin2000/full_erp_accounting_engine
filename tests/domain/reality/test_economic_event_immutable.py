@@ -7,7 +7,6 @@ All tests are deterministic using mocking for datetime.
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -20,8 +19,6 @@ from domain.reality.economic_event_immutable import (
     get_economic_event_service,
 )
 from domain.shared_value_objects.money_vo import Money
-from domain.shared_value_objects.quantity_vo import Quantity
-
 
 # ============================================================================
 # Fixtures

@@ -7,7 +7,7 @@ All tests PASS.
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -17,14 +17,12 @@ from domain.subledger_ap.domain_events import (
     CreditNoteAppliedEvent,
     CreditNoteReceivedEvent,
     DebitNoteIssuedEvent,
-    DomainEvent,
     InvoiceReceivedEvent,
     PaymentSentEvent,
 )
 from domain.subledger_ap.invoice_entity import APInvoiceEntity, APInvoiceStatus
 from domain.subledger_ap.payment_entity import APPaymentEntity, APPaymentStatus
 from domain.subledger_ap.vendor_card import VendorCard
-
 
 # ============================================================================
 # Fixtures

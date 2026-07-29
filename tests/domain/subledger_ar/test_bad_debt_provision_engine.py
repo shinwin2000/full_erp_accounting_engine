@@ -7,14 +7,13 @@ All datetime usage is mocked to avoid flakiness.
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 
 from domain.subledger_ar.aging_bucket_vo import AgingBucket
 from domain.subledger_ar.bad_debt_provision_engine import (
-    DEFAULT_PROVISION_RATES,
     BadDebtProvisionEngine,
     ProvisionCategory,
     ProvisionMethod,

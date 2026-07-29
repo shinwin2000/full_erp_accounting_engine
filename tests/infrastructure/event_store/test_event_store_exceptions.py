@@ -14,7 +14,6 @@ Covers:
 - No duplicate test structures (parametrized where appropriate)
 """
 
-from typing import Any
 
 import pytest
 

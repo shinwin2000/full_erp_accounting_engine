@@ -16,7 +16,6 @@ Covers:
 
 from __future__ import annotations
 
-import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -41,7 +40,6 @@ from constitution.version_lock import (
     VersionMetadata,
     get_version_lock_service,
 )
-
 
 # =============================================================================
 # Fixtures

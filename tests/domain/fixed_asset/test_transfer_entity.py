@@ -1,28 +1,28 @@
 # test_transfer_entity.py
 # Comprehensive tests for domain/fixed_asset/transfer_entity.py
 
-import pytest
 from datetime import date, datetime, timedelta
-from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
+import pytest
+
+# We need to import FixedAsset for type checking and mocking
+from domain.fixed_asset.asset_entity import AssetStatus, FixedAsset
 from domain.fixed_asset.transfer_entity import (
-    TransferEntity,
-    TransferType,
-    TransferStatus,
-    TransferError,
+    AssetNotTransferableError,
+    AssetTransfer,
+    InvalidStatusTransitionError,
     InvalidTransferDateError,
     SameSourceDestinationError,
-    AssetNotTransferableError,
-    InvalidStatusTransitionError,
-    TransferAlreadyCompletedError,
+    TransferEntity,
+    TransferError,
     TransferRepository,
-    is_transfer_allowed,
+    TransferStatus,
+    TransferType,
     get_transfer_summary,
-    AssetTransfer,
+    is_transfer_allowed,
 )
-# We need to import FixedAsset for type checking and mocking
-from domain.fixed_asset.asset_entity import FixedAsset, AssetStatus, AssetType
 
 
 # -------------------- Fixtures --------------------
@@ -672,5 +672,4 @@ class TestTransferRepository:
 
 # -------------------- Alias Test --------------------
 def test_asset_transfer_alias():
-    from domain.fixed_asset.transfer_entity import AssetTransfer
     assert AssetTransfer is TransferEntity

@@ -1,7 +1,6 @@
 # test_reality_exceptions.py
 # Comprehensive tests for reality_exceptions.py
 
-import pytest
 
 from domain.reality.reality_exceptions import (
     AccountNotFoundError,
@@ -21,7 +20,6 @@ from domain.reality.reality_exceptions import (
     RealitySeverity,
     ValidationFailedError,
 )
-
 
 # ============================================================================
 # Tests for Enums

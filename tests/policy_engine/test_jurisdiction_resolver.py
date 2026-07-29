@@ -6,22 +6,17 @@ Covers all public methods, exceptions, and edge cases with mocked dependencies.
 
 import json
 import tempfile
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from unittest.mock import MagicMock, mock_open, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from policy_engine.jurisdiction_resolver import (
-    DEFAULT_COUNTRY,
-    DEFAULT_GLOBAL_JURISDICTION,
     JurisdictionHierarchy,
     JurisdictionNode,
     JurisdictionResolver,
-    get_jurisdiction_resolver,
 )
 from policy_engine.policy_exceptions import JurisdictionResolutionError
-
 
 # ============================================================================
 # Fixed datetime for deterministic tests

@@ -11,37 +11,33 @@ Endpoint dasar: /api/v1/journals/journals/
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional
+from typing import Any
 
-from PySide6.QtCore import Qt
+from core.api_client import api_client
+from core.formatting import extract_list, format_date, format_money, status_color
+from core.workers import run_task
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
     QToolButton,
-    QMenu,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QDate
-
-from core.api_client import api_client
-from core.formatting import extract_list, extract_total, format_date, format_money, status_color
-from core.workers import run_task
 
 BASE = "/journals/journals"
 
@@ -207,7 +203,7 @@ class JournalPage(QWidget):
         self.status_label.setText(f"Gagal memuat: {message}")
 
     # ------------------------------------------------------------------
-    def _selected_record(self) -> Optional[dict[str, Any]]:
+    def _selected_record(self) -> dict[str, Any] | None:
         row = self.table.currentRow()
         if row < 0 or row >= len(self._records):
             return None
@@ -319,7 +315,7 @@ LINE_COLUMNS = ["Kode Akun", "Debit", "Kredit", "Cost Center", "Departemen", "Ke
 class JournalEntryDialog(QDialog):
     def __init__(
         self,
-        existing: Optional[dict[str, Any]] = None,
+        existing: dict[str, Any] | None = None,
         parent=None,
         read_only: bool = False,
         is_duplicate: bool = False,
@@ -418,7 +414,7 @@ class JournalEntryDialog(QDialog):
             buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
-    def _add_line(self, data: Optional[dict[str, Any]] = None) -> None:
+    def _add_line(self, data: dict[str, Any] | None = None) -> None:
         row = self.line_table.rowCount()
         self.line_table.insertRow(row)
         data = data or {}

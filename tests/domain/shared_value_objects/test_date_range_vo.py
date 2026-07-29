@@ -211,7 +211,7 @@ def _trigger_all_date_range_properties():
     start = datetime(2025, 1, 1, tzinfo=UTC)
     end = datetime(2025, 1, 31, tzinfo=UTC)
     dr = DateRangeVO(start, end)
-    
+
     # Access properties
     _ = dr.duration_seconds
     _ = dr.duration_days
@@ -220,7 +220,7 @@ def _trigger_all_date_range_properties():
     _ = dr.start_as_date
     _ = dr.end_as_date
     _ = dr.__hash__()
-    
+
     # Iterate (calls __iter__)
     for _ in dr:
         pass

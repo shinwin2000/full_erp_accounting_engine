@@ -1,7 +1,7 @@
 # test_goods_receipt_note_entity.py
 # Comprehensive tests for goods_receipt_note_entity.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -13,7 +13,6 @@ from domain.purchase_sales.goods_receipt_note_entity import (
     GRNItem,
     GRNStatus,
 )
-
 
 # ============================================================================
 # Fixtures

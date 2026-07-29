@@ -1,19 +1,32 @@
 # test_ar_invoice_request.py
 # Comprehensive tests for application/dto_objects/ar_invoice_request.py
 # Covers all classes, methods, properties, edge cases, and exceptions.
+# All calculations and validation are thoroughly tested.
+# Includes explicit tests for all flagged methods:
+#   - calculate_subtotal, calculate_discount_total, calculate_tax_total,
+#     calculate_items_total, is_balanced_with_lines
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_EVEN
-from uuid import UUID, uuid4
 
 from application.dto_objects.ar_invoice_request import (
+    ARCreditNoteCreateRequest,
+    # Aliases
+    ARInvoiceCreateRequest,
     ARInvoiceLineRequest,
+    ARInvoiceRequestDTO,
     ARInvoiceRequestFactory,
     ARInvoiceResponseDTO,
     ARInvoiceStatus,
     ARInvoiceStatusDTO,
     ARInvoiceType,
+    ARInvoiceUpdateRequest,
+    ARPaymentCreateRequest,
+    ARPaymentRequestDTO,
     ARPaymentResponseDTO,
     CreateARCreditNoteRequest,
     CreateARInvoiceRequest,
@@ -215,6 +228,11 @@ class TestEnums:
         assert PaymentStatus.FAILED.is_success() is False
         assert PaymentStatus.REFUNDED.is_success() is False
 
+    # Test ARInvoiceStatusDTO (alias)
+    def test_ar_invoice_status_dto(self):
+        assert ARInvoiceStatusDTO.DRAFT.value == "draft"
+        assert ARInvoiceStatusDTO.FULLY_PAID.value == "fully_paid"
+
 
 # -------------------- Tests for ARInvoiceLineRequest --------------------
 class TestARInvoiceLineRequest:
@@ -410,21 +428,143 @@ class TestCreateARInvoiceRequest:
                 discount_amount=Decimal("-1"),
             )
 
-    def test_calculation_methods(self, sample_create_request):
-        # One line: 2 * 100000 = 200000 subtotal
+    # ---------- Explicit tests for calculation methods ----------
+    def test_calculate_subtotal(self, sample_create_request):
+        # Single line: 2 * 100000 = 200000
         assert sample_create_request.calculate_subtotal() == Decimal("200000.00")
-        # discount: 10% of 200000 = 20000 + header discount 5000 = 25000
+
+        # With multiple lines
+        line2 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("300000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line2)
+        assert sample_create_request.calculate_subtotal() == Decimal("500000.00")
+
+    def test_calculate_discount_total(self, sample_create_request):
+        # Line discount: 20000, header discount: 5000 => total 25000
         assert sample_create_request.calculate_discount_total() == Decimal("25000.00")
-        # tax: 11% of (200000-20000)=180000 => 19800
+
+        # With second line (no discount)
+        line2 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("300000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line2)
+        assert sample_create_request.calculate_discount_total() == Decimal("25000.00")
+
+        # With another line with discount
+        line3 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM003",
+            item_name="Item 3",
+            quantity=Decimal("2"),
+            unit_price=Decimal("100000"),
+            discount_percentage=Decimal("5"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line3)
+        # line3 discount: 2*100000*5% = 10000; header 5000; line1 20000 => total 35000
+        assert sample_create_request.calculate_discount_total() == Decimal("35000.00")
+
+    def test_calculate_tax_total(self, sample_create_request):
+        # line1 net=180000, tax=19800
         assert sample_create_request.calculate_tax_total() == Decimal("19800.00")
-        # items total: line total = 199800
+
+        # Add second line
+        line2 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("300000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line2)
+        # line2 tax = 300000 * 11% = 33000; total tax = 19800+33000=52800
+        assert sample_create_request.calculate_tax_total() == Decimal("52800.00")
+
+    def test_calculate_items_total(self, sample_create_request):
+        # line1 total = 199800
         assert sample_create_request.calculate_items_total() == Decimal("199800.00")
-        # total = items_total + shipping 50000 + other 10000 - header discount 5000 = 199800+50000+10000-5000 = 254800
+
+        # Add second line
+        line2 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("300000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line2)
+        # line2 total = 300000 + 33000 = 333000; total items = 199800+333000=532800
+        assert sample_create_request.calculate_items_total() == Decimal("532800.00")
+
+    def test_calculate_total_amount(self, sample_create_request):
+        # Combined calculation
         assert sample_create_request.calculate_total_amount() == Decimal("254800.00")
-        # is_balanced_with_lines always returns True (no pre-calc amount)
+        # Add a second line
+        line2 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("300000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line2)
+        expected = Decimal("532800.00") + Decimal("50000") + Decimal("10000") - Decimal("5000")
+        assert sample_create_request.calculate_total_amount() == expected.quantize(Decimal("0.01"))
+
+    # ---------- is_balanced_with_lines (explicit tests) ----------
+    def test_is_balanced_with_lines(self, sample_create_request):
+        # Always returns True for AR
         assert sample_create_request.is_balanced_with_lines() is True
-        # with tolerance doesn't matter
-        assert sample_create_request.is_balanced_with_lines(Decimal("0.01")) is True
+        assert sample_create_request.is_balanced_with_lines(Decimal("0.001")) is True
+        # Even with multiple lines
+        line2 = ARInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("300000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        sample_create_request.lines.append(line2)
+        assert sample_create_request.is_balanced_with_lines() is True
+        # With different tolerance
+        assert sample_create_request.is_balanced_with_lines(Decimal("0.5")) is True
+
+    # ---------- Ensure all methods are called in a single test ----------
+    def test_all_calculation_methods_combined(self, sample_create_request):
+        # This test calls all methods to ensure static analysis sees them
+        subtotal = sample_create_request.calculate_subtotal()
+        disc_total = sample_create_request.calculate_discount_total()
+        tax_total = sample_create_request.calculate_tax_total()
+        items_total = sample_create_request.calculate_items_total()
+        total = sample_create_request.calculate_total_amount()
+        balanced = sample_create_request.is_balanced_with_lines()
+        assert subtotal == Decimal("200000.00")
+        assert disc_total == Decimal("25000.00")
+        assert tax_total == Decimal("19800.00")
+        assert items_total == Decimal("199800.00")
+        assert total == Decimal("254800.00")
+        assert balanced is True
 
     def test_to_dict(self, sample_create_request):
         d = sample_create_request.to_dict()
@@ -441,7 +581,6 @@ class TestCreateARInvoiceRequest:
 
     def test_from_dict(self, sample_create_request):
         d = sample_create_request.to_dict()
-        # Need to reconstruct properly: lines are dicts
         restored = CreateARInvoiceRequest.from_dict(d)
         assert restored.invoice_number == sample_create_request.invoice_number
         assert restored.customer_id == sample_create_request.customer_id
@@ -736,7 +875,6 @@ class TestListARInvoicesRequest:
             ListARInvoicesRequest(legal_entity_id=uuid4(), offset=-1)
 
     def test_validation_date_tz_conversion(self):
-        # naive dates become UTC
         naive = datetime(2025, 1, 1, 0, 0, 0)
         req = ListARInvoicesRequest(legal_entity_id=uuid4(), from_date=naive, to_date=naive)
         assert req.from_date.tzinfo == UTC
@@ -796,7 +934,6 @@ class TestARInvoiceResponseDTO:
         assert sample_response_dto.created_at.tzinfo == UTC
 
     def test_remaining_amount_computed_if_zero(self):
-        # If remaining_amount is 0 but amount > paid, compute
         dto = ARInvoiceResponseDTO(
             id=uuid4(),
             invoice_number="INV",
@@ -806,16 +943,14 @@ class TestARInvoiceResponseDTO:
             due_date=datetime.now(UTC),
             amount=Decimal("1000"),
             paid_amount=Decimal("300"),
-            remaining_amount=Decimal("0"),  # will be recomputed to 700
+            remaining_amount=Decimal("0"),
             status="issued",
         )
         assert dto.remaining_amount == Decimal("700.00")
 
     def test_is_overdue(self, sample_response_dto):
-        # due_date is 2025-01-31, current date is after -> overdue
         future = datetime(2025, 2, 1, 0, 0, 0, tzinfo=UTC)
         assert sample_response_dto.is_overdue(future) is True
-        # before due date
         past = datetime(2025, 1, 15, 0, 0, 0, tzinfo=UTC)
         assert sample_response_dto.is_overdue(past) is False
         # if remaining amount is 0, not overdue
@@ -836,7 +971,6 @@ class TestARInvoiceResponseDTO:
     def test_get_paid_percentage(self, sample_response_dto):
         # paid=500000, amount=2500000 => 20%
         assert sample_response_dto.get_paid_percentage() == Decimal("20.00")
-        # fully paid
         dto_full = ARInvoiceResponseDTO(
             id=uuid4(),
             invoice_number="INV",
@@ -850,7 +984,6 @@ class TestARInvoiceResponseDTO:
             status="fully_paid",
         )
         assert dto_full.get_paid_percentage() == Decimal("100.00")
-        # zero amount (avoid division by zero)
         dto_zero = ARInvoiceResponseDTO(
             id=uuid4(),
             invoice_number="INV",
@@ -934,7 +1067,6 @@ class TestARInvoiceRequestFactory:
         assert line.unit_price == Decimal("50000")
         assert line.discount_percentage == Decimal("5")
         assert line.tax_rate == Decimal("11")
-        # check calculation
         assert line.subtotal == Decimal("150000.00")
         assert line.discount_amount == Decimal("7500.00")
         assert line.net_amount == Decimal("142500.00")
@@ -982,3 +1114,22 @@ class TestARInvoiceRequestFactory:
         assert req.invoice_id == sample_invoice_id
         assert req.payment_method == PaymentMethod.QRIS
         assert req.amount == Decimal("500000")
+
+
+# -------------------- Tests for Aliases --------------------
+class TestAliases:
+    def test_aliases_exist(self):
+        # Imported from the module
+        assert ARInvoiceCreateRequest is CreateARInvoiceRequest
+        assert ARInvoiceUpdateRequest is UpdateARInvoiceRequest
+        assert ARPaymentCreateRequest is RecordARPaymentRequest
+        assert ARCreditNoteCreateRequest is CreateARCreditNoteRequest
+        assert ARInvoiceRequestDTO is CreateARInvoiceRequest
+        assert ARPaymentRequestDTO is RecordARPaymentRequest
+
+    def test_alias_usage(self):
+        # Ensure they can be instantiated
+        invoice_id = uuid4()
+        req = ARInvoiceUpdateRequest(invoice_id=invoice_id, description="Updated")
+        assert req.invoice_id == invoice_id
+        assert req.description == "Updated"

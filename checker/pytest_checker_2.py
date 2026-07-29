@@ -105,7 +105,7 @@ class AssertAnalyzer(ast.NodeVisitor):
             # Operand kiri (test_node.left) dicek berdasarkan operator pertama;
             # operand kanan (comparators[i]) dicek berdasarkan op_names[i].
             weak_operands = [(test_node.left, op_names[0])] if op_names else []
-            weak_operands += list(zip(comparators, op_names))
+            weak_operands += list(zip(comparators, op_names, strict=False))
             for comp, op_name in weak_operands:
                 if isinstance(comp, ast.Constant) and isinstance(comp.value, bool):
                     if op_name in ['Eq', 'NotEq']:

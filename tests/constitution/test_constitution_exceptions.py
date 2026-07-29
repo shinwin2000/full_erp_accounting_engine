@@ -10,8 +10,6 @@ import json
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
-import pytest
-
 from constitution.constitution_exceptions import (
     AmendmentException,
     AuthorizationException,

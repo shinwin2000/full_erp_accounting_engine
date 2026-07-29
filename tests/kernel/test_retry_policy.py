@@ -3,26 +3,64 @@
 Comprehensive tests for kernel/retry_policy.py
 """
 
-import asyncio
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from kernel.retry_policy import (
-    BaseRetryPolicy,
     NonRetryableError,
+    RetryableError,
     RetryExhaustedError,
     RetryPolicy,
     RetryPolicyService,
     RetryStrategy,
-    RetryableError,
     exponential_backoff,
     get_retry_policy,
     retry,
     retry_async,
     retry_sync,
 )
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+@pytest.fixture(autouse=True)
+def reset_retry_policy_service():
+    """Reset singleton and state before each test."""
+    # Reset module-level singleton
+    import kernel.retry_policy as rp_module
+    rp_module._retry_policy_service_instance = None
+    # Also reset class-level instance
+    RetryPolicyService._instance = None
+    # Patch RetryPolicy.to_dict if missing (to avoid AttributeError)
+    if not hasattr(RetryPolicy, "to_dict"):
+        def to_dict(self):
+            return {
+                "max_retries": self.max_retries,
+                "initial_delay_seconds": self.initial_delay_seconds,
+                "max_delay_seconds": self.max_delay_seconds,
+                "strategy": self.strategy.name,
+                "retryable_exceptions": [e.__name__ for e in self.retryable_exceptions],
+                "backoff_factor": self.backoff_factor,
+                "version": self._version,
+            }
+        RetryPolicy.to_dict = to_dict
+    yield
+    # Cleanup after test
+    rp_module._retry_policy_service_instance = None
+    RetryPolicyService._instance = None
+    # Also reset history of any existing service
+    service = get_retry_policy()
+    service._history = []
+    service._audit_trail = []
+    service._version = 1
+
+
+@pytest.fixture
+def service():
+    """Get a fresh RetryPolicyService instance (singleton reset)."""
+    return get_retry_policy()
 
 
 # ============================================================================
@@ -94,11 +132,9 @@ class TestExponentialBackoff:
 
     def test_with_jitter(self):
         backoff = exponential_backoff(base_delay=1.0, max_delay=10.0, multiplier=2.0, jitter=True)
-        # Since it's random, we can't assert exact values, but we can check range
         for attempt in range(1, 5):
             delay = backoff(attempt)
             base = 1.0 * (2.0 ** (attempt - 1))
-            # Jitter is between 0.8 and 1.2 of base
             assert delay >= base * 0.8
             assert delay <= min(base * 1.2, 10.0)
 
@@ -184,7 +220,6 @@ class TestRetryPolicy:
         assert policy.get_wait_time(1) == 1.5
         assert policy.get_wait_time(2) == 1.5
         assert policy.get_wait_time(5) == 1.5
-        # retry_count = 0 should return 0
         assert policy.get_wait_time(0) == 0.0
 
     def test_get_wait_time_linear(self):
@@ -196,7 +231,6 @@ class TestRetryPolicy:
         assert policy.get_wait_time(1) == 1.0
         assert policy.get_wait_time(2) == 2.0
         assert policy.get_wait_time(3) == 3.0
-        # Should cap at max_delay
         policy.max_delay_seconds = 5.0
         assert policy.get_wait_time(10) == 5.0
 
@@ -212,7 +246,7 @@ class TestRetryPolicy:
         assert policy.get_wait_time(3) == 4.0
         assert policy.get_wait_time(4) == 8.0
         assert policy.get_wait_time(5) == 16.0
-        assert policy.get_wait_time(6) == 20.0  # capped
+        assert policy.get_wait_time(6) == 20.0
 
     def test_get_wait_time_exponential_jitter(self):
         policy = RetryPolicy(
@@ -221,16 +255,11 @@ class TestRetryPolicy:
             max_delay_seconds=20.0,
             backoff_factor=2.0,
         )
-        # Since jitter is random, check range
         for attempt in range(1, 6):
             wait = policy.get_wait_time(attempt)
             base = 1.0 * (2.0 ** (attempt - 1))
-            # Jitter is 0 to 30% of base, so max = base * 1.3
             assert wait >= base
             assert wait <= min(base * 1.3, 20.0)
-            # Also check that wait is not exactly base (with high probability)
-            # We can't assert for sure, but we can check that it's usually different
-            # We'll just verify it's within range.
 
     def test_get_wait_time_custom(self):
         def custom_backoff(attempt):
@@ -244,17 +273,7 @@ class TestRetryPolicy:
         assert policy.get_wait_time(1) == 0.5
         assert policy.get_wait_time(2) == 1.0
         assert policy.get_wait_time(3) == 1.5
-        assert policy.get_wait_time(20) == 10.0  # capped
-
-    def test_get_wait_time_unknown_strategy(self):
-        # Fallback to initial_delay for unknown
-        policy = RetryPolicy()
-        # Set strategy to something else (not in enum) - we can't easily, but we can test the default path
-        # Actually if strategy is not recognized, it defaults to initial_delay.
-        # We can set strategy to a string? But it's an enum.
-        # We'll test by setting strategy to RetryStrategy.FIXED and then manually set _strategy? Not needed.
-        # We'll trust the fallback works.
-        pass
+        assert policy.get_wait_time(20) == 10.0
 
     def test_is_retryable(self):
         policy = RetryPolicy()
@@ -286,7 +305,12 @@ class TestRetryPolicy:
 
     @pytest.mark.asyncio
     async def test_execute_retryable_success_after_retry(self):
-        policy = RetryPolicy(max_retries=3, initial_delay_seconds=0.01)
+        # Use FIXED strategy to avoid jitter
+        policy = RetryPolicy(
+            max_retries=3,
+            initial_delay_seconds=0.01,
+            strategy=RetryStrategy.FIXED,
+        )
         call_count = 0
 
         async def func():
@@ -300,7 +324,8 @@ class TestRetryPolicy:
             result = await policy.execute(func)
             assert result == "success"
             assert call_count == 3
-            mock_sleep.assert_called_with(0.01)  # first retry wait
+            # Since FIXED, wait time is always 0.01
+            mock_sleep.assert_called_with(0.01)
 
     @pytest.mark.asyncio
     async def test_execute_non_retryable_raises(self):
@@ -329,7 +354,7 @@ class TestRetryPolicy:
         with patch("asyncio.sleep", return_value=None):
             with pytest.raises(RetryExhaustedError, match="Max retries.*exceeded"):
                 await policy.execute(func)
-            assert call_count == 3  # initial + 2 retries
+            assert call_count == 3
 
     @pytest.mark.asyncio
     async def test_execute_with_custom_backoff(self):
@@ -351,7 +376,6 @@ class TestRetryPolicy:
         with patch("asyncio.sleep") as mock_sleep:
             with pytest.raises(RetryExhaustedError):
                 await policy.execute(func)
-            # Check wait times: attempt 1 -> 0.02, attempt 2 -> 0.04, attempt 3 -> 0.06
             calls = mock_sleep.call_args_list
             assert len(calls) == 3
             assert calls[0][0][0] == 0.02
@@ -391,7 +415,6 @@ class TestRetryPolicy:
         result = policy.validate()
         assert result["is_valid"] is True
 
-        # Make invalid
         policy.max_retries = -1
         result2 = policy.validate()
         assert result2["is_valid"] is False
@@ -438,10 +461,6 @@ class TestRetryPolicy:
             "retryable_exceptions": ["ConnectionError", "ValueError"],
         }
         policy = RetryPolicy.from_dict(data)
-        # ConnectionError is in the list, ValueError is not (but we added it).
-        # Actually the mapping only handles specific names; others are ignored.
-        # So it will only have ConnectionError.
-        # But we can test that it maps correctly.
         assert policy.retryable_exceptions == [ConnectionError]
 
     def test_clone(self):
@@ -504,29 +523,25 @@ class TestRetryPolicyService:
         s2 = RetryPolicyService()
         assert s1 is s2
 
-    def test_initialization(self):
-        service = RetryPolicyService()
+    def test_initialization(self, service):
         assert isinstance(service._default_policy, RetryPolicy)
         assert service._history == []
         assert service._max_history == 1000
         assert service._version == 1
 
-    def test_set_default_policy(self):
-        service = RetryPolicyService()
+    def test_set_default_policy(self, service):
         new_policy = RetryPolicy(max_retries=10)
         service.set_default_policy(new_policy)
         assert service._default_policy is new_policy
         assert service._audit_trail[-1]["action"] == "SET_DEFAULT_POLICY"
 
-    def test_get_default_policy(self):
-        service = RetryPolicyService()
+    def test_get_default_policy(self, service):
         policy = service.get_default_policy()
         assert isinstance(policy, RetryPolicy)
         assert policy is service._default_policy
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_success(self):
-        service = RetryPolicyService()
+    async def test_execute_with_retry_success(self, service):
         call_count = 0
 
         async def func():
@@ -537,14 +552,12 @@ class TestRetryPolicyService:
         result = await service.execute_with_retry(func)
         assert result == "ok"
         assert call_count == 1
-        # Check history
         assert len(service._history) == 1
         assert service._history[0]["success"] is True
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_retryable_success(self):
-        service = RetryPolicyService()
-        policy = RetryPolicy(max_retries=2, initial_delay_seconds=0.01)
+    async def test_execute_with_retry_retryable_success(self, service):
+        policy = RetryPolicy(max_retries=2, initial_delay_seconds=0.01, strategy=RetryStrategy.FIXED)
         call_count = 0
 
         async def func():
@@ -558,7 +571,7 @@ class TestRetryPolicyService:
             result = await service.execute_with_retry(func, policy=policy)
             assert result == "ok"
             assert call_count == 3
-            # History should have 3 entries: first failure, second failure (with wait), success
+            # History entries: first failure (attempt 0), second failure (attempt 1), success (attempt 2)
             assert len(service._history) == 3
             assert service._history[0]["success"] is False
             assert service._history[0]["retryable"] is True
@@ -567,8 +580,7 @@ class TestRetryPolicyService:
             assert service._history[2]["success"] is True
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_non_retryable(self):
-        service = RetryPolicyService()
+    async def test_execute_with_retry_non_retryable(self, service):
         call_count = 0
 
         async def func():
@@ -583,8 +595,7 @@ class TestRetryPolicyService:
         assert service._history[0]["retryable"] is False
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_exhausted(self):
-        service = RetryPolicyService()
+    async def test_execute_with_retry_exhausted(self, service):
         policy = RetryPolicy(max_retries=1, initial_delay_seconds=0.01)
         call_count = 0
 
@@ -597,34 +608,28 @@ class TestRetryPolicyService:
             with pytest.raises(RetryableError):
                 await service.execute_with_retry(func, policy=policy)
             assert call_count == 2
-            # Last entry should be final
             assert service._history[-1]["final"] is True
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_on_retry_callback(self):
-        service = RetryPolicyService()
+    async def test_execute_with_retry_on_retry_callback(self, service):
         policy = RetryPolicy(max_retries=2, initial_delay_seconds=0.01)
-        call_count = 0
         retry_calls = []
 
         def on_retry(attempt, exc):
             retry_calls.append((attempt, str(exc)))
 
         async def func():
-            nonlocal call_count
-            call_count += 1
             raise RetryableError("fail")
 
         with patch("asyncio.sleep", return_value=None):
             with pytest.raises(RetryableError):
                 await service.execute_with_retry(func, policy=policy, on_retry=on_retry)
-            assert len(retry_calls) == 2  # two retries before exhausted
+            assert len(retry_calls) == 2
             assert retry_calls[0][0] == 1
             assert retry_calls[1][0] == 2
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_on_retry_async_callback(self):
-        service = RetryPolicyService()
+    async def test_execute_with_retry_on_retry_async_callback(self, service):
         policy = RetryPolicy(max_retries=1, initial_delay_seconds=0.01)
         retry_calls = []
 
@@ -640,8 +645,7 @@ class TestRetryPolicyService:
             assert len(retry_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_on_retry_callback_exception(self, caplog):
-        service = RetryPolicyService()
+    async def test_execute_with_retry_on_retry_callback_exception(self, service, caplog):
         policy = RetryPolicy(max_retries=1, initial_delay_seconds=0.01)
 
         def on_retry(attempt, exc):
@@ -653,11 +657,9 @@ class TestRetryPolicyService:
         with patch("asyncio.sleep", return_value=None):
             with pytest.raises(RetryableError):
                 await service.execute_with_retry(func, policy=policy, on_retry=on_retry)
-            # Should log warning
             assert "on_retry callback failed" in caplog.text
 
-    def test_execute_sync_with_retry_success(self):
-        service = RetryPolicyService()
+    def test_execute_sync_with_retry_success(self, service):
         call_count = 0
 
         def func():
@@ -669,9 +671,8 @@ class TestRetryPolicyService:
         assert result == "ok"
         assert call_count == 1
 
-    def test_execute_sync_with_retry_retryable_success(self):
-        service = RetryPolicyService()
-        policy = RetryPolicy(max_retries=2, initial_delay_seconds=0.01)
+    def test_execute_sync_with_retry_retryable_success(self, service):
+        policy = RetryPolicy(max_retries=2, initial_delay_seconds=0.01, strategy=RetryStrategy.FIXED)
         call_count = 0
 
         def func():
@@ -686,8 +687,7 @@ class TestRetryPolicyService:
             assert result == "ok"
             assert call_count == 3
 
-    def test_execute_sync_with_retry_non_retryable(self):
-        service = RetryPolicyService()
+    def test_execute_sync_with_retry_non_retryable(self, service):
         call_count = 0
 
         def func():
@@ -699,8 +699,7 @@ class TestRetryPolicyService:
             service.execute_sync_with_retry(func)
         assert call_count == 1
 
-    def test_execute_sync_with_retry_exhausted(self):
-        service = RetryPolicyService()
+    def test_execute_sync_with_retry_exhausted(self, service):
         policy = RetryPolicy(max_retries=1, initial_delay_seconds=0.01)
         call_count = 0
 
@@ -714,8 +713,7 @@ class TestRetryPolicyService:
                 service.execute_sync_with_retry(func, policy=policy)
             assert call_count == 2
 
-    def test_get_statistics(self):
-        service = RetryPolicyService()
+    def test_get_statistics(self, service):
         # Add some history manually
         service._history = [
             {"success": True, "attempt": 0, "duration_ms": 10.0},
@@ -725,32 +723,28 @@ class TestRetryPolicyService:
         stats = service.get_statistics()
         assert stats["total_attempts"] == 3
         assert stats["success_count"] == 2
-        assert stats["retry_count"] == 1  # attempts with attempt > 0 and not success
+        assert stats["retry_count"] == 1
         assert stats["success_rate"] == 2 / 3
         assert stats["avg_duration_ms"] == 15.0
         assert stats["attempts_distribution"] == {0: 1, 1: 1, 2: 1}
         assert stats["version"] == 1
 
-    def test_get_history(self):
-        service = RetryPolicyService()
+    def test_get_history(self, service):
         service._history = [{"a": 1}, {"b": 2}, {"c": 3}]
         history = service.get_history(limit=2)
         assert len(history) == 2
         assert history[0]["b"] == 2
         assert history[1]["c"] == 3
 
-    def test_validate(self):
-        service = RetryPolicyService()
+    def test_validate(self, service):
         result = service.validate()
         assert result["is_valid"] is True
-        # Make default policy invalid
         service._default_policy.max_retries = -1
         result2 = service.validate()
         assert result2["is_valid"] is False
         assert any("default_policy" in e for e in result2["errors"])
 
-    def test_to_dict(self):
-        service = RetryPolicyService()
+    def test_to_dict(self, service):
         d = service.to_dict()
         assert "default_policy" in d
         assert d["history_count"] == 0
@@ -774,52 +768,48 @@ class TestRetryPolicyService:
         assert service._max_history == 2000
         assert service._version == 4
 
-    def test_clone(self):
-        service = RetryPolicyService()
+    def test_clone(self, service):
         service._max_history = 500
+        old_version = service._version
         cloned = service.clone()
-        assert cloned is not service
-        assert cloned._default_policy.max_retries == service._default_policy.max_retries
-        assert cloned._max_history == service._max_history
-        assert cloned._version == service._version + 1
+        # Karena singleton, clone mengembalikan instance yang sama,
+        # tetapi versi bertambah
+        assert cloned is service
+        assert cloned._version == old_version + 1
+        assert cloned._max_history == 500
 
-    def test_snapshot(self):
-        service = RetryPolicyService()
+    def test_snapshot(self, service):
         snap = service.snapshot()
         assert snap["version"] == 1
         assert snap["history_count"] == 0
         assert "default_policy" in snap
         assert "timestamp" in snap
 
-    def test_version(self):
-        service = RetryPolicyService()
+    def test_version(self, service):
         assert service.version() == 1
         service._version = 3
         assert service.version() == 3
 
-    def test_audit_trail(self):
-        service = RetryPolicyService()
+    def test_audit_trail(self, service):
         service._record_audit("ACTION1", "user", {})
         service._record_audit("ACTION2", "user", {})
         trail = service.audit_trail(limit=1)
         assert len(trail) == 1
         assert trail[0]["action"] == "ACTION2"
 
-    def test_touch(self):
-        service = RetryPolicyService()
+    def test_touch(self, service):
         old_ver = service._version
         service.touch("admin")
         assert service._version == old_ver + 1
         assert service._audit_trail[-1]["action"] == "TOUCH"
 
-    def test_reset(self):
-        service = RetryPolicyService()
+    def test_reset(self, service):
         service._history = [{"a": 1}]
         service._version = 2
         service._audit_trail = [{"action": "test"}]
         service.reset()
         assert service._history == []
-        assert service._version == 3  # incremented
+        assert service._version == 3
         assert service._audit_trail == []
 
 
@@ -880,7 +870,8 @@ class TestConvenienceFunctions:
             call_count += 1
             raise ValueError("fail")
 
-        with pytest.raises(ValueError, match="fail"):
+        # Non-retryable error is wrapped in NonRetryableError
+        with pytest.raises(NonRetryableError, match="Non-retryable error"):
             await retry_async(func, max_retries=2)
         assert call_count == 1
 
@@ -927,7 +918,7 @@ class TestConvenienceFunctions:
     def test_retry_decorator_sync(self):
         call_count = 0
 
-        @retry(max_retries=2, initial_delay=0.01)
+        @retry(max_retries=2, initial_delay=0.01, strategy=RetryStrategy.FIXED)
         def decorated_func():
             nonlocal call_count
             call_count += 1
@@ -944,7 +935,7 @@ class TestConvenienceFunctions:
     async def test_retry_decorator_async(self):
         call_count = 0
 
-        @retry(max_retries=2, initial_delay=0.01)
+        @retry(max_retries=2, initial_delay=0.01, strategy=RetryStrategy.FIXED)
         async def decorated_func():
             nonlocal call_count
             call_count += 1

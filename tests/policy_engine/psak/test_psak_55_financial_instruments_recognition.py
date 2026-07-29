@@ -4,7 +4,7 @@
 # Covers all public methods, edge cases, and domain logic.
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import ROUND_HALF_EVEN, Decimal
 from uuid import uuid4
 
 import pytest

@@ -16,7 +16,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
@@ -32,7 +31,6 @@ from policy_engine.psak.psak_aggregator import (
     PSAKStandard,
     get_psak_aggregator,
 )
-
 
 # ============================================================================
 # Fixtures

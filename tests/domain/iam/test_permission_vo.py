@@ -13,9 +13,6 @@ FIXES:
 
 from __future__ import annotations
 
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from domain.iam.permission_vo import (
@@ -26,7 +23,6 @@ from domain.iam.permission_vo import (
     PermissionVO,
     ResourceType,
 )
-
 
 # ============================================================================
 # TESTS FOR RESOURCE TYPE ENUM

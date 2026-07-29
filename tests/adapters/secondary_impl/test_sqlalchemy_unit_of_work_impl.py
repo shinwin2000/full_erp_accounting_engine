@@ -26,9 +26,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import importlib
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -43,7 +40,6 @@ from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import (
     get_uow,
     get_uow_factory,
 )
-
 
 # ============================================================================
 # Fixtures

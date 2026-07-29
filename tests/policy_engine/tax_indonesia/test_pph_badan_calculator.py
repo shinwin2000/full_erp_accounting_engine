@@ -3,9 +3,8 @@
 # Comprehensive tests for PPh Badan Calculator.
 # Covers all public methods and edge cases.
 
-from decimal import Decimal, ROUND_HALF_UP
-from uuid import uuid4, UUID
-from dataclasses import asdict
+from decimal import ROUND_HALF_UP, Decimal
+from uuid import uuid4
 
 import pytest
 

@@ -146,7 +146,7 @@ class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort
         if not rows:
             return []
         columns = result.keys()
-        return [dict(zip(columns, row)) for row in rows]
+        return [dict(zip(columns, row, strict=False)) for row in rows]
 
     # ========================================================================
     # ReportRepositoryPort methods

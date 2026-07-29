@@ -2,17 +2,13 @@
 # Comprehensive tests for compliance/aml_risk_scorer.py
 # Covers all classes, methods, edge cases, exceptions, and domain logic.
 
-import hashlib
-import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from uuid import uuid4
 
 from compliance.aml_risk_scorer import (
     AMLError,

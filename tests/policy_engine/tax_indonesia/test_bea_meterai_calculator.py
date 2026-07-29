@@ -37,7 +37,6 @@ from policy_engine.tax_indonesia.bea_meterai_calculator import (
     get_bea_meterai_calculator,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

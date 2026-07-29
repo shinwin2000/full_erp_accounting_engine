@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.api_client import api_client
+from core.formatting import extract_list
+from core.workers import run_task
 from PySide6.QtCore import QDate, QDateTime
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -37,10 +40,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list
-from core.workers import run_task
 
 BASE = "/audit/audit"
 

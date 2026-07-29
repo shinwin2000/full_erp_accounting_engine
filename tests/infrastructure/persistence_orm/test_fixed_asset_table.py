@@ -3,7 +3,6 @@
 
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

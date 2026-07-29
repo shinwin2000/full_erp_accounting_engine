@@ -275,9 +275,7 @@ class TestForbiddenStateDefinition:
         method = getattr(sample_state, method_name)
         if method_name in ("create", "activate", "unlock"):
             result = method("admin")
-        elif method_name == "deactivate":
-            result = method("admin", "reason")
-        elif method_name == "lock":
+        elif method_name == "deactivate" or method_name == "lock":
             result = method("admin", "reason")
         else:
             result = method("admin")

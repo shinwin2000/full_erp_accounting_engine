@@ -6,7 +6,6 @@ Covers all methods including entity methods, session lifecycle, and edge cases.
 
 import json
 import threading
-import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +19,6 @@ from security_hardening.session_manager_redis import (
     SessionNotFoundError,
     SessionRevokedError,
 )
-
 
 # ============================================================================
 # Exception Tests

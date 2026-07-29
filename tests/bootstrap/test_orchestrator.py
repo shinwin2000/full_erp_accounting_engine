@@ -2,17 +2,10 @@
 # Comprehensive tests for bootstrap/orchestrator.py
 
 import asyncio
-import inspect
-import json
 import os
-import shutil
 import signal
-import sys
-import threading
-import time
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call, ANY
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -24,11 +17,10 @@ from bootstrap.orchestrator import (
     StartupStep,
     get_health,
     get_startup_orchestrator,
+    main,
     register_signal_handlers,
     run_startup,
     shutdown,
-    main,
-    BootstrapOrchestrator,
 )
 
 
@@ -591,11 +583,7 @@ class TestStartupOrchestrator:
         mock_services.JournalService = MagicMock(return_value="journal_service")
 
         def side_effect(module_name):
-            if module_name == "application.service_layer.service_ap":
-                return mock_services
-            elif module_name == "application.service_layer.service_ar":
-                return mock_services
-            elif module_name == "application.service_layer.service_journal":
+            if module_name == "application.service_layer.service_ap" or module_name == "application.service_layer.service_ar" or module_name == "application.service_layer.service_journal":
                 return mock_services
             return MagicMock()
 

@@ -23,14 +23,12 @@ Covers:
 
 from __future__ import annotations
 
-import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
 
 from adapters.secondary_impl.sqlalchemy_manufacturing_repository_impl import (
     SQLAlchemyManufacturingRepository,
@@ -45,7 +43,6 @@ from infrastructure.persistence_orm.manufacturing_cost_card_table import Manufac
 from infrastructure.persistence_orm.manufacturing_work_order_table import (
     ManufacturingWorkOrderTable,
 )
-
 
 # ============================================================================
 # Fixtures

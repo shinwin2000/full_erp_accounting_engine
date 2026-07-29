@@ -7,7 +7,6 @@ All datetime is mocked to avoid flakiness.
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta

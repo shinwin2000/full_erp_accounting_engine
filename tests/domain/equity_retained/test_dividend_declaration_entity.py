@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -27,16 +26,15 @@ from domain.equity_retained.dividend_declaration_entity import (
     InvalidDividendAmountError,
     InvalidDividendDatesError,
     InvalidStatusTransitionError,
-    add_audit,
-    allocate_dividend_by_shares,
-    calculate_dividend_per_share,
+    _validate_allocations,
     _validate_amount,
     _validate_currency,
     _validate_dates,
     _validate_dividend_number,
-    _validate_allocations,
+    add_audit,
+    allocate_dividend_by_shares,
+    calculate_dividend_per_share,
 )
-
 
 # ============================================================================
 # Fixtures

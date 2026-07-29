@@ -62,7 +62,6 @@ from domain.inventory.valuation_method import (
     get_valuation_method,
 )
 
-
 # =============================================================================
 # Helper: MockMovement for testing valuation strategies
 # =============================================================================

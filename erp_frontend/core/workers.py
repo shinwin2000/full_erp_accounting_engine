@@ -14,7 +14,8 @@ Pemakaian:
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 
@@ -37,7 +38,7 @@ class _Worker(QRunnable):
     def run(self) -> None:
         try:
             result = self.fn(*self.args, **self.kwargs)
-        except Exception as exc:  # noqa: BLE001 - dikirim ke UI thread sebagai pesan
+        except Exception as exc:
             self.signals.error.emit(_format_exception(exc))
         else:
             self.signals.finished.emit(result)
@@ -62,8 +63,8 @@ _pool.setMaxThreadCount(max(8, _pool.maxThreadCount()))
 
 def run_task(
     fn: Callable[..., Any],
-    on_success: Optional[Callable[[Any], None]] = None,
-    on_error: Optional[Callable[[str], None]] = None,
+    on_success: Callable[[Any], None] | None = None,
+    on_error: Callable[[str], None] | None = None,
     *args: Any,
     **kwargs: Any,
 ) -> _Worker:

@@ -5,14 +5,15 @@
 # all concrete event classes, serialization, helpers, and publisher protocol.
 
 import json
-from datetime import UTC, datetime, date
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 
-from domain.manufacturing.bill_of_materials_entity import BillOfMaterialsEntity, BOMStatus, BOMItem
+from domain.manufacturing.bill_of_materials_entity import BillOfMaterialsEntity, BOMItem, BOMStatus
+from domain.manufacturing.cost_element_enum import CostElement
 from domain.manufacturing.domain_events import (
     BOMActivatedEvent,
     BOMCreatedEvent,
@@ -40,8 +41,11 @@ from domain.manufacturing.domain_events import (
     event_to_audit_log,
     serialize_domain_event,
 )
-from domain.manufacturing.work_order_entity import WorkOrderEntity, WorkOrderStatus, WorkOrderPriority
-from domain.manufacturing.cost_element_enum import CostElement
+from domain.manufacturing.work_order_entity import (
+    WorkOrderEntity,
+    WorkOrderPriority,
+    WorkOrderStatus,
+)
 
 
 # ----------------------------------------------------------------------
@@ -793,25 +797,25 @@ class TestHelpers:
 # ----------------------------------------------------------------------
 def test_aliases_exist():
     from domain.manufacturing.domain_events import (
-        BOMCreated,
-        BOMUpdated,
         BOMActivated,
-        BOMObsoleted,
+        BOMCreated,
         BOMItemAdded,
-        WorkOrderCreated,
-        WorkOrderApproved,
-        WorkOrderStarted,
-        WorkOrderCompleted,
-        WorkOrderCancelled,
-        MaterialIssued,
-        LaborPosted,
-        OverheadApplied,
-        ProductionCompleted,
+        BOMObsoleted,
+        BOMUpdated,
         CostCardUpdated,
         HPPCalculated,
-        StandardCostCreated,
+        LaborPosted,
+        MaterialIssued,
+        OverheadApplied,
+        ProductionCompleted,
         StandardCostActivated,
+        StandardCostCreated,
         VarianceAnalyzed,
+        WorkOrderApproved,
+        WorkOrderCancelled,
+        WorkOrderCompleted,
+        WorkOrderCreated,
+        WorkOrderStarted,
     )
     assert BOMCreated is BOMCreatedEvent
     assert BOMUpdated is BOMUpdatedEvent

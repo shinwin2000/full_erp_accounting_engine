@@ -3,9 +3,9 @@
 # Comprehensive tests for domain/manufacturing/cost_card_entity.py.
 # Covers all enums, value objects, entity methods, edge cases, and decimal precision.
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest

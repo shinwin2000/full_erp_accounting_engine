@@ -335,7 +335,7 @@ class IAS37:
         if len(possible_outcomes) != len(probabilities):
             raise ValueError("Outcomes and probabilities must have same length")
         total = Decimal(0)
-        for amount, prob in zip(possible_outcomes, probabilities):
+        for amount, prob in zip(possible_outcomes, probabilities, strict=False):
             total += amount * prob
         # Round to nearest whole number (or keep as is)
         return total.quantize(Decimal("0.01"))

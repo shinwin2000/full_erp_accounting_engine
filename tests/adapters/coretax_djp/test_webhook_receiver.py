@@ -240,7 +240,8 @@ class TestWebhookVerifier:
 
     def test_verify_signature_valid(self, monkeypatch):
         payload_body = b'{"event": "test"}'
-        import hashlib, hmac
+        import hashlib
+        import hmac
         secret = "test-secret"
         signature = hmac.new(secret.encode(), payload_body, hashlib.sha256).hexdigest()
         monkeypatch.setenv("CORETAX_WEBHOOK_SECRET", secret)
@@ -261,7 +262,8 @@ class TestWebhookVerifier:
 
     def test_verify_signature_sha512(self, monkeypatch):
         payload_body = b'{"event": "test"}'
-        import hashlib, hmac
+        import hashlib
+        import hmac
         secret = "test-secret"
         signature = hmac.new(secret.encode(), payload_body, hashlib.sha512).hexdigest()
         monkeypatch.setenv("CORETAX_WEBHOOK_SECRET", secret)
@@ -309,7 +311,8 @@ class TestWebhookVerifier:
 
     def test_verify_all_success(self, monkeypatch):
         payload_body = b'{"event": "test"}'
-        import hashlib, hmac
+        import hashlib
+        import hmac
         secret = "test-secret"
         signature = hmac.new(secret.encode(), payload_body, hashlib.sha256).hexdigest()
         monkeypatch.setenv("CORETAX_WEBHOOK_SECRET", secret)

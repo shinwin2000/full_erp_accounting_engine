@@ -3,15 +3,16 @@
 Comprehensive tests for policy_engine/psak/psak_60_financial_instruments_disclosures.py
 """
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from policy_engine.psak.psak_60_financial_instruments_disclosures import (
+    CreditRiskExposure,
+    LiquidityRiskMaturity,
+    MarketRiskSensitivity,
     PSAK60CollateralType,
     PSAK60ComplianceLevel,
     PSAK60CreditRiskDisclosure,
@@ -27,13 +28,9 @@ from policy_engine.psak.psak_60_financial_instruments_disclosures import (
     PSAK60Rules,
     PSAK60ValidationResult,
     PSAK60Validator,
-    get_psak60_validator,
-    CreditRiskExposure,
-    LiquidityRiskMaturity,
-    MarketRiskSensitivity,
     RiskType,
+    get_psak60_validator,
 )
-
 
 # ============================================================================
 # Fixtures

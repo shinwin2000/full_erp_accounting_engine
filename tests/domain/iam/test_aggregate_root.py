@@ -8,11 +8,11 @@ from uuid import uuid4
 import pytest
 
 from domain.iam.aggregate_root import (
+    IAM,
     AuthenticationError,
     DuplicateEmailError,
     DuplicateRoleNameError,
     DuplicateUsernameError,
-    IAM,
     IAMError,
     IAMRepository,
     IAMStatus,
@@ -21,7 +21,6 @@ from domain.iam.aggregate_root import (
     UserNotFoundError,
 )
 from domain.iam.domain_events import (
-    DomainEvent,
     LoginFailureEvent,
     LoginSuccessEvent,
     RoleAssignedEvent,
@@ -34,11 +33,9 @@ from domain.iam.domain_events import (
     UserDeactivatedEvent,
 )
 from domain.iam.password_hashed_vo import PasswordHashedVO
-from domain.iam.permission_vo import PermissionVO
 from domain.iam.role_entity import RoleEntity, RoleStatus
 from domain.iam.session_entity import SessionEntity, SessionStatus
 from domain.iam.user_entity import UserEntity, UserProfile, UserStatus
-
 
 # ============================================================================
 # Fixtures

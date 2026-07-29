@@ -3,16 +3,9 @@
 
 import gzip
 import hashlib
-import json
-import os
-import subprocess
-import tempfile
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from pathlib import Path
-from unittest.mock import MagicMock, call, mock_open, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, mock_open, patch
 
-import boto3
 import pytest
 from botocore.exceptions import ClientError
 from cryptography.fernet import Fernet
@@ -26,7 +19,6 @@ from disaster_recovery.backup_full_encrypted_s3 import (
     EncryptionMethod,
     S3EncryptedBackup,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -4,16 +4,12 @@
 # Covers all classes, methods, edge cases, exceptions, and helper functions.
 
 import hashlib
-import hmac
-import secrets
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from domain.iam.password_hashed_vo import (
-    ARGON2_AVAILABLE,
-    BCRYPT_AVAILABLE,
     COMMON_PASSWORDS,
     DEFAULT_BCRYPT_ROUNDS,
     DEFAULT_PBKDF2_ITERATIONS,

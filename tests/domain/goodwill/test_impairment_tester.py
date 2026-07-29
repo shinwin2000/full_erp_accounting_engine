@@ -6,6 +6,7 @@ ensuring 100% coverage including get_last_test.
 """
 
 from decimal import Decimal
+
 import pytest
 
 from domain.goodwill.impairment_tester import (
@@ -198,7 +199,7 @@ class TestGoodwillImpairmentTester:
     # ==================================================================
     # GET_LAST_TEST (PRIORITAS ATAS: Menjamin fungsi dieksekusi pertama)
     # ==================================================================
-    
+
     def test_get_last_test_empty(self, tester):
         """Cabang: Jika tidak ada history, kembalikan None."""
         assert tester.get_last_test() is None
@@ -252,7 +253,7 @@ class TestGoodwillImpairmentTester:
         assert is_impaired is False
 
     def test_calculate_impairment_loss_rounding(self, tester):
-        # Menggunakan angka .016 yang PASTI dibulatkan ke .02 
+        # Menggunakan angka .016 yang PASTI dibulatkan ke .02
         # (tidak bias terhadap ROUND_HALF_EVEN environment).
         loss, is_impaired = tester.calculate_impairment_loss(
             carrying_amount=Decimal("1000.016"),
@@ -307,13 +308,13 @@ class TestGoodwillImpairmentTester:
     def test_allocate_impairment_to_cgus_rounding_adjustment(self, tester):
         total_impairment = Decimal("100")
         allocations = [("A", Decimal("100")), ("B", Decimal("100")), ("C", Decimal("100"))]
-        
+
         # Override tolerance menjadi 0.00 untuk MEMAKSA trigger abs(remaining) > tolerance
         result = tester.allocate_impairment_to_cgus(
             total_impairment, allocations, tolerance=Decimal("0.00")
         )
         # Sisa pembagian absolut disalurkan ke CGU pertama ("A")
-        assert result["A"] == Decimal("33.34") 
+        assert result["A"] == Decimal("33.34")
         assert result["B"] == Decimal("33.33")
         assert result["C"] == Decimal("33.33")
 
@@ -324,7 +325,7 @@ class TestGoodwillImpairmentTester:
     def test_allocate_impairment_to_cgus_tolerance(self, tester):
         total_impairment = Decimal("100")
         allocations = [("A", Decimal("100")), ("B", Decimal("100")), ("C", Decimal("100"))]
-        
+
         # Override tolerance menjadi sangat tinggi (1.00) agar pasti melewatkan adjustment
         result = tester.allocate_impairment_to_cgus(
             total_impairment, allocations, tolerance=Decimal("1.00")
@@ -362,7 +363,7 @@ class TestGoodwillImpairmentTester:
     def test_get_test_history_limit(self, tester):
         for i in range(5):
             tester.test_impairment(Decimal(str(1000 + i)), Decimal("1000"))
-        
+
         history = tester.get_test_history(limit=2)
         assert len(history) == 2
         # Data tetap berurut: indeks 3 dan 4
@@ -375,7 +376,7 @@ class TestGoodwillImpairmentTester:
             impairment_loss_total=Decimal("300"),
             amount=Decimal("500")
         ) == Decimal("500")
-        
+
         assert tester.calculate_remaining_impairment_capacity(
             carrying_amount=Decimal("1000"),
             impairment_loss_total=Decimal("300"),
@@ -394,7 +395,7 @@ class TestGoodwillImpairmentTester:
         # Menggunakan pembagi genap (2 tes) untuk menghindari hasil desimal panjang tak berhingga
         tester.test_impairment(Decimal("1000"), Decimal("800"))  # impaired loss 200.00
         tester.test_impairment(Decimal("3000"), Decimal("2600")) # impaired loss 400.00
-        
+
         summary = tester.get_summary()
         assert summary["total_tests"] == 2
         assert summary["impaired_count"] == 2

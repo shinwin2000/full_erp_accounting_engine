@@ -4,11 +4,12 @@ Comprehensive tests for domain/project_services/project_revenue_recognizer.py.
 Covers all public methods, negative paths, edge cases, and uses mocks to avoid flakiness.
 """
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
+
+import pytest
 
 from domain.project_services.project_revenue_recognizer import (
     CostType,

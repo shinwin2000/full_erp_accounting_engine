@@ -40,7 +40,6 @@ from uuid import uuid4
 import pytest
 
 from kernel.guards.coretax_format_validator import (
-    BaseCoretaxFormatGuard,
     CoretaxDocumentType,
     CoretaxFormatGuard,
     CoretaxFormatValidator,
@@ -48,8 +47,7 @@ from kernel.guards.coretax_format_validator import (
     CoretaxValidationSeverity,
     get_coretax_format_guard,
 )
-from kernel.guards.guard_exceptions import CoretaxFormatError, GuardSeverity
-
+from kernel.guards.guard_exceptions import CoretaxFormatError
 
 # ============================================================================
 # Fixtures

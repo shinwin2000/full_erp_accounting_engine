@@ -1,18 +1,26 @@
 # tests/application/mappers/test_domain_to_dto.py
 # Perbaikan kualitas assertions: mengganti semua assert True dengan
 # assertion yang memeriksa nilai aktual, efek samping, dan mapping yang benar.
+# Menambahkan test eksplisit untuk fungsi-fungsi helper privat:
+# _safe_str, _safe_uuid, _safe_decimal.
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
+# ============================================================================
+# Explicit imports for private helper functions (for testing)
+# ============================================================================
 from application.mappers.domain_to_dto import (
     DomainToDTOMappingError,
     JournalDomainToDtoMapper,
+    _safe_decimal,
+    _safe_str,
+    _safe_uuid,
+    _serialize_value,
     dto_to_dict,
     map_ap_invoice_to_response_dto,
     map_ap_payment_to_response_dto,
@@ -52,7 +60,6 @@ class TestJournalDomainToDtoMapper:
         return JournalDomainToDtoMapper()
 
     def test_map_with_journal_number(self, mapper):
-        # Create a mock journal with journal_number
         journal = MagicMock()
         journal.journal_number = "JRN-001"
         journal.description = "Test journal"
@@ -67,7 +74,6 @@ class TestJournalDomainToDtoMapper:
 
     def test_map_with_id_fallback(self, mapper):
         journal = MagicMock()
-        # No journal_number, use id
         journal.journal_number = None
         journal.id = uuid4()
         journal.description = "Test"
@@ -90,7 +96,6 @@ class TestJournalDomainToDtoMapper:
         assert result.status == "APPROVED"
 
     def test_map_with_lines(self, mapper):
-        # Create line objects
         line1 = MagicMock()
         line1.account_code = "101"
         line1.debit = Decimal("100")
@@ -117,7 +122,6 @@ class TestJournalDomainToDtoMapper:
         assert result.lines[1]["credit"] == "100"
 
     def test_map_with_line_account_as_object(self, mapper):
-        # line has account attribute (object with code)
         account_obj = MagicMock()
         account_obj.code = "101"
 
@@ -137,7 +141,6 @@ class TestJournalDomainToDtoMapper:
         assert result.lines[0]["account"] == "101"
 
     def test_map_with_line_using_account_fallback(self, mapper):
-        # line has account attribute as string
         line = MagicMock()
         line.account = "102"
         line.account_code = None
@@ -195,7 +198,6 @@ class TestMapJournalEntryToResponseDTO:
         line2.auxiliary_2 = None
 
         journal.lines = [line1, line2]
-        journal.remaining_balance = None
 
         aggregate_id = uuid4()
         result = map_journal_entry_to_response_dto(
@@ -213,7 +215,6 @@ class TestMapJournalEntryToResponseDTO:
         assert result.status.value == "POSTED"
         assert result.version == 2
 
-        # Check lines
         assert len(result.lines) == 2
         assert result.lines[0].account_code == "101"
         assert result.lines[0].debit == Decimal("100")
@@ -230,11 +231,9 @@ class TestMapJournalEntryToResponseDTO:
         assert result.lines[1].debit == Decimal("0")
         assert result.lines[1].credit == Decimal("100")
 
-        # Check totals
         assert result.total_debit == Decimal("100")
         assert result.total_credit == Decimal("100")
 
-        # Check metadata
         assert result.created_by == str(journal.created_by)
         assert result.approved_by == str(journal.approved_by)
 
@@ -272,7 +271,6 @@ class TestMapJournalEntryToResponseDTO:
         assert result.id == UUID(int=0)
 
     def test_map_with_error_raises(self):
-        # Force an error by passing invalid object
         with pytest.raises(DomainToDTOMappingError, match="Journal mapping error"):
             map_journal_entry_to_response_dto(None)
 
@@ -674,7 +672,6 @@ class TestMapPeriodCloseToResponseDTO:
 # ============================================================================
 class TestMapTrialBalanceCubeToDTO:
     def test_map_with_accounts(self):
-        # Create mock accounts
         account1 = MagicMock()
         account1.code = "101"
         account1.name = "Cash"
@@ -720,7 +717,6 @@ class TestMapTrialBalanceCubeToDTO:
         assert result.total_credit_closing == Decimal("800")
         assert result.is_balanced is True
 
-        # Check rows
         assert len(result.rows) == 2
         assert result.rows[0]["account_code"] == "101"
         assert result.rows[0]["account_name"] == "Cash"
@@ -746,10 +742,9 @@ class TestMapTrialBalanceCubeToDTO:
         assert result.is_balanced is True
 
     def test_map_with_method_fallback(self):
-        # If method not callable, use attribute directly
         cube = MagicMock()
         cube.accounts = []
-        cube.total_opening_debit = Decimal("100")  # not callable
+        cube.total_opening_debit = Decimal("100")   # not callable
         cube.total_opening_credit = Decimal("50")
         cube.total_movement_debit = Decimal("0")
         cube.total_movement_credit = Decimal("0")
@@ -808,7 +803,7 @@ class TestMapBalanceSheetToDTO:
         balance_sheet.total_liabilities = Decimal("0")
         balance_sheet.equity = Decimal("0")
         balance_sheet.total_liabilities_equity = Decimal("0")
-        balance_sheet.is_balanced = False  # not callable
+        balance_sheet.is_balanced = False   # not callable
 
         result = map_balance_sheet_to_dto(balance_sheet, date.today(), uuid4())
         assert result.is_balanced is False
@@ -901,7 +896,6 @@ class TestMapCashFlowToDTO:
 # ============================================================================
 class TestDTOToDict:
     def test_convert_journal_response_dto(self):
-        # Create a real DTO using the mapper first
         journal = MagicMock()
         journal.id = uuid4()
         journal.journal_number = "JRN-001"
@@ -984,60 +978,100 @@ class TestDTOToDict:
             dto_to_dict(NotADTO())
 
     def test_serialize_nested_list_with_dto(self):
-        # Test that serialization handles nested DTOs
-        dto = MagicMock()
-        # Make it look like a dataclass with fields
-        dto.__dataclass_fields__ = {"items": None, "name": None}
-        dto.items = [MagicMock(), MagicMock()]
-        dto.name = "test"
-
-        # For nested list with non-DTO objects, it should convert them as-is
-        # We'll test with simple list of strings
-        result = _serialize_nested_list_value(["a", "b", "c"])
+        # Test that _serialize_value handles lists correctly
+        result = _serialize_value(["a", "b", "c"])
         assert result == ["a", "b", "c"]
 
     def test_serialize_uuid(self):
-        from application.mappers.domain_to_dto import _serialize_value
         uid = uuid4()
         result = _serialize_value(uid)
         assert result == str(uid)
 
     def test_serialize_decimal(self):
-        from application.mappers.domain_to_dto import _serialize_value
         d = Decimal("10.50")
         result = _serialize_value(d)
         assert result == "10.50"
 
     def test_serialize_date(self):
-        from application.mappers.domain_to_dto import _serialize_value
         d = date(2026, 1, 1)
         result = _serialize_value(d)
         assert result == "2026-01-01"
 
     def test_serialize_datetime(self):
-        from application.mappers.domain_to_dto import _serialize_value
         dt = datetime(2026, 1, 1, 10, 30, 0)
         result = _serialize_value(dt)
         assert result == "2026-01-01T10:30:00"
 
     def test_serialize_dict(self):
-        from application.mappers.domain_to_dto import _serialize_value
         d = {"key": "value", "num": 123}
         result = _serialize_value(d)
         assert result["key"] == "value"
         assert result["num"] == 123
 
     def test_serialize_with_to_dict_method(self):
-        from application.mappers.domain_to_dto import _serialize_value
         obj = MagicMock()
         obj.to_dict = lambda: {"custom": "data"}
         result = _serialize_value(obj)
         assert result == {"custom": "data"}
 
 
-# Helper function for testing nested list serialization
-def _serialize_nested_list_value(value):
-    from application.mappers.domain_to_dto import _serialize_value
-    if isinstance(value, list):
-        return [_serialize_value(v) for v in value]
-    return value
+# ============================================================================
+# Tests for private helper functions: _safe_str, _safe_uuid, _safe_decimal
+# ============================================================================
+class TestHelperFunctions:
+    def test_safe_str_with_string(self):
+        assert _safe_str("hello") == "hello"
+
+    def test_safe_str_with_none(self):
+        assert _safe_str(None) == ""
+
+    def test_safe_str_with_default(self):
+        assert _safe_str(None, default="default") == "default"
+
+    def test_safe_str_with_object_having_value(self):
+        obj = MagicMock()
+        obj.value = "test_value"
+        assert _safe_str(obj) == "test_value"
+
+    def test_safe_str_with_other(self):
+        assert _safe_str(123) == "123"
+
+    def test_safe_uuid_with_uuid(self):
+        uid = uuid4()
+        assert _safe_uuid(uid) == uid
+
+    def test_safe_uuid_with_none(self):
+        assert _safe_uuid(None) is None
+
+    def test_safe_uuid_with_object_having_id(self):
+        obj = MagicMock()
+        uid = uuid4()
+        obj.id = uid
+        assert _safe_uuid(obj) == uid
+
+    def test_safe_uuid_with_string(self):
+        uid = uuid4()
+        assert _safe_uuid(str(uid)) == uid
+
+    def test_safe_uuid_with_invalid_string(self):
+        assert _safe_uuid("invalid") is None
+
+    def test_safe_decimal_with_decimal(self):
+        d = Decimal("10.50")
+        assert _safe_decimal(d) == d
+
+    def test_safe_decimal_with_none(self):
+        assert _safe_decimal(None) == Decimal("0")
+
+    def test_safe_decimal_with_custom_default(self):
+        default = Decimal("99.99")
+        assert _safe_decimal(None, default=default) == default
+
+    def test_safe_decimal_with_string(self):
+        assert _safe_decimal("20.00") == Decimal("20.00")
+
+    def test_safe_decimal_with_int(self):
+        assert _safe_decimal(100) == Decimal("100")
+
+    def test_safe_decimal_with_invalid(self):
+        assert _safe_decimal("invalid") == Decimal("0")

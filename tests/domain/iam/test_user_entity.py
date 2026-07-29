@@ -2,11 +2,11 @@
 # Comprehensive tests for user_entity.py
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
+from domain.iam.password_hashed_vo import PasswordHashedVO
 from domain.iam.user_entity import (
     InvalidUserStatusTransitionError,
     UserAudit,
@@ -16,8 +16,6 @@ from domain.iam.user_entity import (
     UserRepository,
     UserStatus,
 )
-from domain.iam.password_hashed_vo import PasswordHashedVO
-
 
 # ============================================================================
 # Fixtures

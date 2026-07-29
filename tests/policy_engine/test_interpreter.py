@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -36,7 +36,6 @@ from policy_engine.interpreter import (
     get_policy_interpreter,
 )
 from policy_engine.loader_yaml import PolicyRule, PolicySet
-
 
 # =============================================================================
 # Fixtures
@@ -648,7 +647,7 @@ class TestPolicyInterpreter:
             file_path = f.name
         try:
             interpreter.export_to_json(file_path)
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 data = json.load(f)
             assert "report" in data
             assert "history" in data

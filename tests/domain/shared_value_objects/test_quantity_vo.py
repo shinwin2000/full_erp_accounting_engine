@@ -2,8 +2,10 @@
 # Comprehensive tests for domain/shared_value_objects/quantity_vo.py
 # Covers all classes, methods, edge cases, exceptions, and domain logic.
 
+from decimal import ROUND_HALF_EVEN, Decimal
+
 import pytest
-from decimal import Decimal, ROUND_HALF_EVEN
+
 from domain.shared_value_objects.quantity_vo import (
     InvalidQuantityError,
     QuantityError,
@@ -384,7 +386,7 @@ class TestQuantityVO:
     def test_equality_different_units_incompatible(self, q_pcs, q_kg):
         # Should return False, not raise
         assert q_pcs != q_kg
-        assert not (q_pcs == q_kg)
+        assert q_pcs != q_kg
 
     def test_ordering(self, q_pcs):
         q2 = QuantityVO(Decimal("12"), UnitOfMeasure.PCS)

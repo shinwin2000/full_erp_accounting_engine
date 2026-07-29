@@ -3,10 +3,9 @@
 
 import hashlib
 import json
-from datetime import date, datetime, timedelta
-from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
-from uuid import UUID, uuid4
+from datetime import date
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
@@ -19,7 +18,6 @@ from compliance.legal.legal_opinion_document_store import (
     LegalOpinionNotFoundError,
     LegalOpinionStatus,
 )
-
 
 # ============================================================================
 # Fixtures

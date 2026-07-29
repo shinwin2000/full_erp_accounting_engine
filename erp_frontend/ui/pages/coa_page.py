@@ -12,12 +12,14 @@ sungguhan. Sudah diperbaiki di sini.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
+from core.api_client import api_client
+from core.formatting import extract_list, format_money
+from core.workers import run_task
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,10 +31,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_money
-from core.workers import run_task
 from registry.module_registry import FieldSpec, FieldType
 from ui.widgets.form_dialog import FormDialog
 from ui.widgets.kpi_card import KpiCard
@@ -278,7 +276,7 @@ class CoaPage(QWidget):
             lines.append(f"<b>Flag:</b> {', '.join(f.replace('is_', '').replace('_', ' ') for f in flags)}")
         self.detail_label.setText("<br>".join(lines))
 
-    def _selected_account(self) -> Optional[dict[str, Any]]:
+    def _selected_account(self) -> dict[str, Any] | None:
         items = self.tree.selectedItems()
         if not items:
             return None
@@ -304,7 +302,7 @@ class CoaPage(QWidget):
                 json_body=payload,
             )
 
-    def _create_account(self, parent_code: Optional[str] = None) -> None:
+    def _create_account(self, parent_code: str | None = None) -> None:
         initial = {"parent_account_code": parent_code} if parent_code else None
         dlg = FormDialog("Akun Baru", CREATE_FIELDS, initial=initial, parent=self)
         if dlg.exec():

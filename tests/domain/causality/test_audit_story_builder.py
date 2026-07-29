@@ -6,7 +6,6 @@ static checker requirements. All tests PASS.
 """
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -22,7 +21,6 @@ from domain.causality.audit_story_builder import (
     get_audit_story_builder,
 )
 from domain.causality.explanation_generator import ExplanationLanguage, ExplanationLevel
-
 
 # ============================================================================
 # Fixtures

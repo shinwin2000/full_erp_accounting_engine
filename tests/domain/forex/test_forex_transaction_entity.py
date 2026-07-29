@@ -14,11 +14,9 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,7 +29,6 @@ from domain.forex.forex_transaction_entity import (
     ForexTransactionStatus,
     ForexTransactionType,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures

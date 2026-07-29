@@ -2,9 +2,9 @@
 # Comprehensive tests for compliance/legal/regulatory_filing_tracker.py
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -17,7 +17,6 @@ from compliance.legal.regulatory_filing_tracker import (
     RegulatoryFiling,
     RegulatoryFilingTracker,
 )
-
 
 # ============================================================================
 # Fixtures

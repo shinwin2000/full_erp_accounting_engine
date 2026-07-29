@@ -17,13 +17,11 @@ from domain.consolidation.aggregate_root import (
     ConsolidationGroupRepository,
     ConsolidationStatus,
 )
-from domain.consolidation.elimination_entry import EliminationEntry
 from domain.consolidation.intercompany_transaction import (
     IntercompanyTransaction,
     TransactionType,
 )
 from domain.legal_entity.company_entity import Company
-
 
 # ============================================================================
 # Fixtures

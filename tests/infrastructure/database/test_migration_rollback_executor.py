@@ -79,7 +79,6 @@ from infrastructure.database.migration_rollback_executor import (
     get_rollback_executor,
 )
 
-
 # ============================================================================
 # Helpers
 # ============================================================================

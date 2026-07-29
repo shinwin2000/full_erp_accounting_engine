@@ -8,6 +8,7 @@ Semua komponen di-import secara statis. Tidak ada dynamic import.
 Komponen yang gagal diimport (kecuali yang benar-benar opsional) akan menyebabkan aplikasi gagal start.
 """
 from __future__ import annotations
+
 import asyncio
 import logging
 import os
@@ -17,6 +18,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 # ============================================================================

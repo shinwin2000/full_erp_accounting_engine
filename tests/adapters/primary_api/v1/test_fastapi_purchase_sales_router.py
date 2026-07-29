@@ -14,11 +14,9 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 
 from adapters.primary_api.v1.fastapi_purchase_sales_router import (
-    DeliveryOrderCreateSchema,
     DeliveryOrderResponseSchema,
     DeliveryOrderStatus,
     DOLineSchema,
-    GoodsReceiptCreateSchema,
     GoodsReceiptResponseSchema,
     GoodsReceiptStatus,
     GRNLineSchema,
@@ -30,11 +28,9 @@ from adapters.primary_api.v1.fastapi_purchase_sales_router import (
     PurchaseOrderResponseSchema,
     PurchaseOrderStatus,
     PurchaseOrderUpdateSchema,
-    SalesOrderCreateSchema,
     SalesOrderResponseSchema,
     SalesOrderStatus,
     SalesOrderUpdateSchema,
-    SOLineSchema,
     approve_purchase_order,
     approve_sales_order,
     cancel_goods_receipt,

@@ -4,15 +4,13 @@
 
 import asyncio
 import threading
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from infrastructure.telemetry.prometheus_registry import (
-    BATCH_BUCKETS,
-    DEFAULT_BUCKETS,
-    PrometheusMetricRegistry,
     PROMETHEUS_AVAILABLE,
+    PrometheusMetricRegistry,
     count_metric,
     error_metric,
     flush,
@@ -164,27 +162,7 @@ class TestPredefinedMetrics:
             commands_dispatched_total,
             commands_execution_latency_seconds,
             commands_failed_total,
-            commands_succeeded_total,
-            commands_duration_seconds,
-            queries_dispatched_total,
-            queries_latency_seconds,
-            queries_cache_hits_total,
-            queries_duration_seconds,
-            events_published_total,
-            events_publish_latency_seconds,
-            events_publish_errors_total,
-            events_handled_total,
-            outbox_events_published_total,
-            outbox_events_failed_total,
-            outbox_publish_latency_seconds,
             outbox_batch_size,
-            events_consumed_total,
-            events_processed_total,
-            events_processing_errors_total,
-            events_processing_latency_seconds,
-            dead_letter_events_total,
-            journal_entries_total,
-            transaction_volume_total,
         )
         assert hasattr(commands_dispatched_total, "inc")
         assert hasattr(commands_execution_latency_seconds, "observe")

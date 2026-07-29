@@ -20,7 +20,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -40,7 +39,6 @@ from compliance.coretax_validator import (
     SPTValidationResult,
     ValidationSeverity,
 )
-
 
 # =============================================================================
 # Fixtures

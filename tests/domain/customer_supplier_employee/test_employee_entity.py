@@ -1,7 +1,7 @@
 # test_employee_entity.py
 # Comprehensive tests for employee_entity.py
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -24,7 +24,6 @@ from domain.customer_supplier_employee.employee_ptkp_status_vo import (
     EmployeePTKPStatusVO,
     MaritalStatus,
 )
-
 
 # ============================================================================
 # Fixtures

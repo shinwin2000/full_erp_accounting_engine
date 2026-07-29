@@ -3,7 +3,7 @@
 # Comprehensive tests for context_enricher.py.
 # Covers EnrichedContext and ContextEnricher.
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 

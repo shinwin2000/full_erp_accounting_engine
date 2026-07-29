@@ -1,7 +1,7 @@
 # test_payroll_run_entity.py
 # Comprehensive tests for payroll_run_entity.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -15,7 +15,6 @@ from domain.payroll.payroll_run_entity import (
     PayrollRunStatus,
 )
 from domain.payroll.salary_component_entity import ComponentType, SalaryComponentEntity
-
 
 # ============================================================================
 # Fixtures

@@ -1,6 +1,7 @@
-# test_optimistic_lock.py
+# tests/domain/journal/test_optimistic_lock.py
 # =========================================
-# Lengkap: Semua test asli dipertahankan + tambahan test coverage untuk metode yang hilang.
+# Comprehensive tests for domain/journal/optimistic_lock.py
+# Covers all methods, edge cases, and negative paths with proper assertions.
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -37,8 +38,10 @@ class TestOptimisticLockManager:
             version = 5
 
         entity = Dummy()
-        # Should not raise
+        # Should not raise; assert that the call completes without exception
+        # and that the version remains unchanged.
         OptimisticLockManager.check_version(entity, 5)
+        assert entity.version == 5  # verify no modification
 
     def test_check_version_failure(self):
         class Dummy:
@@ -57,16 +60,21 @@ class TestOptimisticLockManager:
             _version = 7
 
         entity = Dummy()
-        OptimisticLockManager.check_version(entity, 7)  # should not raise
+        # Should not raise; assert that the call completes and version matches.
+        OptimisticLockManager.check_version(entity, 7)
+        assert entity._version == 7
 
     def test_check_posted_immutability_allowed(self):
         class Dummy:
             status = "POSTED"
 
         entity = Dummy()
-        # These operations should not raise
-        for op in ["reverse", "archive", "read", "view"]:
-            OptimisticLockManager.check_posted_immutability(entity, op)
+        # Allowed operations should not raise.
+        allowed_ops = ["reverse", "archive", "read", "view"]
+        for op in allowed_ops:
+            # Call the method; it should return None (implicitly) and not raise.
+            result = OptimisticLockManager.check_posted_immutability(entity, op)
+            assert result is None  # method returns None
 
     def test_check_posted_immutability_raises(self):
         class Dummy:
@@ -81,8 +89,9 @@ class TestOptimisticLockManager:
             status = "DRAFT"
 
         entity = Dummy()
-        # Should not raise for any operation
-        OptimisticLockManager.check_posted_immutability(entity, "delete")
+        # Should not raise; assert that call completes.
+        result = OptimisticLockManager.check_posted_immutability(entity, "delete")
+        assert result is None
 
     def test_with_version_check_success(self):
         class Dummy:

@@ -3,12 +3,10 @@
 # assertion yang memeriksa nilai aktual, efek samping, dan interaksi mock.
 # Tests ini menggunakan mock untuk menghindari koneksi database nyata.
 
-import asyncio
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.session_factory_sqlalchemy import (
     SessionFactoryError,

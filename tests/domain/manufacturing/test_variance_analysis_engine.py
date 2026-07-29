@@ -4,7 +4,7 @@
 # Covers all enums, value objects, calculation methods, and aggregate statistics.
 
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

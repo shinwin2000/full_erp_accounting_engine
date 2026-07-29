@@ -4,7 +4,6 @@
 import json
 from datetime import date, timedelta
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,7 +23,6 @@ from compliance.compliance_report_for_audit_committee import (
     Severity,
     create_sample_report,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -3,7 +3,6 @@
 # Comprehensive tests for domain/manufacturing/cost_element_enum.py.
 # Covers all enum members, properties, and methods.
 
-import pytest
 
 from domain.manufacturing.cost_element_enum import CostElement
 

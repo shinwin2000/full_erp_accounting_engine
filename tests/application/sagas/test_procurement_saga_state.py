@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 

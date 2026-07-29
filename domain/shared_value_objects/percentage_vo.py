@@ -435,7 +435,7 @@ def weighted_average_percentage(
         raise PercentageError("Values and weights must have same length and be non-empty")
     total_weight = Decimal("0")
     weighted_sum = Decimal("0")
-    for p, w in zip(values, weights):
+    for p, w in zip(values, weights, strict=False):
         if isinstance(w, float):
             w = Decimal(str(w))
         elif isinstance(w, int):

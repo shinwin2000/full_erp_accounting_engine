@@ -11,13 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp
+from starlette.responses import Response
 
 from adapters.primary_api.common.fastapi_rate_limit_middleware import (
-    DEFAULT_CALLS_PER_MINUTE,
     FixedWindowRateLimiter,
-    RateLimitExceeded,
     RateLimitMiddleware,
     RateLimitStrategy,
     SlidingWindowRateLimiter,
@@ -25,7 +22,6 @@ from adapters.primary_api.common.fastapi_rate_limit_middleware import (
     create_rate_limit_middleware,
     get_redis_rate_limiter,
 )
-
 
 # ============================================================================
 # Fixtures

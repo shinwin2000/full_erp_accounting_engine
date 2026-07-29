@@ -41,10 +41,11 @@ from domain.manufacturing.domain_events import (
     WorkOrderStartedEvent,
 )
 from domain.manufacturing.standard_cost_entity import StandardCostEntity, StandardCostStatus
-from domain.manufacturing.variance_analysis_engine import VarianceAnalysisEngine, VarianceAnalysisResult
+from domain.manufacturing.variance_analysis_engine import (
+    VarianceAnalysisResult,
+)
 from domain.manufacturing.work_in_process_entity import WIPStatus, WorkInProcessEntity
 from domain.manufacturing.work_order_entity import WorkOrderEntity, WorkOrderStatus
-
 
 # =============================================================================
 # Fixtures
@@ -294,21 +295,21 @@ class TestManufacturingAggregate:
         new_bom.status = BOMStatus.DRAFT
         new_bom.items = [MagicMock()]
         agg = agg.add_bill_of_materials(new_bom, "creator")
-        
+
         # Pull events (includes BOMCreatedEvent)
         events = agg.pull_events()
         assert len(events) > 0
-        
+
         # Create a fresh aggregate and replay events
         fresh_agg = ManufacturingAggregate.create(aggregate.legal_entity_id, "creator")
         old_version = fresh_agg.version
-        
+
         # Verify BOM not present before replay
         assert len(fresh_agg.bills_of_materials) == 0
-        
+
         # Replay events using replay_events alias
         fresh_agg.replay_events(events)
-        
+
         # Verify state updated
         assert fresh_agg.version == old_version + len(events)
         assert len(fresh_agg.get_events()) == len(events)  # events stored

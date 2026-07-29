@@ -4,7 +4,6 @@
 
 import logging
 import uuid
-from contextvars import ContextVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,7 +13,6 @@ from starlette.responses import Response
 from adapters.primary_api.common.fastapi_request_id_middleware import (
     HEADER_CORRELATION_ID,
     HEADER_REQUEST_ID,
-    HEADER_TRACE_ID,
     CorrelationIdHandler,
     RequestIDContext,
     RequestIDError,

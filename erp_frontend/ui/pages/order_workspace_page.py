@@ -16,9 +16,12 @@ Endpoint backend:
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional
+from typing import Any
 
-from PySide6.QtCore import QDate, Qt
+from core.api_client import api_client
+from core.formatting import extract_list, format_date, format_money, status_color
+from core.workers import run_task
+from PySide6.QtCore import QDate
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -40,10 +43,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_date, format_money, status_color
-from core.workers import run_task
 
 ORDER_TYPES = ("standard", "rush", "backorder", "consignment", "dropship")
 INCOTERMS = ("EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP")
@@ -215,7 +214,7 @@ class OrderWorkspacePage(QWidget):
         self.page += 1
         self.refresh()
 
-    def _selected_record(self) -> Optional[dict[str, Any]]:
+    def _selected_record(self) -> dict[str, Any] | None:
         row = self.table.currentRow()
         if row < 0 or row >= len(self._records):
             return None

@@ -1,7 +1,7 @@
 # test_customer_entity.py
 # Comprehensive tests for customer_entity.py
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
@@ -21,7 +21,6 @@ from domain.customer_supplier_employee.customer_entity import (
 from domain.customer_supplier_employee.customer_tax_status_vo import (
     CustomerTaxStatusVO,
 )
-
 
 # ============================================================================
 # Fixtures

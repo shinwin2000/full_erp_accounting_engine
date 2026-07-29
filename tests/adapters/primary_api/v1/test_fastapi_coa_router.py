@@ -9,7 +9,7 @@ Perbaikan:
 - Semua assertion bermakna, tidak ada assert True kosong
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -61,7 +61,7 @@ from adapters.primary_api.v1.fastapi_coa_router import (
 # ============================================================================
 # FIXED DATETIME - untuk menghindari flaky tests
 # ============================================================================
-FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -258,7 +258,7 @@ class TestIdempotencyManager:
 
     @patch("adapters.primary_api.v1.fastapi_coa_router.datetime")
     def test_cache_serializes_complex_types(self, mock_dt):
-        fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        fixed_now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
         mock_dt.now.return_value = fixed_now
         mgr = IdempotencyManager()
         data = {"date": fixed_now, "decimal": Decimal("10.50")}

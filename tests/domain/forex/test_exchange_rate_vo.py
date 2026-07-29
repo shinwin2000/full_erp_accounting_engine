@@ -5,7 +5,7 @@ Covers all public methods and properties with strong assertions.
 All tests PASS.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -18,7 +18,6 @@ from domain.forex.exchange_rate_vo import (
     InvalidRateError,
     calculate_cross_rate,
 )
-
 
 # ============================================================================
 # Helper fixture
@@ -522,18 +521,18 @@ def _trigger_all_exchange_rate_methods():
         source="bank",
         created_by="tester",
     )
-    
+
     # Access all properties
     _ = rate.rate_as_float
     _ = rate.inverse_rate
     _ = rate.display_rate
     _ = rate.effective_date_only
     _ = rate.is_spot_rate
-    
+
     # Access all methods
     _ = rate.convert(Decimal("100"))
     _ = rate.convert_inverse(Decimal("100"))
-    
+
     other = ExchangeRate(
         currency="USD",
         rate=Decimal("16000"),
@@ -544,11 +543,11 @@ def _trigger_all_exchange_rate_methods():
     _ = rate.is_higher_than(other)
     _ = rate.is_lower_than(other)
     _ = rate.percentage_change(other)
-    
+
     # Access __hash__
     _ = rate.__hash__()
     _ = hash(rate)
-    
+
     # Serialization
     _ = rate.to_dict()
     _ = ExchangeRate.from_dict(rate.to_dict())

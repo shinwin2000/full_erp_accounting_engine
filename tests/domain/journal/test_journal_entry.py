@@ -250,7 +250,6 @@ class TestJournalEntry:
             )
 
     def test_constructor_validation_full(self, balanced_lines):
-        # Direct construction with balanced lines should pass
         entry = JournalEntry(
             id=uuid4(),
             legal_entity_id=uuid4(),
@@ -331,14 +330,29 @@ class TestJournalEntry:
         )
         assert entry.is_balanced() is True
 
-    def test_is_balanced_false(self, unbalanced_lines):
-        # Need to bypass __post_init__ validation to create unbalanced
-        # We can create via direct construction with validation disabled? Actually __post_init__ will raise.
-        # But we want to test the property itself. We can create valid lines, then modify via __dict__ hack (not recommended)
-        # Instead, test that validation raises, and for property testing we can use a balanced entry.
-        # To test false case, we can temporarily monkeypatch __post_init__ or use a different approach.
-        # Better: we already have test that unbalanced raises. So we skip testing is_balanced false.
-        pass
+    def test_is_balanced_false(self, balanced_lines):
+        # Create a valid entry with balanced lines, then mutate to unbalanced using object.__setattr__
+        entry = JournalEntry(
+            id=uuid4(),
+            legal_entity_id=uuid4(),
+            journal_number="JRN-001",
+            journal_date=date.today(),
+            period="2025-01",
+            description="Test",
+            source_system="ERP",
+            status=JournalEntryStatus.DRAFT,
+            created_by=uuid4(),
+            created_at=datetime.now(UTC),
+            lines=balanced_lines,
+        )
+        # Modify lines to make unbalanced
+        # Since lines is a list, we can create a new list and use object.__setattr__
+        new_lines = [
+            JournalLine(account_code="1010", debit=Decimal("500"), credit=Decimal("0"), description="Debit"),
+            JournalLine(account_code="2020", debit=Decimal("0"), credit=Decimal("400"), description="Credit"),
+        ]
+        object.__setattr__(entry, 'lines', new_lines)
+        assert entry.is_balanced() is False
 
     def test_is_posted(self, balanced_lines):
         entry = JournalEntry(
@@ -442,4 +456,14 @@ class TestJournalEntry:
         assert d["reversed_at"] is not None
         assert d["reversal_of"] is not None
 
-    # Optional: test that __post_init__ raises for invalid states (already covered by create_draft)
+    def test_created_at_timezone(self, balanced_lines):
+        entry = JournalEntry.create_draft(
+            legal_entity_id=uuid4(),
+            journal_number="JRN-001",
+            journal_date=date.today(),
+            period="2025-01",
+            description="Valid",
+            lines=balanced_lines,
+            created_by=uuid4(),
+        )
+        assert entry.created_at.tzinfo == UTC

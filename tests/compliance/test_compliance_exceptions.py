@@ -5,7 +5,6 @@
 
 import json
 from datetime import datetime
-from unittest.mock import patch
 
 import pytest
 
@@ -30,14 +29,13 @@ from compliance.compliance_exceptions import (
     ProfessionalJudgmentError,
     ReportGenerationError,
     ReportingError,
-    SOXViolationError,
-    SPTSubmissionError,
     SanctionListHitError,
     SegregationOfDutyError,
+    SOXViolationError,
+    SPTSubmissionError,
     SuspiciousTransactionReported,
     TaxComplianceError,
 )
-
 
 # ============================================================================
 # Enum tests

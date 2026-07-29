@@ -5,7 +5,7 @@ Covers all methods including calculate_tax_simple, calculate_sewa, and exception
 """
 
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -23,7 +23,6 @@ from policy_engine.tax_indonesia.pph_23_calculator import (
 
 # Import the exception that is raised
 from policy_engine.tax_indonesia.tax_exceptions import PPhTariffNotFoundError
-
 
 # ============================================================================
 # Enum tests

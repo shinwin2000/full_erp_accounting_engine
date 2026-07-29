@@ -2,7 +2,6 @@
 # Comprehensive tests for infrastructure/persistence_orm/salary_component_table.py
 
 from decimal import Decimal
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

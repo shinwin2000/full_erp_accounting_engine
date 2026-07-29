@@ -3,8 +3,7 @@
 # Covers all classes, methods, edge cases, exceptions, and domain logic.
 
 import json
-import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

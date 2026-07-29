@@ -7,7 +7,7 @@ All datetime usage is mocked to avoid flakiness.
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -21,7 +21,6 @@ from domain.journal.invariants import (
 )
 from domain.journal.journal_entity import JournalEntity, JournalStatus
 from domain.journal.journal_line_vo import JournalLineVO, JournalSide
-from domain.journal.state_machine import JournalStateMachine
 
 # ============================================================================
 # Fixed datetime for deterministic tests

@@ -5,10 +5,10 @@
 # and their methods: validate, normalize (for NPWP), to_string, from_string, to_dict,
 # from_dict, clone, snapshot, version, audit_trail, touch, __eq__, __hash__.
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
+
 import pytest
-import re
 
 from domain.tax_transaction.value_objects import (
     NPWP,

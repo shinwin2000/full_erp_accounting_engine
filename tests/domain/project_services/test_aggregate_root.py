@@ -4,14 +4,13 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from domain.project_services.aggregate_root import ProjectAggregate, ProjectRepository
 from domain.project_services.cost_entry_vo import CostType
 from domain.project_services.domain_events import (
-    DomainEvent,
     ProjectActivatedEvent,
     ProjectCompletedEvent,
     ProjectCreatedEvent,
@@ -21,12 +20,10 @@ from domain.project_services.domain_events import (
 from domain.project_services.project_billing_schedule import (
     BillingMilestone,
     BillingMilestoneStatus,
-    BillingType,
     ProjectBillingSchedule,
 )
-from domain.project_services.project_cost_tracker import CostEntry, ProjectCostTracker
+from domain.project_services.project_cost_tracker import CostEntry
 from domain.project_services.project_entity import ProjectEntity, ProjectStatus, ProjectType
-from domain.project_services.project_revenue_recognizer import ProjectRevenueRecognizer
 from domain.project_services.retainer_contract_entity import RetainerContractEntity
 from domain.project_services.time_entry_entity import TimeEntryEntity, TimeEntryStatus
 

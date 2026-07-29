@@ -139,26 +139,27 @@ class TestEvidence:
     """Tests for the Evidence value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            evidence_id=uuid4(),
-            filename="test_value",
-            file_hash="test_value",
-            file_size=1,
-            mime_type="test_value",
-            evidence_type=EvidenceType.INVOICE,
-            uploaded_by="test_value",
-            uploaded_at=datetime.now(UTC),
-            storage_path="test_value",
-            description="test_value",
-            verification_status=EvidenceVerificationStatus.PENDING,
-            verified_at=datetime.now(UTC),
-            verified_by="test_value",
-            transaction_id=uuid4(),
-            legal_entity_id=uuid4(),
-            expiry_date=datetime.now(UTC),
-            tags=["test_value"],
-            cryptographic_hash="test_value",
-        )
+        now = datetime.now(UTC)
+        return {
+            "evidence_id": uuid4(),
+            "filename": "test.pdf",
+            "file_hash": "abc123",
+            "file_size": 1024,
+            "mime_type": "application/pdf",
+            "evidence_type": EvidenceType.INVOICE,
+            "uploaded_by": "user123",
+            "uploaded_at": now,
+            "storage_path": "/storage/test.pdf",
+            "description": "Test description",
+            "verification_status": EvidenceVerificationStatus.PENDING,
+            "verified_at": None,
+            "verified_by": None,
+            "transaction_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "expiry_date": None,
+            "tags": ["tag1", "tag2"],
+            # cryptographic_hash omitted – will be set manually if needed
+        }
 
     def test_construction_success(self):
         """Evidence can be constructed with valid field values."""
@@ -169,23 +170,33 @@ class TestEvidence:
             pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
             return
         assert isinstance(instance, Evidence)
-        assert instance.evidence_id == kwargs['evidence_id']
+        assert instance.evidence_id == kwargs["evidence_id"]
+        # Note: cryptographic_hash is not auto-computed by __post_init__,
+        # so we don't assert it here. It is set explicitly after creation.
+
+    def test_compute_hash(self):
+        """Evidence.compute_hash returns a non-empty string."""
+        kwargs = self._build_kwargs()
+        instance = Evidence(**kwargs)
+        h = instance.compute_hash()
+        assert isinstance(h, str)
+        assert len(h) > 0
 
 
 class TestTransactionEvidenceRequirement:
     """Tests for the TransactionEvidenceRequirement value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            transaction_type="test_value",
-            requirement=EvidenceRequirement.MANDATORY,
-            min_evidence_count=1,
-            required_types=[EvidenceType.INVOICE],
-            amount_threshold=Decimal("100.00"),
-            description="test_value",
-            requires_verification=True,
-            expiry_days=1,
-        )
+        return {
+            "transaction_type": "TEST_TX",
+            "requirement": EvidenceRequirement.MANDATORY,
+            "min_evidence_count": 2,
+            "required_types": [EvidenceType.INVOICE, EvidenceType.RECEIPT],
+            "amount_threshold": Decimal("1000.00"),
+            "description": "Test requirement",
+            "requires_verification": True,
+            "expiry_days": 30,
+        }
 
     def test_construction_success(self):
         """TransactionEvidenceRequirement can be constructed with valid field values."""
@@ -196,7 +207,7 @@ class TestTransactionEvidenceRequirement:
             pytest.skip(f"Domain validation rejected generic dummy data (needs realistic fixture): {e}")
             return
         assert isinstance(instance, TransactionEvidenceRequirement)
-        assert instance.transaction_type == kwargs['transaction_type']
+        assert instance.transaction_type == kwargs["transaction_type"]
 
 
 class TestBaseEvidenceAttacherGuard:

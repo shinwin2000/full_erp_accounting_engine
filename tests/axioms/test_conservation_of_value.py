@@ -14,7 +14,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -31,7 +31,6 @@ from axioms.conservation_of_value import (
     ValueCategory,
     ValueConservationRule,
     ValueFlow,
-    ValueFlowType,
     ValueNode,
     ValuePool,
     ValueTransfer,
@@ -504,8 +503,8 @@ class TestConservationOfValueValidator:
         # medium: ratio > 0.0001
         sev = validator._determine_severity(Decimal("5"), Decimal("10000"), Decimal("0.01"))
         assert sev == ConservationViolationSeverity.MEDIUM
-        # low: ratio > tolerance * 10 = 0.1? Wait tolerance=0.01, so 0.1. So ratio > 0.1? Actually code: elif ratio > tolerance * 10: LOW. So ratio > 0.1? That's weird. Let's check code: 
-        # elif ratio > tolerance * 10: return LOW. So ratio > 0.1 => LOW. But 5/10000=0.0005, not >0.1, so actually goes to INFO? Let's recalc. For 5/10000=0.0005, it goes to LOW? The order: if ratio > 0.05 -> CATASTROPHIC, elif >0.01 -> CRITICAL, elif >0.001 -> HIGH, elif >0.0001 -> MEDIUM, elif > tolerance*10 (0.1) -> LOW. So 0.0005 is not >0.1, so it goes to INFO? Actually it falls through to INFO if not caught. So for diff=5, total=10000, ratio=0.0005, not >0.0001? Wait 0.0005 > 0.0001, so it goes to MEDIUM. So the logic: 
+        # low: ratio > tolerance * 10 = 0.1? Wait tolerance=0.01, so 0.1. So ratio > 0.1? Actually code: elif ratio > tolerance * 10: LOW. So ratio > 0.1? That's weird. Let's check code:
+        # elif ratio > tolerance * 10: return LOW. So ratio > 0.1 => LOW. But 5/10000=0.0005, not >0.1, so actually goes to INFO? Let's recalc. For 5/10000=0.0005, it goes to LOW? The order: if ratio > 0.05 -> CATASTROPHIC, elif >0.01 -> CRITICAL, elif >0.001 -> HIGH, elif >0.0001 -> MEDIUM, elif > tolerance*10 (0.1) -> LOW. So 0.0005 is not >0.1, so it goes to INFO? Actually it falls through to INFO if not caught. So for diff=5, total=10000, ratio=0.0005, not >0.0001? Wait 0.0005 > 0.0001, so it goes to MEDIUM. So the logic:
         # if ratio > 0.05: CATASTROPHIC
         # elif ratio > 0.01: CRITICAL
         # elif ratio > 0.001: HIGH

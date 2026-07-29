@@ -3,9 +3,9 @@
 # diganti dengan assertion yang memeriksa nilai aktual,
 # efek samping, atau interaksi mock.
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 

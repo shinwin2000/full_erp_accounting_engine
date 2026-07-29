@@ -2,10 +2,9 @@
 # Comprehensive tests for kernel/audit_hook_injector.py
 
 import asyncio
-import hashlib
 import logging
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch, AsyncMock, ANY
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,8 +16,8 @@ from kernel.audit_hook_injector import (
     BaseAuditHookInjector,
     _FallbackAuditEvent,
     _FallbackEventStore,
-    _get_event_store,
     _get_digital_signer,
+    _get_event_store,
     audit,
     get_audit_hook_injector,
 )

@@ -14,7 +14,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -27,10 +26,8 @@ from adapters.primary_api.proto.accounting_pb2_grpc import (
     AccountingServiceServicer,
     AccountingServiceStub,
     _IdempotencyManager,
-    _idempotency_manager,
     add_AccountingServiceServicer_to_server,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -1,11 +1,10 @@
 # tests/projections/analytics_bi/test_kpi_threshold_alerter.py
 # Comprehensive tests for projections/analytics_bi/kpi_threshold_alerter.py
 
-import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -15,7 +14,6 @@ from projections.analytics_bi.kpi_threshold_alerter import (
     KPIThresholdError,
     get_kpi_alerter,
 )
-
 
 # ============================================================================
 # Fixtures

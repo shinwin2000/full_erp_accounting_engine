@@ -3,9 +3,8 @@
 Comprehensive tests for infrastructure/persistence_orm/tax_transaction_table.py
 """
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
-from unittest.mock import patch
 from uuid import uuid4
 
 import pytest

@@ -15,7 +15,7 @@ bersama supaya perilaku CRUD & workflow-nya konsisten antar modul.
 """
 from __future__ import annotations
 
-from registry.module_registry import ActionSpec, FieldSpec, FieldType, ModuleConfig
+from registry.module_registry import FieldSpec, FieldType, ModuleConfig
 from ui.widgets.generic_list_page import GenericListPage
 
 # ---------------------------------------------------------------------------

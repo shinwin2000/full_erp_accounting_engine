@@ -69,7 +69,6 @@ from domain.coa.invariants_validator import (
     validate_account_name,
 )
 
-
 # ============================================================================
 # Reset shared ClassVar state
 # ============================================================================

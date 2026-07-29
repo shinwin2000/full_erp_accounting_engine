@@ -3,9 +3,8 @@
 Comprehensive tests for infrastructure/persistence_orm/employee_table.py
 """
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

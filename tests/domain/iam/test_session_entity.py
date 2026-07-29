@@ -7,7 +7,7 @@ and DTO. Uses fixed datetime mocking to avoid flakiness.
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 

@@ -9,9 +9,11 @@ workflow yang sesuai untuk modul tsb.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from PySide6.QtCore import Qt
+from core.api_client import api_client
+from core.formatting import extract_list, extract_total
+from core.workers import run_task
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -28,10 +30,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import ApiError, api_client
-from core.formatting import extract_list, extract_total
-from core.workers import run_task
 from registry.module_registry import ModuleConfig
 from ui.widgets.form_dialog import FormDialog
 from ui.widgets.generic_table_model import GenericTableModel
@@ -40,7 +38,7 @@ PAGE_SIZE = 50
 
 
 class GenericListPage(QWidget):
-    def __init__(self, config: ModuleConfig, parent: Optional[QWidget] = None):
+    def __init__(self, config: ModuleConfig, parent: QWidget | None = None):
         super().__init__(parent)
         self.config = config
         self.page = 1
@@ -185,7 +183,7 @@ class GenericListPage(QWidget):
         self.refresh()
 
     # ------------------------------------------------------------------
-    def _selected_record(self) -> Optional[dict[str, Any]]:
+    def _selected_record(self) -> dict[str, Any] | None:
         idx = self.table.currentIndex()
         if not idx.isValid():
             return None

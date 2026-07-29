@@ -15,11 +15,9 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMessageBox
-
 from core.config import APP_NAME, APP_ORG
 from core.logging_setup import install_qt_message_handler, setup_logging
+from PySide6.QtWidgets import QApplication, QMessageBox
 from ui.login_window import LoginWindow
 from ui.main_window import MainWindow
 from ui.theme import QSS

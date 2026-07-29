@@ -4,31 +4,30 @@ Comprehensive tests for domain/fixed_asset/aggregate_root.py.
 Covers all methods and edge cases with mocked datetime to avoid flakiness.
 """
 
-import pytest
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
+from uuid import UUID, uuid4
+
+import pytest
 
 from domain.fixed_asset.aggregate_root import (
     FixedAssetAggregate,
     FixedAssetCollection,
     FixedAssetRepository,
 )
-from domain.fixed_asset.asset_entity import FixedAsset, AssetStatus, AssetType
-from domain.fixed_asset.revaluation_entity import RevaluationEntity, RevaluationMethod
+from domain.fixed_asset.asset_entity import AssetStatus, AssetType, FixedAsset
 from domain.fixed_asset.disposal_entity import DisposalEntity, DisposalType
-from domain.fixed_asset.transfer_entity import TransferEntity, TransferType
-from domain.fixed_asset.depreciation_schedule_engine import DepreciationScheduleEngine
 from domain.fixed_asset.domain_events import (
     AssetAcquiredEvent,
     AssetDepreciationPostedEvent,
     AssetDisposedEvent,
-    AssetFullyDepreciatedEvent,
     AssetRevaluatedEvent,
     AssetTransferredEvent,
     AssetUpdatedEvent,
 )
+from domain.fixed_asset.revaluation_entity import RevaluationEntity, RevaluationMethod
+from domain.fixed_asset.transfer_entity import TransferEntity, TransferType
 
 # =============================================================================
 # Fixed datetime for deterministic tests
@@ -322,7 +321,7 @@ class TestFixedAssetCollection:
         assert cloned.legal_entity_id == collection.legal_entity_id
         assert len(cloned.assets) == len(collection.assets)
         assert cloned.version == 1
-        for orig_asset, new_asset in zip(collection.assets.values(), cloned.assets.values()):
+        for orig_asset, new_asset in zip(collection.assets.values(), cloned.assets.values(), strict=False):
             assert orig_asset.id != new_asset.id
             assert orig_asset.asset_code == new_asset.asset_code
 

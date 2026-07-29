@@ -1,9 +1,7 @@
 # test_causality_exceptions.py
 # Comprehensive tests for domain/causality/causality_exceptions.py
 
-from unittest.mock import MagicMock
 
-import pytest
 
 from domain.causality.causality_exceptions import (
     CausalChainBrokenError,
@@ -38,7 +36,6 @@ from domain.causality.causality_exceptions import (
     WhyQueryFailedError,
     WhyQueryTimeoutError,
 )
-
 
 # =============================================================================
 # Enum Tests

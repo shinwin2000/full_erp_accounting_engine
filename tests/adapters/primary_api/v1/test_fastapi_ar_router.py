@@ -9,15 +9,16 @@ Perbaikan:
 - Mock quality ditingkatkan: AsyncMock, verifikasi panggilan
 - Negative path ditambahkan: ValueError, PermissionError, Exception
 - Semua assertion bermakna
+- Validator tests ditambahkan untuk semua field_validator / model_validator
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
 from fastapi.responses import Response
 
 from adapters.primary_api.v1.fastapi_ar_router import (
@@ -460,7 +461,7 @@ SCHEMA_TEST_DATA = [
         "quantity": Decimal("2"),
         "unit_price": Decimal("100000"),
         "tax_rate": Decimal("0.11"),
-        "discount_percent": Decimal("0"),      
+        "discount_percent": Decimal("0"),
         "account_code": "1100",
         "sales_order_line_id": uuid4(),
     }),
@@ -475,7 +476,7 @@ SCHEMA_TEST_DATA = [
                 quantity=Decimal("1"),
                 unit_price=Decimal("100000"),
                 account_code="1100",
-                discount_percent=Decimal("0"),  
+                discount_percent=Decimal("0"),
             )
         ],
         "description": "Test",
@@ -692,6 +693,234 @@ class TestSchemas:
 
 
 # ============================================================================
+# VALIDATOR TESTS (menutupi fungsi yang sebelumnya tidak di-test)
+# ============================================================================
+
+class TestValidators:
+    def test_ar_invoice_line_schema_validate_amounts_valid(self):
+        """ARInvoiceLineSchema validate_amounts passes when net amount > 0."""
+        line = ARInvoiceLineSchema(
+            description="Test",
+            quantity=Decimal("2"),
+            unit_price=Decimal("100"),
+            tax_rate=Decimal("11"),
+            discount_percent=Decimal("10"),
+            account_code="4100",
+        )
+        # model_validator is called during model creation; no exception means pass
+        assert line.net_amount == Decimal("180.00")  # 2*100*(1-0.10) = 180
+
+    def test_ar_invoice_line_schema_validate_amounts_net_zero(self):
+        """ARInvoiceLineSchema validate_amounts raises if net amount <= 0."""
+        with pytest.raises(ValueError, match="Net amount must be greater than 0"):
+            ARInvoiceLineSchema(
+                description="Test",
+                quantity=Decimal("1"),
+                unit_price=Decimal("0"),
+                tax_rate=Decimal("0"),
+                discount_percent=Decimal("0"),
+                account_code="4100",
+            )
+
+    def test_ar_invoice_line_schema_validate_amounts_negative_net(self):
+        """ARInvoiceLineSchema validate_amounts raises if net amount negative."""
+        with pytest.raises(ValueError, match="Net amount must be greater than 0"):
+            ARInvoiceLineSchema(
+                description="Test",
+                quantity=Decimal("1"),
+                unit_price=Decimal("100"),
+                tax_rate=Decimal("0"),
+                discount_percent=Decimal("200"),  # 200% discount -> negative net
+                account_code="4100",
+            )
+
+    def test_ar_invoice_create_schema_validate_invoice_number_valid(self):
+        """ARInvoiceCreateSchema invoice_number validator passes for non-empty."""
+        schema = ARInvoiceCreateSchema(
+            customer_code="CUST001",
+            invoice_date=FIXED_DATE,
+            due_date=FIXED_DUE_DATE,
+            invoice_number="INV-001",
+            lines=[
+                ARInvoiceLineSchema(
+                    description="Line 1",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    account_code="4100",
+                )
+            ],
+            description="Test",
+        )
+        assert schema.invoice_number == "INV-001"
+
+    def test_ar_invoice_create_schema_validate_invoice_number_empty(self):
+        """ARInvoiceCreateSchema invoice_number validator raises if empty."""
+        with pytest.raises(ValueError, match="Invoice number is required"):
+            ARInvoiceCreateSchema(
+                customer_code="CUST001",
+                invoice_date=FIXED_DATE,
+                due_date=FIXED_DUE_DATE,
+                invoice_number="",
+                lines=[
+                    ARInvoiceLineSchema(
+                        description="Line 1",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                        account_code="4100",
+                    )
+                ],
+                description="Test",
+            )
+
+    def test_ar_invoice_create_schema_validate_invoice_number_whitespace(self):
+        """ARInvoiceCreateSchema invoice_number validator strips whitespace."""
+        schema = ARInvoiceCreateSchema(
+            customer_code="CUST001",
+            invoice_date=FIXED_DATE,
+            due_date=FIXED_DUE_DATE,
+            invoice_number="  INV-001  ",
+            lines=[
+                ARInvoiceLineSchema(
+                    description="Line 1",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    account_code="4100",
+                )
+            ],
+            description="Test",
+        )
+        assert schema.invoice_number == "INV-001"
+
+    def test_ar_invoice_create_schema_validate_dates_valid(self):
+        """ARInvoiceCreateSchema dates validator passes when due_date >= invoice_date."""
+        schema = ARInvoiceCreateSchema(
+            customer_code="CUST001",
+            invoice_date=FIXED_DATE,
+            due_date=FIXED_DUE_DATE,
+            invoice_number="INV-001",
+            lines=[
+                ARInvoiceLineSchema(
+                    description="Line 1",
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                    account_code="4100",
+                )
+            ],
+            description="Test",
+        )
+        assert schema.due_date == FIXED_DUE_DATE
+
+    def test_ar_invoice_create_schema_validate_dates_invalid(self):
+        """ARInvoiceCreateSchema dates validator raises if due_date < invoice_date."""
+        with pytest.raises(ValueError, match="Due date must be after invoice date"):
+            ARInvoiceCreateSchema(
+                customer_code="CUST001",
+                invoice_date=FIXED_DUE_DATE,  # later
+                due_date=FIXED_DATE,          # earlier
+                invoice_number="INV-001",
+                lines=[
+                    ARInvoiceLineSchema(
+                        description="Line 1",
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                        account_code="4100",
+                    )
+                ],
+                description="Test",
+            )
+
+    def test_ar_payment_create_schema_validate_amount_valid(self):
+        """ARPaymentCreateSchema amount validator passes for positive amount."""
+        schema = ARPaymentCreateSchema(
+            invoice_id=uuid4(),
+            payment_date=FIXED_DATE,
+            amount=Decimal("100"),
+            payment_method=PaymentMethod.TRANSFER,
+        )
+        assert schema.amount == Decimal("100")
+
+    def test_ar_payment_create_schema_validate_amount_zero(self):
+        """ARPaymentCreateSchema amount validator raises for zero."""
+        with pytest.raises(ValueError, match="Amount must be greater than 0"):
+            ARPaymentCreateSchema(
+                invoice_id=uuid4(),
+                payment_date=FIXED_DATE,
+                amount=Decimal("0"),
+                payment_method=PaymentMethod.TRANSFER,
+            )
+
+    def test_ar_payment_create_schema_validate_amount_negative(self):
+        """ARPaymentCreateSchema amount validator raises for negative."""
+        with pytest.raises(ValueError, match="Amount must be greater than 0"):
+            ARPaymentCreateSchema(
+                invoice_id=uuid4(),
+                payment_date=FIXED_DATE,
+                amount=Decimal("-10"),
+                payment_method=PaymentMethod.TRANSFER,
+            )
+
+    def test_ar_credit_note_create_schema_validate_amount_valid(self):
+        """ARCreditNoteCreateSchema amount validator passes for positive."""
+        schema = ARCreditNoteCreateSchema(
+            invoice_id=uuid4(),
+            credit_note_date=FIXED_DATE,
+            amount=Decimal("100"),
+            reason="Adjustment",
+        )
+        assert schema.amount == Decimal("100")
+
+    def test_ar_credit_note_create_schema_validate_amount_zero(self):
+        """ARCreditNoteCreateSchema amount validator raises for zero."""
+        with pytest.raises(ValueError, match="Amount must be greater than 0"):
+            ARCreditNoteCreateSchema(
+                invoice_id=uuid4(),
+                credit_note_date=FIXED_DATE,
+                amount=Decimal("0"),
+                reason="Adjustment",
+            )
+
+    def test_ar_credit_note_create_schema_validate_amount_negative(self):
+        """ARCreditNoteCreateSchema amount validator raises for negative."""
+        with pytest.raises(ValueError, match="Amount must be greater than 0"):
+            ARCreditNoteCreateSchema(
+                invoice_id=uuid4(),
+                credit_note_date=FIXED_DATE,
+                amount=Decimal("-5"),
+                reason="Adjustment",
+            )
+
+    def test_ar_write_off_schema_validate_amount_valid(self):
+        """ARWriteOffSchema amount validator passes for positive."""
+        schema = ARWriteOffSchema(
+            invoice_id=uuid4(),
+            write_off_amount=Decimal("100"),
+            reason="Bad debt",
+            account_code="3100",
+        )
+        assert schema.write_off_amount == Decimal("100")
+
+    def test_ar_write_off_schema_validate_amount_zero(self):
+        """ARWriteOffSchema amount validator raises for zero."""
+        with pytest.raises(ValueError, match="Write-off amount must be greater than 0"):
+            ARWriteOffSchema(
+                invoice_id=uuid4(),
+                write_off_amount=Decimal("0"),
+                reason="Bad debt",
+                account_code="3100",
+            )
+
+    def test_ar_write_off_schema_validate_amount_negative(self):
+        """ARWriteOffSchema amount validator raises for negative."""
+        with pytest.raises(ValueError, match="Write-off amount must be greater than 0"):
+            ARWriteOffSchema(
+                invoice_id=uuid4(),
+                write_off_amount=Decimal("-50"),
+                reason="Bad debt",
+                account_code="3100",
+            )
+
+
+# ============================================================================
 # HEALTH CHECK TESTS
 # ============================================================================
 
@@ -726,13 +955,9 @@ async def test_get_ar_svc():
 
 @pytest.mark.asyncio
 async def test_get_ar_collection_workflow_returns_workflow():
-    # Need to mock the container
     with patch("adapters.primary_api.v1.fastapi_ar_router.request") as mock_request:
         mock_request.app.state.container = MagicMock()
         mock_request.app.state.container.resolve.return_value = "workflow"
-        # Actually the function doesn't use request, it uses a module-level container?
-        # The function is defined as async def get_ar_collection_workflow() -> Any:
-        # It imports and resolves from container. We'll patch the import.
         with patch("adapters.primary_api.v1.fastapi_ar_router.ARCollectionWorkflowUseCase") as mock_uc:
             mock_uc.return_value = "workflow"
             result = await get_ar_collection_workflow()

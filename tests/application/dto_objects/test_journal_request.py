@@ -3,18 +3,14 @@
 Comprehensive tests for application/dto_objects/journal_request.py
 """
 
-import copy
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from types import SimpleNamespace
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from application.dto_objects.journal_request import (
-    VALID_JOURNAL_TYPES,
-    VALID_SIDES,
     ApproveJournalRequest,
     CreateJournalRequest,
     GetJournalRequest,
@@ -32,7 +28,6 @@ from application.dto_objects.journal_request import (
     SubmitJournalRequest,
     UpdateJournalRequest,
 )
-
 
 # ============================================================================
 # Fixtures

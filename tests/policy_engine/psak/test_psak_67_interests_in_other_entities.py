@@ -28,7 +28,6 @@ from policy_engine.psak.psak_67_interests_in_other_entities import (
     get_psak67_validator,
 )
 
-
 # ============================================================================
 # Enum tests (same as before but with better assertions)
 # ============================================================================

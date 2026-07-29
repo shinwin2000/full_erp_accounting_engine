@@ -1,7 +1,6 @@
 # test_gdpr_privacy_checker.py
 # Comprehensive tests for compliance/gdpr_privacy_checker.py
 
-import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -28,7 +27,6 @@ from compliance.gdpr_privacy_checker import (
     ProcessingPurpose,
     RequestStatus,
 )
-
 
 # =============================================================================
 # Fixtures

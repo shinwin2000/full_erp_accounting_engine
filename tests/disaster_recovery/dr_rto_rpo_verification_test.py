@@ -9,18 +9,16 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from disaster_recovery.dr_rto_rpo_verification_test import (
     DRMetrics,
-    TestSchedule,
-    TestScenario,
-    TestStatus,
-    ComplianceStatus,
     RTO_RPO_VerificationTest,
-    HAS_PROMETHEUS,
+    TestScenario,
+    TestSchedule,
+    TestStatus,
 )
 
 # ============================================================================

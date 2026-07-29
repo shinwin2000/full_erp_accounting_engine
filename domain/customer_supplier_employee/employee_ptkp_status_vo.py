@@ -585,7 +585,7 @@ __all__ = [
     "MaritalStatus",
     "PTKPCategory",
     "PTKPError",
-    "PTKPStatus",  
+    "PTKPStatus",
     "calculate_ptkp_deduction",
     "get_max_dependents_for_marital",
     "get_ptkp_category_from_code",

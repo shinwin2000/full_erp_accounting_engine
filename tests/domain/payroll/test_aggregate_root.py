@@ -1,9 +1,9 @@
 # test_aggregate_root.py
 # Comprehensive tests for aggregate_root.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -13,15 +13,12 @@ from domain.payroll.domain_events import (
     PayrollRunApprovedEvent,
     PayrollRunCalculatedEvent,
     PayrollRunCancelledEvent,
-    PayrollRunCreatedEvent,
     PayrollRunPaidEvent,
     PayrollRunPostedEvent,
 )
 from domain.payroll.employee_salary_structure_vo import EmployeeSalaryStructureVO
-from domain.payroll.payroll_run_entity import PayrollPeriod, PayrollRunEntity, PayrollRunStatus
+from domain.payroll.payroll_run_entity import PayrollPeriod, PayrollRunStatus
 from domain.payroll.salary_component_entity import ComponentType, SalaryComponentEntity
-from domain.payroll.tax_withholding_engine import TaxWithholdingEngine
-
 
 # ============================================================================
 # Fixtures

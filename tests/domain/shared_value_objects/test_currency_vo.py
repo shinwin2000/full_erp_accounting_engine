@@ -3,8 +3,6 @@
 
 from decimal import Decimal
 
-import pytest
-
 from domain.shared_value_objects.currency_vo import CurrencyCode, CurrencyVO
 
 

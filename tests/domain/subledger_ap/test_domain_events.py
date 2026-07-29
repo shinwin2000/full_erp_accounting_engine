@@ -2,9 +2,9 @@
 # Comprehensive tests for domain_events.py
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -37,7 +37,6 @@ from domain.subledger_ap.domain_events import (
     PaymentVoidedEvent,
     ThreeWayMatchResultEvent,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -14,7 +14,6 @@ from domain.project_services.project_cost_tracker import (
     ProjectCostTrackerRepository,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

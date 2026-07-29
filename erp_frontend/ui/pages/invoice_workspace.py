@@ -9,8 +9,11 @@ approval workflow), jadi dibuat satu widget yang dikonfigurasi lewat
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, Optional
+from typing import Any
 
+from core.api_client import api_client
+from core.formatting import extract_list, format_date, format_money, status_color
+from core.workers import run_task
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -22,7 +25,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
     QMenu,
@@ -36,10 +38,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_date, format_money, status_color
-from core.workers import run_task
 from ui.widgets.kpi_card import KpiCard
 
 
@@ -338,7 +336,7 @@ class InvoiceWorkspacePage(QWidget):
         self.aging_table.resizeColumnsToContents()
 
     # ------------------------------------------------------------------
-    def _selected_record(self) -> Optional[dict[str, Any]]:
+    def _selected_record(self) -> dict[str, Any] | None:
         row = self.table.currentRow()
         if row < 0 or row >= len(self._records):
             return None

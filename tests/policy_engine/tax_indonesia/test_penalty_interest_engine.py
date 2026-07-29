@@ -33,7 +33,6 @@ from policy_engine.tax_indonesia.penalty_interest_engine import (
 )
 from policy_engine.tax_indonesia.rate_registry_dynamic import TaxType
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

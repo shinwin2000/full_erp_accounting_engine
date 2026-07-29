@@ -26,7 +26,7 @@ class AppConfig:
     remember_last_username: bool = True
 
     @classmethod
-    def load(cls) -> "AppConfig":
+    def load(cls) -> AppConfig:
         cfg = cls()
         cfg.api_base_url = os.environ.get("ERP_API_BASE_URL", cfg.api_base_url)
         if CONFIG_FILE.exists():

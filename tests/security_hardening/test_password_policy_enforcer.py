@@ -30,7 +30,6 @@ import pytest
 
 from security_hardening.password_policy_enforcer import (
     AccountLockedError,
-    COMMON_PASSWORDS,
     InMemoryUserStorage,
     PasswordExpiredError,
     PasswordHasher,
@@ -39,7 +38,6 @@ from security_hardening.password_policy_enforcer import (
     PasswordPolicyError,
     WeakPasswordError,
 )
-
 
 # ============================================================================
 # Fixtures

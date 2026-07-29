@@ -4,7 +4,7 @@
 # Covers enums, entity construction, factory methods, business methods,
 # properties, validation, serialization, and repository interface.
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import UUID, uuid4

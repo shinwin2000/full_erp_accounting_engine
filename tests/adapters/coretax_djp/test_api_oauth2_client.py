@@ -1,6 +1,7 @@
 """
 Unit test untuk adapters/coretax_djp/api_oauth2_client.py
 Menggunakan pytest, mock, dan mocking untuk semua dependency eksternal.
+Semua test flaky diperbaiki dengan mocking time.time() dan time.sleep.
 """
 
 import os
@@ -74,6 +75,19 @@ for _name in [
     "infrastructure.database.session_factory_sqlalchemy",
 ]:
     sys.modules.pop(_name, None)
+
+# ============================================================
+# FIXTURE UNTUK MOCK TIME
+# ============================================================
+@pytest.fixture
+def mock_time():
+    """Mock time.time() to control time progression in circuit breaker tests."""
+    with patch("adapters.coretax_djp.api_oauth2_client.time") as mock_time:
+        # Start at a fixed timestamp
+        mock_time.time.return_value = 1000.0
+        mock_time.sleep = MagicMock()  # Prevent actual sleep
+        yield mock_time
+
 
 # ============================================================
 # TEST ENVIRONMENT ENUM
@@ -157,33 +171,47 @@ class TestTokenResponse:
         )
         assert instance.expires_at == issued_at + expires_in
 
-    def test_is_expired_property_not_expired(self):
+    @patch("adapters.coretax_djp.api_oauth2_client.time.time")
+    def test_is_expired_property_not_expired(self, mock_time):
         """is_expired returns False when token is still valid."""
+        mock_time.return_value = 1000.0
         instance = TokenResponse(
             access_token="test",
             expires_in=3600,
-            issued_at=time.time(),
+            issued_at=999.0,  # issued 1s ago, valid
         )
         assert instance.is_expired is False
 
-    def test_is_expired_property_expired(self):
+    @patch("adapters.coretax_djp.api_oauth2_client.time.time")
+    def test_is_expired_property_expired(self, mock_time):
         """is_expired returns True when token has expired."""
+        mock_time.return_value = 2000.0
         instance = TokenResponse(
             access_token="test",
             expires_in=1,
-            issued_at=time.time() - 100,
+            issued_at=1000.0,  # expired long ago
         )
         assert instance.is_expired is True
 
-    def test_time_to_expiry_property(self):
+    @patch("adapters.coretax_djp.api_oauth2_client.time.time")
+    def test_time_to_expiry_property(self, mock_time):
         """time_to_expiry returns positive value for valid token."""
+        mock_time.return_value = 1000.0
         instance = TokenResponse(
             access_token="test",
             expires_in=3600,
-            issued_at=time.time(),
+            issued_at=999.0,
         )
-        assert instance.time_to_expiry > 0
-        assert instance.time_to_expiry <= 3600
+        # expiry = 999+3600 = 4599; time_to_expiry = 4599-1000 = 3599
+        assert instance.time_to_expiry == 3599.0
+
+    def test_token_response_default_values(self):
+        """TokenResponse uses default values correctly."""
+        instance = TokenResponse(access_token="test")
+        assert instance.token_type == "Bearer"
+        assert instance.expires_in == 3600
+        assert instance.refresh_token is None
+        assert instance.scope is None
 
 
 # ============================================================
@@ -347,10 +375,10 @@ class TestCircuitBreakerState:
 
 
 # ============================================================
-# TEST CIRCUITBREAKER CLASS
+# TEST CIRCUITBREAKER CLASS (with mocked time)
 # ============================================================
 class TestCircuitBreaker:
-    """Tests for CircuitBreaker."""
+    """Tests for CircuitBreaker with proper time mocking to avoid flakiness."""
 
     def test_construction(self):
         """CircuitBreaker can be instantiated with parameters."""
@@ -380,11 +408,9 @@ class TestCircuitBreaker:
     def test_record_success_resets_failure_count(self):
         """record_success resets failure count in CLOSED state."""
         instance = CircuitBreaker(name="test", failure_threshold=5)
-        # Simulate some failures
         for _ in range(3):
             instance.record_failure()
         assert instance._failure_count == 3
-        # Record success should reset
         instance.record_success()
         assert instance._failure_count == 0
 
@@ -404,67 +430,96 @@ class TestCircuitBreaker:
         assert instance.is_open is True
         assert instance.can_execute() is False
 
-    def test_half_open_after_recovery_timeout(self):
+    def test_half_open_after_recovery_timeout(self, mock_time):
         """CircuitBreaker transitions to HALF_OPEN after recovery timeout."""
+        mock_time.time.return_value = 1000.0
         instance = CircuitBreaker(
             name="test",
             failure_threshold=1,
-            recovery_timeout=0.1,
+            recovery_timeout=10.0,
         )
         instance.record_failure()
         assert instance.state == CircuitBreakerState.OPEN
-        # Wait for recovery timeout
-        time.sleep(0.15)
-        # Access is_open to trigger transition check
+        # Advance time beyond recovery timeout
+        mock_time.time.return_value = 1011.0
+        # Access is_open to trigger the check
         _ = instance.is_open
         assert instance.state == CircuitBreakerState.HALF_OPEN
 
-    def test_record_success_in_half_open_closes(self):
+    def test_record_success_in_half_open_closes(self, mock_time):
         """record_success in HALF_OPEN state closes the circuit."""
+        mock_time.time.return_value = 1000.0
         instance = CircuitBreaker(
             name="test",
             failure_threshold=1,
-            recovery_timeout=0.1,
+            recovery_timeout=10.0,
         )
         instance.record_failure()
-        time.sleep(0.15)
-        _ = instance.is_open  # Trigger transition to HALF_OPEN
+        mock_time.time.return_value = 1011.0
+        _ = instance.is_open
         assert instance.state == CircuitBreakerState.HALF_OPEN
         instance.record_success()
         assert instance.state == CircuitBreakerState.CLOSED
 
-    def test_record_failure_in_half_open_opens(self):
+    def test_record_failure_in_half_open_opens(self, mock_time):
         """record_failure in HALF_OPEN state opens the circuit."""
+        mock_time.time.return_value = 1000.0
         instance = CircuitBreaker(
             name="test",
             failure_threshold=1,
-            recovery_timeout=0.1,
-            half_open_max_calls=3,
+            recovery_timeout=10.0,
         )
         instance.record_failure()
-        time.sleep(0.15)
-        _ = instance.is_open  # Trigger transition to HALF_OPEN
+        mock_time.time.return_value = 1011.0
+        _ = instance.is_open
         assert instance.state == CircuitBreakerState.HALF_OPEN
         instance.record_failure()
         assert instance.state == CircuitBreakerState.OPEN
 
-    def test_half_open_max_calls(self):
+    def test_half_open_max_calls(self, mock_time):
         """can_execute respects half_open_max_calls limit."""
+        mock_time.time.return_value = 1000.0
         instance = CircuitBreaker(
             name="test",
             failure_threshold=1,
-            recovery_timeout=0.1,
+            recovery_timeout=10.0,
             half_open_max_calls=2,
         )
         instance.record_failure()
-        time.sleep(0.15)
-        _ = instance.is_open  # Trigger transition to HALF_OPEN
-        # First call allowed
+        mock_time.time.return_value = 1011.0
+        _ = instance.is_open
         assert instance.can_execute() is True
-        # Second call allowed
         assert instance.can_execute() is True
-        # Third call denied
-        assert instance.can_execute() is False
+        assert instance.can_execute() is False  # third call exceeds max
+
+    # ---- Direct tests for transition methods ----
+    def test_transition_to_closed(self):
+        instance = CircuitBreaker(name="test")
+        instance._state = CircuitBreakerState.OPEN
+        instance._failure_count = 5
+        instance._half_open_calls = 2
+        instance._transition_to_closed()
+        assert instance.state == CircuitBreakerState.CLOSED
+        assert instance._failure_count == 0
+        assert instance._half_open_calls == 0
+        assert instance._state_changed_at <= time.time()
+
+    def test_transition_to_open(self):
+        instance = CircuitBreaker(name="test")
+        instance._state = CircuitBreakerState.CLOSED
+        instance._failure_count = 3
+        instance._transition_to_open()
+        assert instance.state == CircuitBreakerState.OPEN
+        assert instance._state_changed_at <= time.time()
+
+    def test_transition_to_half_open(self):
+        instance = CircuitBreaker(name="test")
+        instance._state = CircuitBreakerState.OPEN
+        instance._half_open_calls = 5
+        instance._transition_to_half_open()
+        assert instance.state == CircuitBreakerState.HALF_OPEN
+        assert instance._half_open_calls == 0
+        assert instance._state_changed_at <= time.time()
 
 
 # ============================================================
@@ -512,6 +567,114 @@ class TestCoretaxOAuth2Client:
             instance = CoretaxOAuth2Client()
             assert instance.env == Environment.PRODUCTION
 
+    # ---- Direct tests for private methods ----
+    def test_build_fallback_config(self):
+        """_build_fallback_config returns correct default config."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            config = instance._build_fallback_config()
+            assert "coretax_djp" in config
+            coretax = config["coretax_djp"]
+            assert "base_url" in coretax
+            assert "token_endpoint" in coretax
+            assert "auth_method" in coretax
+            assert "timeout_seconds" in coretax
+            assert "retry" in coretax
+            assert "max_attempts" in coretax["retry"]
+            assert "rate_limit" in coretax
+            assert "circuit_breaker" in coretax
+            assert "failure_threshold" in coretax["circuit_breaker"]
+
+    def test_get_config_section_with_config(self):
+        """_get_config_section returns config from provided config."""
+        config = {"coretax_djp": {"key": "value"}}
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+        }):
+            instance = CoretaxOAuth2Client(env="mock", config=config)
+            section = instance._get_config_section()
+            assert section == {"key": "value"}
+
+    def test_get_config_section_with_fallback(self):
+        """_get_config_section returns fallback config when no config provided."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+        }):
+            instance = CoretaxOAuth2Client(env="mock", config={})
+            section = instance._get_config_section()
+            assert "base_url" in section
+            assert "token_endpoint" in section
+
+    def test_initialize_secrets_sync(self):
+        """_initialize_secrets_sync loads secrets from environment."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id_123',
+            'CORETAX_CLIENT_SECRET': 'test_secret_456',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+            'CORETAX_KID': 'test_kid_789',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            # _initialize_secrets_sync is called in __init__, so just verify values
+            assert instance.client_id == 'test_id_123'
+            assert instance.client_secret == 'test_secret_456'
+            assert instance.private_key_id == 'test_kid_789'
+            assert instance.private_key is not None  # should have loaded
+
+    def test_initialize_secrets_sync_missing_keys(self):
+        """_initialize_secrets_sync handles missing environment variables gracefully."""
+        with patch.object(os, 'environ', {}):
+            instance = CoretaxOAuth2Client(env="mock")
+            assert instance.client_id == ''
+            assert instance.client_secret == ''
+            assert instance.private_key_id == ''
+            assert instance.private_key is None
+
+    def test_initialize_secrets_sync_invalid_private_key(self):
+        """_initialize_secrets_sync handles invalid private key without raising."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': 'invalid_pem',
+            'CORETAX_KID': 'test_kid',
+        }):
+            # Should not raise even with invalid key
+            instance = CoretaxOAuth2Client(env="mock")
+            assert instance.private_key is None
+            # The warning is logged, but we just verify it doesn't crash
+
+    def test_initialize_client(self):
+        """_initialize_client sets up circuit breaker with config values."""
+        config = {
+            "coretax_djp": {
+                "circuit_breaker": {
+                    "failure_threshold": 3,
+                    "recovery_timeout": 10.0,
+                }
+            }
+        }
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+        }):
+            instance = CoretaxOAuth2Client(env="mock", config=config)
+            assert instance._circuit_breaker.failure_threshold == 3
+            assert instance._circuit_breaker.recovery_timeout == 10.0
+
+    def test_initialize_client_defaults(self):
+        """_initialize_client uses defaults when config missing."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+        }):
+            instance = CoretaxOAuth2Client(env="mock", config={})
+            assert instance._circuit_breaker.failure_threshold == 5
+            assert instance._circuit_breaker.recovery_timeout == 60.0
+
     @pytest.mark.asyncio
     async def test_close(self, mock_http_client):
         """close method closes http client."""
@@ -549,7 +712,6 @@ class TestCoretaxOAuth2Client:
             'CORETAX_KID': 'test_kid',
         }):
             instance = CoretaxOAuth2Client(env="mock")
-            # Mock private_key since we can't create real key
             instance.private_key = MagicMock()
             with patch('adapters.coretax_djp.api_oauth2_client.jwt.encode', return_value="fake_jwt"):
                 assertion = instance._generate_client_assertion()
@@ -629,6 +791,107 @@ class TestCoretaxOAuth2Client:
             await instance.invalidate_token()
             assert instance._current_token is None
 
+    @pytest.mark.asyncio
+    async def test_is_token_valid(self):
+        """is_token_valid returns correct status."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            # No token -> invalid
+            assert await instance.is_token_valid() is False
+            # Set a valid token
+            instance._current_token = TokenResponse(
+                access_token="test",
+                expires_in=3600,
+                issued_at=time.time(),
+            )
+            assert await instance.is_token_valid() is True
+
+    @pytest.mark.asyncio
+    async def test_get_token_expiry(self):
+        """get_token_expiry returns expiry timestamp."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            # No token -> None
+            assert await instance.get_token_expiry() is None
+            # Set a token
+            instance._current_token = TokenResponse(
+                access_token="test",
+                expires_in=3600,
+                issued_at=1000.0,
+            )
+            assert await instance.get_token_expiry() == 4600.0
+
+    @pytest.mark.asyncio
+    async def test_clear_cache(self):
+        """clear_cache invalidates token and deletes redis key."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            instance._current_token = TokenResponse(access_token="test")
+            redis_mock = AsyncMock()
+            instance._redis = redis_mock
+            await instance.clear_cache()
+            assert instance._current_token is None
+            redis_mock.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_timeout(self):
+        """set_timeout updates http client timeout or config."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            # Without http client, config updated
+            await instance.set_timeout(120.0)
+            assert instance._config["coretax_djp"]["timeout_seconds"] == 120.0
+
+            # With http client, update timeout attribute
+            mock_client = MagicMock()
+            instance._http_client = mock_client
+            await instance.set_timeout(30.0)
+            mock_client.timeout = 30.0
+
+    @pytest.mark.asyncio
+    async def test_set_retry_policy(self):
+        """set_retry_policy updates retry config."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            await instance.set_retry_policy(max_attempts=5, backoff_factor=3.0)
+            retry = instance._config["coretax_djp"]["retry"]
+            assert retry["max_attempts"] == 5
+            assert retry["backoff_factor"] == 3.0
+
+    @pytest.mark.asyncio
+    async def test_reset_circuit_breaker(self):
+        """reset_circuit_breaker recreates circuit breaker."""
+        with patch.object(os, 'environ', {
+            'CORETAX_CLIENT_ID': 'test_id',
+            'CORETAX_CLIENT_SECRET': 'test_secret',
+            'CORETAX_PRIVATE_KEY': '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        }):
+            instance = CoretaxOAuth2Client(env="mock")
+            old_cb = instance._circuit_breaker
+            await instance.reset_circuit_breaker()
+            assert instance._circuit_breaker is not old_cb
+            assert instance._circuit_breaker.failure_threshold == old_cb.failure_threshold
+
 
 # ============================================================
 # TEST MODULE-LEVEL FUNCTIONS
@@ -653,7 +916,6 @@ async def test_get_coretax_client():
 async def test_close_coretax_client():
     """close_coretax_client calls close on client."""
     mock_client = AsyncMock()
-    # Patch the global variable directly
     import adapters.coretax_djp.api_oauth2_client as module
     original = module._core_client
     module._core_client = mock_client
@@ -700,14 +962,6 @@ async def test_get_coretax_api():
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
 
-    def test_token_response_default_values(self):
-        """TokenResponse uses default values correctly."""
-        instance = TokenResponse(access_token="test")
-        assert instance.token_type == "Bearer"
-        assert instance.expires_in == 3600
-        assert instance.refresh_token is None
-        assert instance.scope is None
-
     def test_circuit_breaker_default_parameters(self):
         """CircuitBreaker uses default parameters correctly."""
         instance = CircuitBreaker(name="test")
@@ -726,3 +980,66 @@ class TestEdgeCases:
     def test_token_expired_inherits_from_auth_error(self):
         """CoretaxTokenExpired is subclass of CoretaxAuthError."""
         assert issubclass(CoretaxTokenExpired, CoretaxAuthError)
+
+    # ---- Negative path tests ----
+    def test_circuit_breaker_can_execute_when_open_returns_false(self, mock_time):
+        """can_execute returns False when circuit is open."""
+        mock_time.time.return_value = 1000.0
+        instance = CircuitBreaker(name="test", failure_threshold=1)
+        instance.record_failure()  # opens circuit
+        assert instance.can_execute() is False
+
+    def test_circuit_breaker_can_execute_when_half_open_limited(self, mock_time):
+        """can_execute respects half_open max calls."""
+        mock_time.time.return_value = 1000.0
+        instance = CircuitBreaker(
+            name="test",
+            failure_threshold=1,
+            recovery_timeout=10.0,
+            half_open_max_calls=1,
+        )
+        instance.record_failure()
+        mock_time.time.return_value = 1011.0
+        _ = instance.is_open  # transition to half_open
+        assert instance.can_execute() is True
+        assert instance.can_execute() is False  # second call exceeds
+
+    def test_circuit_breaker_record_failure_opens_when_half_open(self, mock_time):
+        """record_failure opens circuit when in half-open state."""
+        mock_time.time.return_value = 1000.0
+        instance = CircuitBreaker(name="test", failure_threshold=1, recovery_timeout=10.0)
+        instance.record_failure()
+        mock_time.time.return_value = 1011.0
+        _ = instance.is_open
+        instance.record_failure()
+        assert instance.state == CircuitBreakerState.OPEN
+
+    def test_circuit_breaker_record_success_closes_when_half_open(self, mock_time):
+        """record_success closes circuit when in half-open state."""
+        mock_time.time.return_value = 1000.0
+        instance = CircuitBreaker(name="test", failure_threshold=1, recovery_timeout=10.0)
+        instance.record_failure()
+        mock_time.time.return_value = 1011.0
+        _ = instance.is_open
+        instance.record_success()
+        assert instance.state == CircuitBreakerState.CLOSED
+
+    def test_circuit_breaker_record_success_resets_failure_count(self):
+        instance = CircuitBreaker(name="test", failure_threshold=3)
+        instance.record_failure()
+        instance.record_failure()
+        instance.record_success()
+        assert instance._failure_count == 0
+
+    def test_circuit_breaker_transition_to_open_sets_state_changed(self, mock_time):
+        mock_time.time.return_value = 1000.0
+        instance = CircuitBreaker(name="test")
+        instance._transition_to_open()
+        assert instance._state_changed_at == 1000.0
+
+    def test_circuit_breaker_transition_to_half_open_resets_half_open_calls(self, mock_time):
+        mock_time.time.return_value = 1000.0
+        instance = CircuitBreaker(name="test")
+        instance._half_open_calls = 5
+        instance._transition_to_half_open()
+        assert instance._half_open_calls == 0

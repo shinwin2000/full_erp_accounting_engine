@@ -584,7 +584,7 @@ class TestCorrectionDoctrineEngine:
             file_path = f.name
         try:
             engine.to_json(file_path)
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 data = json.load(f)
             assert "report" in data
             assert "corrections" in data

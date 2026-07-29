@@ -5,7 +5,7 @@
 import json
 import tempfile
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -17,7 +17,6 @@ from security_hardening.threat_detection_anomaly_login import (
     AnomalyType,
     LoginAttempt,
 )
-
 
 # ============================================================================
 # FIXED DATETIME (untuk menghindari flaky tests)

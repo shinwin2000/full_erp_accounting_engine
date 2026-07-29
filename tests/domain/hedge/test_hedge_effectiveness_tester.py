@@ -3,9 +3,8 @@
 # Comprehensive tests for hedge_effectiveness_tester.py.
 # Covers all classes and methods with edge cases.
 
-from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_EVEN
-from unittest.mock import patch
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest

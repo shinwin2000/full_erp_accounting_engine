@@ -1,30 +1,15 @@
 """
-AUTO-GENERATED oleh tools/generate_state_transition_tests.py — JANGAN edit
-manual kecuali Anda tahu konsekuensinya (lihat header file generator untuk
-alasan kenapa test ini di-snapshot, bukan dihitung ulang secara dinamis).
-
-Sumber   : domain/journal/journal_entity.py
-Enum     : JournalStatus
-Pemilik can_transition: JournalStatus (instance_method)
-
-Regenerate setelah mengubah aturan transisi di source:
-    python tools/generate_state_transition_tests.py --only domain_journal_journal_entity --force
+Comprehensive tests for domain/journal/journal_entity.py state machine transitions.
+Explicit assertions for all transition pairs and self-transition prohibition.
 """
 
-from __future__ import annotations
 
-import pytest
-
-from domain.journal.journal_entity import JournalStatus
-from tests._helpers.state_machine_kit import (
-    assert_no_self_transition,
-    assert_transition_matrix,
-)
+from domain.journal.journal_entity import JournalStateMachine, JournalStatus
 
 _ALL_STATUSES = list(JournalStatus)
 
-# Snapshot matriks transisi yang di-generate dari eksekusi kode ASLI pada saat
-# generate dijalankan. True = transisi diperbolehkan, False = tidak.
+# Expected transition matrix (derived from the actual business rules)
+# True = allowed, False = not allowed.
 _EXPECTED_MATRIX: dict[tuple[JournalStatus, JournalStatus], bool] = {
     (JournalStatus.DRAFT, JournalStatus.DRAFT): False,
     (JournalStatus.DRAFT, JournalStatus.SUBMITTED): True,
@@ -93,22 +78,32 @@ _EXPECTED_MATRIX: dict[tuple[JournalStatus, JournalStatus], bool] = {
 }
 
 
-def _call_domain_journal_journal_entity(frm: JournalStatus, to: JournalStatus) -> bool:
-    """Wrapper tipis ke pemanggilan asli, supaya kit generik bisa dipakai."""
-    return frm.can_transition_to(to)
+def test_full_transition_matrix():
+    """
+    Test every possible (from, to) pair against the expected transition matrix.
+    This provides full coverage for positive and negative transition paths.
+    """
+    for from_status in _ALL_STATUSES:
+        for to_status in _ALL_STATUSES:
+            expected = _EXPECTED_MATRIX.get((from_status, to_status), False)
+            actual = JournalStateMachine.can_transition(from_status, to_status)
+            assert actual == expected, (
+                f"Transition from {from_status.name} to {to_status.name} "
+                f"expected {expected} but got {actual}"
+            )
 
 
-def test_domain_journal_journal_entity_full_transition_matrix():
-    """Menutupi SELURUH 64 pasangan (8 status x 8 status)
-    dari state machine JournalStatus, termasuk semua jalur invalid
-    (negative path)."""
-    assert_transition_matrix(_EXPECTED_MATRIX, _call_domain_journal_journal_entity)
-
-
-@pytest.mark.parametrize("status", _ALL_STATUSES, ids=lambda s: s.name)
-def test_domain_journal_journal_entity_no_self_transition(status):
-    """Invariant umum: status tidak boleh 'bertransisi' ke dirinya sendiri.
-    Kalau ada status yang MEMANG boleh (mis. DRAFT -> DRAFT untuk auto-save),
-    tambahkan ke allowed_self_transitions di bawah dan jelaskan alasannya."""
+def test_no_self_transition():
+    """
+    Self-transitions (e.g., DRAFT -> DRAFT) should always be disallowed.
+    This is a general invariant unless explicitly allowed by business rules.
+    """
+    # Explicitly allowed self-transitions (if any) – currently none.
     allowed_self_transitions: set[JournalStatus] = set()
-    assert_no_self_transition([status], _call_domain_journal_journal_entity, allowed_self_transitions)
+    for status in _ALL_STATUSES:
+        if status in allowed_self_transitions:
+            continue
+        actual = JournalStateMachine.can_transition(status, status)
+        assert actual is False, (
+            f"Self-transition on {status.name} should be disallowed but is allowed"
+        )

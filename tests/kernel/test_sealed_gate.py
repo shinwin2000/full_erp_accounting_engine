@@ -4,9 +4,7 @@ Comprehensive tests for kernel/sealed_gate.py
 All tests now include meaningful assertions and proper mock verification.
 """
 
-import asyncio
-import time
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -19,8 +17,6 @@ from kernel.sealed_gate import (
     _FallbackUnitOfWork,
     get_sealed_gate,
 )
-from kernel.transactional_executor import ExecutionStatus
-
 
 # ============================================================================
 # Tests for GateViolationError

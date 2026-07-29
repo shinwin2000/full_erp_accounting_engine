@@ -437,16 +437,6 @@ except ImportError:
     DebitNoteIssuedEvent = _safe_import("domain.subledger_ar.domain_events", "DebitNoteIssuedEvent", "DebitNoteIssued")
 
 # --- System Settings events ---
-from domain.system_settings.domain_events import (
-    SettingAddedEvent,
-    SettingChangedEvent,
-    SettingRemovedEvent,
-    SettingResetEvent,
-    SettingsBulkUpdatedEvent,
-    SettingsLockedEvent,
-    SettingsUnlockedEvent,
-)
-
 # --- Project events ---
 from domain.project_services.domain_events import (
     MilestoneBilledEvent,
@@ -459,6 +449,15 @@ from domain.project_services.domain_events import (
     RevenueRecognizedEvent,
     TimeEntryApprovedEvent,
     TimeEntrySubmittedEvent,
+)
+from domain.system_settings.domain_events import (
+    SettingAddedEvent,
+    SettingChangedEvent,
+    SettingRemovedEvent,
+    SettingResetEvent,
+    SettingsBulkUpdatedEvent,
+    SettingsLockedEvent,
+    SettingsUnlockedEvent,
 )
 
 # --- Purchase & Sales events ---
@@ -518,14 +517,6 @@ except ImportError:
     DebitNoteIssuedServiceEvent = _safe_import("domain.purchase_sales.domain_events", "DebitNoteIssuedServiceEvent", "DebitNoteIssuedService")
 
 # --- UMKM events ---
-from domain.umkm_simplified.domain_events import (
-    TaxCalculatedEvent,
-    TransactionCreatedEvent,
-    TransactionDeletedEvent,
-    TransactionRecordedEvent,
-    TransactionUpdatedEvent,
-)
-
 # --- Equity events ---
 from domain.equity_retained.domain_events import (
     CapitalContributionApprovedEvent,
@@ -564,6 +555,13 @@ from domain.intangible_asset.domain_events import (
     IntangibleAssetRevaluatedEvent,
     IntangibleAssetTransferredEvent,
     IntangibleAssetUpdatedEvent,
+)
+from domain.umkm_simplified.domain_events import (
+    TaxCalculatedEvent,
+    TransactionCreatedEvent,
+    TransactionDeletedEvent,
+    TransactionRecordedEvent,
+    TransactionUpdatedEvent,
 )
 
 # --- Payment events (AP/AR payment) ---

@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import UTC, date, datetime, timedelta
-from unittest.mock import patch
-from uuid import UUID, uuid4
+from datetime import date, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 
@@ -39,7 +38,6 @@ from compliance.legal.legal_override_with_citation import (
     OverrideRiskLevel,
     OverrideStatus,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -506,7 +504,7 @@ class TestLegalOverrideWithCitation:
             file_path = f.name
         try:
             manager.to_json(file_path)
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 data = json.load(f)
             assert "report" in data
             assert "overrides" in data

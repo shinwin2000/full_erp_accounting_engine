@@ -3,21 +3,20 @@
 # Covers all methods and edge cases with proper mocking.
 
 import hashlib
-import time
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
 from config.hot_reload_watcher import (
+    DEFAULT_POLL_INTERVAL_SECONDS,
+    DEFAULT_WATCH_PATHS,
     ConfigChange,
     HotReloadWatcher,
     ReloadCallback,
     ReloadResult,
     get_hot_reload_watcher,
-    DEFAULT_POLL_INTERVAL_SECONDS,
-    DEFAULT_WATCH_PATHS,
 )
 
 

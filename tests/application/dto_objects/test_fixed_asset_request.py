@@ -29,7 +29,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 
 import pytest
 

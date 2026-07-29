@@ -2,10 +2,9 @@
 # Comprehensive tests for compliance/deficiency_tracker.py
 
 import json
-import tempfile
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 

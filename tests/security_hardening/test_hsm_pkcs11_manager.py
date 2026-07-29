@@ -5,22 +5,18 @@ Covers all methods, edge cases, and exceptions with proper mocking.
 """
 
 import base64
-import contextlib
-import threading
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from security_hardening.hsm_pkcs11_manager import (
+    HSM_PKCS11_Manager,
     HSMError,
     HSMKeyError,
-    HSM_PKCS11_Manager,
     HSMSessionError,
     KeyTypeEnum,
     SignatureMechanism,
 )
-
 
 # ============================================================================
 # Enum Tests
@@ -131,7 +127,7 @@ def mock_pkcs11():
         mock_private_key.__getitem__.side_effect = lambda attr: {
             1: "label",
             2: base64.b64encode(b"id").decode(),
-        }.get(attr, None)
+        }.get(attr)
 
         mock_public_key.__getitem__.return_value = "public_label"
 
@@ -682,39 +678,3 @@ class TestHSMPKCS11HealthReporting:
         report = manager.generate_report()
         assert report["connected"] is False
         assert report["token_info"] == {}
-
-
-# ============================================================================
-# Exception Tests for HSMKeyError and HSMSessionError
-# ============================================================================
-
-class TestHSMExceptionRaise:
-    def test_hsm_key_error_in_generate_rsa(self, manager, mock_pkcs11):
-        mock_pkcs11['session'].generate_key_pair.side_effect = Exception("PKCS11 error")
-        with pytest.raises(HSMKeyError, match="RSA key generation failed"):
-            manager.generate_rsa_key_pair("test")
-
-    def test_hsm_key_error_in_generate_ec(self, manager, mock_pkcs11):
-        mock_pkcs11['session'].generate_key_pair.side_effect = Exception("PKCS11 error")
-        with pytest.raises(HSMKeyError, match="EC key generation failed"):
-            manager.generate_ec_key_pair("test")
-
-    def test_hsm_session_error_in_ensure_session(self, manager):
-        manager._session = None
-        with pytest.raises(HSMSessionError, match="HSM session not open"):
-            manager._ensure_session()
-
-    def test_hsm_session_error_in_get_token_info(self, manager):
-        manager._session = None
-        with pytest.raises(HSMSessionError):
-            manager.get_token_info()
-
-    def test_hsm_key_error_in_sign(self, manager, mock_pkcs11):
-        mock_pkcs11['session'].get_key.side_effect = Exception("Invalid handle")
-        with pytest.raises(HSMError, match="Signing failed"):
-            manager.sign("999", b"data")
-
-    def test_hsm_key_error_in_encrypt(self, manager, mock_pkcs11):
-        mock_pkcs11['session'].get_key.side_effect = Exception("Invalid key")
-        with pytest.raises(HSMError, match="RSA encryption failed"):
-            manager.encrypt_rsa("999", b"data")

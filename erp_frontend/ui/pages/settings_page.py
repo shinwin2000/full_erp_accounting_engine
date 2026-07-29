@@ -8,8 +8,11 @@ Endpoint: /settings/settings/categories, /by-category/{cat}, /{key}
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
+from core.api_client import api_client
+from core.formatting import extract_list
+from core.workers import run_task
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -17,7 +20,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -26,10 +28,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list
-from core.workers import run_task
 
 BASE = "/settings/settings"
 
@@ -112,7 +110,7 @@ class SettingsPage(QWidget):
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Gagal memuat: {message}")
 
-    def _edit_setting(self, list_item: Optional[QListWidgetItem]) -> None:
+    def _edit_setting(self, list_item: QListWidgetItem | None) -> None:
         if list_item is None:
             QMessageBox.information(self, "Info", "Pilih setting terlebih dahulu.")
             return

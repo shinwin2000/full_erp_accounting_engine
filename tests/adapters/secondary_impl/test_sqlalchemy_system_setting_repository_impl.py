@@ -29,9 +29,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -53,7 +52,6 @@ from domain.system_settings.aggregate_root import (
     SystemSettingAggregate,
 )
 from infrastructure.persistence_orm.system_setting_table import SystemSettingTable
-
 
 # ============================================================================
 # Fixtures

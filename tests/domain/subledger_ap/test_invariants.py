@@ -12,8 +12,7 @@ import pytest
 
 from domain.subledger_ap.invariants import APInvariantEnforcer, APInvariants, InvariantResult
 from domain.subledger_ap.invoice_entity import APInvoiceEntity, APInvoiceStatus
-from domain.subledger_ap.payment_entity import APPaymentEntity, APPaymentStatus
-
+from domain.subledger_ap.payment_entity import APPaymentEntity
 
 # ============================================================================
 # Test InvariantResult

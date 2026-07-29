@@ -5,8 +5,7 @@
 # Note: All assertions are meaningful and verify actual behavior.
 
 import json
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from datetime import UTC, datetime
 
 import pytest
 
@@ -80,7 +79,7 @@ class TestSecurityError:
         assert isinstance(exc.cause, ValueError)
         assert exc.cause.args[0] == "original cause"
         assert isinstance(exc.timestamp, datetime)
-        assert exc.timestamp.tzinfo == timezone.utc
+        assert exc.timestamp.tzinfo == UTC
         assert exc.exception_id is not None
         assert exc._version == 1
         assert len(exc._audit_trail) == 0

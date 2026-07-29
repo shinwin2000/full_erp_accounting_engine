@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,7 +22,6 @@ from domain.manufacturing.bill_of_materials_entity import (
     BOMType,
 )
 from domain.manufacturing.cost_element_enum import CostElement
-
 
 # ============================================================================
 # FIXED DATETIME FIXTURES

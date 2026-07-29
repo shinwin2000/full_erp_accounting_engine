@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
 from fastapi.responses import Response
 
 from adapters.primary_api.v1.fastapi_inventory_router import (

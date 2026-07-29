@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import os
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -37,7 +36,6 @@ from config.environment_resolver import (
     resolve_env,
 )
 from config.exceptions import ConfigEnvResolveError, ConfigError
-
 
 # ============================================================================
 # Fixtures

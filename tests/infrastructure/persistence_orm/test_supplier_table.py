@@ -5,7 +5,6 @@ Comprehensive tests for infrastructure/persistence_orm/supplier_table.py
 
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import patch
 from uuid import uuid4
 
 import pytest

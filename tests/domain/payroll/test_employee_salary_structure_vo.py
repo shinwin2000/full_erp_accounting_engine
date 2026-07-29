@@ -9,19 +9,16 @@ import pytest
 
 from domain.customer_supplier_employee.employee_bpjs_enrollment_vo import (
     BPJSEmploymentProgram,
-    BPJSType,
     EmployeeBPJSEnrollmentVO,
 )
 from domain.customer_supplier_employee.employee_ptkp_status_vo import (
     EmployeePTKPStatusVO,
-    MaritalStatus,
 )
 from domain.payroll.employee_salary_structure_vo import (
     EmployeeSalaryStructureVO,
     SalaryComponentEntity,
 )
 from domain.payroll.salary_component_entity import ComponentType
-
 
 # ============================================================================
 # Fixtures

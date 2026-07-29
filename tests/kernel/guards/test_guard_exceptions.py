@@ -57,7 +57,6 @@ from kernel.guards.guard_exceptions import (
     TemporalConsistencyError,
 )
 
-
 # ============================================================================
 # Tests for GuardErrorCode Enum
 # ============================================================================
@@ -295,7 +294,8 @@ class TestSpecificExceptions:
         assert exc.guard_name == "temporal_consistency"
         assert exc.error_code == GuardErrorCode.TEMPORAL_INCONSISTENCY
         assert exc.transaction_date == "2025-01-15"
-        assert exc.last_date == "2025-01-10"
+        # last_date is stored in details, not as an attribute
+        assert exc.details["last_date"] == "2025-01-10"
 
     def test_emergency_freeze_error(self):
         exc = EmergencyFreezeError("System frozen", freeze_id="freeze-001")
@@ -333,8 +333,7 @@ class TestSpecificExceptions:
         assert exc.guard_name == "credit_limit_enforcer"
         assert exc.error_code == GuardErrorCode.CREDIT_LIMIT_EXCEEDED
         assert exc.customer_id == "CUST-001"
-        assert exc.credit_limit == credit_limit
-        assert exc.outstanding == outstanding
+        # credit_limit and outstanding are stored in details, not as attributes
         assert exc.details["credit_limit"] == str(credit_limit)
         assert exc.details["outstanding"] == str(outstanding)
 
@@ -347,7 +346,7 @@ class TestGuardExceptionFactory:
     def test_balance_error(self):
         exc = GuardExceptionFactory.balance_error("Insufficient", "ACC123", 50.0, severity=GuardSeverity.HIGH)
         assert isinstance(exc, BalanceCheckerError)
-        assert exc.message == "Insufficient"
+        assert exc.original_message == "Insufficient"
         assert exc.account_code == "ACC123"
         assert exc.current_balance == 50.0
         assert exc.severity == GuardSeverity.HIGH
@@ -389,10 +388,11 @@ class TestGuardExceptionFactory:
         exc = GuardExceptionFactory.temporal_error("Backdating", "2025-01-15", "2025-01-10")
         assert isinstance(exc, TemporalConsistencyError)
         assert exc.transaction_date == "2025-01-15"
-        assert exc.last_date == "2025-01-10"
+        # last_date is stored in details
+        assert exc.details["last_date"] == "2025-01-10"
 
         exc2 = GuardExceptionFactory.temporal_error("No last", "2025-01-15")
-        assert exc2.last_date is None
+        assert exc2.details["last_date"] is None
 
     def test_freeze_error(self):
         exc = GuardExceptionFactory.freeze_error("Frozen", "freeze-001")
@@ -425,5 +425,6 @@ class TestGuardExceptionFactory:
         exc = GuardExceptionFactory.credit_error("Credit exceeded", "CUST-001", credit_limit, outstanding)
         assert isinstance(exc, CreditLimitEnforcerError)
         assert exc.customer_id == "CUST-001"
-        assert exc.credit_limit == credit_limit
-        assert exc.outstanding == outstanding
+        # credit_limit and outstanding are stored in details
+        assert exc.details["credit_limit"] == str(credit_limit)
+        assert exc.details["outstanding"] == str(outstanding)

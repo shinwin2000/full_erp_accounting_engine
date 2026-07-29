@@ -10,34 +10,30 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from domain.bank_cash.bank_account_entity import (
+    BankAccountEntity,
+    BankAccountStatus,
+    BankAccountType,
+)
 from domain.bank_cash.bank_aggregate_root import (
     BankAccountAggregate,
     BankAggregate,
     BankAggregateRepository,
     BankReconciliation,
     BankSummary,
-    BankTransaction,
     BankTransactionEntity,
     BankTransactionStatus,
     BankTransactionType,
     ReconciliationResult,
     StatementPeriod,
 )
-from domain.bank_cash.bank_account_entity import (
-    BankAccountEntity,
-    BankAccountStatus,
-    BankAccountType,
-)
 from domain.bank_cash.bank_reconciliation_engine import (
-    BankReconciliationEngine,
     ReconciliationResult as ReconResult,
 )
-
 
 # ============================================================================
 # FIXED DATETIME FIXTURES
@@ -1152,9 +1148,7 @@ class TestBankAggregateRepository:
 
 class TestAliases:
     def test_bank_account_aggregate_alias(self):
-        from domain.bank_cash.bank_aggregate_root import BankAccountAggregate
         assert BankAccountAggregate is BankAggregate
 
     def test_bank_reconciliation_alias(self):
-        from domain.bank_cash.bank_aggregate_root import BankReconciliation
         assert BankReconciliation is ReconciliationResult

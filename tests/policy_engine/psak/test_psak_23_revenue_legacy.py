@@ -17,11 +17,10 @@ Covers:
 - Aliases
 """
 
-import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 
@@ -45,7 +44,6 @@ from policy_engine.psak.psak_23_revenue_legacy import (
     ServiceContractNotFoundError,
     get_psak23_validator,
 )
-
 
 # ============================================================================
 # FIXTURES

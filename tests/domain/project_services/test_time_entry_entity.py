@@ -15,7 +15,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -28,7 +28,6 @@ from domain.project_services.time_entry_entity import (
     TimeEntryStatus,
     WorkType,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures

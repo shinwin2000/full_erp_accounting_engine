@@ -23,9 +23,6 @@ Covers:
 
 from __future__ import annotations
 
-import importlib
-import random
-from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -40,7 +37,6 @@ from audit.sampling_materiality.audit_sampling_statistical import (
     SamplingMethod,
     get_audit_sampling,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures

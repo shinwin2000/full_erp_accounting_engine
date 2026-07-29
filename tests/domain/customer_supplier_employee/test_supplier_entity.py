@@ -1,7 +1,7 @@
 # test_supplier_entity.py
 # Comprehensive tests for supplier_entity.py
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -14,10 +14,6 @@ from domain.customer_supplier_employee.supplier_entity import (
     SupplierStatus,
     SupplierType,
 )
-from domain.customer_supplier_employee.supplier_withholding_category_vo import (
-    SupplierWithholdingCategoryVO,
-)
-
 
 # ============================================================================
 # Fixtures

@@ -3,13 +3,13 @@
 Comprehensive tests for kernel/guards/period_lock.py
 """
 
-from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
-from kernel.context_holder import get_current_legal_entity, get_current_user
+from kernel.guards.guard_exceptions import PeriodLockError
 from kernel.guards.period_lock import (
     BasePeriodLockGuard,
     FiscalPeriod,
@@ -23,8 +23,6 @@ from kernel.guards.period_lock import (
     lock_period,
     unlock_period,
 )
-from kernel.guards.guard_exceptions import PeriodLockError
-
 
 # ============================================================================
 # Fixtures

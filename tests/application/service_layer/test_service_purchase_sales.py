@@ -8,8 +8,7 @@
 # - Proper mock quality
 # - Additional explicit test for PurchaseOrder.calculate_total
 
-import asyncio
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -43,7 +42,6 @@ from application.service_layer.service_purchase_sales import (
     audit,
     create_purchase_sales_service,
 )
-
 
 # ==================== FIXTURES ====================
 

@@ -7,7 +7,7 @@ and audit decorator. Uses parameterized tests to eliminate duplication.
 """
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -20,7 +20,6 @@ from domain.inventory.invariants import (
     audit,
 )
 from domain.inventory.item_entity import ItemEntity, ItemStatus
-
 
 # ============================================================================
 # Fixtures

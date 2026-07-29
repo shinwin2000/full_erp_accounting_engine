@@ -9,10 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.formatting import format_date, format_money, status_color
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QColor
-
-from core.formatting import format_date, format_money, status_color
 
 _MONEY_HINTS = ("amount", "cost", "price", "balance", "total", "dpp", "value", "salary", "limit", "rate")
 _DATE_HINTS = ("date", "_at")
@@ -34,20 +33,20 @@ class GenericTableModel(QAbstractTableModel):
         return self.rows[row]
 
     # ------------------------------------------------------------------
-    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self.rows)
 
-    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:  # noqa: N802
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self.columns)
 
-    def headerData(self, section, orientation, role=Qt.DisplayRole):  # noqa: N802
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role != Qt.DisplayRole:
             return None
         if orientation == Qt.Horizontal:
             return self.columns[section][1]
         return str(section + 1)
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):  # noqa: N802
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid():
             return None
         field_name, _label = self.columns[index.column()]

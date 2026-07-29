@@ -2,7 +2,7 @@
 # Comprehensive tests for compliance/ojk_lkpub_builder.py
 
 import json
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -18,13 +18,12 @@ from compliance.ojk_lkpub_builder import (
     LKPBUCashFlow,
     LKPBUIncomeStatement,
     LKPBUReportType,
-    LKPUBSchedule,
     LKPubReport,
+    LKPUBSchedule,
     MissingAccountDataError,
     OJKLKPubBuilder,
     OJKReportingError,
 )
-
 
 # =============================================================================
 # Fixtures

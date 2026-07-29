@@ -6,12 +6,12 @@ Pendekatan dinamis: impor modul, ambil semua fungsi handle_*, dan parametrize.
 """
 
 import inspect
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from application.events import all_event_handlers as handlers_module
 from application.events.publisher_application import EventEnvelope
-
 
 # Ambil semua fungsi yang namanya diawali "handle_" (kecuali register)
 # dan pastikan itu adalah fungsi callable yang memiliki __name__

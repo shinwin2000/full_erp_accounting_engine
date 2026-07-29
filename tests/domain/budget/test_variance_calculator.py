@@ -6,16 +6,12 @@ All tests PASS.
 """
 
 from decimal import Decimal
-from unittest.mock import MagicMock
-
-import pytest
 
 from domain.budget.variance_calculator import (
     VarianceCalculator,
     VarianceResult,
     VarianceType,
 )
-
 
 # ============================================================================
 # Test VarianceType

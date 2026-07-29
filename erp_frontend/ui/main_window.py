@@ -11,29 +11,25 @@ Jendela utama aplikasi setelah login. Berisi:
 from __future__ import annotations
 
 import importlib
-from typing import Optional
 
+from core.api_client import api_client
+from core.config import APP_NAME, APP_VERSION
+from core.session import session
+from core.workers import run_task
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.config import APP_NAME, APP_VERSION
-from core.session import session
-from core.workers import run_task
 from registry.module_registry import CATEGORY_ORDER, MODULES, modules_by_category
 
 NAV_ROLE = Qt.UserRole + 1
@@ -206,7 +202,7 @@ class MainWindow(QMainWindow):
         self._open_page(kind, key, title)
 
     # ------------------------------------------------------------------
-    def _open_page(self, kind: str, key: Optional[str], title: str) -> None:
+    def _open_page(self, kind: str, key: str | None, title: str) -> None:
         cache_key = f"{kind}:{key}"
         if cache_key not in self._page_cache:
             widget = self._build_page(kind, key)
@@ -215,7 +211,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self._page_cache[cache_key])
         self.page_title.setText(title)
 
-    def _build_page(self, kind: str, key: Optional[str]) -> QWidget:
+    def _build_page(self, kind: str, key: str | None) -> QWidget:
         if kind == "dashboard":
             from ui.pages.dashboard_page import DashboardPage
             return DashboardPage()
@@ -231,10 +227,10 @@ class MainWindow(QMainWindow):
                 from ui.pages.ledger_page import LedgerPage
                 return LedgerPage()
             if key == "ar":
-                from ui.pages.invoice_workspace import InvoiceWorkspacePage, AR_CONFIG
+                from ui.pages.invoice_workspace import AR_CONFIG, InvoiceWorkspacePage
                 return InvoiceWorkspacePage(AR_CONFIG)
             if key == "ap":
-                from ui.pages.invoice_workspace import InvoiceWorkspacePage, AP_CONFIG
+                from ui.pages.invoice_workspace import AP_CONFIG, InvoiceWorkspacePage
                 return InvoiceWorkspacePage(AP_CONFIG)
             if key == "approvals":
                 from ui.pages.approvals_page import ApprovalsPage
@@ -279,10 +275,13 @@ class MainWindow(QMainWindow):
                 from ui.pages.budget_advanced_page import BudgetAdvancedPage
                 return BudgetAdvancedPage()
             if key == "currency_exchange_advanced":
-                from ui.pages.forex_workspace_page import ForexWorkspacePage, CURRENCY_EXCHANGE_CONFIG
+                from ui.pages.forex_workspace_page import (
+                    CURRENCY_EXCHANGE_CONFIG,
+                    ForexWorkspacePage,
+                )
                 return ForexWorkspacePage(CURRENCY_EXCHANGE_CONFIG)
             if key == "forex_advanced":
-                from ui.pages.forex_workspace_page import ForexWorkspacePage, FOREX_CONFIG
+                from ui.pages.forex_workspace_page import FOREX_CONFIG, ForexWorkspacePage
                 return ForexWorkspacePage(FOREX_CONFIG)
             if key == "asset_lifecycle":
                 from ui.pages.asset_lifecycle_page import AssetLifecyclePage
@@ -309,10 +308,10 @@ class MainWindow(QMainWindow):
                 from ui.pages.umkm_advanced_page import UmkmAdvancedPage
                 return UmkmAdvancedPage()
             if key == "purchase_orders":
-                from ui.pages.order_workspace_page import OrderWorkspacePage, PO_CONFIG
+                from ui.pages.order_workspace_page import PO_CONFIG, OrderWorkspacePage
                 return OrderWorkspacePage(PO_CONFIG)
             if key == "sales_orders":
-                from ui.pages.order_workspace_page import OrderWorkspacePage, SO_CONFIG
+                from ui.pages.order_workspace_page import SO_CONFIG, OrderWorkspacePage
                 return OrderWorkspacePage(SO_CONFIG)
             if key in ("bom", "routing"):
                 from ui.pages.bom_routing_page import BomRoutingPage

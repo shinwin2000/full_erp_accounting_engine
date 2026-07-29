@@ -49,7 +49,7 @@ def main() -> int:
     # ------------------------------------------------------------------
     print("\n[2/4] Cek registry modul...")
     try:
-        from registry.module_registry import MODULES, CATEGORY_ORDER
+        from registry.module_registry import CATEGORY_ORDER, MODULES
         print(f"  ✅ {len(MODULES)} modul terdaftar di {len(CATEGORY_ORDER)} kategori")
     except Exception as e:
         print(f"  ❌ Gagal load registry: {e}")
@@ -57,8 +57,9 @@ def main() -> int:
 
     # ------------------------------------------------------------------
     print("\n[3/4] Instansiasi semua halaman...")
-    from ui.main_window import MODULE_PAGE_MAP
     import importlib
+
+    from ui.main_window import MODULE_PAGE_MAP
 
     errors: list[tuple[str, str]] = []
     tested = 0
@@ -105,7 +106,7 @@ def main() -> int:
 
     # AR/AP shared workspace + forex/currency-exchange shared workspace
     try:
-        from ui.pages.invoice_workspace import InvoiceWorkspacePage, AR_CONFIG, AP_CONFIG
+        from ui.pages.invoice_workspace import AP_CONFIG, AR_CONFIG, InvoiceWorkspacePage
         InvoiceWorkspacePage(AR_CONFIG)
         InvoiceWorkspacePage(AP_CONFIG)
         tested += 2
@@ -113,7 +114,11 @@ def main() -> int:
         errors.append(("invoice_workspace", str(e)))
 
     try:
-        from ui.pages.forex_workspace_page import ForexWorkspacePage, CURRENCY_EXCHANGE_CONFIG, FOREX_CONFIG
+        from ui.pages.forex_workspace_page import (
+            CURRENCY_EXCHANGE_CONFIG,
+            FOREX_CONFIG,
+            ForexWorkspacePage,
+        )
         ForexWorkspacePage(CURRENCY_EXCHANGE_CONFIG)
         ForexWorkspacePage(FOREX_CONFIG)
         tested += 2
@@ -121,7 +126,7 @@ def main() -> int:
         errors.append(("forex_workspace", str(e)))
 
     try:
-        from ui.pages.order_workspace_page import OrderWorkspacePage, PO_CONFIG, SO_CONFIG
+        from ui.pages.order_workspace_page import PO_CONFIG, SO_CONFIG, OrderWorkspacePage
         OrderWorkspacePage(PO_CONFIG)
         OrderWorkspacePage(SO_CONFIG)
         tested += 2

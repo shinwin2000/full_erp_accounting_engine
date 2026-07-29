@@ -5,15 +5,10 @@ Covers all public methods and properties with strong assertions.
 All tests PASS.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
-from domain.shared_value_objects.accounting_period_vo import (
-    AccountingPeriodVO,
-    PeriodStatus,
-    PeriodType,
-)
 from domain.shared_value_objects.fiscal_year_vo import (
     FiscalYearError,
     FiscalYearType,

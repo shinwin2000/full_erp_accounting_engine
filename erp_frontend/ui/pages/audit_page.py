@@ -15,7 +15,7 @@ langsung supaya tidak2 desinkron lagi.
 """
 from __future__ import annotations
 
-from registry.module_registry import ActionSpec, FieldSpec, FieldType, ModuleConfig
+from registry.module_registry import ModuleConfig
 from ui.widgets.generic_list_page import GenericListPage
 
 # ---------------------------------------------------------------------------

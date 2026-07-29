@@ -12,7 +12,6 @@ from domain.legal_entity.company_tax_profile_vo import (
 )
 from domain.shared_value_objects.percentage_vo import Percentage
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

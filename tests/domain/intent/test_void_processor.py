@@ -9,6 +9,8 @@ from uuid import uuid4
 
 import pytest
 
+from domain.intent.immutable_record import ImmutableIntentRecord, IntentSource, IntentStatus
+from domain.intent.intent_type import IntentType
 from domain.intent.void_processor import (
     VoidProcessor,
     VoidReason,
@@ -16,8 +18,6 @@ from domain.intent.void_processor import (
     VoidScope,
     get_void_processor,
 )
-from domain.intent.immutable_record import ImmutableIntentRecord, IntentStatus, IntentSource
-from domain.intent.intent_type import IntentType
 
 
 # ----------------------------------------------------------------------

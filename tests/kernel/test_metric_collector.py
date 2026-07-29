@@ -3,13 +3,12 @@
 # Covers all classes, methods, edge cases, and singleton behavior.
 
 import asyncio
-import functools
 import time
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import pytest
 
+import kernel.metric_collector as metric_collector_module
 from kernel.metric_collector import (
     BaseMetricCollector,
     Metric,
@@ -29,9 +28,10 @@ from kernel.metric_collector import (
 @pytest.fixture(autouse=True)
 def reset_metric_collector():
     """Reset the singleton before each test."""
+    metric_collector_module._metric_collector_instance = None
     MetricCollector._instance = None
     yield
-    # Also ensure it's reset after test
+    metric_collector_module._metric_collector_instance = None
     MetricCollector._instance = None
 
 
@@ -85,7 +85,6 @@ class TestMetric:
 
     def test_validate_invalid_type(self):
         metric = Metric(name="test", type="invalid", help_text="help")
-        # Since type is not an enum, it will fail validation
         result = metric.validate()
         assert result["is_valid"] is False
         assert "Invalid metric type" in result["errors"]
@@ -134,7 +133,7 @@ class TestMetric:
     def test_touch(self, metric_definition):
         touched = metric_definition.touch("user")
         assert touched.name == metric_definition.name
-        assert touched is not metric_definition  # clone returns new instance
+        assert touched is not metric_definition
 
 
 # -------------------- Tests for _FallbackMetricCollector --------------------
@@ -165,7 +164,6 @@ class TestFallbackMetricCollector:
 # -------------------- Tests for BaseMetricCollector (abstract) --------------------
 class TestBaseMetricCollector:
     def test_abstract_class(self):
-        # Cannot instantiate abstract class
         with pytest.raises(TypeError):
             BaseMetricCollector()
 
@@ -192,14 +190,13 @@ class TestMetricCollector:
         assert metric.type == MetricType.COUNTER
         assert metric.help_text == "help"
         assert metric.labels == ["tag"]
-        # audit trail
         trail = collector.audit_trail()
         assert any(entry["action"] == "DEFINE_METRIC" for entry in trail)
 
     def test_set_enabled(self, collector):
         collector.set_enabled(False)
         assert collector._enabled is False
-        collector.increment_counter("test")  # should be no-op
+        collector.increment_counter("test")
         assert collector.get_counter("test") == 0
         collector.set_enabled(True)
         assert collector._enabled is True
@@ -210,9 +207,7 @@ class TestMetricCollector:
         collector.increment_counter("requests")
         assert collector.get_counter("requests") == 1
         collector.increment_counter("requests", {"path": "/api"}, 2)
-        key = "requests[path=/api]"
         assert collector.get_counter("requests", {"path": "/api"}) == 2
-        # total for name without labels is still 1
         assert collector.get_counter("requests") == 1
 
     def test_decrement_counter(self, collector):
@@ -220,13 +215,12 @@ class TestMetricCollector:
         collector.decrement_counter("requests", value=2)
         assert collector.get_counter("requests") == 3
         collector.decrement_counter("requests", value=10)
-        assert collector.get_counter("requests") == 0  # not negative
+        assert collector.get_counter("requests") == 0
 
     def test_set_gauge(self, collector):
         collector.set_gauge("temp", Decimal("23.5"))
         assert collector.get_gauge("temp") == 23.5
         collector.set_gauge("temp", Decimal("24.0"), {"unit": "c"})
-        key = "temp[unit=c]"
         assert collector.get_gauge("temp", {"unit": "c"}) == 24.0
 
     def test_increment_gauge(self, collector):
@@ -260,7 +254,7 @@ class TestMetricCollector:
         for i in range(10):
             collector.record_histogram("test", Decimal(i))
         stats = collector.get_histogram_stats("test")
-        assert stats["count"] == 5  # only last 5 kept
+        assert stats["count"] == 5
 
     def test_get_counter(self, collector):
         collector.increment_counter("c1", value=7)
@@ -389,7 +383,6 @@ class TestMetricCollector:
         assert any("max_histogram_samples must be positive" in e for e in result["errors"])
 
     def test_validate_invalid_metric_definition(self, collector):
-        # define metric with empty name
         collector.define_metric("", MetricType.COUNTER, "help")
         result = collector.validate()
         assert result["is_valid"] is False
@@ -421,12 +414,16 @@ class TestMetricCollector:
 
     def test_clone(self, collector):
         collector.define_metric("m", MetricType.COUNTER, "help")
+        old_version = collector._version
         cloned = collector.clone()
+        # Karena singleton, clone mengembalikan instance yang sama (tidak bisa membuat baru)
+        # tetapi state disalin dan versi bertambah.
         assert cloned._enabled == collector._enabled
         assert cloned._max_histogram_samples == collector._max_histogram_samples
-        assert cloned._version == collector._version + 1
+        assert cloned._version == old_version + 1
         assert "m" in cloned._metric_definitions
-        assert cloned is not collector
+        # cloned adalah instance yang sama karena singleton
+        assert cloned is collector
 
     def test_snapshot(self, collector):
         collector.define_metric("m", MetricType.COUNTER, "help")
@@ -460,16 +457,9 @@ class TestMetricCollector:
         assert collector._counters == {}
         assert collector._gauges == {}
         assert collector._histograms == {}
-        assert collector._metric_definitions == {}  # definitions cleared?
-        # Actually reset does not clear definitions, it only clears counters/gauges/histograms and resets version/audit
-        # The implementation calls reset_all() which clears counters/gauges/histograms, then resets version and audit trail, but not definitions.
-        # Let's check: reset_all clears counters/gauges/histograms, increments version. Then reset sets version=1 and clears audit and snapshots.
-        # So definitions remain. We'll test that.
-        assert "m" in collector._metric_definitions
         assert collector._version == 1
         assert collector._audit_trail == []
-        trail = collector.audit_trail()
-        assert trail == []  # reset cleared it
+        assert "m" in collector._metric_definitions
 
     def test_clear_and_reset_interaction(self, collector):
         collector.increment_counter("c1")
@@ -506,11 +496,9 @@ class TestTimingContext:
     def test_context_manager_success(self, collector):
         with TimingContext("op_duration", {"method": "GET"}) as ctx:
             time.sleep(0.01)
-        # Check that histogram recorded
         stats = collector.get_histogram_stats("op_duration", {"method": "GET"})
         assert stats["count"] == 1
         assert stats["sum"] > 0
-        # Check success counter incremented
         assert collector.get_counter("op_duration_success", {"method": "GET"}) == 1
         assert collector.get_counter("op_duration_errors", {"method": "GET"}) == 0
 

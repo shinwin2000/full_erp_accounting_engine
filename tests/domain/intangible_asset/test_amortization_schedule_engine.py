@@ -20,7 +20,6 @@ from domain.intangible_asset.amortization_schedule_engine import (
     is_fully_amortized,
 )
 
-
 # =============================================================================
 # Mock Asset Class for Testing
 # =============================================================================

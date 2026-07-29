@@ -9,11 +9,12 @@ Covers:
   item management (add_item, remove_item), status transitions (submit, approve, reject, ship, receive, complete, cancel),
   audit trail, validation, serialization (to_dict, from_dict)
 - Repository protocol (abstract methods)
+- Private methods: _recalculate_denorm, _validate_item_exists, _validate_warehouse_different
 """
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
@@ -28,7 +29,6 @@ from domain.inventory.inter_warehouse_transfer_entity import (
     TransferPriority,
     TransferStatus,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -233,11 +233,6 @@ class TestInterWarehouseTransferEntity:
         assert transfer.quantity == Decimal(0)
         assert transfer.total_value == Decimal(0)
         assert transfer.unit_cost == Decimal(0)
-
-    def test_validation_warehouses_different(self, transfer_kwargs):
-        # Same warehouse should raise during __post_init__? Actually __post_init__ does not call _validate_warehouse_different.
-        # It is called only in business methods (add_item, submit, ship, receive). So we test there.
-        pass
 
     def test_id_property(self, transfer):
         assert transfer.id == transfer.transfer_id
@@ -664,6 +659,68 @@ class TestInterWarehouseTransferEntity:
         assert original_item.item_id == restored_item.item_id
         assert original_item.quantity == restored_item.quantity
         assert original_item.total_value == restored_item.total_value
+
+
+# -----------------------------------------------------------------------------
+# Tests for Private Methods (explicit coverage)
+# -----------------------------------------------------------------------------
+
+class TestPrivateMethods:
+    def test_recalculate_denorm(self, transfer, sample_item_kwargs):
+        # Create a transfer with items directly (not via add_item to avoid calling _recalculate_denorm inside add_item)
+        # Actually add_item calls _recalculate_denorm internally, so we need to test it separately.
+        # We'll create a transfer with items set, then manually call _recalculate_denorm and check denorm fields.
+        item = TransferItem(
+            item_id=sample_item_kwargs["item_id"],
+            item_sku=sample_item_kwargs["item_sku"],
+            item_name=sample_item_kwargs["item_name"],
+            quantity=sample_item_kwargs["quantity"],
+            unit_cost=sample_item_kwargs["unit_cost"],
+            total_value=sample_item_kwargs["quantity"] * sample_item_kwargs["unit_cost"],
+            batch_number=sample_item_kwargs["batch_number"],
+            expiry_date=sample_item_kwargs["expiry_date"],
+        )
+        # Manually set items (bypassing add_item)
+        object.__setattr__(transfer, "items", [item])
+        # Initially denorm fields are zero (from construction)
+        assert transfer.quantity == Decimal(0)
+        assert transfer.total_value == Decimal(0)
+        assert transfer.unit_cost == Decimal(0)
+
+        # Call private method
+        transfer._recalculate_denorm()
+
+        # Verify denorm fields updated
+        assert transfer.quantity == sample_item_kwargs["quantity"]
+        assert transfer.total_value == sample_item_kwargs["quantity"] * sample_item_kwargs["unit_cost"]
+        assert transfer.unit_cost == sample_item_kwargs["unit_cost"]
+
+    def test_validate_item_exists_existing(self, transfer_with_items):
+        item_id = transfer_with_items.items[0].item_id
+        # Should not raise
+        try:
+            transfer_with_items._validate_item_exists(item_id)
+        except Exception:
+            pytest.fail("_validate_item_exists raised an exception when item exists")
+        assert True
+
+    def test_validate_item_exists_non_existing(self, transfer_with_items):
+        with pytest.raises(ValueError, match="not found in transfer"):
+            transfer_with_items._validate_item_exists(uuid4())
+
+    def test_validate_warehouse_different_valid(self, transfer):
+        # Source and destination are different (fixture)
+        try:
+            transfer._validate_warehouse_different()
+        except Exception:
+            pytest.fail("_validate_warehouse_different raised an exception when warehouses are different")
+        assert True
+
+    def test_validate_warehouse_different_same_raises(self, transfer):
+        # Set same warehouse
+        object.__setattr__(transfer, "destination_warehouse_id", transfer.source_warehouse_id)
+        with pytest.raises(ValueError, match="cannot be the same"):
+            transfer._validate_warehouse_different()
 
 
 # -----------------------------------------------------------------------------

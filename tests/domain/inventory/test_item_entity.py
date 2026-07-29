@@ -5,10 +5,10 @@ Covers all enums, constructors, validation, properties, business methods,
 serialization, and repository protocol. All datetime is mocked for determinism.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 

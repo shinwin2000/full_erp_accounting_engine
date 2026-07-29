@@ -2,7 +2,7 @@
 # Comprehensive tests for infrastructure/persistence_orm/project_table.py
 
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 

@@ -20,16 +20,14 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
 from kernel.guards.regulatory_compliance import (
-    BaseRegulatoryComplianceGuard,
     ComplianceSeverity,
     ComplianceViolation,
     RegulatoryComplianceGuard,
@@ -38,7 +36,6 @@ from kernel.guards.regulatory_compliance import (
     _FallbackRegulatoryConfig,
     get_regulatory_compliance_guard,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -5,25 +5,28 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, date, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
-from domain.purchase_sales.goods_receipt_note_entity import GoodsReceiptNoteEntity, GRNStatus, GRNItem
+from domain.purchase_sales.domain_events import (
+    GoodsReceiptCreatedEvent,
+    PurchaseOrderApprovedEvent,
+    PurchaseOrderCreatedEvent,
+)
+from domain.purchase_sales.goods_receipt_note_entity import (
+    GoodsReceiptNoteEntity,
+    GRNItem,
+    GRNStatus,
+)
 from domain.purchase_sales.purchase_order_aggregate import (
     PurchaseOrderAggregate,
     PurchaseOrderRepository,
 )
 from domain.purchase_sales.purchase_order_entity import POStatus, PurchaseOrderEntity
-from domain.purchase_sales.domain_events import (
-    PurchaseOrderCreatedEvent,
-    PurchaseOrderApprovedEvent,
-    GoodsReceiptCreatedEvent,
-)
 
 # =============================================================================
 # FALLBACK: Define POLine locally if not available in module
@@ -44,10 +47,10 @@ except ImportError:
         received_quantity: Decimal
         currency: str
         expected_delivery_date: datetime
-        notes: Optional[str] = None
+        notes: str | None = None
         tax_rate: Decimal = Decimal("0")
         discount: Decimal = Decimal("0")
-        total_amount: Optional[Decimal] = None
+        total_amount: Decimal | None = None
 
 # ----------------------------------------------------------------------
 # Fixtures

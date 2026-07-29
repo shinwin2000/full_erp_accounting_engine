@@ -87,6 +87,7 @@ class AssetStatus(Enum):
     UNDER_CONSTRUCTION = "construction"
     IDLE = "idle"
     IMPAIRED = "impaired"
+    DRAFT = "draft"  # <-- Added for cloning
 
     def can_depreciate(self) -> bool:
         return self in (AssetStatus.ACTIVE, AssetStatus.IMPAIRED, AssetStatus.IDLE)
@@ -105,6 +106,7 @@ class AssetStatus(Enum):
             AssetStatus.UNDER_CONSTRUCTION: "Dalam Konstruksi",
             AssetStatus.IDLE: "Menganggur",
             AssetStatus.IMPAIRED: "Penurunan Nilai",
+            AssetStatus.DRAFT: "Draft",
         }
         return names.get(self, self.value)
 
@@ -391,6 +393,7 @@ class FixedAsset:
     updated_at: datetime | None = None
     updated_by: UUID | None = None
     version: int = 1
+    metadata: dict = field(default_factory=dict)  # <-- ADDED for lock/unlock
 
     def __post_init__(self) -> None:
         # Validate asset_code
@@ -680,6 +683,7 @@ class FixedAsset:
             updated_at=parse_datetime("updated_at"),
             updated_by=UUID(data["updated_by"]) if data.get("updated_by") else None,
             version=data.get("version", 1),
+            metadata=data.get("metadata", {}),  # <-- added
         )
 
     # ------------------------------------------------------------------------
@@ -740,6 +744,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=posted_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def apply_revaluation(self, new_value: Decimal, method: str, approved_by: UUID) -> FixedAsset:
@@ -791,6 +796,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=approved_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def recognize_impairment(
@@ -841,6 +847,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=tested_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def dispose(
@@ -892,6 +899,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=disposed_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def transfer(self, new_location: str, transferred_by: UUID) -> FixedAsset:
@@ -932,6 +940,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=transferred_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def change_responsible_person(
@@ -969,6 +978,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=changed_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def update_name(self, new_name: str, updated_by: UUID) -> FixedAsset:
@@ -1005,6 +1015,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=updated_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def update_description(self, new_description: str | None, updated_by: UUID) -> FixedAsset:
@@ -1040,6 +1051,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=updated_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def calculate_gain_loss_on_disposal(self, proceeds: Decimal) -> Decimal:
@@ -1089,6 +1101,7 @@ class FixedAsset:
             "created_by": str(self.created_by),
             "updated_by": str(self.updated_by) if self.updated_by else None,
             "version": self.version,
+            "metadata": self.metadata,  # <-- added
         }
 
     def to_db_record(self) -> dict[str, Any]:
@@ -1123,6 +1136,7 @@ class FixedAsset:
             "updated_by": self.updated_by,
             "updated_at": self.updated_at,
             "version": self.version,
+            "metadata": self.metadata,  # <-- added
         }
 
     def __str__(self) -> str:
@@ -1140,8 +1154,6 @@ class FixedAsset:
         return hash(self.id)
 
     # ==================== TAMBAHAN METHOD ENTITY DASAR ====================
-    # Tambahkan kode ini ke dalam class FixedAsset di asset_entity.py
-
     # ==================== ENTITY DASAR METHODS ====================
 
     def create(self, created_by: UUID) -> FixedAsset:
@@ -1204,6 +1216,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=restored_by,
             version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def activate(self, activated_by: UUID) -> FixedAsset:
@@ -1214,13 +1227,37 @@ class FixedAsset:
             raise FixedAssetError(f"Cannot activate asset in status {self.status.value}")
         now = datetime.now(UTC)
         return FixedAsset(
-            **{
-                **self.__dict__,
-                "status": AssetStatus.ACTIVE,
-                "updated_at": now,
-                "updated_by": activated_by,
-                "version": self.version + 1,
-            }
+            id=self.id,
+            legal_entity_id=self.legal_entity_id,
+            asset_code=self.asset_code,
+            name=self.name,
+            description=self.description,
+            asset_type=self.asset_type,
+            status=AssetStatus.ACTIVE,
+            acquisition_date=self.acquisition_date,
+            acquisition_cost=self.acquisition_cost,
+            salvage_value=self.salvage_value,
+            useful_life_years=self.useful_life_years,
+            depreciation_method=self.depreciation_method,
+            accumulated_depreciation=self.accumulated_depreciation,
+            net_book_value=self.net_book_value,
+            location=self.location,
+            responsible_person=self.responsible_person,
+            supplier_id=self.supplier_id,
+            po_number=self.po_number,
+            category=self.category,
+            currency=self.currency,
+            disposed_at=self.disposed_at,
+            disposed_reason=self.disposed_reason,
+            last_depreciation_date=self.last_depreciation_date,
+            accumulated_impairment=self.accumulated_impairment,
+            revaluation_surplus=self.revaluation_surplus,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=now,
+            updated_by=activated_by,
+            version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> FixedAsset:
@@ -1229,57 +1266,127 @@ class FixedAsset:
             raise FixedAssetError(f"Cannot deactivate asset in status {self.status.value}")
         now = datetime.now(UTC)
         return FixedAsset(
-            **{
-                **self.__dict__,
-                "status": AssetStatus.IDLE,
-                "updated_at": now,
-                "updated_by": deactivated_by,
-                "version": self.version + 1,
-            }
+            id=self.id,
+            legal_entity_id=self.legal_entity_id,
+            asset_code=self.asset_code,
+            name=self.name,
+            description=self.description,
+            asset_type=self.asset_type,
+            status=AssetStatus.IDLE,
+            acquisition_date=self.acquisition_date,
+            acquisition_cost=self.acquisition_cost,
+            salvage_value=self.salvage_value,
+            useful_life_years=self.useful_life_years,
+            depreciation_method=self.depreciation_method,
+            accumulated_depreciation=self.accumulated_depreciation,
+            net_book_value=self.net_book_value,
+            location=self.location,
+            responsible_person=self.responsible_person,
+            supplier_id=self.supplier_id,
+            po_number=self.po_number,
+            category=self.category,
+            currency=self.currency,
+            disposed_at=self.disposed_at,
+            disposed_reason=self.disposed_reason,
+            last_depreciation_date=self.last_depreciation_date,
+            accumulated_impairment=self.accumulated_impairment,
+            revaluation_surplus=self.revaluation_surplus,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=now,
+            updated_by=deactivated_by,
+            version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def lock(self, locked_by: UUID, reason: str) -> FixedAsset:
         """Lock asset (prevent modifications)."""
         now = datetime.now(UTC)
-        # Add lock metadata
-        metadata = getattr(self, "metadata", {}) or {}
-        metadata["locked_by"] = str(locked_by)
-        metadata["locked_at"] = now.isoformat()
-        metadata["lock_reason"] = reason
+        # Use metadata field
+        new_metadata = dict(self.metadata)
+        new_metadata["locked_by"] = str(locked_by)
+        new_metadata["locked_at"] = now.isoformat()
+        new_metadata["lock_reason"] = reason
         return FixedAsset(
-            **{
-                **self.__dict__,
-                "metadata": metadata,
-                "updated_at": now,
-                "updated_by": locked_by,
-                "version": self.version + 1,
-            }
+            id=self.id,
+            legal_entity_id=self.legal_entity_id,
+            asset_code=self.asset_code,
+            name=self.name,
+            description=self.description,
+            asset_type=self.asset_type,
+            status=self.status,
+            acquisition_date=self.acquisition_date,
+            acquisition_cost=self.acquisition_cost,
+            salvage_value=self.salvage_value,
+            useful_life_years=self.useful_life_years,
+            depreciation_method=self.depreciation_method,
+            accumulated_depreciation=self.accumulated_depreciation,
+            net_book_value=self.net_book_value,
+            location=self.location,
+            responsible_person=self.responsible_person,
+            supplier_id=self.supplier_id,
+            po_number=self.po_number,
+            category=self.category,
+            currency=self.currency,
+            disposed_at=self.disposed_at,
+            disposed_reason=self.disposed_reason,
+            last_depreciation_date=self.last_depreciation_date,
+            accumulated_impairment=self.accumulated_impairment,
+            revaluation_surplus=self.revaluation_surplus,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=now,
+            updated_by=locked_by,
+            version=self.version + 1,
+            metadata=new_metadata,  # <-- use updated metadata
         )
 
     def unlock(self, unlocked_by: UUID) -> FixedAsset:
         """Unlock asset."""
         now = datetime.now(UTC)
-        metadata = getattr(self, "metadata", {}) or {}
-        metadata.pop("locked_by", None)
-        metadata.pop("locked_at", None)
-        metadata.pop("lock_reason", None)
+        new_metadata = dict(self.metadata)
+        new_metadata.pop("locked_by", None)
+        new_metadata.pop("locked_at", None)
+        new_metadata.pop("lock_reason", None)
         return FixedAsset(
-            **{
-                **self.__dict__,
-                "metadata": metadata,
-                "updated_at": now,
-                "updated_by": unlocked_by,
-                "version": self.version + 1,
-            }
+            id=self.id,
+            legal_entity_id=self.legal_entity_id,
+            asset_code=self.asset_code,
+            name=self.name,
+            description=self.description,
+            asset_type=self.asset_type,
+            status=self.status,
+            acquisition_date=self.acquisition_date,
+            acquisition_cost=self.acquisition_cost,
+            salvage_value=self.salvage_value,
+            useful_life_years=self.useful_life_years,
+            depreciation_method=self.depreciation_method,
+            accumulated_depreciation=self.accumulated_depreciation,
+            net_book_value=self.net_book_value,
+            location=self.location,
+            responsible_person=self.responsible_person,
+            supplier_id=self.supplier_id,
+            po_number=self.po_number,
+            category=self.category,
+            currency=self.currency,
+            disposed_at=self.disposed_at,
+            disposed_reason=self.disposed_reason,
+            last_depreciation_date=self.last_depreciation_date,
+            accumulated_impairment=self.accumulated_impairment,
+            revaluation_surplus=self.revaluation_surplus,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=now,
+            updated_by=unlocked_by,
+            version=self.version + 1,
+            metadata=new_metadata,  # <-- use updated metadata
         )
 
     def validate(self) -> dict[str, Any]:
         """Validate all invariants."""
         errors = []
-        try:
-            self._validate()
-        except FixedAssetError as e:
-            errors.append(str(e))
+        # Removed call to self._validate() which does not exist
+        # Directly check constraints:
         if self.acquisition_cost <= 0:
             errors.append(f"Acquisition cost must be positive: {self.acquisition_cost}")
         if self.salvage_value < 0:
@@ -1317,7 +1424,7 @@ class FixedAsset:
             name=f"{self.name} (COPY)",
             description=self.description,
             asset_type=self.asset_type,
-            status=AssetStatus.DRAFT,
+            status=AssetStatus.DRAFT,  # <-- DRAFT now exists
             acquisition_date=self.acquisition_date,
             acquisition_cost=self.acquisition_cost,
             salvage_value=self.salvage_value,
@@ -1341,6 +1448,7 @@ class FixedAsset:
             updated_at=now,
             updated_by=self.created_by,
             version=1,
+            metadata={},  # <-- empty metadata
         )
         cloned._record_audit("CLONE", str(self.created_by), {"source": str(self.id)})
         return cloned
@@ -1368,12 +1476,37 @@ class FixedAsset:
         """Update timestamp without changing data."""
         now = datetime.now(UTC)
         return FixedAsset(
-            **{
-                **self.__dict__,
-                "updated_at": now,
-                "updated_by": touched_by,
-                "version": self.version + 1,
-            }
+            id=self.id,
+            legal_entity_id=self.legal_entity_id,
+            asset_code=self.asset_code,
+            name=self.name,
+            description=self.description,
+            asset_type=self.asset_type,
+            status=self.status,
+            acquisition_date=self.acquisition_date,
+            acquisition_cost=self.acquisition_cost,
+            salvage_value=self.salvage_value,
+            useful_life_years=self.useful_life_years,
+            depreciation_method=self.depreciation_method,
+            accumulated_depreciation=self.accumulated_depreciation,
+            net_book_value=self.net_book_value,
+            location=self.location,
+            responsible_person=self.responsible_person,
+            supplier_id=self.supplier_id,
+            po_number=self.po_number,
+            category=self.category,
+            currency=self.currency,
+            disposed_at=self.disposed_at,
+            disposed_reason=self.disposed_reason,
+            last_depreciation_date=self.last_depreciation_date,
+            accumulated_impairment=self.accumulated_impairment,
+            revaluation_surplus=self.revaluation_surplus,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=now,
+            updated_by=touched_by,
+            version=self.version + 1,
+            metadata=self.metadata,  # <-- added
         )
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:

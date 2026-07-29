@@ -29,8 +29,7 @@ from domain.purchase_sales.sales_order_aggregate import (
     SalesOrderAggregate,
     SalesOrderRepository,
 )
-from domain.purchase_sales.sales_order_entity import SOStatus, SalesOrderEntity
-
+from domain.purchase_sales.sales_order_entity import SalesOrderEntity, SOStatus
 
 # -----------------------------------------------------------------------------
 # Fixtures

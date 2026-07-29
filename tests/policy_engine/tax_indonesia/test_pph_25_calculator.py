@@ -5,7 +5,7 @@ Covers all methods including class methods, exception cases, and installment upd
 """
 
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import uuid4
 
 import pytest
@@ -19,7 +19,6 @@ from policy_engine.tax_indonesia.pph_25_calculator import (
     PPh25Type,
     get_pph25_calculator,
 )
-
 
 # ============================================================================
 # Enum tests

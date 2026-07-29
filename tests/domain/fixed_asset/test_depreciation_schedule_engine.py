@@ -4,9 +4,8 @@
 # Covers all enums, exceptions, data classes, and all methods of DepreciationScheduleEngine.
 # Includes decimal precision tests for flagged methods.
 
-from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_EVEN
-from unittest.mock import MagicMock, patch
+from datetime import date
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest

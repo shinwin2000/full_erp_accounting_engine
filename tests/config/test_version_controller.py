@@ -3,9 +3,8 @@
 
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,7 +16,6 @@ from config.version_controller import (
     VersionChange,
     get_config_version_controller,
 )
-
 
 # ============================================================================
 # Fixtures

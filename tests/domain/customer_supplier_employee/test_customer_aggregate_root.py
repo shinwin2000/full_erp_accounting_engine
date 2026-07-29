@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -44,7 +44,6 @@ from domain.customer_supplier_employee.customer_tax_status_vo import (
 )
 from domain.customer_supplier_employee.domain_events import (
     CustomerCreatedEvent,
-    CustomerStatusChangedEvent,
 )
 
 # ============================================================================

@@ -3,8 +3,8 @@
 # Comprehensive tests for outcome_link_tracker.py.
 # Covers LinkStatus, LinkType, IntentOutcomeLink, and OutcomeLinkTracker.
 
-from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

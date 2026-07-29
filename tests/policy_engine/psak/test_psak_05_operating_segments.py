@@ -1,11 +1,9 @@
 # tests/policy_engine/psak/test_psak_05_operating_segments.py
 # Comprehensive tests for psak_05_operating_segments.py
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -24,7 +22,6 @@ from policy_engine.psak.psak_05_operating_segments import (
     SegmentReportableStatus,
     get_psak5_validator,
 )
-
 
 # ============================================================================
 # Fixtures

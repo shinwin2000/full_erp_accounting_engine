@@ -6,15 +6,16 @@
 # Duplikat test digabung dengan parametrize.
 # Semua async test diberi marker @pytest.mark.asyncio.
 
-import asyncio
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
-from uuid import UUID, uuid4
 
 from kernel.guards.async_guards.anti_money_laundering import (
+    HIGH_RISK_COUNTRIES,
+    MONITORED_COUNTRIES,
     AMLAlert,
     AMLAlertType,
     AMLScore,
@@ -22,9 +23,6 @@ from kernel.guards.async_guards.anti_money_laundering import (
     AMLScreeningResult,
     AntiMoneyLaunderingEngine,
     AntiMoneyLaunderingGuard,
-    BaseAntiMoneyLaunderingGuard,
-    HIGH_RISK_COUNTRIES,
-    MONITORED_COUNTRIES,
     _FallbackCustomerRepository,
     _FallbackTransactionRepository,
     get_anti_money_laundering_engine,

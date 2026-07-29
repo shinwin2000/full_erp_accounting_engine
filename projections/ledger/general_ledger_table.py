@@ -20,6 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
 from infrastructure.persistence_orm.account_table import AccountTable
 from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
+
+# Add this line to your imports in projections/ledger/general_ledger_table.py
+from infrastructure.persistence_orm.projection_checkpoint_table import ProjectionCheckpointTable
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 

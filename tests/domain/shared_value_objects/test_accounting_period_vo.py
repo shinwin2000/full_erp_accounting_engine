@@ -5,7 +5,7 @@ Covers all methods including factories, properties, business logic, and helpers.
 All datetime is mocked to avoid flakiness.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest

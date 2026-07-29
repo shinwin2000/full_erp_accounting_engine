@@ -1,4 +1,3 @@
-
 """
 Tests for kernel.distributed_lock_redis module.
 Comprehensive unit tests for distributed lock functionality with Redis fallback.
@@ -46,7 +45,6 @@ class Test_FallbackRedisClient:
         result = await client.set("test_key", "test_value")
         assert result is True
 
-        # Verify value was stored
         stored = await client.get("test_key")
         assert stored == "test_value"
 
@@ -57,7 +55,6 @@ class Test_FallbackRedisClient:
         result = await client.set("existing_key", "value2", nx=True)
         assert result is False
 
-        # Original value should remain
         stored = await client.get("existing_key")
         assert stored == "value1"
 
@@ -93,7 +90,6 @@ class Test_FallbackRedisClient:
         result = await client.delete("to_delete")
         assert result == 1
 
-        # Verify deletion
         stored = await client.get("to_delete")
         assert stored is None
 
@@ -257,12 +253,14 @@ class TestDistributedLock:
 
     @pytest.fixture
     def lock_manager(self):
-        """Create a fresh DistributedLock instance."""
+        """Create a fresh DistributedLock instance and clean up safely."""
         manager = DistributedLock()
         yield manager
-        # Cleanup
-        if hasattr(manager, 'reset'):
+        # Safely reset to cancel renewal tasks, ignore RuntimeError if loop closed
+        try:
             manager.reset()
+        except RuntimeError:
+            pass
 
     def test_construction(self, lock_manager):
         """DistributedLock can be instantiated."""
@@ -309,10 +307,7 @@ class TestDistributedLock:
     @pytest.mark.asyncio
     async def test_acquire_blocking_false_immediate_fail(self, lock_manager):
         """Acquire with blocking=False fails immediately if lock exists."""
-        # First acquire
         await lock_manager.acquire("test_lock", auto_renew=False)
-
-        # Second acquire should fail
         result = await lock_manager.acquire("test_lock", blocking=False)
         assert result is False
 
@@ -385,10 +380,11 @@ class TestDistributedLock:
         locks = lock_manager.get_held_locks()
         assert locks == []
 
-    def test_get_held_locks_with_locks(self, lock_manager):
+    @pytest.mark.asyncio
+    async def test_get_held_locks_with_locks(self, lock_manager):
         """get_held_locks returns list of held locks."""
-        asyncio.run(lock_manager.acquire("lock1"))
-        asyncio.run(lock_manager.acquire("lock2"))
+        await lock_manager.acquire("lock1")
+        await lock_manager.acquire("lock2")
 
         locks = lock_manager.get_held_locks()
         assert len(locks) == 2
@@ -497,7 +493,6 @@ class TestDistributedLock:
         trail = lock_manager.audit_trail()
         assert isinstance(trail, list)
 
-        # Add some entries
         lock_manager.touch("user1")
         lock_manager.touch("user2")
 
@@ -524,9 +519,10 @@ class TestDistributedLock:
         assert len(trail) >= 1
         assert trail[-1]['performed_by'] == "test_user"
 
-    def test_reset(self, lock_manager):
+    @pytest.mark.asyncio
+    async def test_reset(self, lock_manager):
         """reset clears all state."""
-        asyncio.run(lock_manager.acquire("lock1"))
+        await lock_manager.acquire("lock1")
         lock_manager.touch("user")
 
         lock_manager.reset()
@@ -546,11 +542,13 @@ class TestLockContextManager:
 
     @pytest.fixture
     def lock_manager(self):
-        """Create a fresh DistributedLock instance."""
+        """Create a fresh DistributedLock instance and clean up safely."""
         manager = DistributedLock()
         yield manager
-        if hasattr(manager, 'reset'):
+        try:
             manager.reset()
+        except RuntimeError:
+            pass
 
     @pytest.mark.asyncio
     async def test_lock_context_success(self, lock_manager):
@@ -616,7 +614,6 @@ class TestModuleFunctions:
         result = await acquire_lock("test_lock", ttl_seconds=30)
         assert result is True
 
-        # Cleanup
         await release_lock("test_lock")
 
     @pytest.mark.asyncio
@@ -643,26 +640,25 @@ class TestIntegration:
 
     @pytest.fixture
     def lock_manager(self):
-        """Create a fresh DistributedLock instance."""
+        """Create a fresh DistributedLock instance and clean up safely."""
         manager = DistributedLock()
         yield manager
-        if hasattr(manager, 'reset'):
+        try:
             manager.reset()
+        except RuntimeError:
+            pass
 
     @pytest.mark.asyncio
     async def test_full_lifecycle(self, lock_manager):
         """Test complete lock lifecycle."""
-        # Acquire
         assert await lock_manager.acquire("resource")
         assert await lock_manager.is_locked("resource")
         assert await lock_manager.is_held_by_current("resource")
 
-        # Get info
         info = await lock_manager.get_lock_info("resource")
         assert info is not None
         assert info['lock_key'] == "resource"
 
-        # Release
         assert await lock_manager.release("resource")
         assert not await lock_manager.is_locked("resource")
         assert not await lock_manager.is_held_by_current("resource")
@@ -672,37 +668,30 @@ class TestIntegration:
         """Test managing multiple locks simultaneously."""
         locks = ["lock_a", "lock_b", "lock_c"]
 
-        # Acquire all
         for lock_key in locks:
             result = await lock_manager.acquire(lock_key)
             assert result is True
 
-        # Verify all locked
         for lock_key in locks:
             assert await lock_manager.is_locked(lock_key)
 
-        # Release all
         await lock_manager.release_all()
 
-        # Verify all released
         for lock_key in locks:
             assert not await lock_manager.is_locked(lock_key)
 
     @pytest.mark.asyncio
     async def test_statistics_accuracy(self, lock_manager):
         """Test statistics reflect actual state."""
-        # Initial stats
         stats = lock_manager.get_statistics()
         assert stats['held_locks'] == 0
 
-        # After acquiring
         await lock_manager.acquire("lock1")
         await lock_manager.acquire("lock2")
 
         stats = lock_manager.get_statistics()
         assert stats['held_locks'] == 2
 
-        # After releasing one
         await lock_manager.release("lock1")
 
         stats = lock_manager.get_statistics()

@@ -4,9 +4,8 @@ Comprehensive tests for compliance/sox_control_tester.py
 """
 
 import json
-from datetime import date, datetime
-from types import SimpleNamespace
-from uuid import UUID, uuid4
+from datetime import date
+from uuid import uuid4
 
 import pytest
 
@@ -20,9 +19,10 @@ from compliance.sox_control_tester import (
     DeficiencySeverity,
     SoxControlTester,
     SOXError,
-    TestType,
 )
-
+from compliance.sox_control_tester import (
+    TestType as EnumTestType,
+)
 
 # ============================================================================
 # Fixtures
@@ -54,7 +54,7 @@ def sample_control(tester):
 def sample_test_plan(tester, sample_control):
     tester.define_test_plan(
         control_id="FIN-001",
-        test_type=TestType.OPERATING_EFFECTIVENESS,
+        test_type=EnumTestType.OPERATING_EFFECTIVENESS,
         sample_method="random",
         sample_size=25,
         threshold_deviation_rate=0.05,
@@ -102,13 +102,13 @@ class TestControlTestResult:
         assert isinstance(ControlTestResult.PASS, ControlTestResult)
 
 
-class TestTestType:
+class TestEnumTestType:
     def test_members_exist(self):
-        assert hasattr(TestType, 'DESIGN_EFFECTIVENESS')
-        assert hasattr(TestType, 'OPERATING_EFFECTIVENESS')
+        assert hasattr(EnumTestType, 'DESIGN_EFFECTIVENESS')
+        assert hasattr(EnumTestType, 'OPERATING_EFFECTIVENESS')
 
     def test_member_is_instance(self):
-        assert isinstance(TestType.DESIGN_EFFECTIVENESS, TestType)
+        assert isinstance(EnumTestType.DESIGN_EFFECTIVENESS, EnumTestType)
 
 
 class TestDeficiencySeverity:
@@ -207,7 +207,7 @@ class TestControlTest:
         test = ControlTest(
             test_id=test_id,
             control_id="CTRL-001",
-            test_type=TestType.DESIGN_EFFECTIVENESS,
+            test_type=EnumTestType.DESIGN_EFFECTIVENESS,
             test_date=date(2026, 1, 15),
             tested_by="Auditor",
             result=ControlTestResult.PASS,
@@ -223,7 +223,7 @@ class TestControlTest:
         )
         assert test.test_id == test_id
         assert test.control_id == "CTRL-001"
-        assert test.test_type == TestType.DESIGN_EFFECTIVENESS
+        assert test.test_type == EnumTestType.DESIGN_EFFECTIVENESS
         assert test.result == ControlTestResult.PASS
         assert test.sample_size == 50
         assert test.deviations == 1
@@ -240,7 +240,7 @@ class TestControlTest:
         test = ControlTest(
             test_id=uuid4(),
             control_id="CTRL-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             test_date=date(2026, 1, 15),
             tested_by="Auditor",
             result=ControlTestResult.FAIL,
@@ -260,7 +260,7 @@ class TestControlTest:
         test = ControlTest(
             test_id=test_id,
             control_id="CTRL-001",
-            test_type=TestType.DESIGN_EFFECTIVENESS,
+            test_type=EnumTestType.DESIGN_EFFECTIVENESS,
             test_date=date(2026, 1, 15),
             tested_by="Auditor",
             result=ControlTestResult.PASS,
@@ -375,7 +375,7 @@ class TestSoxControlTester:
     def test_define_test_plan_success(self, tester, sample_control):
         tester.define_test_plan(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             sample_method="random",
             sample_size=25,
             threshold_deviation_rate=0.05,
@@ -383,7 +383,7 @@ class TestSoxControlTester:
             evidence_requirements=["Screenshot", "Log"],
         )
         plan = tester._test_plans["FIN-001"]
-        assert plan["test_type"] == TestType.OPERATING_EFFECTIVENESS
+        assert plan["test_type"] == EnumTestType.OPERATING_EFFECTIVENESS
         assert plan["sample_method"] == "random"
         assert plan["sample_size"] == 25
         assert plan["threshold_deviation_rate"] == 0.05
@@ -395,7 +395,7 @@ class TestSoxControlTester:
         with pytest.raises(ControlNotFoundError, match="Control NONEXISTENT not found"):
             tester.define_test_plan(
                 control_id="NONEXISTENT",
-                test_type=TestType.OPERATING_EFFECTIVENESS,
+                test_type=EnumTestType.OPERATING_EFFECTIVENESS,
                 sample_method="random",
                 sample_size=25,
                 threshold_deviation_rate=0.05,
@@ -406,7 +406,7 @@ class TestSoxControlTester:
     def test_run_test_pass(self, tester, sample_control, sample_test_plan):
         test = tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Internal Audit",
             sample_size=25,
             deviations=0,
@@ -430,7 +430,7 @@ class TestSoxControlTester:
     def test_run_test_fail_with_threshold(self, tester, sample_control, sample_test_plan):
         test = tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Internal Audit",
             sample_size=25,
             deviations=3,  # 3/25 = 0.12 > 0.05 threshold -> FAIL
@@ -448,7 +448,7 @@ class TestSoxControlTester:
         with pytest.raises(ControlNotFoundError, match="Control NONEXISTENT not found"):
             tester.run_test(
                 control_id="NONEXISTENT",
-                test_type=TestType.OPERATING_EFFECTIVENESS,
+                test_type=EnumTestType.OPERATING_EFFECTIVENESS,
                 tested_by="Auditor",
                 sample_size=10,
                 deviations=1,
@@ -459,7 +459,7 @@ class TestSoxControlTester:
         # No test plan defined, but should still work with default threshold 0.05
         test = tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Internal Audit",
             sample_size=20,
             deviations=2,  # 0.10 > default 0.05 -> FAIL
@@ -498,7 +498,7 @@ class TestSoxControlTester:
     def test_create_deficiency(self, tester, sample_control, sample_test_plan):
         test = tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=10,
             deviations=2,
@@ -518,7 +518,7 @@ class TestSoxControlTester:
         # Create a failing test
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=20,
             deviations=3,
@@ -533,7 +533,7 @@ class TestSoxControlTester:
     def test_get_deficiencies_filter_by_status(self, tester, sample_control, sample_test_plan):
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=20,
             deviations=3,
@@ -549,7 +549,7 @@ class TestSoxControlTester:
     def test_remediate_deficiency_success(self, tester, sample_control, sample_test_plan):
         test = tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=20,
             deviations=3,
@@ -605,7 +605,7 @@ class TestSoxControlTester:
         # Pass test
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=25,
             deviations=0,
@@ -626,7 +626,7 @@ class TestSoxControlTester:
         )
         tester.define_test_plan(
             control_id="FIN-002",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             sample_method="random",
             sample_size=10,
             threshold_deviation_rate=0.05,
@@ -636,7 +636,7 @@ class TestSoxControlTester:
         # Fail test
         tester.run_test(
             control_id="FIN-002",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=10,
             deviations=2,
@@ -678,7 +678,7 @@ class TestSoxControlTester:
     def test_test_control_pass(self, tester, sample_control, sample_test_plan):
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=25,
             deviations=0,
@@ -690,7 +690,7 @@ class TestSoxControlTester:
     def test_test_control_fail(self, tester, sample_control, sample_test_plan):
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=25,
             deviations=5,
@@ -729,7 +729,7 @@ class TestSoxControlTester:
     def test_to_json(self, tester, sample_control, sample_test_plan):
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Auditor",
             sample_size=25,
             deviations=0,
@@ -770,7 +770,7 @@ class TestSoxControlTester:
         # Define test plan
         tester.define_test_plan(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             sample_method="random",
             sample_size=25,
             threshold_deviation_rate=0.05,
@@ -780,7 +780,7 @@ class TestSoxControlTester:
         # Run test - pass
         tester.run_test(
             control_id="FIN-001",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Internal Audit",
             sample_size=25,
             deviations=0,
@@ -807,7 +807,7 @@ class TestSoxControlTester:
         )
         tester.define_test_plan(
             control_id="FIN-002",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             sample_method="random",
             sample_size=20,
             threshold_deviation_rate=0.05,
@@ -816,7 +816,7 @@ class TestSoxControlTester:
         )
         tester.run_test(
             control_id="FIN-002",
-            test_type=TestType.OPERATING_EFFECTIVENESS,
+            test_type=EnumTestType.OPERATING_EFFECTIVENESS,
             tested_by="Internal Audit",
             sample_size=20,
             deviations=3,  # 0.15 > 0.05 -> FAIL
@@ -826,7 +826,7 @@ class TestSoxControlTester:
         report2 = tester.generate_test_report("Q1 2026")
         assert report2["controls"]["failed"] == 1
         assert report2["deficiencies"]["total"] == 1
-        # Deficiency severity: medium risk, deviation_rate 0.15 -> SIGNIFICANT_DEFICIENCY? Wait, medium risk + deviation > 0.05 -> SIGNIFICANT_DEFICIENCY
+        # Deficiency severity: medium risk, deviation_rate 0.15 -> SIGNIFICANT_DEFICIENCY
         assert report2["deficiencies"]["material_weaknesses"] == 0
         assert report2["overall_opinion"] == "Qualified - Significant Deficiencies Identified"
 

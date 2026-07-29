@@ -15,7 +15,6 @@ from domain.purchase_sales.purchase_invoice_entity import (
     PurchaseInvoiceType,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

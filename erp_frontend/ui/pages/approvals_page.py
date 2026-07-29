@@ -7,14 +7,15 @@ escalate/delegate (POST /approval/approvals/requests/{id}/action).
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from PySide6.QtCore import Qt
+from core.api_client import api_client
+from core.formatting import extract_list, format_datetime, status_color
+from core.workers import run_task
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QMessageBox,
@@ -24,10 +25,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_datetime, status_color
-from core.workers import run_task
 
 BASE = "/approval/approvals"
 
@@ -109,7 +106,7 @@ class ApprovalsPage(QWidget):
     def _on_error(self, message: str) -> None:
         self.status_label.setText(f"Gagal memuat: {message}")
 
-    def _selected_record(self) -> Optional[dict[str, Any]]:
+    def _selected_record(self) -> dict[str, Any] | None:
         row = self.table.currentRow()
         if row < 0 or row >= len(self._records):
             return None

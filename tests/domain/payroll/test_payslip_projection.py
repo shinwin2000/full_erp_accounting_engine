@@ -1,7 +1,7 @@
 # test_payslip_projection.py
 # Comprehensive tests for payslip_projection.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -9,7 +9,6 @@ import pytest
 
 from domain.payroll.payslip_projection import PayslipProjection, PayslipRepository
 from domain.payroll.salary_component_entity import ComponentType, SalaryComponentEntity
-
 
 # ============================================================================
 # Fixtures

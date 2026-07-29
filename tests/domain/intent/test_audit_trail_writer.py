@@ -5,9 +5,7 @@ Covers all public methods with proper mocking to avoid flakiness.
 Includes negative path tests and exception handling.
 """
 
-import asyncio
-import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,7 +18,6 @@ from domain.intent.audit_trail_writer import (
     IntentAuditStoragePort,
     get_audit_trail_writer,
 )
-
 
 # ============================================================================
 # Fixtures

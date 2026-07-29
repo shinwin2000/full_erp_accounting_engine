@@ -1,14 +1,12 @@
 # tests/kernel/guards/test_authority_matrix.py
 # Comprehensive tests for kernel/guards/authority_matrix.py
 
-import asyncio
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
-from kernel.context_holder import get_current_legal_entity, get_current_user
 from kernel.guards.authority_matrix import (
     STANDARD_ROLES,
     Action,
@@ -24,8 +22,7 @@ from kernel.guards.authority_matrix import (
     _get_user_repository,
     get_authority_matrix_guard,
 )
-from kernel.guards.guard_exceptions import AuthorityMatrixError, GuardSeverity
-
+from kernel.guards.guard_exceptions import AuthorityMatrixError
 
 # ============================================================================
 # Fixtures

@@ -267,19 +267,19 @@ class TestHelperFunctions:
 def _trigger_all_department_properties():
     """Directly access all properties and methods to ensure checker detects them."""
     dept = DepartmentVO(code="FIN", name="Finance", cost_center_code="CC-001", manager_name="John")
-    
+
     # Access from_dict
     _ = DepartmentVO.from_dict({"code": "HR", "name": "Human Resources"})
-    
+
     # Access properties
     _ = dept.full_path
     _ = dept.has_cost_center
     _ = dept.has_manager
-    
+
     # Access __hash__
     _ = dept.__hash__()
     _ = hash(dept)
-    
+
     # Access other methods for completeness (already covered but ensures visibility)
     _ = dept.to_dict()
     _ = dept.to_db_record()

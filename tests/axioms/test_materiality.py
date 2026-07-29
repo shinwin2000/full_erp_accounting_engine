@@ -23,7 +23,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -225,9 +225,7 @@ class TestMaterialityThreshold:
     @pytest.mark.parametrize("method_name", ["activate", "deactivate", "lock", "unlock", "create"])
     def test_noop_methods_return_self(self, sample_threshold, method_name):
         method = getattr(sample_threshold, method_name)
-        if method_name == "deactivate":
-            result = method("admin", "reason")
-        elif method_name in ("lock",):
+        if method_name == "deactivate" or method_name in ("lock",):
             result = method("admin", "reason")
         else:
             result = method("admin")
@@ -370,9 +368,7 @@ class TestMaterialityJudgment:
     @pytest.mark.parametrize("method_name", ["activate", "deactivate", "lock", "unlock", "create"])
     def test_noop_methods_return_self(self, sample_judgment, method_name):
         method = getattr(sample_judgment, method_name)
-        if method_name == "deactivate":
-            result = method("admin", "reason")
-        elif method_name in ("lock",):
+        if method_name == "deactivate" or method_name in ("lock",):
             result = method("admin", "reason")
         else:
             result = method("admin")
@@ -465,9 +461,7 @@ class TestMaterialityViolation:
     @pytest.mark.parametrize("method_name", ["activate", "deactivate", "lock", "unlock", "create"])
     def test_noop_methods_return_self(self, sample_violation, method_name):
         method = getattr(sample_violation, method_name)
-        if method_name == "deactivate":
-            result = method("admin", "reason")
-        elif method_name in ("lock",):
+        if method_name == "deactivate" or method_name in ("lock",):
             result = method("admin", "reason")
         else:
             result = method("admin")

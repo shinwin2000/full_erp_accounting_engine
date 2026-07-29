@@ -7,8 +7,8 @@ All tests PASS.
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
@@ -25,7 +25,6 @@ from domain.fixed_asset.asset_group_entity import (
     InvalidGroupCodeError,
     ParentGroupNotFoundError,
 )
-
 
 # ============================================================================
 # Helper fixtures

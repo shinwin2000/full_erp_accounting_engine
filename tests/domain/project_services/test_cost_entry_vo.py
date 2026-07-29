@@ -22,7 +22,6 @@ import pytest
 
 from domain.project_services.cost_entry_vo import CostEntryVO, CostType
 
-
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------

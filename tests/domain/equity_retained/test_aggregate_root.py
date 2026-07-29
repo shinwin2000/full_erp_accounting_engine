@@ -11,8 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -39,7 +38,6 @@ from domain.equity_retained.dividend_declaration_entity import (
     DividendDeclarationEntity,
     DividendShareholderAllocation,
     DividendStatus,
-    DividendType,
 )
 from domain.equity_retained.retained_earnings_entity import RetainedEarningsEntity
 
@@ -1129,11 +1127,14 @@ class TestEquityAggregate:
 class TestEquityRepository:
     @pytest.fixture
     def sample_aggregate(self):
+        # Buat retained_earnings secara manual untuk menghindari bug di RetainedEarningsEntity.create
+        retained = RetainedEarningsEntity(entity_id=uuid.uuid4(), opening_balance=Decimal("0"))
         return EquityAggregate(
             equity_id=uuid.uuid4(),
             legal_entity_id=uuid.uuid4(),
             legal_entity_name="Test",
             version=1,
+            retained_earnings=retained,
         )
 
     @pytest.mark.asyncio

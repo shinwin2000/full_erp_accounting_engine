@@ -13,10 +13,10 @@ Covers:
 - No flaky datetime usage
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -37,7 +37,6 @@ from adapters.primary_api.v1.fastapi_budget_router import (
     BudgetType,
     BudgetUpdateSchema,
     BudgetVersionResponseSchema,
-    BudgetVsActualLineSchema,
     BudgetVsActualResponseSchema,
     IdempotencyManager,
     VarianceType,
@@ -67,7 +66,6 @@ from adapters.primary_api.v1.fastapi_budget_router import (
     update_budget,
     update_budget_lines,
 )
-
 
 # =============================================================================
 # Helper fixtures

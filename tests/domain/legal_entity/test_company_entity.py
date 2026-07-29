@@ -1,7 +1,7 @@
 # test_company_entity.py
 # Comprehensive tests for company_entity.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -14,7 +14,6 @@ from domain.legal_entity.company_entity import (
     LegalEntityType,
 )
 from domain.shared_value_objects.npwp_vo import NPWP
-
 
 # ============================================================================
 # Fixtures

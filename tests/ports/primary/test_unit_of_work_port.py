@@ -1,8 +1,6 @@
 # test_unit_of_work_port.py
 # Comprehensive tests for ports/primary/unit_of_work_port.py
 
-import asyncio
-import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4

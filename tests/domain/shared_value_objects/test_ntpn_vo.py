@@ -1,7 +1,7 @@
 # test_ntpn_vo.py
 # Comprehensive tests for ntpn_vo.py
 
-from datetime import date, datetime
+from datetime import date
 
 import pytest
 
@@ -12,7 +12,6 @@ from domain.shared_value_objects.ntpn_vo import (
     normalize_ntpn,
     validate_ntpn_string,
 )
-
 
 # ============================================================================
 # Fixtures and Test Data

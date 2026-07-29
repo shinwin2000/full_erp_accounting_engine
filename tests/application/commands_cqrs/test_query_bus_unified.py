@@ -3,6 +3,7 @@
 Unit tests for QueryBusUnified and related classes.
 Covers all public methods with strong assertions, no MagicMock for domain objects.
 All tests PASS.
+Includes explicit tests for private methods to satisfy coverage analysis.
 """
 
 from __future__ import annotations
@@ -424,6 +425,26 @@ class TestCacheQueryMiddleware:
         result2 = asyncio.run(mw.process(query, handler, context))
         assert result2 == {"call": 1}
 
+    def test_generate_cache_key(self):
+        """Explicit test for private _generate_cache_key method."""
+        mw = CacheQueryMiddleware()
+        query = BaseQuery("TestQuery", filters={"status": "active"}, pagination={"page": 1, "per_page": 20})
+        key1 = mw._generate_cache_key(query)
+        # Same query should generate same key
+        query2 = BaseQuery("TestQuery", filters={"status": "active"}, pagination={"page": 1, "per_page": 20})
+        key2 = mw._generate_cache_key(query2)
+        assert key1 == key2
+        # Different query type should generate different key
+        query3 = BaseQuery("OtherQuery", filters={"status": "active"})
+        key3 = mw._generate_cache_key(query3)
+        assert key1 != key3
+        # Different filters should generate different key
+        query4 = BaseQuery("TestQuery", filters={"status": "inactive"})
+        key4 = mw._generate_cache_key(query4)
+        assert key1 != key4
+        # Key format check
+        assert key1.startswith("query:TestQuery:")
+
 
 # ============================================================================
 # Tests for UnifiedQueryBus
@@ -506,6 +527,83 @@ class TestUnifiedQueryBus:
         assert health["is_closed"] is False
         assert health["total_handlers"] == 0
         assert health["success_rate"] == 100
+
+    # ---- Explicit tests for private methods ----
+    def test_get_circuit_breaker(self):
+        bus = UnifiedQueryBus()
+        cb = bus._get_circuit_breaker("TestType")
+        assert cb["state"] == "closed"
+        assert cb["failures"] == 0
+        assert cb["last_failure"] is None
+        assert cb["threshold"] == 5
+        assert cb["recovery_timeout"] == 30.0
+        # Same type returns same dict
+        cb2 = bus._get_circuit_breaker("TestType")
+        assert cb is cb2
+        # Different type returns new dict
+        cb3 = bus._get_circuit_breaker("OtherType")
+        assert cb is not cb3
+
+    def test_is_circuit_open_closed(self):
+        bus = UnifiedQueryBus()
+        # Initially closed
+        assert bus._is_circuit_open("TestType") is False
+        # After failures
+        for _ in range(6):
+            bus._record_failure("TestType")
+        # Now open
+        assert bus._is_circuit_open("TestType") is True
+        # Half-open after recovery timeout (simulate by modifying last_failure)
+        cb = bus._get_circuit_breaker("TestType")
+        cb["last_failure"] = time.time() - 100  # far in past
+        # Should be half-open (not open)
+        assert bus._is_circuit_open("TestType") is False
+        # Check that state changed to half-open
+        assert cb["state"] == "half-open"
+
+    def test_record_success(self):
+        bus = UnifiedQueryBus()
+        # Normal success should decrease failures
+        cb = bus._get_circuit_breaker("TestType")
+        cb["failures"] = 3
+        bus._record_success("TestType")
+        assert cb["failures"] == 2
+        # Half-open success should close circuit
+        cb["state"] = "half-open"
+        cb["failures"] = 3
+        bus._record_success("TestType")
+        assert cb["state"] == "closed"
+        assert cb["failures"] == 0
+
+    def test_record_failure(self):
+        bus = UnifiedQueryBus()
+        cb = bus._get_circuit_breaker("TestType")
+        bus._record_failure("TestType")
+        assert cb["failures"] == 1
+        assert cb["last_failure"] is not None
+        # Multiple failures up to threshold
+        for _ in range(4):
+            bus._record_failure("TestType")
+        assert cb["failures"] == 5
+        # Next failure should open circuit
+        bus._record_failure("TestType")
+        assert cb["state"] == "open"
+
+    def test_calculate_percentile_empty(self):
+        bus = UnifiedQueryBus()
+        assert bus._calculate_percentile(95) == 0.0
+
+    def test_calculate_percentile_with_data(self):
+        bus = UnifiedQueryBus()
+        bus._metrics["latencies"] = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        assert bus._calculate_percentile(50) == 50  # median
+        assert bus._calculate_percentile(90) == 90
+        assert bus._calculate_percentile(95) == 95
+        # Test with odd number
+        bus._metrics["latencies"] = [10, 20, 30]
+        assert bus._calculate_percentile(50) == 20  # index 1
+        # Test with large percentile near max
+        assert bus._calculate_percentile(100) == 30  # max
 
 
 # ============================================================================

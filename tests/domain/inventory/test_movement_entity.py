@@ -3,10 +3,11 @@
 # Comprehensive tests for domain/inventory/movement_entity.py.
 # Covers all factory methods, business methods, properties, validation, and serialization.
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import uuid4, UUID
+from unittest.mock import MagicMock
+from uuid import UUID, uuid4
+
 import pytest
 
 from domain.inventory.movement_entity import (

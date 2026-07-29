@@ -3,21 +3,19 @@
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from policy_engine.conflict_resolver import (
     Conflict,
     ConflictDetector,
-    ConflictResolver,
     ConflictSeverity,
     ConflictType,
     ResolutionStrategy,
     get_conflict_resolver,
 )
 from policy_engine.policy_exceptions import PolicyConflictError
-
 
 # ============================================================================
 # Fixtures

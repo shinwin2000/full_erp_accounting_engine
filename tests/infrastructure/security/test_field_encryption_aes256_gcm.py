@@ -5,7 +5,6 @@ Comprehensive tests for infrastructure/security/field_encryption_aes256_gcm.py
 
 import base64
 import os
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,15 +12,12 @@ import pytest
 from infrastructure.security.field_encryption_aes256_gcm import (
     AES_KEY_SIZE,
     DEFAULT_KEY_ID,
-    ENCRYPTION_VERSION,
-    NONCE_SIZE,
     DecryptionError,
     FieldEncryptionError,
     FieldEncryptionService,
     KeyNotFoundError,
     get_field_encryption,
 )
-
 
 # ============================================================================
 # Fixtures

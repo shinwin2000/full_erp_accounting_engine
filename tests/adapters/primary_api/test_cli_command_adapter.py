@@ -4,11 +4,8 @@
 
 import asyncio
 import json
-import os
-from datetime import UTC, date, datetime
-from decimal import Decimal
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, date, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import typer
@@ -16,19 +13,15 @@ from typer.testing import CliRunner
 
 from adapters.primary_api.cli_command_adapter import (
     IdempotencyManager,
-    _idempotency_manager,
+    _execute_command,
+    _run_async,
     app,
     check_integrity,
-    create_journal,
     export_audit_log,
-    generate_report,
     get_user_id_from_env_or_input,
     get_user_id_from_token,
     init_buses,
     period_close,
-    post_journal,
-    reconcile_bank,
-    run_depreciation,
     show_trial_balance,
 )
 
@@ -496,3 +489,201 @@ def test_main_no_args(runner, capsys):
         with patch("adapters.primary_api.cli_command_adapter.app") as mock_app:
             main()
             mock_app.assert_called_once()
+
+
+# ============================================================================
+# Additional direct tests for uncovered functions
+# ============================================================================
+
+class TestRunAsync:
+    def test_run_async_success(self):
+        async def sample_coro():
+            return "success"
+        result = _run_async(sample_coro())
+        assert result == "success"
+
+    def test_run_async_exception(self):
+        async def failing_coro():
+            raise ValueError("fail")
+        with pytest.raises(ValueError, match="fail"):
+            _run_async(failing_coro())
+
+
+class TestExecuteCommand:
+    def test_execute_command_no_cache(self):
+        mock_cmd = AsyncMock()
+        mock_cmd.dispatch.return_value = {"success": True, "data": "result"}
+        with patch("adapters.primary_api.cli_command_adapter.command_bus", mock_cmd):
+            with patch("adapters.primary_api.cli_command_adapter._idempotency_manager") as mock_mgr:
+                mock_mgr.get_cached_result.return_value = None
+                result = _execute_command("test.type", {"key": "value"}, "idem123", "progress")
+                assert result == {"success": True, "data": "result"}
+                mock_mgr.cache_result.assert_called_once_with("idem123", "test.type", {"success": True, "data": "result"})
+                mock_cmd.dispatch.assert_called_once()
+
+    def test_execute_command_with_cache(self):
+        mock_cmd = AsyncMock()
+        with patch("adapters.primary_api.cli_command_adapter.command_bus", mock_cmd):
+            with patch("adapters.primary_api.cli_command_adapter._idempotency_manager") as mock_mgr:
+                mock_mgr.get_cached_result.return_value = {"cached": "result"}
+                result = _execute_command("test.type", {"key": "value"}, "idem123", "progress")
+                assert result == {"cached": "result"}
+                mock_cmd.dispatch.assert_not_called()
+
+    def test_execute_command_auto_idempotency_key(self):
+        mock_cmd = AsyncMock()
+        mock_cmd.dispatch.return_value = {"success": True}
+        with patch("adapters.primary_api.cli_command_adapter.command_bus", mock_cmd):
+            with patch("adapters.primary_api.cli_command_adapter._idempotency_manager") as mock_mgr:
+                mock_mgr.get_cached_result.return_value = None
+                result = _execute_command("test.type", {"key": "value"}, None, "progress")
+                assert result == {"success": True}
+                mock_mgr.cache_result.assert_called_once()
+                # Verify that an idempotency key was generated (we can check call args)
+                call_args = mock_mgr.cache_result.call_args[0]
+                assert call_args[1] == "test.type"
+                assert len(call_args[0]) == 16  # generated key length
+
+
+class TestPeriodCloseDirect:
+    def test_period_close_success(self):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses") as mock_init:
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter._execute_command") as mock_exec:
+                    mock_exec.return_value = {"success": True, "closing_journal_id": "clj-001"}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            # Call period_close directly
+                            period_close(2026, 12, None, None, "idem123")
+                            mock_exec.assert_called_once_with(
+                                command_type="period.close",
+                                command_data={
+                                    "fiscal_year": 2026,
+                                    "period": 12,
+                                    "legal_entity_id": UUID("12345678-1234-5678-1234-567812345679"),
+                                    "closed_by": UUID("12345678-1234-5678-1234-567812345678"),
+                                },
+                                idempotency_key="idem123",
+                                progress_description="Processing...",
+                            )
+
+    def test_period_close_failure_raises_exit(self):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter._execute_command") as mock_exec:
+                    mock_exec.return_value = {"success": False, "error": "Period already closed"}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            with pytest.raises(typer.Exit) as exc:
+                                period_close(2026, 12, None, None, None)
+                            assert exc.value.code == 1
+
+
+class TestShowTrialBalanceDirect:
+    def test_show_trial_balance_success(self):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter.query_bus") as mock_query:
+                    mock_query.dispatch.return_value = {
+                        "success": True,
+                        "lines": [
+                            {"account_code": "101", "account_name": "Cash", "closing_balance_debit": 1000, "closing_balance_credit": 0}
+                        ],
+                        "total_debit": 1000,
+                        "total_credit": 1000,
+                        "is_balanced": True
+                    }
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            with patch("adapters.primary_api.cli_command_adapter.console.print") as mock_print:
+                                show_trial_balance("2026-01-31", None, None)
+                                mock_query.dispatch.assert_called_once()
+                                # Check that print was called at least once
+                                assert mock_print.call_count > 0
+
+    def test_show_trial_balance_failure_raises_exit(self):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter.query_bus") as mock_query:
+                    mock_query.dispatch.return_value = {"success": False, "error": "DB error"}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            with pytest.raises(typer.Exit) as exc:
+                                show_trial_balance("2026-01-31", None, None)
+                            assert exc.value.code == 1
+
+
+class TestCheckIntegrityDirect:
+    def test_check_integrity_success(self):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter._execute_command") as mock_exec:
+                    mock_exec.return_value = {"success": True, "is_valid": True}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            with patch("adapters.primary_api.cli_command_adapter.console.print") as mock_print:
+                                check_integrity(None, None, "idem123")
+                                mock_exec.assert_called_once_with(
+                                    command_type="audit.verify_integrity",
+                                    command_data={
+                                        "legal_entity_id": UUID("12345678-1234-5678-1234-567812345679"),
+                                        "verified_by": UUID("12345678-1234-5678-1234-567812345678"),
+                                    },
+                                    idempotency_key="idem123",
+                                    progress_description="Verifying hash chain...",
+                                )
+
+    def test_check_integrity_failure_raises_exit(self):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter._execute_command") as mock_exec:
+                    mock_exec.return_value = {"success": True, "is_valid": False, "broken_segment": "seg-001"}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            with pytest.raises(typer.Exit) as exc:
+                                check_integrity(None, None, None)
+                            assert exc.value.code == 1
+
+
+class TestExportAuditLogDirect:
+    def test_export_audit_log_success(self, tmp_path):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter.query_bus") as mock_query:
+                    mock_query.dispatch.return_value = {"success": True, "data": [{"event": "test"}]}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            out_file = tmp_path / "audit.json"
+                            export_audit_log("2026-01-01", "2026-01-31", out_file, None, None)
+                            assert out_file.exists()
+                            with open(out_file) as f:
+                                data = json.load(f)
+                                assert data == [{"event": "test"}]
+
+    def test_export_audit_log_failure_raises_exit(self, tmp_path):
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
+            with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
+                mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
+                with patch("adapters.primary_api.cli_command_adapter.query_bus") as mock_query:
+                    mock_query.dispatch.return_value = {"success": False, "error": "No data"}
+                    with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
+                        mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
+                        with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
+                            out_file = tmp_path / "audit.json"
+                            with pytest.raises(typer.Exit) as exc:
+                                export_audit_log("2026-01-01", "2026-01-31", out_file, None, None)
+                            assert exc.value.code == 1

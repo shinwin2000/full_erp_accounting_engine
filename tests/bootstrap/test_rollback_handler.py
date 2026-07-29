@@ -3,8 +3,6 @@
 Comprehensive tests for bootstrap/rollback_handler.py
 """
 
-import asyncio
-import importlib
 import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,7 +19,6 @@ from bootstrap.rollback_handler import (
     get_rollback_handler,
     rollback_on_failure,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -648,7 +645,6 @@ class TestRollbackHandler:
 
     @pytest.mark.asyncio
     async def test_rollback_startup_step_timeout(self, rollback_handler):
-        import time
 
         def slow_action():
             time.sleep(2)

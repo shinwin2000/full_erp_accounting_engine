@@ -1,7 +1,7 @@
 # test_employee_bpjs_enrollment_vo.py
 # Comprehensive tests for employee_bpjs_enrollment_vo.py
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -18,7 +18,6 @@ from domain.customer_supplier_employee.employee_bpjs_enrollment_vo import (
     calculate_health_contribution,
     validate_bpjs_membership_number,
 )
-
 
 # ============================================================================
 # Fixtures

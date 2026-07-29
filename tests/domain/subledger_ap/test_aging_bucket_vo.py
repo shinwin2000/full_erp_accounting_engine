@@ -13,7 +13,6 @@ from domain.subledger_ap.aging_bucket_vo import (
     AgingSummary,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -84,7 +83,7 @@ class TestAgingBucketVO:
         assert bucket_vo_current.currency == "IDR"
 
     def test_add_same_bucket(self, bucket_vo_current, bucket_vo_30):
-        # Add two VOs of different buckets should return a new VO with same bucket? 
+        # Add two VOs of different buckets should return a new VO with same bucket?
         # Actually the add method likely adds amounts of the same bucket, or it might sum amounts and keep bucket.
         # Let's assume it adds amounts regardless and keeps the bucket of the first.
         result = bucket_vo_current.add(bucket_vo_30)

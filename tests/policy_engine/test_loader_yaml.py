@@ -2,11 +2,9 @@
 # Comprehensive tests for policy_engine/loader_yaml.py
 
 import hashlib
-import threading
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import mock_open, patch
 
 import pytest
 import yaml
@@ -22,11 +20,9 @@ from policy_engine.loader_yaml import (
     load_policies,
 )
 from policy_engine.policy_exceptions import (
-    PolicyError,
     PolicyNotFoundError,
     PolicyValidationError,
 )
-
 
 # ============================================================================
 # FIXED DATETIME (untuk menghindari flaky tests)
@@ -90,7 +86,6 @@ def sample_policy_config(sample_policy_set):
 @pytest.fixture
 def sample_yaml_content(sample_policy_config):
     # Generate YAML content from sample config
-    import yaml
 
     data = sample_policy_config.dict()
     # Convert datetime to ISO strings for YAML serialization
@@ -353,7 +348,6 @@ class TestPolicyLoaderLoading:
 
     def test_load_from_file_duplicate_policy_id(self, temp_yaml_file, sample_yaml_content):
         # Create YAML with duplicate policy IDs
-        import yaml
 
         data = yaml.safe_load(sample_yaml_content)
         data["policies"].append(data["policies"][0])  # duplicate
@@ -371,7 +365,6 @@ class TestPolicyLoaderLoading:
         file1.write_text(sample_yaml_content)
         file2 = temp_dir / "policy2.yaml"
         # Create a second policy with different ID
-        import yaml
 
         data = yaml.safe_load(sample_yaml_content)
         data["policies"][0]["id"] = "policy2"
@@ -433,7 +426,6 @@ class TestPolicyLoaderQuery:
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
         # Load another policy in different domain
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         data["policies"][0]["id"] = "policy2"
@@ -454,7 +446,6 @@ class TestPolicyLoaderQuery:
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
         # Add another policy with different jurisdiction
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         data["policies"][0]["id"] = "policy2"
@@ -475,7 +466,6 @@ class TestPolicyLoaderQuery:
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
         # Add a policy that is not yet effective
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         data["policies"][0]["id"] = "policy_future"
@@ -499,7 +489,6 @@ class TestPolicyLoaderQuery:
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
         # Add another policy with higher version
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         data["policies"][0]["id"] = "policy_v2"
@@ -527,7 +516,6 @@ class TestPolicyLoaderQuery:
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
         # Load another domain
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         data["policies"][0]["id"] = "policy2"
@@ -543,7 +531,6 @@ class TestPolicyLoaderQuery:
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
         # Load another jurisdiction
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         data["policies"][0]["id"] = "policy2"
@@ -644,7 +631,6 @@ class TestPolicyLoaderReload:
         file1 = temp_yaml_file
         loader.load_from_file(file1)  # policy1
         # Create second file
-        import yaml
 
         data = yaml.safe_load(sample_yaml_content)
         data["policies"][0]["id"] = "policy2"
@@ -666,7 +652,6 @@ class TestPolicyLoaderReload:
         # Load two files
         file1 = temp_yaml_file
         loader.load_from_file(file1)
-        import yaml
 
         data = yaml.safe_load(sample_yaml_content)
         data["policies"][0]["id"] = "policy2"
@@ -835,7 +820,6 @@ class TestPolicyLoaderEdgeCases:
     def test_get_active_policy_with_multiple_versions(self, temp_yaml_file):
         loader = PolicyLoader()
         loader.load_from_file(temp_yaml_file)
-        import yaml
 
         data = yaml.safe_load(temp_yaml_file.read_text())
         # Add higher version but later effective date

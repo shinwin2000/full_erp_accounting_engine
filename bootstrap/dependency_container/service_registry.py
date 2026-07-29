@@ -242,7 +242,6 @@ class ServiceRegistrar:
 
             try:
                 from infrastructure.event_publisher.event_publisher import EventPublisher
-
                 from ports.primary.event_publisher_port import EventPublisherPort
                 container.register_singleton(EventPublisher, EventPublisher)
                 container.register_singleton(EventPublisherPort, EventPublisher)
@@ -263,7 +262,6 @@ class ServiceRegistrar:
 
             try:
                 from infrastructure.caching.redis_cache import RedisCache
-
                 from ports.primary.cache_port import CachePort
                 container.register_singleton(RedisCache, RedisCache)
                 container.register_singleton(CachePort, RedisCache)

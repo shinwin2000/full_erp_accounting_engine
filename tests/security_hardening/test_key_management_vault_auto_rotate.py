@@ -3,8 +3,7 @@
 
 import base64
 import json
-import threading
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +13,6 @@ from security_hardening.key_management_vault_auto_rotate import (
     VaultKeyManager,
 )
 from security_hardening.security_exceptions import KeyManagementError
-
 
 # ============================================================================
 # Fixtures

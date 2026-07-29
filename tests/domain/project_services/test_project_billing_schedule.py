@@ -15,7 +15,6 @@ from domain.project_services.project_billing_schedule import (
     ProjectBillingScheduleRepository,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

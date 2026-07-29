@@ -3,8 +3,6 @@
 Comprehensive tests for compliance/legal/compliance_scope_determiner.py
 """
 
-import json
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -19,7 +17,6 @@ from compliance.legal.compliance_scope_determiner import (
     JurisdictionError,
     ReportingFrequency,
 )
-
 
 # ============================================================================
 # Fixtures

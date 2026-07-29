@@ -6,7 +6,6 @@ All tests PASS.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
 
@@ -16,7 +15,6 @@ from domain.reality.effective_date_vo import (
     EffectiveDateFactory,
     EffectiveDateType,
 )
-
 
 # ============================================================================
 # Helper

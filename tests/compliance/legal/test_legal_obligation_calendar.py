@@ -7,7 +7,7 @@ Covers all enums, exceptions, data classes, and calendar logic with mocks.
 import json
 import tempfile
 from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest

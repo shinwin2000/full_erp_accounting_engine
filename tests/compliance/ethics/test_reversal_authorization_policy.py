@@ -7,7 +7,7 @@ Covers all enums, data classes, and policy methods with deterministic datetime.
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import mock_open, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 

@@ -15,9 +15,13 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from PySide6.QtCore import QDate
+from core.api_client import api_client
+from core.formatting import extract_list, format_date, format_money
+from core.workers import run_task
+from PySide6.QtCore import QDate as _QDate
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QDateEdit,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -28,16 +32,9 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QDate as _QDate
-from PySide6.QtWidgets import QDateEdit
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_date, format_money
-from core.workers import run_task
 from ui.widgets.kpi_card import KpiCard
 
 BASE = "/budget/budget"

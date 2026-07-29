@@ -14,20 +14,18 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from domain.inventory.nrv_tester import (
+    NRVTester,
     NRVTestItem,
     NRVTestResult,
     NRVTestResultSummary,
-    NRVTester,
     WriteDownMethod,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures

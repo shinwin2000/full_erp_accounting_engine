@@ -23,7 +23,6 @@ from domain.customer_supplier_employee.customer_credit_limit_vo import (
     sum_credit_limits,
 )
 
-
 # ============================================================================
 # FIXTURES
 # ============================================================================

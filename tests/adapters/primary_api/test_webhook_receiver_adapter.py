@@ -6,21 +6,17 @@
 import hashlib
 import hmac
 import json
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from uuid import uuid4
 
 from adapters.primary_api.webhook_receiver_adapter import (
     IdempotencyManager,
     WebhookRouter,
     WebhookSignatureVerifier,
     router,
-    _idempotency_manager,
-    _webhook_router,
 )
 
 

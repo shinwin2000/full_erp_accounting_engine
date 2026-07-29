@@ -49,8 +49,6 @@ def hash_password_safely(password: str) -> str:
 
 async def main(args: argparse.Namespace) -> int:
     try:
-        from infrastructure.uow.sqlalchemy_uow import SqlAlchemyUnitOfWork
-
         from infrastructure.database.session_factory_sqlalchemy import get_session_factory
         from infrastructure.persistence_orm.iam_user_table import (
             IAMPermissionTable,
@@ -58,6 +56,7 @@ async def main(args: argparse.Namespace) -> int:
             IAMUserTable,
         )
         from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
+        from infrastructure.uow.sqlalchemy_uow import SqlAlchemyUnitOfWork
     except ImportError as exc:
         print(f"[X] Gagal import modul backend: {exc}")
         print("    Pastikan script ini dijalankan dari root folder backend")

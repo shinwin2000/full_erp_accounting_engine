@@ -17,15 +17,14 @@ Covers:
 All tests use mocked datetime to avoid flakiness.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 
 from adapters.coretax_djp.e_bupot_generator import (
-    EBUPOT_STATUS,
     EBupot,
     EBupotAlreadyExistsError,
     EBupotError,
@@ -39,7 +38,6 @@ from adapters.coretax_djp.e_bupot_generator import (
     _FallbackEBupotRepository,
     get_e_bupot_generator,
 )
-
 
 # =============================================================================
 # Fixtures

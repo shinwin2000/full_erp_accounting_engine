@@ -692,6 +692,129 @@ class TestTreeSerialization:
 
 
 # ============================================================================
+# AccountHierarchyTree — private methods (direct coverage)
+# ============================================================================
+
+
+class TestTreePrivateMethods:
+    """Direct tests for private methods to satisfy coverage."""
+
+    def test_validate_no_cycles_valid(self, legal_entity_id):
+        """Test _validate_no_cycles does not raise on acyclic graph."""
+        root = make_account("1000", "Assets", legal_entity_id)
+        child = make_account("1001", "Cash", legal_entity_id, parent=root.id)
+        nodes = {
+            root.account_id: HierarchyNode(account=root),
+            child.account_id: HierarchyNode(account=child),
+        }
+        children_map = {root.account_id: [child.account_id]}
+        # Should not raise
+        AccountHierarchyTree._validate_no_cycles(nodes, children_map)
+
+    def test_validate_no_cycles_detects_cycle(self, legal_entity_id):
+        """Test _validate_no_cycles raises CycleDetectedError on cycle."""
+        a = make_account("1", "A", legal_entity_id)
+        b = make_account("2", "B", legal_entity_id, parent=a.id)
+        # Manually create cycle: a -> b, b -> a
+        nodes = {
+            a.account_id: HierarchyNode(account=a),
+            b.account_id: HierarchyNode(account=b),
+        }
+        children_map = {
+            a.account_id: [b.account_id],
+            b.account_id: [a.account_id],
+        }
+        with pytest.raises(CycleDetectedError):
+            AccountHierarchyTree._validate_no_cycles(nodes, children_map)
+
+    def test_find_path_from_root_found(self, simple_hierarchy):
+        """Test _find_path_from_root returns path when target exists."""
+        root, child, grandchild = simple_hierarchy
+        tree = AccountHierarchyTree.build([root, child, grandchild])
+        root_node = tree.get_node(root.account_id)
+        path = AccountHierarchyTree._find_path_from_root(root_node, grandchild.account_id)
+        assert path is not None
+        assert len(path) == 3
+        assert path[0] == root.account_id
+        assert path[-1] == grandchild.account_id
+
+    def test_find_path_from_root_not_found(self, simple_hierarchy):
+        """Test _find_path_from_root returns None when target missing."""
+        root, child, grandchild = simple_hierarchy
+        tree = AccountHierarchyTree.build([root, child, grandchild])
+        root_node = tree.get_node(root.account_id)
+        path = AccountHierarchyTree._find_path_from_root(root_node, uuid4())
+        assert path is None
+
+    def test_dfs_preorder_private(self, simple_hierarchy):
+        """Test _dfs_preorder directly."""
+        root, child, grandchild = simple_hierarchy
+        tree = AccountHierarchyTree.build([root, child, grandchild])
+        root_node = tree.get_node(root.account_id)
+        result = []
+        tree._dfs_preorder(root_node, result)
+        assert [n.account.account_code for n in result] == ["1000", "1001", "1002"]
+
+    def test_dfs_postorder_private(self, simple_hierarchy):
+        """Test _dfs_postorder directly."""
+        root, child, grandchild = simple_hierarchy
+        tree = AccountHierarchyTree.build([root, child, grandchild])
+        root_node = tree.get_node(root.account_id)
+        result = []
+        tree._dfs_postorder(root_node, result)
+        assert [n.account.account_code for n in result] == ["1002", "1001", "1000"]
+
+    def test_update_levels_and_paths(self, legal_entity_id):
+        """Test _update_levels_and_paths updates node and descendants."""
+        root = make_account("1000", "Assets", legal_entity_id)
+        child = make_account("1001", "Cash", legal_entity_id, parent=root.id)
+        grandchild = make_account("1002", "Petty Cash", legal_entity_id, parent=child.id)
+        # Build nodes manually
+        grandchild_node = HierarchyNode(account=grandchild)
+        child_node = HierarchyNode(account=child, children=[grandchild_node])
+        root_node = HierarchyNode(account=root, children=[child_node])
+        # Call private method on root
+        root_node._update_levels_and_paths(root_node, 0, [])
+        assert root_node.level == 0
+        assert root_node.path == ["1000"]
+        assert child_node.level == 1
+        assert child_node.path == ["1000", "1001"]
+        assert grandchild_node.level == 2
+        assert grandchild_node.path == ["1000", "1001", "1002"]
+
+    def test_recalculate_levels(self, legal_entity_id):
+        """Test _recalculate_levels recomputes levels and paths."""
+        root = make_account("1000", "Assets", legal_entity_id)
+        child = make_account("1001", "Cash", legal_entity_id, parent=root.id)
+        grandchild = make_account("1002", "Petty Cash", legal_entity_id, parent=child.id)
+        # Build nodes manually with wrong levels initially
+        grandchild_node = HierarchyNode(account=grandchild, level=99, path=[])
+        child_node = HierarchyNode(account=child, children=[grandchild_node], level=99, path=[])
+        root_node = HierarchyNode(account=root, children=[child_node], level=99, path=[])
+        # Call private method
+        tree = AccountHierarchyTree.empty()
+        tree._recalculate_levels(root_node, 0, [])
+        assert root_node.level == 0
+        assert root_node.path == ["1000"]
+        assert child_node.level == 1
+        assert child_node.path == ["1000", "1001"]
+        assert grandchild_node.level == 2
+        assert grandchild_node.path == ["1000", "1001", "1002"]
+
+    def test_pretty_print_node(self, simple_hierarchy):
+        """Test _pretty_print_node directly."""
+        root, child, grandchild = simple_hierarchy
+        tree = AccountHierarchyTree.build([root, child, grandchild])
+        root_node = tree.get_node(root.account_id)
+        lines = []
+        tree._pretty_print_node(root_node, 0, lines, indent=2)
+        assert len(lines) == 3
+        assert lines[0] == "1000 - Assets"
+        assert lines[1] == "  1001 - Cash"
+        assert lines[2] == "    1002 - Petty Cash"
+
+
+# ============================================================================
 # Dunder methods
 # ============================================================================
 

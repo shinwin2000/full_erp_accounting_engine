@@ -3,12 +3,13 @@
 # Comprehensive tests for revision_logger.py.
 # Covers RevisionChangeType, RevisionChange, IntentRevision, and RevisionLogger.
 
-from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 
+from domain.intent.immutable_record import IntentStatus
 from domain.intent.revision_logger import (
     IntentRevision,
     RevisionChange,
@@ -16,7 +17,6 @@ from domain.intent.revision_logger import (
     RevisionLogger,
     get_revision_logger,
 )
-from domain.intent.immutable_record import IntentStatus
 
 
 # ----------------------------------------------------------------------

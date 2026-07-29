@@ -25,8 +25,11 @@ Halaman ini terdiri dari 2 tab:
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
+from core.api_client import api_client
+from core.formatting import extract_list
+from core.workers import run_task
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -38,8 +41,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -51,10 +52,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_date
-from core.workers import run_task
 
 BASE = "/iam/iam"
 
@@ -88,7 +85,7 @@ class RolePermissionTab(QWidget):
         super().__init__()
         self._roles: list[dict[str, Any]] = []
         self._all_permissions: list[dict[str, Any]] = []
-        self._selected_role: Optional[dict[str, Any]] = None
+        self._selected_role: dict[str, Any] | None = None
         self._checkboxes: dict[str, QCheckBox] = {}  # permission_id(str) -> checkbox
         self._build_ui()
         self.refresh()
@@ -336,7 +333,7 @@ class RolePermissionTab(QWidget):
 
 
 class RoleFormDialog(QDialog):
-    def __init__(self, initial: Optional[dict[str, Any]] = None, parent=None):
+    def __init__(self, initial: dict[str, Any] | None = None, parent=None):
         super().__init__(parent)
         self.initial = initial or {}
         self.is_edit = bool(initial)
@@ -396,7 +393,7 @@ class AssignRoleToUserTab(QWidget):
         super().__init__()
         self._users: list[dict[str, Any]] = []
         self._roles: list[dict[str, Any]] = []
-        self._selected_user: Optional[dict[str, Any]] = None
+        self._selected_user: dict[str, Any] | None = None
         self._checkboxes: dict[str, QCheckBox] = {}
         self._build_ui()
         self.refresh()

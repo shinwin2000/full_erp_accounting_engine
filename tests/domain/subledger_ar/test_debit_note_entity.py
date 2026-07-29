@@ -1,12 +1,15 @@
-# test_debit_note_entity.py
-# ===========================
+# tests/domain/subledger_ar/test_debit_note_entity.py
+# =============================================================================
 # Comprehensive tests for domain/subledger_ar/debit_note_entity.py.
-# Covers all enums, entity methods, business logic, serialization, and repository interface.
+# Covers all enums, entity methods, business logic, serialization, repository interface,
+# state transitions, negative paths, and edge cases. All tests include proper assertions.
+# Duplicate tests consolidated via parametrization.
+# =============================================================================
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -17,10 +20,10 @@ from domain.subledger_ar.debit_note_entity import (
     DebitNoteStatus,
 )
 
-
-# ----------------------------------------------------------------------
+# =============================================================================
 # Fixtures
-# ----------------------------------------------------------------------
+# =============================================================================
+
 @pytest.fixture
 def sample_debit_note() -> DebitNoteEntity:
     """Create a valid DebitNoteEntity in DRAFT state."""
@@ -65,9 +68,10 @@ def cancelled_debit_note(sample_debit_note) -> DebitNoteEntity:
     return sample_debit_note.cancel("alice", "Wrong entry")
 
 
-# ----------------------------------------------------------------------
-# Enums
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for Enums
+# =============================================================================
+
 class TestDebitNoteStatus:
     def test_members_exist(self):
         assert hasattr(DebitNoteStatus, "DRAFT")
@@ -116,9 +120,10 @@ class TestDebitNoteReason:
         assert DebitNoteReason.SHORTAGE.display_name() == "Kekurangan"
 
 
-# ----------------------------------------------------------------------
-# DebitNoteEntity - Construction & Validation
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for Construction & Validation
+# =============================================================================
+
 class TestDebitNoteEntityConstruction:
     def test_construction_valid(self, sample_debit_note):
         assert sample_debit_note.debit_note_id is not None
@@ -181,10 +186,31 @@ class TestDebitNoteEntityConstruction:
                 tax_amount=Decimal("-10"),
             )
 
+    def test_construction_without_optional_fields(self):
+        entity = DebitNoteEntity(
+            debit_note_id=uuid4(),
+            debit_note_number="DN-001",
+            invoice_id=uuid4(),
+            invoice_number="INV-001",
+            customer_id=uuid4(),
+            customer_name="Customer",
+            issue_date=datetime.now(UTC),
+            amount=Decimal("100"),
+            currency="IDR",
+            reason=DebitNoteReason.ADDITIONAL_CHARGE,
+            status=DebitNoteStatus.DRAFT,
+            description="Test",
+            # tax_amount, tax_rate, original_invoice_amount omitted
+        )
+        assert entity.tax_amount == Decimal(0)
+        assert entity.tax_rate == Decimal(11)
+        assert entity.original_invoice_amount is None
 
-# ----------------------------------------------------------------------
-# DebitNoteEntity - Entity Base Methods
-# ----------------------------------------------------------------------
+
+# =============================================================================
+# Tests for Entity Base Methods
+# =============================================================================
+
 class TestDebitNoteEntityBaseMethods:
     def test_create(self, sample_debit_note):
         result = sample_debit_note.create("alice")
@@ -207,6 +233,17 @@ class TestDebitNoteEntityBaseMethods:
         trail = updated.audit_trail(limit=1)
         assert trail[0]["action"] == "UPDATE"
         assert trail[0]["performed_by"] == "bob"
+
+    def test_update_ignores_internal_fields(self, sample_debit_note):
+        updated = sample_debit_note.update(
+            updated_by="bob",
+            debit_note_id=uuid4(),  # should be ignored
+            version=99,             # should be ignored
+            amount=Decimal("700"),
+        )
+        assert updated.debit_note_id == sample_debit_note.debit_note_id
+        assert updated.version == 2  # incremented, not 99
+        assert updated.amount == Decimal("700")
 
     def test_update_not_editable_raises(self, issued_debit_note):
         with pytest.raises(ValueError, match="Cannot update debit note in status issued"):
@@ -232,9 +269,23 @@ class TestDebitNoteEntityBaseMethods:
         trail = restored.audit_trail(limit=1)
         assert trail[0]["action"] == "RESTORE"
 
-    def test_restore_non_cancelled_raises(self, sample_debit_note):
-        with pytest.raises(ValueError, match="Cannot restore debit note in status draft"):
-            sample_debit_note.restore("alice")
+    @pytest.mark.parametrize("invalid_status,expected_error", [
+        (DebitNoteStatus.DRAFT, "Cannot restore debit note in status draft"),
+        (DebitNoteStatus.ISSUED, "Cannot restore debit note in status issued"),
+        (DebitNoteStatus.APPLIED, "Cannot restore debit note in status applied"),
+    ])
+    def test_restore_invalid_states_raises(self, sample_debit_note, issued_debit_note, applied_debit_note, invalid_status, expected_error):
+        """Consolidates duplicate tests for restore from invalid states."""
+        if invalid_status == DebitNoteStatus.DRAFT:
+            entity = sample_debit_note
+        elif invalid_status == DebitNoteStatus.ISSUED:
+            entity = issued_debit_note
+        elif invalid_status == DebitNoteStatus.APPLIED:
+            entity = applied_debit_note
+        else:
+            entity = sample_debit_note
+        with pytest.raises(ValueError, match=expected_error):
+            entity.restore("alice")
 
     def test_activate_success(self, sample_debit_note):
         activated = sample_debit_note.activate("alice")
@@ -247,9 +298,20 @@ class TestDebitNoteEntityBaseMethods:
         result = issued_debit_note.activate("alice")
         assert result is issued_debit_note
 
-    def test_activate_non_draft_raises(self, applied_debit_note):
-        with pytest.raises(ValueError, match="Cannot activate debit note in status applied"):
-            applied_debit_note.activate("alice")
+    @pytest.mark.parametrize("invalid_status,expected_error", [
+        (DebitNoteStatus.APPLIED, "Cannot activate debit note in status applied"),
+        (DebitNoteStatus.CANCELLED, "Cannot activate debit note in status cancelled"),
+    ])
+    def test_activate_invalid_states_raises(self, applied_debit_note, cancelled_debit_note, invalid_status, expected_error):
+        """Consolidates duplicate tests for activate from invalid states."""
+        if invalid_status == DebitNoteStatus.APPLIED:
+            entity = applied_debit_note
+        elif invalid_status == DebitNoteStatus.CANCELLED:
+            entity = cancelled_debit_note
+        else:
+            entity = applied_debit_note
+        with pytest.raises(ValueError, match=expected_error):
+            entity.activate("alice")
 
     def test_deactivate_success(self, issued_debit_note):
         deactivated = issued_debit_note.deactivate("alice", "Need changes")
@@ -263,9 +325,14 @@ class TestDebitNoteEntityBaseMethods:
         result = sample_debit_note.deactivate("alice")
         assert result is sample_debit_note
 
-    def test_deactivate_non_issued_raises(self, applied_debit_note):
-        with pytest.raises(ValueError, match="Cannot deactivate debit note in status applied"):
-            applied_debit_note.deactivate("alice")
+    @pytest.mark.parametrize("invalid_status,expected_error", [
+        (DebitNoteStatus.APPLIED, "Cannot deactivate debit note in status applied"),
+    ])
+    def test_deactivate_invalid_states_raises(self, applied_debit_note, invalid_status, expected_error):
+        """Consolidates duplicate tests for deactivate from invalid states."""
+        entity = applied_debit_note
+        with pytest.raises(ValueError, match=expected_error):
+            entity.deactivate("alice")
 
     def test_lock(self, sample_debit_note):
         locked = sample_debit_note.lock("alice", "Review")
@@ -313,9 +380,10 @@ class TestDebitNoteEntityBaseMethods:
         assert any("positive" in e for e in result["errors"])
 
 
-# ----------------------------------------------------------------------
-# DebitNoteEntity - Serialization
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for Serialization
+# =============================================================================
+
 class TestDebitNoteEntitySerialization:
     def test_to_dict(self, sample_debit_note):
         d = sample_debit_note.to_dict()
@@ -334,6 +402,31 @@ class TestDebitNoteEntitySerialization:
         assert reconstructed.status == sample_debit_note.status
         assert reconstructed.reason == sample_debit_note.reason
         assert reconstructed.version == sample_debit_note.version
+
+    def test_from_dict_with_missing_optional_fields(self):
+        data = {
+            "debit_note_id": str(uuid4()),
+            "debit_note_number": "DN-001",
+            "invoice_id": str(uuid4()),
+            "invoice_number": "INV-001",
+            "customer_id": str(uuid4()),
+            "customer_name": "Customer",
+            "issue_date": datetime.now(UTC).isoformat(),
+            "amount": "100.00",
+            "currency": "IDR",
+            "reason": "additional_charge",
+            "status": "draft",
+            "description": "Test",
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+            "created_by": "system",
+            "version": 1,
+            # tax_amount, tax_rate, original_invoice_amount omitted
+        }
+        entity = DebitNoteEntity.from_dict(data)
+        assert entity.tax_amount == Decimal("0")
+        assert entity.tax_rate == Decimal("11")
+        assert entity.original_invoice_amount is None
 
     def test_clone(self, sample_debit_note):
         cloned = sample_debit_note.clone()
@@ -375,9 +468,10 @@ class TestDebitNoteEntitySerialization:
         assert trail[0]["performed_by"] == "alice"
 
 
-# ----------------------------------------------------------------------
-# DebitNoteEntity - Business Methods
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for Business Methods
+# =============================================================================
+
 class TestDebitNoteEntityBusiness:
     def test_apply_success(self, issued_debit_note):
         applied = issued_debit_note.apply("bob")
@@ -402,6 +496,7 @@ class TestDebitNoteEntityBusiness:
     def test_cancel_success_issued(self, issued_debit_note):
         cancelled = issued_debit_note.cancel("alice", "Error")
         assert cancelled.status == DebitNoteStatus.CANCELLED
+        assert cancelled.version == issued_debit_note.version + 1
 
     def test_cancel_not_cancellable_raises(self, applied_debit_note):
         with pytest.raises(ValueError, match="Cannot cancel debit note in status applied"):
@@ -425,29 +520,39 @@ class TestDebitNoteEntityBusiness:
         assert money.currency == "IDR"
 
 
-# ----------------------------------------------------------------------
-# DebitNoteEntity - State Transitions
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for State Transitions (including duplicate removal)
+# =============================================================================
+
 class TestDebitNoteEntityStateTransitions:
     def test_state_flow_draft_to_issued_to_applied(self, sample_debit_note):
         issued = sample_debit_note.activate("alice")
         assert issued.status == DebitNoteStatus.ISSUED
         applied = issued.apply("bob")
         assert applied.status == DebitNoteStatus.APPLIED
+        # Verify cannot go back
         with pytest.raises(ValueError):
             applied.activate("alice")
         with pytest.raises(ValueError):
             applied.deactivate("alice")
 
-    def test_state_flow_draft_to_cancelled(self, sample_debit_note):
+    def test_state_flow_draft_to_cancelled_to_restored(self, sample_debit_note):
         cancelled = sample_debit_note.cancel("alice", "No need")
         assert cancelled.status == DebitNoteStatus.CANCELLED
         restored = cancelled.restore("alice")
         assert restored.status == DebitNoteStatus.DRAFT
 
     def test_state_flow_issued_to_cancelled(self, issued_debit_note):
+        # This test is different from test_cancel_success_issued because it includes
+        # verification that the cancellation is permanent (cannot restore to issued)
         cancelled = issued_debit_note.cancel("alice", "Error")
         assert cancelled.status == DebitNoteStatus.CANCELLED
+        # Cannot restore a cancelled note that was issued? Actually restore sets status to DRAFT, not ISSUED.
+        restored = cancelled.restore("alice")
+        assert restored.status == DebitNoteStatus.DRAFT
+        # Reactivate to issued
+        reactivated = restored.activate("alice")
+        assert reactivated.status == DebitNoteStatus.ISSUED
 
     def test_state_flow_issued_to_draft_via_deactivate(self, issued_debit_note):
         deactivated = issued_debit_note.deactivate("alice")
@@ -456,9 +561,10 @@ class TestDebitNoteEntityStateTransitions:
         assert reactivated.status == DebitNoteStatus.ISSUED
 
 
-# ----------------------------------------------------------------------
-# DebitNoteRepository (Interface)
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for Repository Interface (Negative Paths for Abstract Methods)
+# =============================================================================
+
 class TestDebitNoteRepository:
     @pytest.mark.asyncio
     async def test_get_by_id_not_implemented(self):
@@ -539,9 +645,10 @@ class TestDebitNoteRepository:
             await repo.update(MagicMock(), uuid4())
 
 
-# ----------------------------------------------------------------------
-# DebitNoteEntity - Edge Cases
-# ----------------------------------------------------------------------
+# =============================================================================
+# Tests for Edge Cases and Negative Paths
+# =============================================================================
+
 class TestDebitNoteEntityEdgeCases:
     def test_large_amount(self):
         entity = DebitNoteEntity(
@@ -602,3 +709,41 @@ class TestDebitNoteEntityEdgeCases:
         for i in range(15):
             sample_debit_note._take_snapshot()
         assert len(sample_debit_note._snapshots) == 10
+
+    def test_update_with_invalid_reason(self, sample_debit_note):
+        with pytest.raises(ValueError, match="'invalid_reason' is not a valid DebitNoteReason"):
+            sample_debit_note.update(updated_by="bob", reason="invalid_reason")
+
+    def test_update_with_negative_amount(self, sample_debit_note):
+        with pytest.raises(ValueError, match="Debit note amount must be positive"):
+            sample_debit_note.update(updated_by="bob", amount=Decimal("-10"))
+
+    def test_update_with_negative_tax(self, sample_debit_note):
+        with pytest.raises(ValueError, match="Tax amount cannot be negative"):
+            sample_debit_note.update(updated_by="bob", tax_amount=Decimal("-5"))
+
+    def test_apply_already_applied(self, applied_debit_note):
+        with pytest.raises(ValueError, match="Cannot apply debit note in status applied"):
+            applied_debit_note.apply("bob")
+
+    def test_cancel_already_cancelled(self, cancelled_debit_note):
+        # Cancelled note can still be cancelled? According to can_cancel(), CANCELLED returns False, so raise.
+        with pytest.raises(ValueError, match="Cannot cancel debit note in status cancelled"):
+            cancelled_debit_note.cancel("alice", "Again")
+
+    # The following tests were previously duplicates of earlier tests; they are now redundant because
+    # we have parameterized tests above. We keep one version for clarity, but they are already covered.
+    # We'll remove the duplicates to avoid duplication warnings.
+    # The original duplicates were:
+    # - test_restore_from_draft_raises (covered by test_restore_invalid_states_raises)
+    # - test_restore_from_applied_raises (covered by test_restore_invalid_states_raises)
+    # - test_deactivate_from_applied_raises (covered by test_deactivate_invalid_states_raises)
+    # - test_activate_from_applied_raises (covered by test_activate_invalid_states_raises)
+    # - test_activate_from_cancelled_raises (covered by test_activate_invalid_states_raises)
+
+    # We keep the test below to ensure that deactivate from DRAFT returns self, which is a special case.
+    def test_deactivate_from_draft_returns_self(self, sample_debit_note):
+        result = sample_debit_note.deactivate("alice")
+        assert result is sample_debit_note
+        # No version change
+        assert result.version == sample_debit_note.version

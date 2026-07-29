@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 
+from domain.shared_value_objects.money_vo import Money
 from domain.shared_value_objects.percentage_vo import (
     InvalidPercentageError,
     Percentage,
@@ -19,7 +20,6 @@ from domain.shared_value_objects.percentage_vo import (
     sum_percentages,
     weighted_average_percentage,
 )
-from domain.shared_value_objects.money_vo import Money
 
 
 # ----------------------------------------------------------------------

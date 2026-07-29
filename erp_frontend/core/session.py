@@ -10,18 +10,18 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 TOKEN_CACHE_FILE = Path.home() / ".sovereign_erp" / "session.json"
 
 
 @dataclass
 class Session:
-    access_token: Optional[str] = None
-    refresh_token: Optional[str] = None
+    access_token: str | None = None
+    refresh_token: str | None = None
     token_expires_at: float = 0.0
     user: dict[str, Any] = field(default_factory=dict)
-    legal_entity_id: Optional[str] = None
+    legal_entity_id: str | None = None
     legal_entities: list[dict[str, Any]] = field(default_factory=list)
     permissions: list[str] = field(default_factory=list)
     roles: list[str] = field(default_factory=list)
@@ -94,11 +94,11 @@ class Session:
         with open(TOKEN_CACHE_FILE, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
 
-    def load_cached_refresh_token(self) -> Optional[dict[str, Any]]:
+    def load_cached_refresh_token(self) -> dict[str, Any] | None:
         if not TOKEN_CACHE_FILE.exists():
             return None
         try:
-            with open(TOKEN_CACHE_FILE, "r", encoding="utf-8") as fh:
+            with open(TOKEN_CACHE_FILE, encoding="utf-8") as fh:
                 return json.load(fh)
         except (OSError, json.JSONDecodeError):
             return None

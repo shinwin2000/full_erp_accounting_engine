@@ -1,7 +1,7 @@
 # test_financial_entitlement.py
 # Comprehensive tests for financial_entitlement.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,7 +17,6 @@ from domain.reality.financial_entitlement import (
     get_financial_entitlement_service,
 )
 from domain.shared_value_objects.money_vo import Money
-
 
 # ============================================================================
 # Fixtures
@@ -631,7 +630,7 @@ class TestFinancialEntitlementService:
             description="60 days overdue",
         )
 
-        # We need to set the current date for the service to use now; we'll patch datetime? 
+        # We need to set the current date for the service to use now; we'll patch datetime?
         # But the service uses datetime.now(UTC) inside get_aging_summary, so we can't easily mock.
         # Instead we will test by manually creating entitlements and calling get_aging_summary.
         # We'll use a fixed date by overriding the method? Better: we can monkeypatch datetime in the module.

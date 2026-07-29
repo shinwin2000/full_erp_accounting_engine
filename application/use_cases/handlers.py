@@ -213,8 +213,8 @@ def __getattr__(name: str) -> Any:
             except ImportError:
                 # If still not found, raise a descriptive error
                 raise ImportError(
-                    f"Could not import HPPManufacturingCloseUseCase. "
-                    f"Make sure the use case module is properly implemented."
+                    "Could not import HPPManufacturingCloseUseCase. "
+                    "Make sure the use case module is properly implemented."
                 )
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -3,8 +3,7 @@
 # Comprehensive tests for domain/causality/explanation_generator.py.
 # Covers all enums, data classes, generator methods, and FullExplanation.to_html.
 
-from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

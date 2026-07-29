@@ -13,7 +13,6 @@ FIXES:
 """
 
 from decimal import Decimal
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -70,7 +69,6 @@ from adapters.coretax_djp.coretax_exceptions import (
     is_retryable_exception,
     map_http_status_to_exception,
 )
-
 
 # =============================================================================
 # ALL EXCEPTION CLASSES FOR PARAMETRIZED TESTS
@@ -345,7 +343,7 @@ class TestHelpers:
         try:
             import asyncio
             await asyncio.wait_for(asyncio.sleep(0.1), timeout=0.01)
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             assert is_retryable_exception(e) is True
         except Exception:
             # If sleep completes before timeout (shouldn't happen with 0.01)

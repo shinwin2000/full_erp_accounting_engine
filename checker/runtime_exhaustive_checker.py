@@ -963,7 +963,7 @@ class RuntimeExhaustiveChecker:
                                 result = await publisher.subscribe(handler)
                                 subscribed = True
                         self._run_async_safely(asyncio.wait_for(_test1(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.debug(f"subscribe method 1 timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)")
                     except Exception as e:
                         logger.debug(f"subscribe method 1 failed: {e}")
@@ -975,7 +975,7 @@ class RuntimeExhaustiveChecker:
                             await publisher.register_handler(DummyEvent, handler)
                             subscribed = True
                         self._run_async_safely(asyncio.wait_for(_test2(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.debug(f"register_handler timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)")
                     except Exception as e:
                         logger.debug(f"register_handler failed: {e}")
@@ -987,7 +987,7 @@ class RuntimeExhaustiveChecker:
                             await publisher.on(DummyEvent, handler)
                             subscribed = True
                         self._run_async_safely(asyncio.wait_for(_test3(), timeout=self._EVENT_CHECK_TIMEOUT_SEC))
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.debug(f"on method timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)")
                     except Exception as e:
                         logger.debug(f"on method failed: {e}")
@@ -1006,7 +1006,7 @@ class RuntimeExhaustiveChecker:
                             return "PASS", "Event publish-subscribe berhasil", {"event_count": len(received)}
                         else:
                             return "WARN", "Event diterbitkan tapi tidak ada yang menerima", {}
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         return "WARN", f"Event publish timeout setelah {self._EVENT_CHECK_TIMEOUT_SEC}s (broker mungkin tidak tersedia)", {}
                     except Exception as e:
                         return "WARN", f"Event publish gagal: {e}", {}

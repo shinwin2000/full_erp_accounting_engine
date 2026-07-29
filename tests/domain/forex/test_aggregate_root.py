@@ -37,7 +37,6 @@ from domain.forex.aggregate_root import (
 )
 from domain.forex.exchange_rate_vo import ExchangeRate
 
-
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------

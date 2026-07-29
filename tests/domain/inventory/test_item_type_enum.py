@@ -14,8 +14,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from domain.inventory.item_type_enum import ItemType
 
 

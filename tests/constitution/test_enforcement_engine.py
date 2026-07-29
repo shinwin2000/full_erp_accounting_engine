@@ -17,7 +17,6 @@ Covers:
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -38,7 +37,6 @@ from constitution.enforcement_engine import (
     get_enforcement_engine,
 )
 from constitution.sovereignty_declaration import SovereigntyDomain, SovereigntyStatus
-
 
 # =============================================================================
 # Fixtures and Helpers

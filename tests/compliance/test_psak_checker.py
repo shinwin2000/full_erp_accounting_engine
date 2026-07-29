@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import date, datetime, timedelta
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -30,11 +30,11 @@ import pytest
 
 from compliance.psak_checker import (
     ComplianceStatus,
+    PsakChecker,
     PSAKComplianceError,
     PSAKComplianceResult,
     PSAKGapAnalysis,
     PSAKStandard,
-    PsakChecker,
     StandardNotFoundError,
     check_psak_compliance,
 )
@@ -547,7 +547,7 @@ class TestExportMethods:
             file_path = f.name
         try:
             checker.to_json(file_path)
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 data = json.load(f)
             assert "summary" in data
             assert "details" in data
@@ -561,7 +561,7 @@ class TestExportMethods:
             file_path = f.name
         try:
             checker.to_csv(file_path)
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 content = f.read()
             assert "PSAK 1 - Penyajian Laporan Keuangan" in content
             assert "PSAK 14 - Persediaan" in content

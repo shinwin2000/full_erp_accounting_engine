@@ -14,19 +14,13 @@ Covers:
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
-from pathlib import Path
-from unittest.mock import patch
-from uuid import uuid4
 
 import pytest
 
 from architecture.layer_definitions import (
-    LAYER_DEFINITIONS,
     Layer,
     LayerDefinition,
     _cache_audit_trail,
-    _cache_version,
     _module_layer_cache,
     _module_layer_cache_by_path,
     get_all_modules_with_layers,
@@ -38,7 +32,6 @@ from architecture.layer_definitions import (
     reset_cache,
     validate_layer_consistency,
 )
-
 
 # ============================================================================
 # Tests for Layer Enum

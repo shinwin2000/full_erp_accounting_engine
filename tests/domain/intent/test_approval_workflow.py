@@ -4,7 +4,7 @@
 # Covers ApprovalLevel, ApprovalAction, ApprovalStatus, ApprovalRule,
 # ApprovalRecord, ApprovalWorkflow, and singleton accessor.
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 

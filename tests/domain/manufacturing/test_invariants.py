@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from domain.manufacturing.bill_of_materials_entity import BOMStatus, BillOfMaterialsEntity
+from domain.manufacturing.bill_of_materials_entity import BillOfMaterialsEntity, BOMStatus
 from domain.manufacturing.invariants import (
     InvariantResult,
     ManufacturingInvariantEnforcer,

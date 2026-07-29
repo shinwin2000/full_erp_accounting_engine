@@ -3,7 +3,6 @@
 # Comprehensive tests for intent_exceptions.py.
 # Covers enums, base exception, all specific exceptions, and factory.
 
-import pytest
 
 from domain.intent.intent_exceptions import (
     IntentAlreadyApprovedError,

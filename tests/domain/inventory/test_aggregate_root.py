@@ -25,7 +25,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -33,8 +33,6 @@ import pytest
 
 from domain.inventory.aggregate_root import (
     InventoryAggregate,
-    InventoryItemAggregate,
-    StockMovementType,
 )
 from domain.inventory.domain_events import (
     ItemCreated,
@@ -45,8 +43,9 @@ from domain.inventory.domain_events import (
 )
 from domain.inventory.item_entity import Item, ItemStatus, ItemType, UnitOfMeasure
 from domain.inventory.movement_entity import MovementType, StockMovement
-from domain.inventory.stock_adjustment_entity import AdjustmentReason, AdjustmentStatus, AdjustmentType
-from domain.inventory.valuation_method import FIFOValuation
+from domain.inventory.stock_adjustment_entity import (
+    AdjustmentReason,
+)
 
 # =============================================================================
 # Fixtures

@@ -16,10 +16,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 import requests
-
 from core.config import settings
 from core.session import session
 
@@ -115,8 +114,8 @@ class ApiClient:
         self,
         method: str,
         path: str,
-        params: Optional[dict[str, Any]] = None,
-        json_body: Optional[Any] = None,
+        params: dict[str, Any] | None = None,
+        json_body: Any | None = None,
         retry_on_401: bool = True,
         raw: bool = False,
         max_retries: int = 2,
@@ -136,7 +135,7 @@ class ApiClient:
         url = path if path.startswith("http") else f"{self.base_url}{path}"
         is_idempotent = method.upper() in ("GET", "PUT", "DELETE", "HEAD")
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         attempts = max_retries + 1 if is_idempotent else 1
         for attempt in range(attempts):
             try:
@@ -193,7 +192,7 @@ class ApiClient:
 
     # ------------------------------------------------------------------
     # Shortcut methods
-    def get(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
+    def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """
         Beberapa endpoint backend (Customer, Supplier, Employee,
         FiscalPeriod, Payment, Payroll — terverifikasi dari source code)
@@ -209,14 +208,14 @@ class ApiClient:
             merged["legal_entity_id"] = session.legal_entity_id
         return self.request("GET", path, params=merged)
 
-    def post(self, path: str, json_body: Optional[Any] = None, params: Optional[dict[str, Any]] = None) -> Any:
+    def post(self, path: str, json_body: Any | None = None, params: dict[str, Any] | None = None) -> Any:
         return self.request("POST", path, params=params, json_body=self._with_legal_entity(json_body))
 
-    def put(self, path: str, json_body: Optional[Any] = None) -> Any:
+    def put(self, path: str, json_body: Any | None = None) -> Any:
         return self.request("PUT", path, json_body=self._with_legal_entity(json_body))
 
     @staticmethod
-    def _with_legal_entity(json_body: Optional[Any]) -> Optional[Any]:
+    def _with_legal_entity(json_body: Any | None) -> Any | None:
         """
         Sejumlah schema Create/Update (Customer, Supplier, Employee,
         FiscalPeriod, Payment, Payroll — terverifikasi dari source code)
@@ -231,17 +230,17 @@ class ApiClient:
             return {**json_body, "legal_entity_id": session.legal_entity_id}
         return json_body
 
-    def patch(self, path: str, json_body: Optional[Any] = None) -> Any:
+    def patch(self, path: str, json_body: Any | None = None) -> Any:
         return self.request("PATCH", path, json_body=json_body)
 
-    def delete(self, path: str, params: Optional[dict[str, Any]] = None) -> Any:
+    def delete(self, path: str, params: dict[str, Any] | None = None) -> Any:
         return self.request("DELETE", path, params=params)
 
     def upload_file(
         self,
         path: str,
         file_path: str,
-        form_fields: Optional[dict[str, Any]] = None,
+        form_fields: dict[str, Any] | None = None,
     ) -> Any:
         """Upload file via multipart/form-data (mis. POST /documents/documents/upload)."""
         if session.access_token:
@@ -269,7 +268,7 @@ class ApiClient:
             raise ApiError(resp.status_code, detail, url=url)
         return resp.json() if resp.content else None
 
-    def download_file(self, path: str, save_path: str, params: Optional[dict[str, Any]] = None) -> str:
+    def download_file(self, path: str, save_path: str, params: dict[str, Any] | None = None) -> str:
         """Download binary response (mis. GET /documents/{id}/download) ke file lokal."""
         resp = self.request("GET", path, params=params, raw=True)
         with open(save_path, "wb") as fh:
@@ -281,8 +280,8 @@ class ApiClient:
         self,
         username: str,
         password: str,
-        mfa_code: Optional[str] = None,
-        legal_entity_id: Optional[str] = None,
+        mfa_code: str | None = None,
+        legal_entity_id: str | None = None,
     ) -> dict[str, Any]:
         body = {"username": username, "password": password}
         if mfa_code:

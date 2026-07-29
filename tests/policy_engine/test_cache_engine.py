@@ -7,9 +7,8 @@ All tests are deterministic and not flaky.
 
 import json
 import pickle
-import time
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, call, mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 

@@ -13,11 +13,11 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Optional
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -78,9 +78,9 @@ except (ImportError, AttributeError):
         bpjs_health: Optional = None
         bpjs_employment: Optional = None
         notes: str = ""
-        created_by: Optional[UUID] = None
-        created_at: Optional[datetime] = None
-        updated_at: Optional[datetime] = None
+        created_by: UUID | None = None
+        created_at: datetime | None = None
+        updated_at: datetime | None = None
 
 # --- Import aggregate and exceptions ---
 try:

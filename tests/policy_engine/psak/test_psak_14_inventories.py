@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -40,11 +40,10 @@ from policy_engine.psak.psak_14_inventories import (
     PSAK14MovementType,
     PSAK14Rules,
     PSAK14ValidationResult,
-    PSAK14ValuationMethod,
     PSAK14Validator,
+    PSAK14ValuationMethod,
     get_psak14_validator,
 )
-
 
 # =============================================================================
 # Fixtures

@@ -170,7 +170,7 @@ class ImmutableIntentRecord:
         errors = []
         try:
             self._validate()
-            if not self.cryptographic_hash == self.compute_hash():
+            if self.cryptographic_hash != self.compute_hash():
                 errors.append("Hash mismatch")
         except (ValueError, TypeError) as e:
             errors.append(str(e))

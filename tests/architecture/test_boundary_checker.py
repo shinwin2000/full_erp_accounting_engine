@@ -5,12 +5,9 @@ Covers all public methods, edge cases, and uses mocking for external dependencie
 All datetime usage is mocked to avoid flakiness.
 """
 
-import ast
-import json
-import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

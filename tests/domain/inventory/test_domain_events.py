@@ -12,49 +12,46 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
-from unittest.mock import MagicMock
 from uuid import UUID, uuid4
 
 import pytest
 
 from domain.inventory.domain_events import (
+    COGSCalculated,
     COGSCalculatedEvent,
     DomainEvent,
     DomainEventPublisher,
     DomainEventType,
+    InterWarehouseTransferCreated,
     InterWarehouseTransferCreatedEvent,
     InventoryValuationUpdated,
-    ItemCreatedEvent,
-    ItemDeactivatedEvent,
-    ItemUpdatedEvent,
-    StockAdjustedEvent,
-    StockLevelAlertEvent,
-    StockMovementCreatedEvent,
-    StockOpnameApprovedEvent,
-    StockOpnameCreatedEvent,
-    TransferCompletedEvent,
-    ItemCreated,
-    ItemUpdated,
-    ItemDeactivated,
-    StockMovementCreated,
-    StockAdjusted,
-    StockOpnameCreated,
-    StockOpnameApproved,
-    InterWarehouseTransferCreated,
-    TransferCompleted,
-    COGSCalculated,
     InventoryValuationUpdatedEvent,
+    ItemCreated,
+    ItemCreatedEvent,
+    ItemDeactivated,
+    ItemDeactivatedEvent,
+    ItemUpdated,
+    ItemUpdatedEvent,
+    StockAdjusted,
+    StockAdjustedEvent,
     StockLevelAlert,
+    StockLevelAlertEvent,
+    StockMovementCreated,
+    StockMovementCreatedEvent,
+    StockOpnameApproved,
+    StockOpnameApprovedEvent,
+    StockOpnameCreated,
+    StockOpnameCreatedEvent,
+    TransferCompleted,
+    TransferCompletedEvent,
 )
 from domain.inventory.stock_adjustment_entity import (
     AdjustmentStatus,
     AdjustmentType,
     StockAdjustmentEntity,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -601,7 +598,6 @@ class TestInventoryValuationUpdated:
 
     def test_alias(self):
         # InventoryValuationUpdatedEvent is an alias; ensure it exists
-        from domain.inventory.domain_events import InventoryValuationUpdatedEvent
         assert InventoryValuationUpdatedEvent is InventoryValuationUpdated
 
 
@@ -656,19 +652,6 @@ class TestStockLevelAlertEvent:
 
 class TestAliases:
     def test_aliases_exist(self):
-        from domain.inventory.domain_events import (
-            ItemCreated,
-            ItemUpdated,
-            ItemDeactivated,
-            StockMovementCreated,
-            StockAdjusted,
-            StockOpnameCreated,
-            StockOpnameApproved,
-            InterWarehouseTransferCreated,
-            TransferCompleted,
-            COGSCalculated,
-            StockLevelAlert,
-        )
         # Ensure they are the same classes
         assert ItemCreated is ItemCreatedEvent
         assert ItemUpdated is ItemUpdatedEvent

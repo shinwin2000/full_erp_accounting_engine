@@ -13,8 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -25,7 +24,6 @@ from domain.purchase_sales.purchase_order_entity import (
     PurchaseOrderEntity,
     PurchaseOrderEntityRepository,
 )
-
 
 # -----------------------------------------------------------------------------
 # Fixtures

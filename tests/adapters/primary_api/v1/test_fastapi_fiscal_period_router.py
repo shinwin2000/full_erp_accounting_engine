@@ -2,7 +2,6 @@
 # Perbaikan kualitas assertions: mengganti semua assert True dengan
 # assertion yang memeriksa nilai aktual, efek samping, atau interaksi mock.
 
-import json
 from datetime import date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -22,9 +21,8 @@ from adapters.primary_api.v1.fastapi_fiscal_period_router import (
     ReopenPeriodRequestModel,
     UpdatePeriodRequestModel,
     ValidatePeriodResponseModel,
-    router,
-    _idempotency_manager,
     get_correlation_id,
+    router,
 )
 
 

@@ -1,7 +1,7 @@
 # test_vendor_card.py
 # Comprehensive tests for vendor_card.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -14,7 +14,6 @@ from domain.subledger_ap.vendor_card import (
     VendorCard,
     VendorCardRepository,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -24,8 +24,6 @@ import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch
-from uuid import uuid4
 
 import pytest
 
@@ -36,7 +34,6 @@ from policy_engine.tax_indonesia.treaty_resolver import (
     TreatyType,
     get_treaty_resolver,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -315,7 +312,7 @@ class TestTreatyResolver:
             file_path = f.name
         try:
             resolver.export_to_json(file_path)
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 data = json.load(f)
             assert "report" in data
             assert "articles" in data

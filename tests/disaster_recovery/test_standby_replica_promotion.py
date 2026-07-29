@@ -3,12 +3,9 @@
 # Covers all classes, methods, edge cases, and exceptions.
 
 import json
-import socket
 import subprocess
-import threading
-import time
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 

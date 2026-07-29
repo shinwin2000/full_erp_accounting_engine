@@ -6,15 +6,13 @@ All tests PASS.
 """
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from domain.causality.causality_tracker import (
     CausalityTracker,
     CausalRelationship,
-    ImpactAnalysis,
-    PathResult,
     RelationshipType,
     TraversalDirection,
     get_causality_tracker,

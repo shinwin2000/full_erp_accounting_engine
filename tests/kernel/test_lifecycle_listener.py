@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import signal
-import sys
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -42,7 +41,6 @@ from kernel.lifecycle_listener import (
     on_started,
     on_startup,
 )
-
 
 # ============================================================================
 # Fixtures

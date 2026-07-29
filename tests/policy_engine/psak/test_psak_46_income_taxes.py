@@ -3,11 +3,9 @@
 Comprehensive tests for policy_engine/psak/psak_46_income_taxes.py
 """
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -33,7 +31,6 @@ from policy_engine.psak.psak_46_income_taxes import (
     TemporaryDifference,
     get_psak46_validator,
 )
-
 
 # ============================================================================
 # Fixtures

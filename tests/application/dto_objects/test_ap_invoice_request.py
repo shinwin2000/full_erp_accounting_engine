@@ -2,14 +2,16 @@
 # Comprehensive tests for application/dto_objects/ap_invoice_request.py
 # Covers all classes, methods, edge cases, and exceptions.
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from application.dto_objects.ap_invoice_request import (
     APCreditNoteReason,
     APInvoiceLineRequest,
+    ApInvoiceRequest,
     APInvoiceRequestFactory,
     APInvoiceResponseDTO,
     APInvoiceStatus,
@@ -18,8 +20,6 @@ from application.dto_objects.ap_invoice_request import (
     APPaymentMethod,
     APPaymentResponseDTO,
     APPaymentRunRequestDTO,
-    APPaymentStatus,
-    ApInvoiceRequest,
     ApproveAPInvoiceRequest,
     CreateAPCreditNoteRequest,
     CreateAPInvoiceRequest,
@@ -508,6 +508,124 @@ class TestCreateAPInvoiceRequest:
                 withholding_amount=Decimal("-1"),
             )
 
+    # ---- Calculation method tests (explicit) ----
+    def test_calculate_subtotal(self, sample_create_request):
+        # Single line: 2 * 100000 = 200000
+        assert sample_create_request.calculate_subtotal() == Decimal("200000.00")
+
+        # Add a second line to verify sum
+        second_line = APInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("3"),
+            unit_price=Decimal("50000"),
+        )
+        # Create a new request with two lines
+        invoice_date = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        due_date = invoice_date + timedelta(days=30)
+        multi_request = CreateAPInvoiceRequest(
+            invoice_number="AP-INV-002",
+            vendor_id=uuid4(),
+            vendor_name="Vendor",
+            invoice_date=invoice_date,
+            due_date=due_date,
+            amount=Decimal("0"),  # placeholder
+            lines=[sample_create_request.lines[0], second_line],
+        )
+        # Subtotal = 200000 + (3*50000)=150000 => 350000
+        assert multi_request.calculate_subtotal() == Decimal("350000.00")
+
+    def test_calculate_discount_total(self, sample_create_request):
+        # Line discount: 10% of 200000 = 20000, header discount 5000 => total 25000
+        assert sample_create_request.calculate_discount_total() == Decimal("25000.00")
+
+        # With zero header discount
+        zero_disc = CreateAPInvoiceRequest(
+            invoice_number="AP-INV-003",
+            vendor_id=uuid4(),
+            vendor_name="Vendor",
+            invoice_date=datetime.now(UTC),
+            due_date=datetime.now(UTC) + timedelta(days=30),
+            amount=Decimal("0"),
+            lines=[sample_create_request.lines[0]],
+            discount_amount=Decimal("0"),
+        )
+        assert zero_disc.calculate_discount_total() == Decimal("20000.00")  # only line discount
+
+    def test_calculate_tax_total(self, sample_create_request):
+        # Line tax: 11% of 180000 = 19800, header tax 19800 => total 39600
+        assert sample_create_request.calculate_tax_total() == Decimal("39600.00")
+
+        # No header tax
+        zero_tax = CreateAPInvoiceRequest(
+            invoice_number="AP-INV-004",
+            vendor_id=uuid4(),
+            vendor_name="Vendor",
+            invoice_date=datetime.now(UTC),
+            due_date=datetime.now(UTC) + timedelta(days=30),
+            amount=Decimal("0"),
+            lines=[sample_create_request.lines[0]],
+            tax_amount=Decimal("0"),
+        )
+        assert zero_tax.calculate_tax_total() == Decimal("19800.00")
+
+    def test_calculate_items_total(self, sample_create_request):
+        # Line total: 199800.00
+        assert sample_create_request.calculate_items_total() == Decimal("199800.00")
+
+        # Two lines
+        second_line = APInvoiceLineRequest(
+            item_id=uuid4(),
+            item_code="ITEM002",
+            item_name="Item 2",
+            quantity=Decimal("1"),
+            unit_price=Decimal("100000"),
+            discount_percentage=Decimal("0"),
+            tax_rate=Decimal("11"),
+        )
+        invoice_date = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
+        due_date = invoice_date + timedelta(days=30)
+        multi_request = CreateAPInvoiceRequest(
+            invoice_number="AP-INV-005",
+            vendor_id=uuid4(),
+            vendor_name="Vendor",
+            invoice_date=invoice_date,
+            due_date=due_date,
+            amount=Decimal("0"),
+            lines=[sample_create_request.lines[0], second_line],
+        )
+        # Line1 total: 199800, Line2: 111000 => 310800
+        assert multi_request.calculate_items_total() == Decimal("310800.00")
+
+    def test_is_balanced_with_lines(self, sample_create_request):
+        # The fixture amount is 254800, but calculated total is 269504, so not balanced
+        assert sample_create_request.is_balanced_with_lines() is False
+        # With a tolerance larger than difference, should be True
+        assert sample_create_request.is_balanced_with_lines(Decimal("15000")) is True
+
+        # Create a balanced request: adjust amount to match calculation
+        balanced_request = CreateAPInvoiceRequest(
+            invoice_number="AP-INV-006",
+            vendor_id=uuid4(),
+            vendor_name="Vendor",
+            invoice_date=datetime.now(UTC),
+            due_date=datetime.now(UTC) + timedelta(days=30),
+            amount=Decimal("269504.00"),  # exactly matches calculated total
+            lines=[sample_create_request.lines[0]],
+            tax_amount=Decimal("19800.00"),
+            discount_amount=Decimal("5000"),
+            shipping_cost=Decimal("50000"),
+            other_costs=Decimal("10000"),
+            withholding_article=WithholdingArticle.PPH_23,
+            withholding_rate=Decimal("2"),
+            withholding_amount=Decimal("5096.00"),
+        )
+        assert balanced_request.is_balanced_with_lines() is True
+        # With tiny tolerance, still True because exactly equal
+        assert balanced_request.is_balanced_with_lines(Decimal("0.001")) is True
+
+    # ---- Existing calculation test that calls all methods ----
     def test_calculation_methods(self, sample_create_request):
         # One line: 2 * 100000 = 200000 subtotal
         assert sample_create_request.calculate_subtotal() == Decimal("200000.00")
@@ -518,19 +636,11 @@ class TestCreateAPInvoiceRequest:
         # items total: line total = 199800
         assert sample_create_request.calculate_items_total() == Decimal("199800.00")
         # total = items_total + shipping 50000 + other 10000 - discount 5000 + tax 19800 - withholding 5096
-        # 199800 + 50000 + 10000 - 5000 + 19800 - 5096 = 269504? Wait let's compute:
-        # 199800 + 50000 = 249800; +10000 = 259800; -5000 = 254800; +19800 = 274600; -5096 = 269504
-        # But amount in fixture is 254800, so total will be 269504; we'll check equality with fixture's amount later.
-        # The fixture amount was set to 254800 for testing balance, but we may need to adjust.
-        # We'll just assert the calculated total.
-        total = sample_create_request.calculate_total_amount()
-        expected = Decimal("269504.00")  # manual calculation
-        assert total == expected
-
-        # is_balanced_with_lines: compare with self.amount
-        # fixture amount is 254800, but total is 269504, so should be False
+        # 199800 + 50000 + 10000 - 5000 + 19800 - 5096 = 269504
+        expected = Decimal("269504.00")
+        assert sample_create_request.calculate_total_amount() == expected
+        # is_balanced
         assert sample_create_request.is_balanced_with_lines() is False
-        # with a tolerance larger than difference
         assert sample_create_request.is_balanced_with_lines(Decimal("15000")) is True
 
     def test_to_dict(self, sample_create_request):

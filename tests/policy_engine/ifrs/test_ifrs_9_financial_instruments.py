@@ -4,8 +4,6 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-import pytest
-
 from policy_engine.ifrs.ifrs_9_financial_instruments import (
     IFRS9,
     BusinessModel,

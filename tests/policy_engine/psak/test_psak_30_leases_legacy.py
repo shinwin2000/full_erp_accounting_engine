@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
@@ -51,7 +51,6 @@ from policy_engine.psak.psak_30_leases_legacy import (
     PSAK30Validator,
     get_psak30_validator,
 )
-
 
 # ============================================================================
 # Fixtures

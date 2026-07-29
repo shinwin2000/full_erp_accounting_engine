@@ -11,7 +11,6 @@ from domain.customer_supplier_employee.employee_ptkp_status_vo import (
 )
 from domain.payroll.tax_withholding_engine import TaxWithholdingEngine
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

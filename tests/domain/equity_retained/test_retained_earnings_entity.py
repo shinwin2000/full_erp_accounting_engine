@@ -15,9 +15,9 @@ Covers:
 - Mock datetime to avoid flaky tests
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest

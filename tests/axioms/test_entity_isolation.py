@@ -10,7 +10,7 @@ Uses parameterized tests to eliminate duplication and fixed datetime to avoid fl
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest

@@ -1,9 +1,9 @@
 # test_bank_account_entity.py
 # Comprehensive tests for bank_account_entity.py
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -16,7 +16,6 @@ from domain.bank_cash.bank_account_entity import (
     DailyInterestAccrual,
     InterestCalculationMethod,
 )
-
 
 # ============================================================================
 # Fixtures

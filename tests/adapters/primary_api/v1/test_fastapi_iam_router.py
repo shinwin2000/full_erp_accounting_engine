@@ -83,7 +83,6 @@ from adapters.primary_api.v1.fastapi_iam_router import (
     verify_mfa,
 )
 
-
 # ---------- Fixtures ----------
 
 @pytest.fixture

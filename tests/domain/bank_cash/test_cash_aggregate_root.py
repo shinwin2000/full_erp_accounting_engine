@@ -30,12 +30,10 @@ Covers:
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -74,8 +72,15 @@ from domain.bank_cash.cash_disbursement_entity import (
     CashDisbursementType,
     PaymentMethod,
 )
-from domain.bank_cash.cash_receipt_entity import CashReceiptEntity, CashReceiptStatus, CashReceiptType
-from domain.bank_cash.petty_cash_fund_entity import PettyCashFundEntity, PettyCashStatus, PettyCashTransactionType
+from domain.bank_cash.cash_receipt_entity import (
+    CashReceiptEntity,
+    CashReceiptStatus,
+    CashReceiptType,
+)
+from domain.bank_cash.petty_cash_fund_entity import (
+    PettyCashFundEntity,
+    PettyCashStatus,
+)
 
 # =============================================================================
 # Fixtures and Helpers

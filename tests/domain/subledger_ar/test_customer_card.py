@@ -11,7 +11,6 @@ from uuid import uuid4
 
 import pytest
 
-from domain.shared_value_objects.money_vo import Money
 from domain.subledger_ar.customer_card import (
     CustomerCard,
     CustomerCardRepository,
@@ -19,7 +18,6 @@ from domain.subledger_ar.customer_card import (
     MutationType,
 )
 from domain.subledger_ar.invoice_entity import InvoiceEntity, InvoiceStatus, InvoiceType
-
 
 # ============================================================================
 # Fixtures

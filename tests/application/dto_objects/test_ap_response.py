@@ -6,7 +6,7 @@ Covers all DTO classes, methods, and edge cases with mocked datetime to avoid fl
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 

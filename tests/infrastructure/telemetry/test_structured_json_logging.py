@@ -5,9 +5,7 @@ Comprehensive tests for infrastructure/telemetry/structured_json_logging.py
 
 import json
 import logging
-import os
 import sys
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +19,6 @@ from infrastructure.telemetry.structured_json_logging import (
     get_logger,
     setup_logging,
 )
-
 
 # ============================================================================
 # Fixtures

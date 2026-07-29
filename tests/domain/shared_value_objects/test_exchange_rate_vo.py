@@ -13,7 +13,6 @@ import pytest
 
 from domain.shared_value_objects.currency_vo import CurrencyCode, CurrencyVO
 from domain.shared_value_objects.exchange_rate_vo import (
-    ExchangeRate,
     ExchangeRateError,
     ExchangeRateVO,
     InvalidExchangeRateError,
@@ -437,7 +436,7 @@ class TestExchangeRateVO:
 
     def test_str_repr(self, idr, usd):
         rate = ExchangeRateVO(idr, usd, Decimal("0.000064"), FIXED_NOW)
-        assert str(rate) == f"1 IDR = 0.00006400 USD"
+        assert str(rate) == "1 IDR = 0.00006400 USD"
         assert repr(rate) == f"ExchangeRateVO(IDR -> USD, rate=0.00006400, effective={FIXED_NOW.date()})"
 
     def test_eq_hash(self, idr, usd):

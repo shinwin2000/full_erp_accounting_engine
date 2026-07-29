@@ -478,6 +478,40 @@ class TestSamplingSetupSchema:
                 tolerable_error_percent=Decimal("101"),
             )
 
+    def test_validate_decimal(self):
+        # Test that the validator correctly converts ints/floats to Decimal
+        # and returns None for None.
+        cls = SamplingSetupSchema
+
+        # int -> Decimal
+        result = cls.validate_decimal(123)
+        assert isinstance(result, Decimal)
+        assert result == Decimal("123")
+
+        # float -> Decimal
+        result = cls.validate_decimal(123.45)
+        assert isinstance(result, Decimal)
+        assert result == Decimal("123.45")
+
+        # Decimal -> Decimal (unchanged)
+        d = Decimal("456.78")
+        result = cls.validate_decimal(d)
+        assert result is d  # should return the same object
+
+        # None -> None
+        result = cls.validate_decimal(None)
+        assert result is None
+
+        # Already Decimal with different value
+        d2 = Decimal("999.99")
+        result = cls.validate_decimal(d2)
+        assert result is d2
+
+        # Large int
+        result = cls.validate_decimal(10**18)
+        assert isinstance(result, Decimal)
+        assert result == Decimal(10**18)
+
 
 class TestSamplingEvaluationSchema:
     def test_valid_schema(self):
@@ -498,6 +532,40 @@ class TestSamplingEvaluationSchema:
     def test_confidence_level_range(self):
         with pytest.raises(ValueError):
             SamplingEvaluationSchema(errors=[1], confidence_level=70)
+
+    def test_validate_errors(self):
+        # Test that validator converts list elements to Decimal
+        cls = SamplingEvaluationSchema
+
+        # List of ints
+        result = cls.validate_errors([1, 2, 3])
+        assert isinstance(result, list)
+        assert all(isinstance(x, Decimal) for x in result)
+        assert result == [Decimal(1), Decimal(2), Decimal(3)]
+
+        # List of floats
+        result = cls.validate_errors([1.1, 2.2, 3.3])
+        assert all(isinstance(x, Decimal) for x in result)
+        assert result == [Decimal("1.1"), Decimal("2.2"), Decimal("3.3")]
+
+        # List of mixed types
+        result = cls.validate_errors([1, 2.2, Decimal("3.3")])
+        assert all(isinstance(x, Decimal) for x in result)
+        assert result == [Decimal(1), Decimal("2.2"), Decimal("3.3")]
+
+        # Empty list
+        result = cls.validate_errors([])
+        assert result == []
+
+        # List of Decimal objects (should remain unchanged)
+        d_list = [Decimal("1.1"), Decimal("2.2")]
+        result = cls.validate_errors(d_list)
+        assert result is d_list  # should return same list object (identity)
+
+        # Non-list input (should be passed through as is, but will be validated later)
+        # The validator just handles the conversion; if it's not a list, it returns as is.
+        result = cls.validate_errors("not a list")
+        assert result == "not a list"
 
 
 class TestAuditReportRequestSchema:

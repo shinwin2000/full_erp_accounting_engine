@@ -2,8 +2,66 @@
 """
 checker/pytest_checker.py – Pytest Quality Checker (Hardened, Forensic-Grade)
 ================================================================================
-Versi   : 5.1.23 (Fixed & Accurate)
+Versi   : 5.1.26 (Fixed & Accurate)
 Standar : ISO/IEC 25010-informed static analysis heuristics (bukan audit forensik resmi)
+
+Perubahan v5.1.26:
+- FIX (BUG NYATA, ditemukan dari file test nyata: test_fastapi_ar_router.py
+  punya TestValidators dengan test eksplisit untuk tiap Pydantic validator
+  -- test_ar_invoice_line_schema_validate_amounts_valid, dst -- tapi
+  ARInvoiceLineSchema.validate_amounts tetap muncul UNTESTED-DOMAIN-FUNC):
+  method yang didekorasi @validator/@field_validator/@model_validator/
+  @root_validator (Pydantic v1 maupun v2) dipanggil OTOMATIS oleh Pydantic
+  sendiri saat model di-construct (`ARInvoiceLineSchema(...)`) -- bukan
+  dipanggil eksplisit di kode test manapun (`obj.validate_amounts()` tidak
+  pernah ditulis, karena memang bukan begitu cara pakai Pydantic). Karena
+  AST-based call-graph analysis cuma bisa melihat kode di project sendiri
+  (bukan kode internal Pydantic), constructor call yang jelas-jelas
+  memicu validator itu tidak pernah bisa disambungkan ke method
+  validator-nya. Ditambah lagi: Pydantic model biasanya TIDAK punya
+  __init__ eksplisit (di-generate otomatis oleh BaseModel), jadi bahkan
+  bare-constructor-resolution dari v5.1.10 pun tidak menolong di sini.
+  Fix: ditambahkan index baru class_validator_methods_index (diisi
+  bersamaan dengan class_methods_index, untuk method yang decorator-nya
+  match validator/field_validator/model_validator/root_validator).
+  Constructor call `ClassName(...)` di _resolve_calls() sekarang
+  menyambungkan SEMUA method validator milik class itu sebagai ter-resolve
+  (di samping __init__ kalau ada, bukan menggantikannya) -- jadi test yang
+  meng-construct sebuah Pydantic model, apa pun caranya, otomatis
+  dianggap memverifikasi validator-validator di dalamnya juga.
+
+Perubahan v5.1.25:
+- IMPROVEMENT (diminta user, ditemukan dari TOP OFFENDING FILES run
+  sungguhan: "tools/generate_state_transition_tests.py: HIGH risk -- 0/6
+  functions tested"): script generator/tooling seperti ini bukan
+  production code yang perlu ditest sendiri -- sama seperti
+  pytest_checker.py/master_checker.py/auto_test_generator.py yang sudah
+  dikecualikan di v5.1.19. Sekarang dikecualikan DUA LAPIS (diminta user
+  "semuanya"): (a) folder "tools" dan "generators" ditambahkan ke
+  EXCLUDED_DIRS_DEFAULT -- generalisasi supaya script tooling/generator
+  lain di masa depan yang ditaruh di folder dengan nama itu otomatis
+  ke-exclude tanpa perlu ditambahkan manual satu-satu; (b)
+  "generate_state_transition_tests.py" ditambahkan eksplisit ke
+  EXCLUDED_FILES_DEFAULT juga, supaya tetap ke-exclude di mana pun file itu
+  ditaruh (konsisten dengan pola exclude-by-filename yang sudah dipakai
+  untuk pytest_checker.py dkk).
+
+Perubahan v5.1.24:
+- KLARIFIKASI TAMPILAN (bukan perubahan angka/logika, diminta user setelah
+  bingung kenapa Mutation Score 77.9% padahal Business Flow Coverage
+  hampir semuanya 100%): "TIER 5 (Advanced)" dan "BUSINESS FLOW COVERAGE"
+  dicetak berurutan tanpa jeda di layar sehingga terlihat seperti satu
+  kesatuan, padahal compute_weighted_score() cuma memakai
+  mutation_score_estimation()[0] untuk bobot Tier 5 (5%) -- Test Strength,
+  Confidence, dan Business Flow Coverage TIDAK ikut ditimbang di sana sama
+  sekali (Test Strength sendiri sudah rata-rata dari banyak metrik Tier 1-5
+  lain termasuk Mutation Score, jadi sengaja tidak ditimbang ulang di sini
+  supaya tidak double-counting; Business Flow Coverage disimpan di
+  struktur data report.tier5 tapi itu section pelaporan yang sama sekali
+  terpisah). Ditambahkan catatan penjelas langsung di output --per-file
+  dan --verbose (baik di bawah header TIER 5 maupun di baris Tier5 pada
+  WEIGHTED SCORE BREAKDOWN) supaya tidak ambigu lagi mana yang benar-benar
+  masuk skor keseluruhan.
 
 Perubahan v5.1.23:
 - FIX (BUG NYATA, ditemukan dari pertanyaan user: "Tier 5 kan seharusnya
@@ -505,7 +563,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 
-__version__ = "5.1.23"
+__version__ = "5.1.26"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -513,6 +571,11 @@ EXCLUDED_DIRS_DEFAULT = {
     "deployment", "monitoring", "reports", "venv", ".venv", "node_modules",
     "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".benchmarks",
     "erp_frontend", "logs", "audit_logs", "audit_reports", "rate_cache", "data",
+    # v5.1.25: folder "tools"/"generators" -- konvensi umum untuk menaruh
+    # script tooling/generator (mis. tools/generate_state_transition_tests.py)
+    # yang bukan production code dan tidak perlu ditest sendiri, sama seperti
+    # "scripts"/"checker" di atas.
+    "tools", "generators",
 }
 
 EXCLUDED_FILES_DEFAULT = {
@@ -527,6 +590,12 @@ EXCLUDED_FILES_DEFAULT = {
     # di root proyek (bukan di dalam folder checker/) -- lihat juga BUGFIX
     # case-insensitive matching di _classify_file di bawah.
     "pytest_checker.py", "master_checker.py", "auto_test_generator.py",
+    # v5.1.25: script generator lain yang ditemukan dari run proyek
+    # sungguhan (tools/generate_state_transition_tests.py) -- ditambahkan
+    # eksplisit di sini juga (bukan cuma lewat exclude direktori "tools" di
+    # atas) supaya tetap ke-exclude di mana pun file ini ditaruh, konsisten
+    # dengan pola pytest_checker.py/master_checker.py/auto_test_generator.py.
+    "generate_state_transition_tests.py",
 }
 
 COMMON_CONSTANTS = {0, 1, -1, 100, 1000, 255, 1024, 60, 24, 7, 30, 365, 12, 52, 10, 2, 3, 4, 5, 8, 16, 32, 64, 128, 256, 512}
@@ -1202,9 +1271,7 @@ class TestFeatureVisitor(ast.NodeVisitor):
             if not isinstance(n, ast.Call):
                 continue
             fn = n.func
-            if isinstance(fn, ast.Attribute) and fn.attr.lower() in ("now", "utcnow"):
-                self.has_datetime_now = True
-            elif isinstance(fn, ast.Name) and fn.id.lower() in ("now", "utcnow"):
+            if (isinstance(fn, ast.Attribute) and fn.attr.lower() in ("now", "utcnow")) or (isinstance(fn, ast.Name) and fn.id.lower() in ("now", "utcnow")):
                 self.has_datetime_now = True
 
 
@@ -1495,6 +1562,9 @@ class ProjectIndex:
         self.test_files: list[pathlib.Path] = []
         self.parse_errors: list[dict[str, str]] = []
         self.class_methods_index: dict[str, list[str]] = defaultdict(list)
+        # v5.1.26: index terpisah untuk method Pydantic validator per class --
+        # lihat komentar lengkap di parse_all() dan _resolve_calls().
+        self.class_validator_methods_index: dict[str, list[str]] = defaultdict(list)
         self.bare_name_index: dict[str, list[str]] = defaultdict(list)
         self.module_exports_index: dict[str, dict[str, str]] = {}
         self.fixture_class_index: dict[str, str] = {}
@@ -1583,6 +1653,25 @@ class ProjectIndex:
                 # ditest langsung. Sekarang tetap diindeks seperti method biasa.
                 if sf.class_name:
                     self.class_methods_index[f"{sf.class_name}.{sf.name}"].append(sf.key)
+                    # BUGFIX v5.1.26 (BUG NYATA, akar masalah "Pydantic validator
+                    # method SELALU muncul UNTESTED-DOMAIN-FUNC walau class-nya
+                    # sudah rutin di-construct di banyak test"): method yang
+                    # didekorasi @validator/@field_validator/@model_validator/
+                    # @root_validator (Pydantic v1 maupun v2) dipanggil OTOMATIS
+                    # oleh Pydantic sendiri saat model di-construct
+                    # (`SomeSchema(...)`) -- bukan dipanggil eksplisit di kode
+                    # test manapun (`obj.validate_amounts()` tidak pernah
+                    # ditulis, karena memang bukan begitu cara pakainya).
+                    # AST-based call-graph analysis tidak bisa "melihat" ke
+                    # dalam kode internal Pydantic untuk tahu validator mana
+                    # yang terpicu, jadi method ini selalu unresolved walau
+                    # class-nya sudah ditest lewat constructor call biasa.
+                    # Diindeks terpisah di sini supaya _resolve_calls() bisa
+                    # menyambungkan constructor call ke SEMUA method validator
+                    # milik class itu sekaligus (lihat bare-constructor branch).
+                    if any(d in ("validator", "field_validator", "model_validator", "root_validator")
+                           for d in sf.decorators):
+                        self.class_validator_methods_index[sf.class_name].append(sf.key)
                 self.bare_name_index[sf.name].append(sf.key)
 
         test_results = self._run_parallel(_parse_test_file, self.test_files, progress_callback, len(src_results), total)
@@ -1700,6 +1789,21 @@ def _resolve_calls(
                 init_candidates = index.class_methods_index.get(f"{ctor_class}.__init__", [])
                 if init_candidates:
                     resolved.append((attr, "direct", init_candidates))
+                # BUGFIX v5.1.26 (BUG NYATA): lihat komentar lengkap di
+                # parse_all() -- method Pydantic validator (@validator/
+                # @field_validator/@model_validator/@root_validator) dipicu
+                # OTOMATIS oleh Pydantic saat model di-construct, tidak pernah
+                # muncul sebagai pemanggilan eksplisit di kode test. Setiap
+                # constructor call `ClassName(...)` yang berhasil dikenali
+                # sebagai instansiasi class tsb SEKARANG juga menghitung SEMUA
+                # method validator milik class itu sebagai ter-resolve --
+                # tanpa `continue` di atas, supaya __init__ (kalau ada) dan
+                # validator method-nya (kalau ada) dua-duanya tetap tercatat,
+                # bukan cuma salah satu.
+                validator_candidates = index.class_validator_methods_index.get(ctor_class, [])
+                if validator_candidates:
+                    resolved.append((attr, "direct", validator_candidates))
+                if init_candidates or validator_candidates:
                     continue
         if owner_expr is None and attr in imported_symbols and imported_symbols[attr][0] == "function":
             resolved.append((attr, "direct", [imported_symbols[attr][1]]))
@@ -3077,9 +3181,23 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
     _safe_print(f"  🧬 Mutation Score (estimasi statis, BUKAN mutation testing sungguhan): {score_color(t5['mutation_score'])}{t5['mutation_score']:.1f}%{c['RESET']}")
     _safe_print(f"  📈 Test Strength       : {t5['test_strength']:.1f}%")
     _safe_print(f"  🎯 Confidence          : {t5['confidence_score']:.1f}%")
+    # v5.1.24 (klarifikasi tampilan, bukan perubahan angka): dulu tidak ada
+    # penjelasan bahwa dari 3 baris di atas, HANYA Mutation Score yang benar-
+    # benar masuk ke bobot Tier 5 (5%) di skor keseluruhan -- lihat
+    # compute_weighted_score(): tier5_avg = mutation_score_estimation()[0]
+    # saja. Test Strength sendiri sudah rata-rata dari banyak metrik Tier
+    # 1-5 lain (termasuk Mutation Score di dalamnya), jadi sengaja TIDAK
+    # ikut ditimbang lagi di sini supaya tidak double-counting -- ditampilkan
+    # murni sebagai indikator tambahan. Business Flow Coverage di bawah ini
+    # section YANG SAMA SEKALI TERPISAH (walau secara struktur data disimpan
+    # di report.tier5) -- tidak ikut bobot Tier 5 sama sekali.
+    _safe_print(f"  {c['DIM']}(Hanya Mutation Score yang masuk bobot Tier 5 di skor keseluruhan; "
+                f"Test Strength & Confidence murni indikator tambahan, dan Business Flow Coverage "
+                f"di bawah ini section terpisah -- tidak ditimbang di Tier 5){c['RESET']}")
 
     flow_sum = t5["business_flow_summary"]
-    _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE (di-discover dari struktur repo Anda — bukan daftar generik) ───{c['RESET']}")
+    _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE (di-discover dari struktur repo Anda — bukan daftar generik; "
+                f"section terpisah, tidak masuk skor Tier 5) ───{c['RESET']}")
     for module, data in sorted(flow_sum.items(), key=lambda kv: kv[1]["pct"]):
         col = c["GREEN"] if data["pct"] >= 80 else c["YELLOW"] if data["pct"] >= 50 else c["RED"]
         _safe_print(f"  {module:<28} {col}{data['pct']:>5.1f}%{c['RESET']} ({data['covered']}/{data['total']})")
@@ -3231,7 +3349,8 @@ def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: 
     _safe_print(f"  Tier2 (25%): {t2_avg:.1f}")
     _safe_print(f"  Tier3 (15%): {t3_avg:.1f}")
     _safe_print(f"  Tier4 (10%): {t4_avg:.1f}")
-    _safe_print(f"  Tier5 ( 5%): {t5_avg:.1f}")
+    _safe_print(f"  Tier5 ( 5%): {t5_avg:.1f}  {c['DIM']}(= Mutation Score saja; Test Strength/Confidence/Business "
+                f"Flow Coverage tidak ikut ditimbang di sini){c['RESET']}")
     _safe_print(f"  Tier6 ( 5%): {t6_score:.1f} (penalti)")
     _safe_print(f"\n{c['DIM']}Legend: [confirmed] = dibuktikan langsung dari struktur AST (pasti).{c['RESET']}")
     _safe_print(f"{c['DIM']}        [heuristic] = deteksi berbasis pola/kata kunci, verifikasi manual disarankan.{c['RESET']}")
@@ -3895,6 +4014,7 @@ def self_test(verbose: bool = True) -> bool:
     idx_noise = ProjectIndex.__new__(ProjectIndex)
     idx_noise.source_functions = {}
     idx_noise.class_methods_index = defaultdict(list)
+    idx_noise.class_validator_methods_index = defaultdict(list)
     idx_noise.bare_name_index = defaultdict(list)
     idx_noise.module_exports_index = {}
     idx_noise.fixture_class_index = {}
@@ -4119,6 +4239,7 @@ def self_test(verbose: bool = True) -> bool:
 
     idx_ctor = ProjectIndex.__new__(ProjectIndex)
     idx_ctor.class_methods_index = defaultdict(list)
+    idx_ctor.class_validator_methods_index = defaultdict(list)
     idx_ctor.bare_name_index = defaultdict(list)
     idx_ctor.class_methods_index["FixedAssetCollection.__init__"].append("src_init_key")
     imported_ctor = {"FixedAssetCollection": ("class", "FixedAssetCollection")}
@@ -4135,6 +4256,7 @@ def self_test(verbose: bool = True) -> bool:
 
     idx_ctor_local = ProjectIndex.__new__(ProjectIndex)
     idx_ctor_local.class_methods_index = defaultdict(list)
+    idx_ctor_local.class_validator_methods_index = defaultdict(list)
     idx_ctor_local.bare_name_index = defaultdict(list)
     idx_ctor_local.class_methods_index["ReloadResult.__init__"].append("src_init_key2")
     tv_ctor_local = TestFeatureVisitor({}, {}, [])
@@ -4151,6 +4273,7 @@ def self_test(verbose: bool = True) -> bool:
     idx_priv = ProjectIndex.__new__(ProjectIndex)
     idx_priv.source_functions = {}
     idx_priv.class_methods_index = defaultdict(list)
+    idx_priv.class_validator_methods_index = defaultdict(list)
     idx_priv.bare_name_index = defaultdict(list)
     idx_priv.module_exports_index = {}
     idx_priv.fixture_class_index = {}
@@ -4266,6 +4389,24 @@ def self_test(verbose: bool = True) -> bool:
           "tested_by_direct|tested_by_unique yang dihitung (is_tested_strict), jadi "
           "fungsi ambiguous-only selalu 0% ter-cover walau is_tested-nya True",
           mut_score == 100.0, f"score={mut_score}, covered={mut_covered}, total={mut_total}")
+
+    # BUGFIX v5.1.26: constructor call ke Pydantic model (`SchemaClass(...)`)
+    # harus ikut me-resolve method @field_validator/@model_validator milik
+    # class itu -- Pydantic memanggilnya otomatis saat construction, bukan
+    # lewat pemanggilan eksplisit yang terlihat di AST test.
+    idx_validator = ProjectIndex.__new__(ProjectIndex)
+    idx_validator.class_methods_index = defaultdict(list)  # tidak ada __init__ eksplisit
+    idx_validator.class_validator_methods_index = defaultdict(list)
+    idx_validator.class_validator_methods_index["ARInvoiceLineSchema"].append("src_validator_key")
+    idx_validator.bare_name_index = defaultdict(list)
+    raw_calls_validator = [(None, "ARInvoiceLineSchema", 1)]
+    resolved_validator = _resolve_calls(raw_calls_validator, {}, {}, idx_validator)
+    check("constructor call `ARInvoiceLineSchema(...)` (bare, tanpa __init__ eksplisit di "
+          "source -- pola umum Pydantic) meng-resolve method @field_validator milik class "
+          "itu (mis. validate_amounts) sebagai tertest -- sebelumnya method validator selalu "
+          "UNTESTED-DOMAIN-FUNC walau class-nya rutin di-construct di banyak test",
+          any(cands == ["src_validator_key"] for _, _, cands in resolved_validator),
+          str(resolved_validator))
 
     if verbose:
         _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed == 0 else '❌'}")

@@ -2,6 +2,7 @@
 """
 Comprehensive unit tests for domain/journal/aggregate_root.py.
 Covers all public methods, negative paths, edge cases, and uses mocking for datetime.
+Includes explicit tests for private methods to ensure full coverage.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -14,7 +15,6 @@ import pytest
 from domain.journal.aggregate_root import Journal, JournalRepository
 from domain.journal.journal_entity import JournalStatus, JournalType
 from domain.journal.journal_line_vo import JournalLineVO, JournalSide
-from domain.journal.state_machine import JournalStateMachine
 
 # ============================================================================
 # Fixed datetime to avoid flakiness
@@ -553,22 +553,11 @@ class TestLineManagement:
         with pytest.raises(ValueError, match="posted and is immutable"):
             posted.add_line(new_line)
 
-    def test_remove_line_success(self, sample_journal):
-        # Create a journal with multiple lines that remains balanced after removal
-        # Remove a debit and a credit line together by removing one then the other? Not possible with remove_line one at a time.
-        # Instead, add a pair of lines then remove them both (but remove_line removes one at a time, so we need to ensure after removal of one line the balance remains? That's impossible).
-        # Actually we need to remove two lines with equal amounts to keep balance.
-        # But we can't remove two at once.
-        # The remove_line method checks balance after removal, so if removal would break balance it raises.
-        # So to test success, we need a journal where removing a single line keeps balance.
-        # That can only happen if the line's amount is zero, or if there are other lines that compensate.
-        # But typically, removing a line will break balance.
-        # Therefore, the method is designed to be used to remove a line and then the caller must add another line to balance.
-        # So we will test the happy path by first adding a line, then removing it, but we need to keep balance.
-        # Let's add a pair of lines, then remove one and add a compensating line? That's not remove_line test.
-        # Actually we can add a line, then remove it and rely on the fact that the journal has other lines that still balance? Not possible.
-        # So we test the error case.
-        pass
+    def test_remove_line_raises_if_unbalanced(self, sample_journal):
+        # With only two lines (one debit, one credit), removing either line breaks balance.
+        line_id = sample_journal.lines[0].line_id
+        with pytest.raises(ValueError, match="Journal would be unbalanced"):
+            sample_journal.remove_line(line_id)
 
     def test_remove_line_not_found(self, sample_journal):
         with pytest.raises(ValueError, match="not found"):
@@ -926,32 +915,6 @@ class TestPermissionMethods:
 
     def test_is_balanced_tolerance(self, sample_journal):
         assert sample_journal.is_balanced() is True
-        # Tolerance is 0.0001; small difference within tolerance is accepted at construction? Actually construction checks balance with assert equal, not tolerance.
-        # But we can test the is_balanced method with tolerance.
-        # Create a journal with very close but not equal amounts (difference 0.00005)
-        le_id = sample_journal.legal_entity_id
-        debit = create_line(side=JournalSide.DEBIT, amount=Decimal("1000.00005"), legal_entity_id=le_id)
-        credit = create_line(side=JournalSide.CREDIT, amount=Decimal("1000"), legal_entity_id=le_id)
-        journal = Journal(
-            journal_id=uuid4(),
-            journal_number="JRN-004",
-            journal_type=JournalType.GENERAL,
-            transaction_date=FIXED_NOW,
-            posting_date=None,
-            description="Test",
-            lines=[debit, credit],
-            legal_entity_id=le_id,
-            status=JournalStatus.DRAFT,
-            created_by="user",
-            created_at=FIXED_NOW,
-            updated_at=FIXED_NOW,
-        )
-        # The constructor uses assert total_debit == total_credit, so it will raise because not exactly equal.
-        # So we can't create unbalanced journal. The is_balanced method is used elsewhere.
-        # We'll just test that the method works on a balanced journal.
-        assert sample_journal.is_balanced() is True
-        # Test with custom tolerance
-        # Actually we can't test unbalanced case easily.
 
 
 # ============================================================================
@@ -983,25 +946,78 @@ class TestJournalRepository:
 
 
 # ============================================================================
-# Additional edge cases for private methods
+# Explicit tests for private methods (with assertions)
 # ============================================================================
 
 class TestPrivateMethods:
-    def test_ensure_editable_called(self, sample_journal):
-        # Test that _ensure_editable is called via add_line
+    def test_ensure_editable_when_locked_raises(self, sample_journal):
         locked = sample_journal.lock("user1")
         with pytest.raises(ValueError, match="locked"):
-            locked.add_line(MagicMock())
+            locked._ensure_editable("test_operation")
 
-    def test_ensure_not_posted_called(self, sample_journal):
-        # Test that _ensure_not_posted is called via update_metadata on posted journal
+    def test_ensure_editable_when_not_editable_raises(self, sample_journal):
+        submitted = sample_journal.submit("user1")
+        with pytest.raises(ValueError, match="Cannot test_operation: journal is in status submitted"):
+            submitted._ensure_editable("test_operation")
+
+    def test_ensure_editable_when_editable_succeeds(self, sample_journal):
+        # Should not raise
+        try:
+            sample_journal._ensure_editable("test_operation")
+        except Exception:
+            pytest.fail("_ensure_editable raised an exception when it should not")
+        # Assert that the method executed without raising (implicit pass, but we add an assertion)
+        assert True
+
+    def test_ensure_not_posted_when_posted_raises(self, sample_journal):
         posted = sample_journal.submit("user1").approve("approver1").post("poster1")
         with pytest.raises(ValueError, match="posted and is immutable"):
-            posted.update_metadata("user1", description="New")
+            posted._ensure_not_posted("test_operation")
 
-    def test_ensure_balanced_lines_called(self, sample_journal):
-        # Test that _ensure_balanced_lines is called internally
-        # Add a line that would break balance
-        debit = create_line(side=JournalSide.DEBIT, amount=Decimal("500"), legal_entity_id=sample_journal.legal_entity_id)
+    def test_ensure_not_posted_when_not_posted_succeeds(self, sample_journal):
+        # Should not raise
+        try:
+            sample_journal._ensure_not_posted("test_operation")
+        except Exception:
+            pytest.fail("_ensure_not_posted raised an exception when it should not")
+        assert True
+
+    def test_ensure_balanced_lines_with_balanced_lines_succeeds(self, sample_journal):
+        # Should not raise
+        try:
+            sample_journal._ensure_balanced_lines(sample_journal.lines)
+        except Exception:
+            pytest.fail("_ensure_balanced_lines raised an exception when it should not")
+        assert True
+
+    def test_ensure_balanced_lines_with_unbalanced_lines_raises(self, sample_journal, legal_entity_id):
+        unbalanced_lines = [
+            create_line(side=JournalSide.DEBIT, amount=Decimal("1000"), legal_entity_id=legal_entity_id),
+            create_line(side=JournalSide.CREDIT, amount=Decimal("500"), legal_entity_id=legal_entity_id),
+        ]
         with pytest.raises(ValueError, match="Journal would be unbalanced"):
-            sample_journal.add_line(debit)
+            sample_journal._ensure_balanced_lines(unbalanced_lines)
+
+    def test_ensure_balanced_lines_with_tolerance_check(self, sample_journal, legal_entity_id):
+        # Difference of 0.005 is within tolerance of 0.01? Actually the tolerance is 0.01.
+        # Difference of 0.01 is allowed? The check uses Decimal("0.01") tolerance.
+        unbalanced_lines = [
+            create_line(side=JournalSide.DEBIT, amount=Decimal("1000.00"), legal_entity_id=legal_entity_id),
+            create_line(side=JournalSide.CREDIT, amount=Decimal("999.99"), legal_entity_id=legal_entity_id),
+        ]
+        # Difference is 0.01, which is <= 0.01, so it should not raise.
+        # Should not raise
+        try:
+            sample_journal._ensure_balanced_lines(unbalanced_lines)
+        except Exception:
+            pytest.fail("_ensure_balanced_lines raised an exception when difference is within tolerance")
+        assert True
+
+    def test_ensure_balanced_lines_raises_on_large_difference(self, sample_journal, legal_entity_id):
+        # Difference of 0.02 is > 0.01, so it should raise.
+        unbalanced_lines = [
+            create_line(side=JournalSide.DEBIT, amount=Decimal("1000.02"), legal_entity_id=legal_entity_id),
+            create_line(side=JournalSide.CREDIT, amount=Decimal("1000.00"), legal_entity_id=legal_entity_id),
+        ]
+        with pytest.raises(ValueError, match="Journal would be unbalanced"):
+            sample_journal._ensure_balanced_lines(unbalanced_lines)

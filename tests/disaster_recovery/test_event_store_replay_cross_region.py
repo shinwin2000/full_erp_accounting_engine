@@ -18,11 +18,9 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
-import boto3
 import pytest
 from botocore.exceptions import ClientError
 
@@ -31,7 +29,6 @@ from disaster_recovery.event_store_replay_cross_region import (
     ReplayCheckpoint,
     ReplayMetrics,
 )
-
 
 # ============================================================================
 # Fixtures

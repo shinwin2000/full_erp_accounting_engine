@@ -1,11 +1,9 @@
 # tests/application/dto_objects/test_financial_statement_request.py
 # Comprehensive tests for application/dto_objects/financial_statement_request.py
 
-import copy
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -32,7 +30,6 @@ from application.dto_objects.financial_statement_request import (
     TrialBalanceDTO,
     TrialBalanceRequest,
 )
-
 
 # ============================================================================
 # Fixtures

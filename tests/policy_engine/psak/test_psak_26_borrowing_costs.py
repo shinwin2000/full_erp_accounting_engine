@@ -25,12 +25,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
 from policy_engine.psak.psak_26_borrowing_costs import (
+    NoQualifyingAssetError,
     PSAK26Borrowing,
     PSAK26BorrowingCostService,
     PSAK26BorrowingCostType,
@@ -44,9 +45,7 @@ from policy_engine.psak.psak_26_borrowing_costs import (
     PSAK26ValidationResult,
     PSAK26Validator,
     get_psak26_validator,
-    NoQualifyingAssetError,
 )
-
 
 # ============================================================================
 # Fixtures

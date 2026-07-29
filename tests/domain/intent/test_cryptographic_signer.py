@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from domain.intent.cryptographic_signer import (
-    CRYPTO_AVAILABLE,
     CryptographicSigner,
     get_cryptographic_signer,
 )

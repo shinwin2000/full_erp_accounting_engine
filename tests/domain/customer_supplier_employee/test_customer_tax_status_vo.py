@@ -12,7 +12,6 @@ Covers:
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch

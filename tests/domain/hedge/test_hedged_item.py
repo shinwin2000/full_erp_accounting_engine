@@ -1,7 +1,7 @@
 # test_hedged_item.py
 # Comprehensive tests for hedged_item.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -15,7 +15,6 @@ from domain.hedge.hedged_item import (
     HedgedItemStatus,
     HedgedItemType,
 )
-
 
 # ============================================================================
 # Fixtures

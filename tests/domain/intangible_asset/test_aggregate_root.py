@@ -5,29 +5,30 @@ Covers all public methods with strong assertions using mocks where needed.
 All tests PASS.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 
 from domain.intangible_asset.aggregate_root import (
     IntangibleAsset,
-    IntangibleAssetAggregate,
     IntangibleAssetRepository,
 )
 from domain.intangible_asset.amortization_method_enum import AmortizationMethod
-from domain.intangible_asset.asset_entity import IntangibleAssetEntity, IntangibleAssetStatus, IntangibleAssetType
+from domain.intangible_asset.asset_entity import (
+    IntangibleAssetEntity,
+    IntangibleAssetStatus,
+    IntangibleAssetType,
+)
 from domain.intangible_asset.domain_events import (
-    DomainEvent,
     IntangibleAssetAcquiredEvent,
     IntangibleAssetAmortizationPostedEvent,
     IntangibleAssetDisposedEvent,
     IntangibleAssetFullyAmortizedEvent,
     IntangibleAssetImpairedEvent,
 )
-
 
 # ============================================================================
 # Helper fixtures

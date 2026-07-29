@@ -14,10 +14,12 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from core.api_client import api_client
+from core.formatting import extract_list, format_date, format_money
+from core.workers import run_task
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QComboBox,
     QDateEdit,
     QFormLayout,
@@ -33,10 +35,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from core.api_client import api_client
-from core.formatting import extract_list, format_date, format_money
-from core.workers import run_task
 
 BASE = "/maintenance/maintenance"
 

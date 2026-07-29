@@ -19,7 +19,6 @@ from domain.inventory.stock_card_projection import (
     StockCardRepository,
 )
 
-
 # ============================================================================
 # FIXED DATETIME (untuk menghindari flaky tests)
 # ============================================================================

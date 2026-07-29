@@ -3,10 +3,9 @@
 Comprehensive tests for domain/reality/reality_validation_service.py
 """
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -19,7 +18,6 @@ from domain.reality.reality_validation_service import (
     _get_current_user,
     get_reality_validation_service,
 )
-
 
 # ============================================================================
 # Tests for helper function _get_current_user

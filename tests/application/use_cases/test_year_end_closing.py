@@ -215,8 +215,10 @@ class TestYearEndClosingUseCase:
         )
         stats = use_case.get_stats()
         assert isinstance(stats, dict)
-        # At minimum, should have some keys
-        assert "total_executions" in stats or "executed_count" in stats
+        # Check that it contains the expected keys from the actual implementation
+        assert "executed" in stats
+        assert "succeeded" in stats
+        assert "failed" in stats
 
     def test_get_audit_trail_returns_list(self):
         use_case = YearEndClosingUseCase(

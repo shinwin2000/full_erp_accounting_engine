@@ -1281,7 +1281,7 @@ def compare_methods(
                 and len(mdef.param_names) == len(im.param_names)):
             mismatched = [
                 (i, a, b)
-                for i, (a, b) in enumerate(zip(mdef.param_names, im.param_names))
+                for i, (a, b) in enumerate(zip(mdef.param_names, im.param_names, strict=False))
                 if a != b
             ]
             if mismatched:

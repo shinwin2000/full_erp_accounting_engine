@@ -297,7 +297,7 @@ class DeepTestAnalyzer(ast.NodeVisitor):
             paired_operands = []
             if ops:
                 paired_operands.append((test_node.left, ops[0]))
-            paired_operands += list(zip(comparators, ops))
+            paired_operands += list(zip(comparators, ops, strict=False))
 
             # FIX v5.3.0: redundansi HARUS mempertimbangkan operatornya.
             # `assert x is not None` dan `assert x > 0` BUKAN redundan meski

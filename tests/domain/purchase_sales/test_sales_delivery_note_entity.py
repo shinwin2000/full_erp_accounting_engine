@@ -1,7 +1,7 @@
 # test_sales_delivery_note_entity.py
 # Comprehensive tests for sales_delivery_note_entity.py
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -13,7 +13,6 @@ from domain.purchase_sales.sales_delivery_note_entity import (
     SalesDeliveryNoteEntity,
     SalesDeliveryNoteRepository,
 )
-
 
 # ============================================================================
 # Fixtures

@@ -6,14 +6,12 @@ No database session required – tests use in-memory model instances.
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock
 
 import pytest
 
 from infrastructure.persistence_orm.customer_table import CustomerTable
-
 
 # ============================================================================
 # Fixtures

@@ -17,7 +17,7 @@ class DummyIAMState:
         self.users = {}
         self.roles = {}
         admin_password = PasswordHashedVO.create_from_plain("Admin123!")
-        from domain.iam.user_entity import UserProfile, UserAudit
+        from domain.iam.user_entity import UserAudit, UserProfile
         admin_profile = UserProfile(
             full_name="Administrator",
             email="admin@example.com",

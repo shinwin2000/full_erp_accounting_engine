@@ -2,11 +2,9 @@
 # Comprehensive tests for PSAK 72 Revenue from Contracts with Customers
 # Covers all classes: enums, exceptions, data classes, service, rules, validator, convenience class
 
-import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -34,7 +32,6 @@ from policy_engine.psak.psak_72_revenue import (
     PSAK72VariableConsiderationMethod,
     get_psak72_validator,
 )
-
 
 # ============================================================================
 # Fixtures with fixed dates to avoid flakiness

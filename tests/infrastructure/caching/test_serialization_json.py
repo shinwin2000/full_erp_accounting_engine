@@ -13,7 +13,6 @@ import pytest
 from infrastructure.caching.serialization_json import (
     COMPRESSED_PREFIX,
     COMPRESSION_AVAILABLE,
-    COMPRESSION_THRESHOLD,
     CacheSchema,
     CustomJSONDecoder,
     CustomJSONEncoder,

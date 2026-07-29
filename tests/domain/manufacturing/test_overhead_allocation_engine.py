@@ -1,11 +1,12 @@
 # test_overhead_allocation_engine.py
 # Comprehensive tests for domain/manufacturing/overhead_allocation_engine.py
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 from uuid import uuid4
+
+import pytest
 
 from domain.manufacturing.overhead_allocation_engine import (
     AllocationBasis,

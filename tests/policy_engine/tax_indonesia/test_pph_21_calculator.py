@@ -17,7 +17,6 @@ from policy_engine.tax_indonesia.pph_21_calculator import (
     hitung_pph21,
 )
 
-
 # ============================================================================
 # Dummy PTKP Status class (replicates the fallback)
 # ============================================================================

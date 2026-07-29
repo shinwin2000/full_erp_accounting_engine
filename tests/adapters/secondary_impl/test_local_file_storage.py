@@ -6,17 +6,15 @@ Covers all public and private helper methods.
 
 import asyncio
 import json
-import shutil
 import time
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from adapters.secondary_impl.local_file_storage import LocalFileStorage
-from ports.primary.file_storage_port import FileStorageStatus, StoredFile, UploadSession
+from ports.primary.file_storage_port import FileStorageStatus, StoredFile
 
 
 @pytest.fixture

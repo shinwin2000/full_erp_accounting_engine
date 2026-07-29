@@ -4,7 +4,7 @@
 # Covers enums, value objects, LoginAttemptLog entity, and LoginAttemptRepository.
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest

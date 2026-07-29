@@ -1,8 +1,7 @@
 # test_idempotency_key_vo.py
 # Comprehensive tests for idempotency_key_vo.py
 
-import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -15,7 +14,6 @@ from domain.shared_value_objects.idempotency_key_vo import (
     is_valid_idempotency_key,
     normalize_idempotency_key,
 )
-
 
 # ============================================================================
 # Fixtures

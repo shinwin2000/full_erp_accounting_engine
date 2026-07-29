@@ -13,9 +13,9 @@ Covers:
 """
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -456,9 +456,7 @@ class TestConcreteEvents:
         for key in kwargs:
             if key not in ("aggregate_id", "aggregate_version"):
                 value = kwargs[key]
-                if isinstance(value, uuid4().__class__):
-                    assert str(value) == event.event_data.get(key)
-                elif isinstance(value, Decimal):
+                if isinstance(value, uuid4().__class__) or isinstance(value, Decimal):
                     assert str(value) == event.event_data.get(key)
                 elif isinstance(value, datetime):
                     assert value.isoformat() == event.event_data.get(key)
@@ -482,9 +480,7 @@ class TestConcreteEvents:
         for key in kwargs:
             if key not in ("aggregate_id", "aggregate_version"):
                 value = kwargs[key]
-                if isinstance(value, uuid4().__class__):
-                    assert d["event_data"][key] == str(value)
-                elif isinstance(value, Decimal):
+                if isinstance(value, uuid4().__class__) or isinstance(value, Decimal):
                     assert d["event_data"][key] == str(value)
                 elif isinstance(value, datetime):
                     assert d["event_data"][key] == value.isoformat()

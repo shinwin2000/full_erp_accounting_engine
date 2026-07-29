@@ -5,18 +5,16 @@
 # Mock datetime untuk menghindari flaky test.
 # Menambahkan negative path tests.
 
-import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from infrastructure.caching.warmer_scheduled import (
-    CacheWarmer,
-    WarmingJob,
     WARMED_CACHE_TTL,
     WARMING_LOCK_TTL,
-    WARMED_KEY_PREFIX,
+    CacheWarmer,
+    WarmingJob,
     get_cache_warmer,
     get_default_warming_jobs,
     start_cache_warmer,

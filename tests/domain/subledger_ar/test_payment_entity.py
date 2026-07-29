@@ -4,10 +4,10 @@
 # Covers all enums, entity construction, business methods, entity base methods,
 # serialization, and repository interface.
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -17,7 +17,6 @@ from domain.subledger_ar.payment_entity import (
     PaymentRepository,
     PaymentStatus,
 )
-from domain.shared_value_objects.money_vo import Money
 
 
 # ----------------------------------------------------------------------

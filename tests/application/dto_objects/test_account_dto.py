@@ -1,10 +1,11 @@
 # test_account_dto.py
 # Comprehensive tests for application/dto_objects/account_dto.py
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
+
+import pytest
 
 from application.dto_objects.account_dto import (
     AccountBalanceResponse,

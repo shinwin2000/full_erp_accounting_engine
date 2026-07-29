@@ -11,13 +11,13 @@ Perbaikan:
 - Semua assertion bermakna
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException
 from fastapi.responses import Response
 
 from adapters.primary_api.v1.fastapi_tax_coretax_router import (
@@ -81,7 +81,7 @@ from adapters.primary_api.v1.fastapi_tax_coretax_router import (
 # ============================================================================
 # FIXED DATETIME - untuk menghindari flaky tests
 # ============================================================================
-FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 FIXED_DATE = date(2026, 1, 1)
 
 

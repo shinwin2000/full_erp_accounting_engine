@@ -3,9 +3,7 @@
 Comprehensive tests for application/events/handler_registry.py
 """
 
-import asyncio
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,7 +22,6 @@ from application.events.handler_registry import (
     register_handler,
     register_wildcard,
 )
-
 
 # ============================================================================
 # Tests for Enums

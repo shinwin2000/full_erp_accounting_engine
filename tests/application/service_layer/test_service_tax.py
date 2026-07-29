@@ -28,10 +28,10 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -45,12 +45,10 @@ from application.service_layer.service_tax import (
     PKPStatus,
     PKPStatusChangeRequest,
     PKPStatusError,
+    PPh21CalculationRequest,
+    PPh23CalculationRequest,
     PPNCalculationRequest,
     PPNCalculationResponse,
-    PPh21CalculationRequest,
-    PPh21CalculationResponse,
-    PPh23CalculationRequest,
-    PPh23CalculationResponse,
     SPTMasaPpnDTO,
     TaxRateNotFoundError,
     TaxService,
@@ -60,7 +58,6 @@ from application.service_layer.service_tax import (
     audit,
     create_tax_service,
 )
-
 
 # ============================================================================
 # Fixtures
