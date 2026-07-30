@@ -1756,7 +1756,7 @@ async def login(
         raise HTTPException(status_code=401, detail="Invalid username or password")
     except ValueError as e:
         # Handle validation errors
-        logger.warning(f"Login failed: invalid input - {str(e)}")
+        logger.exception(f"Login failed: invalid input - {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # Handle unexpected internal errors with 500

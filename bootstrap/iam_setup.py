@@ -71,7 +71,8 @@ async def setup_iam_service(app: FastAPI) -> None:
             uow = DummyUOW()
 
         # 4. Komponen lain (dummy untuk sementara)
-        token_issuer = DummyTokenIssuer()
+        from bootstrap.app_token_issuer import AppTokenIssuer
+        token_issuer = AppTokenIssuer()
         event_publisher = None
         cache = None
 
