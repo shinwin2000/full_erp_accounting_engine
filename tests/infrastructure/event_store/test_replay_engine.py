@@ -33,7 +33,7 @@ class TestReplayEngine:
         """Smoke test for ReplayEngine.replay_aggregate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_aggregate(aggregate_id="test_value", aggregate_type="test_value", target_version=1, use_snapshot=True, event_filter=(lambda *a, **kw: None))
+            await instance.replay_aggregate(aggregate_id="test_value", aggregate_type="test_value", target_version=1, use_snapshot=True, event_filter=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_aggregate needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class TestReplayEngine:
         """Smoke test for ReplayEngine.replay_with_state_builder using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_with_state_builder(aggregate_id="test_value", aggregate_type="test_value", builder=(lambda *a, **kw: None), apply_event=(lambda *a, **kw: None), target_version=1, use_snapshot=True)
+            await instance.replay_with_state_builder(aggregate_id="test_value", aggregate_type="test_value", builder=(lambda *a, **kw: None), apply_event=(lambda *a, **kw: None), target_version=1, use_snapshot=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_with_state_builder needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestReplayEngine:
         """Smoke test for ReplayEngine.replay_multiple using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_multiple(aggregates=[()], target_version=1, use_snapshot=True, max_concurrent=1)
+            await instance.replay_multiple(aggregates=[()], target_version=1, use_snapshot=True, max_concurrent=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_multiple needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestReplayEngine:
         """Smoke test for ReplayEngine.replay_by_time_range using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_by_time_range(aggregate_type="test_value", start_time=datetime.now(UTC), end_time=datetime.now(UTC), limit=1)
+            await instance.replay_by_time_range(aggregate_type="test_value", start_time=datetime.now(UTC), end_time=datetime.now(UTC), limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_by_time_range needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestReplayEngine:
 async def test_get_replay_engine_smoke():
     """Smoke test for module-level function get_replay_engine."""
     try:
-        result = await get_replay_engine()
+        await get_replay_engine()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_replay_engine needs specific input data: {e}")
         return

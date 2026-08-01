@@ -337,6 +337,6 @@ class TestBankTransactionTableEdgeCases:
             # We'll just check each property individually
             assert getattr(sample_transaction, prop) is expected
             # Make sure others are False
-            for other_tx_type, (other_prop, _) in types.items():
+            for _other_tx_type, (other_prop, _) in types.items():
                 if other_prop != prop:
                     assert getattr(sample_transaction, other_prop) is False

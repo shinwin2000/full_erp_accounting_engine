@@ -26,25 +26,25 @@ class TestHedgeInstrumentTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            instrument_code="test_value",
-            instrument_type="test_value",
-            counterparty="test_value",
-            notional_amount=Decimal("100.00"),
-            currency="test_value",
-            start_date=date.today(),
-            maturity_date=date.today(),
-            fixed_rate=Decimal("100.00"),
-            floating_index="test_value",
-            fair_value=Decimal("100.00"),
-            status="test_value",
-            created_by=MagicMock(),
-            hedge_relationship_id=MagicMock(),
-            nominal_amount=Decimal("100.00"),
-            effectiveness_rating="test_value",
-            instrument_name="test_value",
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'instrument_code': "test_value",
+            'instrument_type': "test_value",
+            'counterparty': "test_value",
+            'notional_amount': Decimal("100.00"),
+            'currency': "test_value",
+            'start_date': date.today(),
+            'maturity_date': date.today(),
+            'fixed_rate': Decimal("100.00"),
+            'floating_index': "test_value",
+            'fair_value': Decimal("100.00"),
+            'status': "test_value",
+            'created_by': MagicMock(),
+            'hedge_relationship_id': MagicMock(),
+            'nominal_amount': Decimal("100.00"),
+            'effectiveness_rating': "test_value",
+            'instrument_name': "test_value",
+        }
         try:
             instance = HedgeInstrumentTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -38,7 +38,7 @@ class TestGLBalanceMetricsCollector:
         """Smoke test for GLBalanceMetricsCollector.collect_balances using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_balances(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.collect_balances(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_balances needs specific domain fixtures/data: {e}")
             return
@@ -49,7 +49,7 @@ class TestGLBalanceMetricsCollector:
         """Smoke test for GLBalanceMetricsCollector.update_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_metrics(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.update_metrics(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_metrics needs specific domain fixtures/data: {e}")
             return
@@ -60,7 +60,7 @@ class TestGLBalanceMetricsCollector:
         """Smoke test for GLBalanceMetricsCollector.collect_all_legal_entities using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_all_legal_entities()
+            await instance.collect_all_legal_entities()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_all_legal_entities needs specific domain fixtures/data: {e}")
             return
@@ -71,7 +71,7 @@ class TestGLBalanceMetricsCollector:
         """Smoke test for GLBalanceMetricsCollector.start_periodic_collection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_collection(interval_seconds=1)
+            await instance.start_periodic_collection(interval_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_collection needs specific domain fixtures/data: {e}")
             return
@@ -82,7 +82,7 @@ class TestGLBalanceMetricsCollector:
 async def test_get_gl_balance_collector_smoke():
     """Smoke test for module-level function get_gl_balance_collector."""
     try:
-        result = await get_gl_balance_collector()
+        await get_gl_balance_collector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_gl_balance_collector needs specific input data: {e}")
         return
@@ -92,7 +92,7 @@ async def test_get_gl_balance_collector_smoke():
 async def test_start_gl_balance_collection_smoke():
     """Smoke test for module-level function start_gl_balance_collection."""
     try:
-        result = await start_gl_balance_collection()
+        await start_gl_balance_collection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_gl_balance_collection needs specific input data: {e}")
         return
@@ -102,7 +102,7 @@ async def test_start_gl_balance_collection_smoke():
 async def test_stop_gl_balance_collection_smoke():
     """Smoke test for module-level function stop_gl_balance_collection."""
     try:
-        result = await stop_gl_balance_collection()
+        await stop_gl_balance_collection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_gl_balance_collection needs specific input data: {e}")
         return

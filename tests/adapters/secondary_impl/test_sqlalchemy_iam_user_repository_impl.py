@@ -34,14 +34,14 @@ class TestLoginAttempt:
     """Tests for the LoginAttempt value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            username="test_value",
-            success=True,
-            ip_address="test_value",
-            attempted_at=datetime.now(UTC),
-            failure_reason="test_value",
-        )
+        return {
+            "id": uuid4(),
+            "username": "test_value",
+            "success": True,
+            "ip_address": "test_value",
+            "attempted_at": datetime.now(UTC),
+            "failure_reason": "test_value",
+        }
 
     def test_construction_success(self):
         """LoginAttempt can be constructed with valid field values."""
@@ -233,8 +233,8 @@ class TestPasswordHelper:
     def test_hash_password_smoke(self):
         """Smoke test for PasswordHelper.hash_password using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PasswordHelper.hash_password(plain_password="test_value")
+            self._build_instance()
+            PasswordHelper.hash_password(plain_password="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"hash_password needs specific domain fixtures/data: {e}")
             return
@@ -244,8 +244,8 @@ class TestPasswordHelper:
     def test_verify_password_smoke(self):
         """Smoke test for PasswordHelper.verify_password using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PasswordHelper.verify_password(plain_password="test_value", hashed_password="test_value")
+            self._build_instance()
+            PasswordHelper.verify_password(plain_password="test_value", hashed_password="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_password needs specific domain fixtures/data: {e}")
             return
@@ -255,8 +255,8 @@ class TestPasswordHelper:
     def test_needs_rehash_smoke(self):
         """Smoke test for PasswordHelper.needs_rehash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PasswordHelper.needs_rehash(hashed_password="test_value")
+            self._build_instance()
+            PasswordHelper.needs_rehash(hashed_password="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"needs_rehash needs specific domain fixtures/data: {e}")
             return
@@ -283,7 +283,7 @@ class TestSQLAlchemyIAMUserRepository:
         """Smoke test for SQLAlchemyIAMUserRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -294,7 +294,7 @@ class TestSQLAlchemyIAMUserRepository:
         """Smoke test for SQLAlchemyIAMUserRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session(value=MagicMock())
+            instance.session(value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -305,7 +305,7 @@ class TestSQLAlchemyIAMUserRepository:
         """Smoke test for SQLAlchemyIAMUserRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(user=MagicMock())
+            await instance.save(user=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -316,7 +316,7 @@ class TestSQLAlchemyIAMUserRepository:
         """Smoke test for SQLAlchemyIAMUserRepository.find_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_by_id(user_id=uuid4())
+            await instance.find_by_id(user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_by_id needs specific domain fixtures/data: {e}")
             return
@@ -343,7 +343,7 @@ class TestSQLAlchemyIAMRepository:
         """Smoke test for SQLAlchemyIAMRepository.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get()
+            await instance.get()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -354,7 +354,7 @@ class TestSQLAlchemyIAMRepository:
         """Smoke test for SQLAlchemyIAMRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(iam=MagicMock())
+            await instance.save(iam=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -365,7 +365,7 @@ class TestSQLAlchemyIAMRepository:
         """Smoke test for SQLAlchemyIAMRepository.get_user_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_user_by_id(user_id=uuid4())
+            await instance.get_user_by_id(user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_user_by_id needs specific domain fixtures/data: {e}")
             return
@@ -376,7 +376,7 @@ class TestSQLAlchemyIAMRepository:
         """Smoke test for SQLAlchemyIAMRepository.get_user_by_username using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_user_by_username(username="test_value")
+            await instance.get_user_by_username(username="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_user_by_username needs specific domain fixtures/data: {e}")
             return

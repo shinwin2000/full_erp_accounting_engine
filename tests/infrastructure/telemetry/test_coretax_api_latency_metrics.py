@@ -36,7 +36,7 @@ class TestCoretaxAPILatencyMetrics:
         """Smoke test for CoretaxAPILatencyMetrics.record_request using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_request(endpoint="test_value", method="test_value", duration_seconds=1.5, status_code=1, error_type="test_value")
+            instance.record_request(endpoint="test_value", method="test_value", duration_seconds=1.5, status_code=1, error_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_request needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestCoretaxAPILatencyMetrics:
         """Smoke test for CoretaxAPILatencyMetrics.update_token_expiry using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_token_expiry(expiry_timestamp=1.5)
+            instance.update_token_expiry(expiry_timestamp=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_token_expiry needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestCoretaxAPILatencyMetrics:
         """Smoke test for CoretaxAPILatencyMetrics.update_rate_limit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_rate_limit(endpoint="test_value", remaining=1)
+            instance.update_rate_limit(endpoint="test_value", remaining=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_rate_limit needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestCoretaxAPILatencyMetrics:
         """Smoke test for CoretaxAPILatencyMetrics.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestCoretaxAPIContext:
         """Smoke test for CoretaxAPIContext.record_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_status(status_code=1, error_type="test_value")
+            instance.record_status(status_code=1, error_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_status needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestCoretaxAPIContext:
         """Smoke test for CoretaxAPIContext.record_error using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_error(error_type="test_value")
+            instance.record_error(error_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_error needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestCoretaxAPIContext:
 def test_get_coretax_metrics_smoke():
     """Smoke test for module-level function get_coretax_metrics."""
     try:
-        result = get_coretax_metrics()
+        get_coretax_metrics()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_coretax_metrics needs specific input data: {e}")
         return
@@ -128,7 +128,7 @@ def test_get_coretax_metrics_smoke():
 def test_measure_coretax_api_smoke():
     """Smoke test for module-level function measure_coretax_api."""
     try:
-        result = measure_coretax_api(endpoint="test_value", method="test_value")
+        measure_coretax_api(endpoint="test_value", method="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"measure_coretax_api needs specific input data: {e}")
         return

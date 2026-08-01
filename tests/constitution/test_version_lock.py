@@ -895,7 +895,7 @@ class TestVersionLock:
 
     def test_commit_version_change_with_previous_hash_mismatch(self, fixed_now):
         lock = VersionLock(current_version="1.0.0", current_state=VersionLockState.UNLOCKED)
-        current_meta = lock.get_current_metadata()
+        lock.get_current_metadata()
         wrong_hash = "fakehash"
         with pytest.raises(VersionIntegrityError, match="Previous version hash mismatch"):
             lock.commit_version_change(

@@ -29,24 +29,24 @@ class TestGoodsReceiptNoteTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            grn_number="test_value",
-            purchase_order_id=MagicMock(),
-            receipt_date=date.today(),
-            supplier_id=MagicMock(),
-            supplier_name="test_value",
-            status="test_value",
-            notes="test_value",
-            created_by=MagicMock(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            supplier=MagicMock(),
-            purchase_order=MagicMock(),
-            ap_invoices=[MagicMock()],
-            lines=[MagicMock()],
-            _events=[{}],
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'grn_number': "test_value",
+            'purchase_order_id': MagicMock(),
+            'receipt_date': date.today(),
+            'supplier_id': MagicMock(),
+            'supplier_name': "test_value",
+            'status': "test_value",
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'supplier': MagicMock(),
+            'purchase_order': MagicMock(),
+            'ap_invoices': [MagicMock()],
+            'lines': [MagicMock()],
+            '_events': [{}],
+        }
         try:
             instance = GoodsReceiptNoteTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -66,23 +66,23 @@ class TestGoodsReceiptNoteLineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            grn_id=MagicMock(),
-            purchase_order_line_id=MagicMock(),
-            product_id=MagicMock(),
-            product_code="test_value",
-            product_name="test_value",
-            ordered_quantity=Decimal("100.00"),
-            received_quantity=Decimal("100.00"),
-            unit_of_measure="test_value",
-            unit_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            line_number=1,
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            grn=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'grn_id': MagicMock(),
+            'purchase_order_line_id': MagicMock(),
+            'product_id': MagicMock(),
+            'product_code': "test_value",
+            'product_name': "test_value",
+            'ordered_quantity': Decimal("100.00"),
+            'received_quantity': Decimal("100.00"),
+            'unit_of_measure': "test_value",
+            'unit_cost': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'line_number': 1,
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+            'grn': MagicMock(),
+        }
         try:
             instance = GoodsReceiptNoteLineTable(**kwargs)
         except (Exception, SystemExit) as e:

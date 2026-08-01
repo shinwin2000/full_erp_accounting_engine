@@ -108,16 +108,16 @@ class TestPSAK38Entity:
     """Tests for the PSAK38Entity value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            entity_id=uuid4(),
-            entity_name="test_value",
-            ultimate_parent_id=uuid4(),
-            ultimate_parent_name="test_value",
-            book_value_equity=Decimal("100.00"),
-            assets={},
-            liabilities={},
-            net_assets=Decimal("100.00"),
-        )
+        return {
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'ultimate_parent_id': uuid4(),
+            'ultimate_parent_name': "test_value",
+            'book_value_equity': Decimal("100.00"),
+            'assets': {},
+            'liabilities': {},
+            'net_assets': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """PSAK38Entity can be constructed with valid field values."""
@@ -135,17 +135,17 @@ class TestPSAK38Transaction:
     """Tests for the PSAK38Transaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            transaction_id=uuid4(),
-            transaction_type=PSAK38TransactionType.MERGER,
-            transaction_date=datetime.now(UTC),
-            accounting_method=PSAK38AccountingMethod.BOOK_VALUE_METHOD,
-            transferor_entity=MagicMock(),
-            transferee_entity=MagicMock(),
-            consideration_transferred=Decimal("100.00"),
-            difference_to_equity=Decimal("100.00"),
-            notes="test_value",
-        )
+        return {
+            'transaction_id': uuid4(),
+            'transaction_type': PSAK38TransactionType.MERGER,
+            'transaction_date': datetime.now(UTC),
+            'accounting_method': PSAK38AccountingMethod.BOOK_VALUE_METHOD,
+            'transferor_entity': MagicMock(),
+            'transferee_entity': MagicMock(),
+            'consideration_transferred': Decimal("100.00"),
+            'difference_to_equity': Decimal("100.00"),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK38Transaction can be constructed with valid field values."""
@@ -163,12 +163,12 @@ class TestPSAK38CommonControlRegister:
     """Tests for the PSAK38CommonControlRegister value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            register_id=uuid4(),
-            entity_id=uuid4(),
-            entity_name="test_value",
-            transactions=[MagicMock()],
-        )
+        return {
+            'register_id': uuid4(),
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'transactions': [MagicMock()],
+        }
 
     def test_construction_success(self):
         """PSAK38CommonControlRegister can be constructed with valid field values."""
@@ -186,13 +186,13 @@ class TestPSAK38ValidationResult:
     """Tests for the PSAK38ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK38ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK38ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK38ValidationResult can be constructed with valid field values."""
@@ -224,8 +224,8 @@ class TestPSAK38CommonControlService:
     def test_is_common_control_smoke(self):
         """Smoke test for PSAK38CommonControlService.is_common_control using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38CommonControlService.is_common_control(entity_a=MagicMock(), entity_b=MagicMock())
+            self._build_instance()
+            PSAK38CommonControlService.is_common_control(entity_a=MagicMock(), entity_b=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_common_control needs specific domain fixtures/data: {e}")
             return
@@ -235,8 +235,8 @@ class TestPSAK38CommonControlService:
     def test_determine_accounting_method_smoke(self):
         """Smoke test for PSAK38CommonControlService.determine_accounting_method using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38CommonControlService.determine_accounting_method(transaction_type=PSAK38TransactionType.MERGER, is_merger=True)
+            self._build_instance()
+            PSAK38CommonControlService.determine_accounting_method(transaction_type=PSAK38TransactionType.MERGER, is_merger=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_accounting_method needs specific domain fixtures/data: {e}")
             return
@@ -246,8 +246,8 @@ class TestPSAK38CommonControlService:
     def test_compute_book_value_net_assets_smoke(self):
         """Smoke test for PSAK38CommonControlService.compute_book_value_net_assets using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38CommonControlService.compute_book_value_net_assets(entity=MagicMock())
+            self._build_instance()
+            PSAK38CommonControlService.compute_book_value_net_assets(entity=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_book_value_net_assets needs specific domain fixtures/data: {e}")
             return
@@ -257,8 +257,8 @@ class TestPSAK38CommonControlService:
     def test_compute_equity_adjustment_smoke(self):
         """Smoke test for PSAK38CommonControlService.compute_equity_adjustment using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38CommonControlService.compute_equity_adjustment(consideration=Decimal("100.00"), net_assets=Decimal("100.00"))
+            self._build_instance()
+            PSAK38CommonControlService.compute_equity_adjustment(consideration=Decimal("100.00"), net_assets=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_equity_adjustment needs specific domain fixtures/data: {e}")
             return
@@ -284,8 +284,8 @@ class TestPSAK38Rules:
     def test_validate_common_control_smoke(self):
         """Smoke test for PSAK38Rules.validate_common_control using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38Rules.validate_common_control(entity_a=MagicMock(), entity_b=MagicMock())
+            self._build_instance()
+            PSAK38Rules.validate_common_control(entity_a=MagicMock(), entity_b=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_common_control needs specific domain fixtures/data: {e}")
             return
@@ -295,8 +295,8 @@ class TestPSAK38Rules:
     def test_validate_consideration_smoke(self):
         """Smoke test for PSAK38Rules.validate_consideration using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38Rules.validate_consideration(transaction=MagicMock())
+            self._build_instance()
+            PSAK38Rules.validate_consideration(transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_consideration needs specific domain fixtures/data: {e}")
             return
@@ -306,8 +306,8 @@ class TestPSAK38Rules:
     def test_validate_disclosure_smoke(self):
         """Smoke test for PSAK38Rules.validate_disclosure using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK38Rules.validate_disclosure(transaction=MagicMock())
+            self._build_instance()
+            PSAK38Rules.validate_disclosure(transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -334,7 +334,7 @@ class TestPSAK38Validator:
         """Smoke test for PSAK38Validator.create_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_entity(entity_id=uuid4(), entity_name="test_value", ultimate_parent_id=uuid4(), ultimate_parent_name="test_value", book_value_equity=Decimal("100.00"), assets={}, liabilities={})
+            instance.create_entity(entity_id=uuid4(), entity_name="test_value", ultimate_parent_id=uuid4(), ultimate_parent_name="test_value", book_value_equity=Decimal("100.00"), assets={}, liabilities={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_entity needs specific domain fixtures/data: {e}")
             return
@@ -345,7 +345,7 @@ class TestPSAK38Validator:
         """Smoke test for PSAK38Validator.create_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_transaction(transaction_type=PSAK38TransactionType.MERGER, transaction_date=datetime.now(UTC), transferor=MagicMock(), transferee=MagicMock(), consideration_transferred=Decimal("100.00"), accounting_method=PSAK38AccountingMethod.BOOK_VALUE_METHOD, notes="test_value")
+            instance.create_transaction(transaction_type=PSAK38TransactionType.MERGER, transaction_date=datetime.now(UTC), transferor=MagicMock(), transferee=MagicMock(), consideration_transferred=Decimal("100.00"), accounting_method=PSAK38AccountingMethod.BOOK_VALUE_METHOD, notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_transaction needs specific domain fixtures/data: {e}")
             return
@@ -356,7 +356,7 @@ class TestPSAK38Validator:
         """Smoke test for PSAK38Validator.create_register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_register(entity_id=uuid4(), entity_name="test_value")
+            instance.create_register(entity_id=uuid4(), entity_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_register needs specific domain fixtures/data: {e}")
             return
@@ -367,7 +367,7 @@ class TestPSAK38Validator:
         """Smoke test for PSAK38Validator.add_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_transaction(register=MagicMock(), transaction=MagicMock())
+            instance.add_transaction(register=MagicMock(), transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_transaction needs specific domain fixtures/data: {e}")
             return
@@ -378,7 +378,7 @@ class TestPSAK38Validator:
 def test_get_psak38_validator_smoke():
     """Smoke test for module-level function get_psak38_validator."""
     try:
-        result = get_psak38_validator()
+        get_psak38_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak38_validator needs specific input data: {e}")
         return

@@ -43,18 +43,18 @@ class TestCreateARInvoiceRequest:
     """Tests for the CreateARInvoiceRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            customer_id=uuid4(),
-            invoice_date=date.today(),
-            due_date=date.today(),
-            amount=Decimal("100.00"),
-            currency_code="test_value",
-            description="test_value",
-            tax_amount=Decimal("100.00"),
-            sales_order_id=uuid4(),
-            project_id=uuid4(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "customer_id": uuid4(),
+            "invoice_date": date.today(),
+            "due_date": date.today(),
+            "amount": Decimal("100.00"),
+            "currency_code": "test_value",
+            "description": "test_value",
+            "tax_amount": Decimal("100.00"),
+            "sales_order_id": uuid4(),
+            "project_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """CreateARInvoiceRequest can be constructed with valid field values."""
@@ -72,25 +72,25 @@ class TestARInvoiceResponse:
     """Tests for the ARInvoiceResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            invoice_number="test_value",
-            customer_id=uuid4(),
-            customer_name="test_value",
-            invoice_date=date.today(),
-            due_date=date.today(),
-            amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            description="test_value",
-            approved_at=datetime.now(UTC),
-            paid_amount=Decimal("100.00"),
-            remaining_amount=Decimal("100.00"),
-            currency="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            approved_by=uuid4(),
-        )
+        return {
+            "id": uuid4(),
+            "invoice_number": "test_value",
+            "customer_id": uuid4(),
+            "customer_name": "test_value",
+            "invoice_date": date.today(),
+            "due_date": date.today(),
+            "amount": Decimal("100.00"),
+            "tax_amount": Decimal("100.00"),
+            "description": "test_value",
+            "approved_at": datetime.now(UTC),
+            "paid_amount": Decimal("100.00"),
+            "remaining_amount": Decimal("100.00"),
+            "currency": "test_value",
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "approved_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """ARInvoiceResponse can be constructed with valid field values."""
@@ -108,16 +108,16 @@ class TestRecordARPaymentRequest:
     """Tests for the RecordARPaymentRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            customer_id=uuid4(),
-            payment_date=date.today(),
-            amount=Decimal("100.00"),
-            payment_method="test_value",
-            reference_number="test_value",
-            bank_account_id=uuid4(),
-            allocations=[{}],
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "customer_id": uuid4(),
+            "payment_date": date.today(),
+            "amount": Decimal("100.00"),
+            "payment_method": "test_value",
+            "reference_number": "test_value",
+            "bank_account_id": uuid4(),
+            "allocations": [{}],
+        }
 
     def test_construction_success(self):
         """RecordARPaymentRequest can be constructed with valid field values."""
@@ -135,20 +135,20 @@ class TestARPaymentResponse:
     """Tests for the ARPaymentResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            payment_number="test_value",
-            customer_id=uuid4(),
-            customer_name="test_value",
-            payment_date=date.today(),
-            amount=Decimal("100.00"),
-            applied_amount=Decimal("100.00"),
-            remaining_to_allocate=Decimal("100.00"),
-            payment_method="test_value",
-            reference_number="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "id": uuid4(),
+            "payment_number": "test_value",
+            "customer_id": uuid4(),
+            "customer_name": "test_value",
+            "payment_date": date.today(),
+            "amount": Decimal("100.00"),
+            "applied_amount": Decimal("100.00"),
+            "remaining_to_allocate": Decimal("100.00"),
+            "payment_method": "test_value",
+            "reference_number": "test_value",
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ARPaymentResponse can be constructed with valid field values."""
@@ -166,15 +166,15 @@ class TestARCreditNoteRequest:
     """Tests for the ARCreditNoteRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            customer_id=uuid4(),
-            original_invoice_id=uuid4(),
-            issue_date=date.today(),
-            amount=Decimal("100.00"),
-            reason="test_value",
-            auto_apply=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "customer_id": uuid4(),
+            "original_invoice_id": uuid4(),
+            "issue_date": date.today(),
+            "amount": Decimal("100.00"),
+            "reason": "test_value",
+            "auto_apply": True,
+        }
 
     def test_construction_success(self):
         """ARCreditNoteRequest can be constructed with valid field values."""
@@ -192,18 +192,18 @@ class TestARCreditNoteResponse:
     """Tests for the ARCreditNoteResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            credit_note_number="test_value",
-            customer_id=uuid4(),
-            original_invoice_id=uuid4(),
-            issue_date=date.today(),
-            amount=Decimal("100.00"),
-            applied_amount=Decimal("100.00"),
-            reason="test_value",
-            remaining_amount=Decimal("100.00"),
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "id": uuid4(),
+            "credit_note_number": "test_value",
+            "customer_id": uuid4(),
+            "original_invoice_id": uuid4(),
+            "issue_date": date.today(),
+            "amount": Decimal("100.00"),
+            "applied_amount": Decimal("100.00"),
+            "reason": "test_value",
+            "remaining_amount": Decimal("100.00"),
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ARCreditNoteResponse can be constructed with valid field values."""
@@ -221,13 +221,13 @@ class TestARAgingReportDTO:
     """Tests for the ARAgingReportDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            total_ar=Decimal("100.00"),
-            customer_balances={},
-            buckets=[{}],
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "total_ar": Decimal("100.00"),
+            "customer_balances": {},
+            "buckets": [{}],
+        }
 
     def test_construction_success(self):
         """ARAgingReportDTO can be constructed with valid field values."""
@@ -245,11 +245,11 @@ class TestBadDebtProvisionRequest:
     """Tests for the BadDebtProvisionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            provision_rate=Decimal("100.00"),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "provision_rate": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """BadDebtProvisionRequest can be constructed with valid field values."""
@@ -267,14 +267,14 @@ class TestBadDebtProvisionResponse:
     """Tests for the BadDebtProvisionResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            total_receivables=Decimal("100.00"),
-            provision_amount=Decimal("100.00"),
-            journal_id=uuid4(),
-            provision_rate_used=Decimal("100.00"),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "total_receivables": Decimal("100.00"),
+            "provision_amount": Decimal("100.00"),
+            "journal_id": uuid4(),
+            "provision_rate_used": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """BadDebtProvisionResponse can be constructed with valid field values."""
@@ -451,7 +451,7 @@ class TestARService:
         """Smoke test for ARService.create_invoice using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_invoice(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_invoice(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_invoice needs specific domain fixtures/data: {e}")
             return
@@ -462,7 +462,7 @@ class TestARService:
         """Smoke test for ARService.approve_invoice using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.approve_invoice(invoice_id=uuid4(), approver_id=uuid4(), correlation_id="test_value")
+            await instance.approve_invoice(invoice_id=uuid4(), approver_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_invoice needs specific domain fixtures/data: {e}")
             return
@@ -473,7 +473,7 @@ class TestARService:
         """Smoke test for ARService.cancel_invoice using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cancel_invoice(invoice_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.cancel_invoice(invoice_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"cancel_invoice needs specific domain fixtures/data: {e}")
             return
@@ -484,7 +484,7 @@ class TestARService:
         """Smoke test for ARService.record_payment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_payment(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.record_payment(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_payment needs specific domain fixtures/data: {e}")
             return
@@ -495,7 +495,7 @@ class TestARService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -505,7 +505,7 @@ def test_audit_smoke():
 def test_validate_balance_smoke():
     """Smoke test for module-level function validate_balance."""
     try:
-        result = validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
+        validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
     except (Exception, SystemExit) as e:
         pytest.skip(f"validate_balance needs specific input data: {e}")
         return
@@ -515,7 +515,7 @@ def test_validate_balance_smoke():
 async def test_create_ar_service_smoke():
     """Smoke test for module-level function create_ar_service."""
     try:
-        result = await create_ar_service(ar_repo=MagicMock(), customer_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_ar_service(ar_repo=MagicMock(), customer_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_ar_service needs specific input data: {e}")
         return

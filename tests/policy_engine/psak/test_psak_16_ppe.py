@@ -699,7 +699,6 @@ class TestPSAK16Validator:
         assert new_register.assets[-1].asset_code == sample_asset.asset_code
 
     def test_record_depreciation(self, sample_register, sample_asset_with_components):
-        register = sample_register
         register2 = validator.create_register(uuid.uuid4(), "Test", FIXED_REPORTING_DATE)
         register2 = validator.add_asset(register2, sample_asset_with_components)
         asset_id = sample_asset_with_components.asset_id

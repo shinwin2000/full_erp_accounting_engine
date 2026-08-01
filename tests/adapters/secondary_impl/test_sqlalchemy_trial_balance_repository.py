@@ -36,7 +36,7 @@ class TestSQLAlchemyTrialBalanceRepository:
         """Smoke test for SQLAlchemyTrialBalanceRepository.get_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today(), account_type_filter=["test_value"], cost_center_id=uuid4(), include_zero_balance=True, currency_code="test_value")
+            await instance.get_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today(), account_type_filter=["test_value"], cost_center_id=uuid4(), include_zero_balance=True, currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance needs specific domain fixtures/data: {e}")
             return

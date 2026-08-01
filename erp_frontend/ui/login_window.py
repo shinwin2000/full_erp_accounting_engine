@@ -13,6 +13,7 @@ from core.workers import run_task
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QApplication,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from ui.theme import QSS
 
 
 class LoginWindow(QWidget):
@@ -29,6 +31,9 @@ class LoginWindow(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(QSS)
         self.setWindowTitle(f"Masuk — {APP_NAME}")
         self.resize(420, 560)
         self._build_ui()

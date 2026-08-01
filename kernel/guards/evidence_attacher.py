@@ -99,8 +99,9 @@ class _FallbackFileStorage:
         meta = await self.get_metadata(path)
         return meta.get("size") if meta else None
 
+    # FIX: SIM118 - remove .keys() and iterate directly over dict
     async def list_files(self, prefix: str = "") -> list[str]:
-        return [p for p in self._storage.keys() if p.startswith(prefix)]
+        return [p for p in self._storage if p.startswith(prefix)]
 
     async def get_total_used_bytes(self) -> int:
         return self._total_used_bytes
@@ -955,15 +956,15 @@ class EvidenceAttacherGuard(BaseEvidenceAttacherGuard):
                 )
                 self._evidences[evidence_id] = updated
 
-            if transaction_id in self._transaction_evidence:
-                if evidence_id in self._transaction_evidence[transaction_id]:
-                    self._transaction_evidence[transaction_id].remove(evidence_id)
-                    self._record_audit("DETACH", user_id or "system", {
-                        "evidence_id": str(evidence_id),
-                        "transaction_id": str(transaction_id),
-                    })
-                    logger.info(f"Detached evidence {evidence_id} from transaction {transaction_id}")
-                    return True
+            # FIX: SIM102 - combine nested if into single condition
+            if transaction_id in self._transaction_evidence and evidence_id in self._transaction_evidence[transaction_id]:
+                self._transaction_evidence[transaction_id].remove(evidence_id)
+                self._record_audit("DETACH", user_id or "system", {
+                    "evidence_id": str(evidence_id),
+                    "transaction_id": str(transaction_id),
+                })
+                logger.info(f"Detached evidence {evidence_id} from transaction {transaction_id}")
+                return True
             return False
 
     async def delete_evidence(
@@ -977,7 +978,8 @@ class EvidenceAttacherGuard(BaseEvidenceAttacherGuard):
             if evidence.transaction_id is None or force:
                 await self._file_storage.delete(evidence.storage_path)
                 del self._evidences[evidence_id]
-                for tx_id, ev_ids in self._transaction_evidence.items():
+                # FIX: B007 - rename unused tx_id to _tx_id
+                for _tx_id, ev_ids in self._transaction_evidence.items():
                     if evidence_id in ev_ids:
                         ev_ids.remove(evidence_id)
                 self._record_audit("DELETE", deleted_by, {

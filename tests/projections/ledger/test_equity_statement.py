@@ -54,7 +54,7 @@ class TestEquityStatement:
         """Smoke test for EquityStatement.get_equity_component_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_equity_component_balance(legal_entity_id=uuid4(), component_type="test_value", as_of_date=date.today())
+            await instance.get_equity_component_balance(legal_entity_id=uuid4(), component_type="test_value", as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_equity_component_balance needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestEquityStatement:
         """Smoke test for EquityStatement.compute_equity_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_equity_statement(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.compute_equity_statement(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_equity_statement needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestEquityStatement:
         """Smoke test for EquityStatement.save_equity_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_equity_statement(equity_data={})
+            await instance.save_equity_statement(equity_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_equity_statement needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestEquityStatement:
         """Smoke test for EquityStatement.get_equity_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_equity_statement(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.get_equity_statement(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_equity_statement needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestEquityStatementTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = EquityStatementTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestEquityStatementTable:
 async def test_get_equity_statement_smoke():
     """Smoke test for module-level function get_equity_statement."""
     try:
-        result = await get_equity_statement()
+        await get_equity_statement()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_equity_statement needs specific input data: {e}")
         return

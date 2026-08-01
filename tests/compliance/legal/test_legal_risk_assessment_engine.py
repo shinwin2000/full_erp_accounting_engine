@@ -91,7 +91,7 @@ class TestLegalRiskAssessment:
         """Smoke test for LegalRiskAssessment.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestLegalRiskAssessmentEngine:
         """Smoke test for LegalRiskAssessmentEngine.assess_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.assess_transaction(transaction={}, assessed_by="test_value")
+            instance.assess_transaction(transaction={}, assessed_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"assess_transaction needs specific domain fixtures/data: {e}")
             return
@@ -129,7 +129,7 @@ class TestLegalRiskAssessmentEngine:
         """Smoke test for LegalRiskAssessmentEngine.get_assessment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_assessment(assessment_id=uuid4())
+            instance.get_assessment(assessment_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_assessment needs specific domain fixtures/data: {e}")
             return
@@ -140,7 +140,7 @@ class TestLegalRiskAssessmentEngine:
         """Smoke test for LegalRiskAssessmentEngine.get_assessments_by_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_assessments_by_transaction(transaction_id=uuid4())
+            instance.get_assessments_by_transaction(transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_assessments_by_transaction needs specific domain fixtures/data: {e}")
             return
@@ -151,7 +151,7 @@ class TestLegalRiskAssessmentEngine:
         """Smoke test for LegalRiskAssessmentEngine.get_recent_assessments using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_recent_assessments(limit=1)
+            instance.get_recent_assessments(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_recent_assessments needs specific domain fixtures/data: {e}")
             return

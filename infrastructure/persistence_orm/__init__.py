@@ -173,7 +173,22 @@ def __getattr__(name: str) -> Any:
             raise AttributeError(f"module {__name__} has no attribute {name}") from e
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
+
+# ============================================================================
+# EAGER LOADER (dipanggil sekali saat startup aplikasi)
+# ============================================================================
+def load_all_models() -> None:
+    """Import semua modul ORM secara eksplisit agar seluruh class terdaftar
+    di SQLAlchemy class registry sebelum mapper relationship di-resolve.
+    Wajib dipanggil sekali saat startup, sebelum request pertama masuk."""
+    for name in _MODULE_NAMES:
+        try:
+            importlib.import_module(f".{name}", __package__)
+        except ImportError as e:
+            logger.warning(f"Failed to eager-load ORM module '{name}': {e}")
+
 # ============================================================================
 # EKSPOR (untuk memudahkan IDE dan static analysis)
 # ============================================================================
-__all__ = _MODULE_NAMES
+__all__ = [*_MODULE_NAMES, "load_all_models"]
+

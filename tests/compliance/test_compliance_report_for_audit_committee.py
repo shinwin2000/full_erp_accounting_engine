@@ -631,7 +631,7 @@ class TestAuditCommitteeReportBuilder:
     def test_export_to_json(self, builder, tmp_path):
         report = builder.build()
         file_path = tmp_path / "report.json"
-        json_str = builder.export_to_json(report, str(file_path))
+        builder.export_to_json(report, str(file_path))
         assert file_path.exists()
         data = json.loads(file_path.read_text())
         assert data["report_id"] == report.report_id

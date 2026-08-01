@@ -336,7 +336,6 @@ class TestFieldEncryptionService:
         assert service_with_keys._current_key_id == custom_id
 
     def test_rotate_key_without_callback(self, service_with_keys):
-        old_id = service_with_keys._current_key_id
         new_id = service_with_keys.rotate_key()
         assert service_with_keys._current_key_id == new_id
 

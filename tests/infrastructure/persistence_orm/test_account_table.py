@@ -25,31 +25,31 @@ class TestAccountTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            account_code="test_value",
-            account_name="test_value",
-            account_type="test_value",
-            normal_balance="test_value",
-            parent_account_id=MagicMock(),
-            level=1,
-            description="test_value",
-            currency_code="test_value",
-            is_bank_account=True,
-            is_cash_account=True,
-            is_intercompany=True,
-            is_header=True,
-            opening_balance_debit=Decimal("100.00"),
-            opening_balance_credit=Decimal("0"),
-            status="test_value",
-            is_active=True,
-            created_by=MagicMock(),
-            legal_entity_id=MagicMock(),
-            parent=MagicMock(),
-            children=[MagicMock()],
-            ledger_entries=[MagicMock()],
-            journal_lines=[MagicMock()],
-            legal_entity=MagicMock(),
-        )
+        kwargs = {
+            'account_code': "test_value",
+            'account_name': "test_value",
+            'account_type': "test_value",
+            'normal_balance': "test_value",
+            'parent_account_id': MagicMock(),
+            'level': 1,
+            'description': "test_value",
+            'currency_code': "test_value",
+            'is_bank_account': True,
+            'is_cash_account': True,
+            'is_intercompany': True,
+            'is_header': True,
+            'opening_balance_debit': Decimal("100.00"),
+            'opening_balance_credit': Decimal("0"),
+            'status': "test_value",
+            'is_active': True,
+            'created_by': MagicMock(),
+            'legal_entity_id': MagicMock(),
+            'parent': MagicMock(),
+            'children': [MagicMock()],
+            'ledger_entries': [MagicMock()],
+            'journal_lines': [MagicMock()],
+            'legal_entity': MagicMock(),
+        }
         try:
             instance = AccountTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -1161,9 +1161,8 @@ class VersionLock:
             return False
         if self.current_state == VersionLockState.LOCKED and not is_amendment:
             return False
-        if self.current_state == VersionLockState.CORRUPTED:
-            return False
-        return True
+        # Perbaikan SIM103: kembalikan kondisi secara langsung
+        return self.current_state != VersionLockState.CORRUPTED
 
     def get_version_timeline(self) -> list[dict[str, Any]]:
         return [v.to_dict() for v in self.version_history]

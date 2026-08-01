@@ -91,7 +91,7 @@ class TestEventGate:
         """Smoke test for EventGate.send using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send(event=MagicMock(), event_type="test_value", aggregate_type="test_value", aggregate_id=uuid4(), metadata={}, priority=MagicMock(), causation_id="test_value")
+            await instance.send(event=MagicMock(), event_type="test_value", aggregate_type="test_value", aggregate_id=uuid4(), metadata={}, priority=MagicMock(), causation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestEventGate:
         """Smoke test for EventGate.subscribe using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.subscribe(event_type="test_value", callback=MagicMock())
+            instance.subscribe(event_type="test_value", callback=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"subscribe needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestEventGate:
         """Smoke test for EventGate.unsubscribe using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.unsubscribe(event_type="test_value", callback=MagicMock())
+            instance.unsubscribe(event_type="test_value", callback=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"unsubscribe needs specific domain fixtures/data: {e}")
             return
@@ -124,7 +124,7 @@ class TestEventGate:
         """Smoke test for EventGate.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_stats()
+            await instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -135,7 +135,7 @@ class TestEventGate:
 async def test_get_event_gate_smoke():
     """Smoke test for module-level function get_event_gate."""
     try:
-        result = await get_event_gate()
+        await get_event_gate()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_event_gate needs specific input data: {e}")
         return
@@ -145,7 +145,7 @@ async def test_get_event_gate_smoke():
 async def test_shutdown_event_gate_smoke():
     """Smoke test for module-level function shutdown_event_gate."""
     try:
-        result = await shutdown_event_gate()
+        await shutdown_event_gate()
     except (Exception, SystemExit) as e:
         pytest.skip(f"shutdown_event_gate needs specific input data: {e}")
         return
@@ -155,7 +155,7 @@ async def test_shutdown_event_gate_smoke():
 async def test_get_event_gate_dep_smoke():
     """Smoke test for module-level function get_event_gate_dep."""
     try:
-        result = await get_event_gate_dep()
+        await get_event_gate_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_event_gate_dep needs specific input data: {e}")
         return
@@ -165,7 +165,7 @@ async def test_get_event_gate_dep_smoke():
 def test_get_instance_smoke():
     """Smoke test for module-level function get_instance."""
     try:
-        result = get_instance()
+        get_instance()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_instance needs specific input data: {e}")
         return
@@ -175,7 +175,7 @@ def test_get_instance_smoke():
 async def test_shutdown_smoke():
     """Smoke test for module-level function shutdown."""
     try:
-        result = await shutdown()
+        await shutdown()
     except (Exception, SystemExit) as e:
         pytest.skip(f"shutdown needs specific input data: {e}")
         return

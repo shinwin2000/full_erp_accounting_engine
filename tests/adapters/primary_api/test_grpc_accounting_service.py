@@ -39,7 +39,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
+            instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
             return
@@ -50,7 +50,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result=MagicMock())
+            instance.cache_result(idempotency_key="test_value", method_name="test_value", result=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestAuthenticationInterceptor:
         """Smoke test for AuthenticationInterceptor.intercept_service using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.intercept_service(continuation=MagicMock(), handler_call_details=MagicMock())
+            await instance.intercept_service(continuation=MagicMock(), handler_call_details=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"intercept_service needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class TestAuditInterceptor:
         """Smoke test for AuditInterceptor.intercept_service using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.intercept_service(continuation=MagicMock(), handler_call_details=MagicMock())
+            await instance.intercept_service(continuation=MagicMock(), handler_call_details=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"intercept_service needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestAccountingServiceServicer:
         """Smoke test for AccountingServiceServicer.CreateJournal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.CreateJournal(request=MagicMock(), context=MagicMock(), idempotency_key="test_value")
+            await instance.CreateJournal(request=MagicMock(), context=MagicMock(), idempotency_key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"CreateJournal needs specific domain fixtures/data: {e}")
             return
@@ -142,7 +142,7 @@ class TestAccountingServiceServicer:
         """Smoke test for AccountingServiceServicer.PostJournal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.PostJournal(request=MagicMock(), context=MagicMock(), idempotency_key="test_value")
+            await instance.PostJournal(request=MagicMock(), context=MagicMock(), idempotency_key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"PostJournal needs specific domain fixtures/data: {e}")
             return
@@ -153,7 +153,7 @@ class TestAccountingServiceServicer:
         """Smoke test for AccountingServiceServicer.ReverseJournal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.ReverseJournal(request=MagicMock(), context=MagicMock(), idempotency_key="test_value")
+            await instance.ReverseJournal(request=MagicMock(), context=MagicMock(), idempotency_key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"ReverseJournal needs specific domain fixtures/data: {e}")
             return
@@ -164,7 +164,7 @@ class TestAccountingServiceServicer:
         """Smoke test for AccountingServiceServicer.GetTrialBalance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.GetTrialBalance(request=MagicMock(), context=MagicMock())
+            await instance.GetTrialBalance(request=MagicMock(), context=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"GetTrialBalance needs specific domain fixtures/data: {e}")
             return
@@ -175,7 +175,7 @@ class TestAccountingServiceServicer:
 async def test_create_grpc_server_smoke():
     """Smoke test for module-level function create_grpc_server."""
     try:
-        result = await create_grpc_server(address="test_value")
+        await create_grpc_server(address="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_grpc_server needs specific input data: {e}")
         return
@@ -185,7 +185,7 @@ async def test_create_grpc_server_smoke():
 async def test_start_grpc_server_smoke():
     """Smoke test for module-level function start_grpc_server."""
     try:
-        result = await start_grpc_server()
+        await start_grpc_server()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_grpc_server needs specific input data: {e}")
         return

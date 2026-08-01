@@ -32,7 +32,7 @@ class TestMappingError:
 def test_safe_map_smoke():
     """Smoke test for module-level function safe_map."""
     try:
-        result = safe_map(func=MagicMock())
+        safe_map(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"safe_map needs specific input data: {e}")
         return

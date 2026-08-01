@@ -158,12 +158,12 @@ class CoretaxFormatValidator:
             return False, "Nomor faktur pajak tidak boleh kosong"
         if not FAKTUR_PAJAK_PATTERN.match(faktur):
             return False, f"Format nomor faktur pajak tidak valid: {faktur}"
-        if kode:
-            if kode not in KODE_FAKTUR_VALID:
-                return (
-                    False,
-                    f"Kode faktur pajak '{kode}' tidak valid. Kode yang valid: {KODE_FAKTUR_VALID}",
-                )
+        # Gabungkan nested if dengan and (SIM102)
+        if kode and kode not in KODE_FAKTUR_VALID:
+            return (
+                False,
+                f"Kode faktur pajak '{kode}' tidak valid. Kode yang valid: {KODE_FAKTUR_VALID}",
+            )
         return True, None
 
     @staticmethod

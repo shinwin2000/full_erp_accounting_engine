@@ -60,7 +60,7 @@ class TestConfigError:
         """Smoke test for ConfigError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return

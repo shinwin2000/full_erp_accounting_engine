@@ -122,16 +122,16 @@ class TestPSAK25AccountingPolicy:
     """Tests for the PSAK25AccountingPolicy value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            policy_id=uuid4(),
-            policy_name="test_value",
-            effective_date=datetime.now(UTC),
-            description="test_value",
-            is_mandatory_by_standard=True,
-            previous_policy_id=uuid4(),
-            replaced_by_policy_id=uuid4(),
-            is_active=True,
-        )
+        return {
+            'policy_id': uuid4(),
+            'policy_name': "test_value",
+            'effective_date': datetime.now(UTC),
+            'description': "test_value",
+            'is_mandatory_by_standard': True,
+            'previous_policy_id': uuid4(),
+            'replaced_by_policy_id': uuid4(),
+            'is_active': True,
+        }
 
     def test_construction_success(self):
         """PSAK25AccountingPolicy can be constructed with valid field values."""
@@ -149,25 +149,25 @@ class TestPSAK25ChangeDetail:
     """Tests for the PSAK25ChangeDetail value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            change_id=uuid4(),
-            entity_id=uuid4(),
-            entity_name="test_value",
-            change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY,
-            change_date=datetime.now(UTC),
-            description="test_value",
-            justification="test_value",
-            effected_accounts=["test_value"],
-            previous_amount=Decimal("100.00"),
-            corrected_amount=Decimal("100.00"),
-            impact_on_retained_earnings=Decimal("100.00"),
-            application_method=PSAK25ApplicationMethod.RETROSPECTIVE_RESTATEMENT,
-            is_impracticable=True,
-            impracticable_reason="test_value",
-            approved_by=uuid4(),
-            approved_date=datetime.now(UTC),
-            notes="test_value",
-        )
+        return {
+            'change_id': uuid4(),
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'change_type': PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY,
+            'change_date': datetime.now(UTC),
+            'description': "test_value",
+            'justification': "test_value",
+            'effected_accounts': ["test_value"],
+            'previous_amount': Decimal("100.00"),
+            'corrected_amount': Decimal("100.00"),
+            'impact_on_retained_earnings': Decimal("100.00"),
+            'application_method': PSAK25ApplicationMethod.RETROSPECTIVE_RESTATEMENT,
+            'is_impracticable': True,
+            'impracticable_reason': "test_value",
+            'approved_by': uuid4(),
+            'approved_date': datetime.now(UTC),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK25ChangeDetail can be constructed with valid field values."""
@@ -185,13 +185,13 @@ class TestPSAK25ChangeRegister:
     """Tests for the PSAK25ChangeRegister value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            register_id=uuid4(),
-            entity_id=uuid4(),
-            entity_name="test_value",
-            reporting_period_end=datetime.now(UTC),
-            changes=[MagicMock()],
-        )
+        return {
+            'register_id': uuid4(),
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'reporting_period_end': datetime.now(UTC),
+            'changes': [MagicMock()],
+        }
 
     def test_construction_success(self):
         """PSAK25ChangeRegister can be constructed with valid field values."""
@@ -209,13 +209,13 @@ class TestPSAK25ValidationResult:
     """Tests for the PSAK25ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK25ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK25ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK25ValidationResult can be constructed with valid field values."""
@@ -247,8 +247,8 @@ class TestPSAK25ChangeService:
     def test_determine_application_method_smoke(self):
         """Smoke test for PSAK25ChangeService.determine_application_method using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK25ChangeService.determine_application_method(change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY, is_mandatory_change=True, is_impracticable=True, has_retrospective_effect=True)
+            self._build_instance()
+            PSAK25ChangeService.determine_application_method(change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY, is_mandatory_change=True, is_impracticable=True, has_retrospective_effect=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_application_method needs specific domain fixtures/data: {e}")
             return
@@ -258,8 +258,8 @@ class TestPSAK25ChangeService:
     def test_calculate_retrospective_adjustment_smoke(self):
         """Smoke test for PSAK25ChangeService.calculate_retrospective_adjustment using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK25ChangeService.calculate_retrospective_adjustment(previous_amount=Decimal("100.00"), corrected_amount=Decimal("100.00"), tax_rate=Decimal("100.00"))
+            self._build_instance()
+            PSAK25ChangeService.calculate_retrospective_adjustment(previous_amount=Decimal("100.00"), corrected_amount=Decimal("100.00"), tax_rate=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_retrospective_adjustment needs specific domain fixtures/data: {e}")
             return
@@ -269,8 +269,8 @@ class TestPSAK25ChangeService:
     def test_is_impracticable_to_determine_effect_smoke(self):
         """Smoke test for PSAK25ChangeService.is_impracticable_to_determine_effect using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK25ChangeService.is_impracticable_to_determine_effect(change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY, reason="test_value")
+            self._build_instance()
+            PSAK25ChangeService.is_impracticable_to_determine_effect(change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY, reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_impracticable_to_determine_effect needs specific domain fixtures/data: {e}")
             return
@@ -296,8 +296,8 @@ class TestPSAK25Rules:
     def test_validate_change_smoke(self):
         """Smoke test for PSAK25Rules.validate_change using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK25Rules.validate_change(change=MagicMock())
+            self._build_instance()
+            PSAK25Rules.validate_change(change=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_change needs specific domain fixtures/data: {e}")
             return
@@ -307,8 +307,8 @@ class TestPSAK25Rules:
     def test_validate_disclosure_smoke(self):
         """Smoke test for PSAK25Rules.validate_disclosure using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK25Rules.validate_disclosure(register=MagicMock())
+            self._build_instance()
+            PSAK25Rules.validate_disclosure(register=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -335,7 +335,7 @@ class TestPSAK25Validator:
         """Smoke test for PSAK25Validator.create_change using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_change(entity_id=uuid4(), entity_name="test_value", change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY, description="test_value", justification="test_value", previous_amount=Decimal("100.00"), corrected_amount=Decimal("100.00"), effected_accounts=["test_value"], is_mandatory_change=True, is_impracticable=True, impracticable_reason="test_value")
+            instance.create_change(entity_id=uuid4(), entity_name="test_value", change_type=PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY, description="test_value", justification="test_value", previous_amount=Decimal("100.00"), corrected_amount=Decimal("100.00"), effected_accounts=["test_value"], is_mandatory_change=True, is_impracticable=True, impracticable_reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_change needs specific domain fixtures/data: {e}")
             return
@@ -346,7 +346,7 @@ class TestPSAK25Validator:
         """Smoke test for PSAK25Validator.create_register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_register(entity_id=uuid4(), entity_name="test_value", reporting_period_end=datetime.now(UTC))
+            instance.create_register(entity_id=uuid4(), entity_name="test_value", reporting_period_end=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_register needs specific domain fixtures/data: {e}")
             return
@@ -357,7 +357,7 @@ class TestPSAK25Validator:
         """Smoke test for PSAK25Validator.add_change using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_change(register=MagicMock(), change=MagicMock())
+            instance.add_change(register=MagicMock(), change=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_change needs specific domain fixtures/data: {e}")
             return
@@ -368,7 +368,7 @@ class TestPSAK25Validator:
         """Smoke test for PSAK25Validator.approve_change using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.approve_change(change=MagicMock(), approver_id=uuid4())
+            instance.approve_change(change=MagicMock(), approver_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_change needs specific domain fixtures/data: {e}")
             return
@@ -394,7 +394,7 @@ class TestMaterialityLevel:
 def test_get_psak25_validator_smoke():
     """Smoke test for module-level function get_psak25_validator."""
     try:
-        result = get_psak25_validator()
+        get_psak25_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak25_validator needs specific input data: {e}")
         return

@@ -303,7 +303,7 @@ class TestIntercompanyTransaction:
         result = tx.validate()
         assert result["is_valid"] is True
 
-        tx_invalid = IntercompanyTransaction(
+        IntercompanyTransaction(
             id=uuid4(),
             from_entity_id=uuid4(),
             to_entity_id=uuid4(),

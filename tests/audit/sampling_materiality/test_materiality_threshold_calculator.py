@@ -86,7 +86,7 @@ class TestMaterialityThresholdCalculator:
         """Smoke test for MaterialityThresholdCalculator.calculate_overall_materiality using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_overall_materiality(basis_value=Decimal("100.00"), basis_type=MaterialityBasis.TOTAL_ASSETS, custom_percentage=1.5)
+            instance.calculate_overall_materiality(basis_value=Decimal("100.00"), basis_type=MaterialityBasis.TOTAL_ASSETS, custom_percentage=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_overall_materiality needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestMaterialityThresholdCalculator:
         """Smoke test for MaterialityThresholdCalculator.calculate_performance_materiality using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_performance_materiality(overall_materiality=Decimal("100.00"), percentage=1.5)
+            instance.calculate_performance_materiality(overall_materiality=Decimal("100.00"), percentage=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_performance_materiality needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestMaterialityThresholdCalculator:
         """Smoke test for MaterialityThresholdCalculator.calculate_clearly_trivial_threshold using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_clearly_trivial_threshold(overall_materiality=Decimal("100.00"), percentage=1.5)
+            instance.calculate_clearly_trivial_threshold(overall_materiality=Decimal("100.00"), percentage=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_clearly_trivial_threshold needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestMaterialityThresholdCalculator:
         """Smoke test for MaterialityThresholdCalculator.calculate_all_thresholds using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_all_thresholds(basis_value=Decimal("100.00"), basis_type=MaterialityBasis.TOTAL_ASSETS, custom_overall_pct=1.5, performance_pct=1.5, trivial_pct=1.5)
+            instance.calculate_all_thresholds(basis_value=Decimal("100.00"), basis_type=MaterialityBasis.TOTAL_ASSETS, custom_overall_pct=1.5, performance_pct=1.5, trivial_pct=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_all_thresholds needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestMaterialityThresholdCalculator:
 def test_get_materiality_calculator_smoke():
     """Smoke test for module-level function get_materiality_calculator."""
     try:
-        result = get_materiality_calculator()
+        get_materiality_calculator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_materiality_calculator needs specific input data: {e}")
         return

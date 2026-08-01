@@ -25,20 +25,20 @@ class TestARInvoiceLineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            invoice_id=MagicMock(),
-            line_number=1,
-            description="test_value",
-            quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            discount_percent=Decimal("100.00"),
-            account_code="test_value",
-            total_amount=Decimal("100.00"),
-            currency="test_value",
-            invoice=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'invoice_id': MagicMock(),
+            'line_number': 1,
+            'description': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_price': Decimal("100.00"),
+            'tax_rate': Decimal("100.00"),
+            'discount_percent': Decimal("100.00"),
+            'account_code': "test_value",
+            'total_amount': Decimal("100.00"),
+            'currency': "test_value",
+            'invoice': MagicMock(),
+        }
         try:
             instance = ARInvoiceLineTable(**kwargs)
         except (Exception, SystemExit) as e:

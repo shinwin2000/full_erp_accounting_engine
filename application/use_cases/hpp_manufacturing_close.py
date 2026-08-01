@@ -47,6 +47,10 @@ def transactional(method):
     return wrapper
 
 
+# ============================================================================
+# COMMAND (dengan validasi __post_init__)
+# ============================================================================
+
 class HPPManufacturingCloseCommand(BaseCommand):
     """
     Command untuk menutup Harga Pokok Produksi (HPP) manufaktur pada akhir periode.
@@ -83,6 +87,19 @@ class HPPManufacturingCloseCommand(BaseCommand):
         self.post_to_gl = post_to_gl
         self.dry_run = dry_run
 
+        # ========== VALIDASI ==========
+        self._validate()
+
+    def _validate(self) -> None:
+        if not isinstance(self.legal_entity_id, UUID):
+            raise TypeError("legal_entity_id must be a UUID")
+        if self.period_start > self.period_end:
+            raise ValueError("period_start must be before or equal period_end")
+        if not isinstance(self.post_to_gl, bool):
+            raise TypeError("post_to_gl must be a boolean")
+        if not isinstance(self.dry_run, bool):
+            raise TypeError("dry_run must be a boolean")
+
     def to_dict(self) -> dict[str, Any]:
         data = super().to_dict()
         data.update(
@@ -96,6 +113,10 @@ class HPPManufacturingCloseCommand(BaseCommand):
         )
         return data
 
+
+# ============================================================================
+# RESULT OBJECT
+# ============================================================================
 
 class HPPResult:
     """
@@ -136,7 +157,11 @@ class HPPResult:
         self.product_costs = product_costs
 
 
-class HPPManufacturingCloseUseCase:
+# ============================================================================
+# USE CASE HANDLER (nama diubah ke camel case)
+# ============================================================================
+
+class HppManufacturingCloseUseCase:
     """
     Use case handler untuk mengeksekusi HPPManufacturingCloseCommand.
 
@@ -195,7 +220,7 @@ class HPPManufacturingCloseUseCase:
     def _record_audit(self, action: str, details: dict[str, Any] | None = None) -> None:
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
-            "service": "HPPManufacturingCloseUseCase",
+            "service": "HppManufacturingCloseUseCase",
             "action": action,
             "details": details or {},
         }
@@ -399,9 +424,20 @@ class HPPManufacturingCloseUseCase:
         return self._audit_trail.copy()
 
 
+# ============================================================================
+# ALIAS untuk kompatibilitas (HPP vs Hpp)
+# ============================================================================
+
+# Ekspor alias dengan huruf kapital semua untuk kompatibilitas dengan modul lain
+HPPManufacturingCloseUseCase = HppManufacturingCloseUseCase
+
+# ============================================================================
+# FACTORY / HELPER (untuk kompatibilitas)
+# ============================================================================
+
 @audit
 async def hpp_manufacturing_close_handler(
-    command: BaseCommand, use_case: HPPManufacturingCloseUseCase
+    command: BaseCommand, use_case: HppManufacturingCloseUseCase
 ) -> CommandResult:
     if not isinstance(command, HPPManufacturingCloseCommand):
         raise TypeError(f"Expected HPPManufacturingCloseCommand, got {type(command)}")
@@ -433,9 +469,14 @@ async def hpp_manufacturing_close_handler(
     return await use_case.execute(command)
 
 
+# ============================================================================
+# EKSPOR
+# ============================================================================
+
 __all__ = [
     "HPPManufacturingCloseCommand",
     "HPPManufacturingCloseUseCase",
     "HPPResult",
+    "HppManufacturingCloseUseCase",
     "hpp_manufacturing_close_handler",
 ]

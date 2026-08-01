@@ -39,8 +39,8 @@ class TestEnvironmentResolver:
     def test_resolve_smoke(self):
         """Smoke test for EnvironmentResolver.resolve using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EnvironmentResolver.resolve(value=MagicMock())
+            self._build_instance()
+            EnvironmentResolver.resolve(value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestYAMLLoader:
         """Smoke test for YAMLLoader.load_file using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.load_file(file_path="test_value")
+            instance.load_file(file_path="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_file needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestYAMLLoader:
         """Smoke test for YAMLLoader.load_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.load_all(config_paths=[])
+            instance.load_all(config_paths=[])
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_all needs specific domain fixtures/data: {e}")
             return
@@ -89,7 +89,7 @@ class TestYAMLLoader:
         """Smoke test for YAMLLoader.load_single using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.load_single(config_key="test_value", default=MagicMock())
+            instance.load_single(config_key="test_value", default=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_single needs specific domain fixtures/data: {e}")
             return
@@ -100,7 +100,7 @@ class TestYAMLLoader:
         """Smoke test for YAMLLoader.reload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.reload()
+            instance.reload()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reload needs specific domain fixtures/data: {e}")
             return
@@ -111,7 +111,7 @@ class TestYAMLLoader:
 def test_get_config_loader_smoke():
     """Smoke test for module-level function get_config_loader."""
     try:
-        result = get_config_loader()
+        get_config_loader()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_config_loader needs specific input data: {e}")
         return
@@ -121,7 +121,7 @@ def test_get_config_loader_smoke():
 def test_load_config_smoke():
     """Smoke test for module-level function load_config."""
     try:
-        result = load_config(config_path="test_value")
+        load_config(config_path="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"load_config needs specific input data: {e}")
         return
@@ -131,7 +131,7 @@ def test_load_config_smoke():
 def test_get_config_smoke():
     """Smoke test for module-level function get_config."""
     try:
-        result = get_config(key="test_value", default=MagicMock())
+        get_config(key="test_value", default=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_config needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ def test_get_config_smoke():
 def test_reload_config_smoke():
     """Smoke test for module-level function reload_config."""
     try:
-        result = reload_config()
+        reload_config()
     except (Exception, SystemExit) as e:
         pytest.skip(f"reload_config needs specific input data: {e}")
         return
@@ -151,7 +151,7 @@ def test_reload_config_smoke():
 def test_initialize_smoke():
     """Smoke test for module-level function initialize."""
     try:
-        result = initialize()
+        initialize()
     except (Exception, SystemExit) as e:
         pytest.skip(f"initialize needs specific input data: {e}")
         return

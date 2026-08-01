@@ -55,7 +55,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
+            instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
+            instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
             return
@@ -106,21 +106,21 @@ class TestCreateSupplierRequest:
     """Tests for the CreateSupplierRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            supplier_code="test_value",
-            name="test_value",
-            npwp="test_value",
-            address="test_value",
-            city="test_value",
-            country="test_value",
-            phone="test_value",
-            email="test_value",
-            contact_person="test_value",
-            payment_terms_days=1,
-            credit_limit=Decimal("0"),
-            withholding_category=WithholdingCategoryEnum.NONE,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "supplier_code": "test_value",
+            "name": "test_value",
+            "npwp": "test_value",
+            "address": "test_value",
+            "city": "test_value",
+            "country": "test_value",
+            "phone": "test_value",
+            "email": "test_value",
+            "contact_person": "test_value",
+            "payment_terms_days": 1,
+            "credit_limit": Decimal("0"),
+            "withholding_category": WithholdingCategoryEnum.NONE,
+        }
 
     def test_construction_success(self):
         """CreateSupplierRequest can be constructed with valid field values."""
@@ -138,18 +138,18 @@ class TestUpdateSupplierRequest:
     """Tests for the UpdateSupplierRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            name="test_value",
-            address="test_value",
-            city="test_value",
-            phone="test_value",
-            email="test_value",
-            contact_person="test_value",
-            payment_terms_days=1,
-            credit_limit=Decimal("0"),
-            is_active=True,
-            status=SupplierStatusEnum.ACTIVE,
-        )
+        return {
+            "name": "test_value",
+            "address": "test_value",
+            "city": "test_value",
+            "phone": "test_value",
+            "email": "test_value",
+            "contact_person": "test_value",
+            "payment_terms_days": 1,
+            "credit_limit": Decimal("0"),
+            "is_active": True,
+            "status": SupplierStatusEnum.ACTIVE,
+        }
 
     def test_construction_success(self):
         """UpdateSupplierRequest can be constructed with valid field values."""
@@ -167,28 +167,28 @@ class TestSupplierResponseModel:
     """Tests for the SupplierResponseModel value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            supplier_code="test_value",
-            name="test_value",
-            npwp="test_value",
-            address="test_value",
-            city="test_value",
-            country="test_value",
-            phone="test_value",
-            email="test_value",
-            contact_person="test_value",
-            payment_terms_days=1,
-            credit_limit=Decimal("0"),
-            withholding_category="test_value",
-            is_active=True,
-            status="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            "id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "supplier_code": "test_value",
+            "name": "test_value",
+            "npwp": "test_value",
+            "address": "test_value",
+            "city": "test_value",
+            "country": "test_value",
+            "phone": "test_value",
+            "email": "test_value",
+            "contact_person": "test_value",
+            "payment_terms_days": 1,
+            "credit_limit": Decimal("0"),
+            "withholding_category": "test_value",
+            "is_active": True,
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """SupplierResponseModel can be constructed with valid field values."""
@@ -206,9 +206,9 @@ class TestUpdateWithholdingCategoryRequest:
     """Tests for the UpdateWithholdingCategoryRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            withholding_category=WithholdingCategoryEnum.NONE,
-        )
+        return {
+            "withholding_category": WithholdingCategoryEnum.NONE,
+        }
 
     def test_construction_success(self):
         """UpdateWithholdingCategoryRequest can be constructed with valid field values."""
@@ -226,10 +226,10 @@ class TestSupplierListResponse:
     """Tests for the SupplierListResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            items=[MagicMock()],
-            total=1,
-        )
+        return {
+            "items": [MagicMock()],
+            "total": 1,
+        }
 
     def test_construction_success(self):
         """SupplierListResponse can be constructed with valid field values."""
@@ -246,7 +246,7 @@ class TestSupplierListResponse:
 def test_get_correlation_id_smoke():
     """Smoke test for module-level function get_correlation_id."""
     try:
-        result = get_correlation_id(request=MagicMock())
+        get_correlation_id(request=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_correlation_id needs specific input data: {e}")
         return
@@ -256,7 +256,7 @@ def test_get_correlation_id_smoke():
 def test_to_supplier_response_smoke():
     """Smoke test for module-level function to_supplier_response."""
     try:
-        result = to_supplier_response(supplier=MagicMock())
+        to_supplier_response(supplier=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"to_supplier_response needs specific input data: {e}")
         return
@@ -266,7 +266,7 @@ def test_to_supplier_response_smoke():
 async def test_create_supplier_smoke():
     """Smoke test for module-level function create_supplier."""
     try:
-        result = await create_supplier(request=MagicMock(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await create_supplier(request=MagicMock(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_supplier needs specific input data: {e}")
         return
@@ -276,7 +276,7 @@ async def test_create_supplier_smoke():
 async def test_get_supplier_smoke():
     """Smoke test for module-level function get_supplier."""
     try:
-        result = await get_supplier(supplier_id=uuid4(), user=MagicMock(), service=MagicMock())
+        await get_supplier(supplier_id=uuid4(), user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_supplier needs specific input data: {e}")
         return
@@ -286,7 +286,7 @@ async def test_get_supplier_smoke():
 async def test_list_suppliers_smoke():
     """Smoke test for module-level function list_suppliers."""
     try:
-        result = await list_suppliers(legal_entity_id=uuid4(), is_active=True, status=SupplierStatusEnum.ACTIVE, limit=1, offset=1, user=MagicMock(), service=MagicMock())
+        await list_suppliers(legal_entity_id=uuid4(), is_active=True, status=SupplierStatusEnum.ACTIVE, limit=1, offset=1, user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"list_suppliers needs specific input data: {e}")
         return
@@ -296,7 +296,7 @@ async def test_list_suppliers_smoke():
 async def test_update_supplier_smoke():
     """Smoke test for module-level function update_supplier."""
     try:
-        result = await update_supplier(request=MagicMock(), supplier_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await update_supplier(request=MagicMock(), supplier_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"update_supplier needs specific input data: {e}")
         return
@@ -306,7 +306,7 @@ async def test_update_supplier_smoke():
 async def test_deactivate_supplier_smoke():
     """Smoke test for module-level function deactivate_supplier."""
     try:
-        result = await deactivate_supplier(request=MagicMock(), supplier_id=uuid4(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await deactivate_supplier(request=MagicMock(), supplier_id=uuid4(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"deactivate_supplier needs specific input data: {e}")
         return
@@ -316,7 +316,7 @@ async def test_deactivate_supplier_smoke():
 async def test_activate_supplier_smoke():
     """Smoke test for module-level function activate_supplier."""
     try:
-        result = await activate_supplier(request=MagicMock(), supplier_id=uuid4(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await activate_supplier(request=MagicMock(), supplier_id=uuid4(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"activate_supplier needs specific input data: {e}")
         return
@@ -326,7 +326,7 @@ async def test_activate_supplier_smoke():
 async def test_change_supplier_status_smoke():
     """Smoke test for module-level function change_supplier_status."""
     try:
-        result = await change_supplier_status(request=MagicMock(), supplier_id=uuid4(), status=SupplierStatusEnum.ACTIVE, idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await change_supplier_status(request=MagicMock(), supplier_id=uuid4(), status=SupplierStatusEnum.ACTIVE, idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"change_supplier_status needs specific input data: {e}")
         return
@@ -336,7 +336,7 @@ async def test_change_supplier_status_smoke():
 async def test_update_withholding_category_smoke():
     """Smoke test for module-level function update_withholding_category."""
     try:
-        result = await update_withholding_category(request=MagicMock(), supplier_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await update_withholding_category(request=MagicMock(), supplier_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"update_withholding_category needs specific input data: {e}")
         return
@@ -346,7 +346,7 @@ async def test_update_withholding_category_smoke():
 async def test_get_supplier_stats_smoke():
     """Smoke test for module-level function get_supplier_stats."""
     try:
-        result = await get_supplier_stats(user=MagicMock(), service=MagicMock())
+        await get_supplier_stats(user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_supplier_stats needs specific input data: {e}")
         return

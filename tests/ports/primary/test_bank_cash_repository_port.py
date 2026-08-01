@@ -90,35 +90,35 @@ class TestBankAccount:
     """Tests for the BankAccount value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            account_number="test_value",
-            account_name="test_value",
-            bank_name="test_value",
-            bank_code="test_value",
-            account_type=BankAccountType.CHECKING,
-            currency_code="test_value",
-            legal_entity_id=uuid4(),
-            current_balance=Decimal("100.00"),
-            available_balance=Decimal("100.00"),
-            statement_balance=Decimal("100.00"),
-            last_statement_date=date.today(),
-            status=BankAccountStatus.ACTIVE,
-            reconciliation_status=ReconciliationStatus.NOT_RECONCILED,
-            reconciliation_date=date.today(),
-            opening_balance=Decimal("100.00"),
-            opening_balance_date=date.today(),
-            is_default=True,
-            routing_number="test_value",
-            swift_code="test_value",
-            iban="test_value",
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'account_number': "test_value",
+            'account_name': "test_value",
+            'bank_name': "test_value",
+            'bank_code': "test_value",
+            'account_type': BankAccountType.CHECKING,
+            'currency_code': "test_value",
+            'legal_entity_id': uuid4(),
+            'current_balance': Decimal("100.00"),
+            'available_balance': Decimal("100.00"),
+            'statement_balance': Decimal("100.00"),
+            'last_statement_date': date.today(),
+            'status': BankAccountStatus.ACTIVE,
+            'reconciliation_status': ReconciliationStatus.NOT_RECONCILED,
+            'reconciliation_date': date.today(),
+            'opening_balance': Decimal("100.00"),
+            'opening_balance_date': date.today(),
+            'is_default': True,
+            'routing_number': "test_value",
+            'swift_code': "test_value",
+            'iban': "test_value",
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """BankAccount can be constructed with valid field values."""
@@ -136,27 +136,27 @@ class TestBankTransaction:
     """Tests for the BankTransaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            bank_account_id=uuid4(),
-            transaction_date=date.today(),
-            transaction_type=TransactionType.DEPOSIT,
-            amount=Decimal("100.00"),
-            balance_after=Decimal("100.00"),
-            reference_number="test_value",
-            description="test_value",
-            counterparty_name="test_value",
-            counterparty_account="test_value",
-            check_number="test_value",
-            is_cleared=True,
-            cleared_date=date.today(),
-            is_reconciled=True,
-            reconciled_date=date.today(),
-            reconciled_by=uuid4(),
-            journal_id=uuid4(),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'bank_account_id': uuid4(),
+            'transaction_date': date.today(),
+            'transaction_type': TransactionType.DEPOSIT,
+            'amount': Decimal("100.00"),
+            'balance_after': Decimal("100.00"),
+            'reference_number': "test_value",
+            'description': "test_value",
+            'counterparty_name': "test_value",
+            'counterparty_account': "test_value",
+            'check_number': "test_value",
+            'is_cleared': True,
+            'cleared_date': date.today(),
+            'is_reconciled': True,
+            'reconciled_date': date.today(),
+            'reconciled_by': uuid4(),
+            'journal_id': uuid4(),
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """BankTransaction can be constructed with valid field values."""
@@ -174,21 +174,21 @@ class TestCashBook:
     """Tests for the CashBook value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            currency_code="test_value",
-            cash_type="test_value",
-            current_balance=Decimal("100.00"),
-            opening_balance=Decimal("100.00"),
-            opening_balance_date=date.today(),
-            petty_cash_fund=Decimal("100.00"),
-            is_active=True,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'currency_code': "test_value",
+            'cash_type': "test_value",
+            'current_balance': Decimal("100.00"),
+            'opening_balance': Decimal("100.00"),
+            'opening_balance_date': date.today(),
+            'petty_cash_fund': Decimal("100.00"),
+            'is_active': True,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """CashBook can be constructed with valid field values."""
@@ -206,19 +206,19 @@ class TestCashTransaction:
     """Tests for the CashTransaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            cash_book_id=uuid4(),
-            transaction_date=date.today(),
-            transaction_type="test_value",
-            amount=Decimal("100.00"),
-            description="test_value",
-            reference_type="test_value",
-            reference_id=uuid4(),
-            journal_id=uuid4(),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'cash_book_id': uuid4(),
+            'transaction_date': date.today(),
+            'transaction_type': "test_value",
+            'amount': Decimal("100.00"),
+            'description': "test_value",
+            'reference_type': "test_value",
+            'reference_id': uuid4(),
+            'journal_id': uuid4(),
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """CashTransaction can be constructed with valid field values."""

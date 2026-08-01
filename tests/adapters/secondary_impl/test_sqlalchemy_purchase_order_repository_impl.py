@@ -28,8 +28,8 @@ class TestPurchaseOrderTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = PurchaseOrderTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -57,7 +57,7 @@ class TestSQLAlchemyPurchaseOrderRepository:
         """Smoke test for SQLAlchemyPurchaseOrderRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(po=MagicMock())
+            await instance.save(po=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestSQLAlchemyPurchaseOrderRepository:
         """Smoke test for SQLAlchemyPurchaseOrderRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(po_id=uuid4())
+            await instance.get_by_id(po_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestSQLAlchemyPurchaseOrderRepository:
         """Smoke test for SQLAlchemyPurchaseOrderRepository.get_by_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_number(po_number="test_value")
+            await instance.get_by_number(po_number="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_number needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestSQLAlchemyPurchaseOrderRepository:
         """Smoke test for SQLAlchemyPurchaseOrderRepository.list_by_supplier using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_by_supplier(supplier_id=uuid4(), legal_entity_id=uuid4(), limit=1, offset=1)
+            await instance.list_by_supplier(supplier_id=uuid4(), legal_entity_id=uuid4(), limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_by_supplier needs specific domain fixtures/data: {e}")
             return

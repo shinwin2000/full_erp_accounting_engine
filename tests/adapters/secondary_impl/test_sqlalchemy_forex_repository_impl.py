@@ -31,8 +31,8 @@ class TestExchangeRateTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ExchangeRateTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -52,8 +52,8 @@ class TestRevaluationRecordTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = RevaluationRecordTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -73,8 +73,8 @@ class TestPeriodStatusTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = PeriodStatusTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -102,7 +102,7 @@ class TestSQLAlchemyForexRepository:
         """Smoke test for SQLAlchemyForexRepository.get_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rate(from_currency="test_value", to_currency="test_value", rate_date=date.today())
+            await instance.get_rate(from_currency="test_value", to_currency="test_value", rate_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rate needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestSQLAlchemyForexRepository:
         """Smoke test for SQLAlchemyForexRepository.get_latest_rate_before using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_latest_rate_before(from_currency="test_value", to_currency="test_value", rate_date=date.today())
+            await instance.get_latest_rate_before(from_currency="test_value", to_currency="test_value", rate_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_latest_rate_before needs specific domain fixtures/data: {e}")
             return
@@ -124,7 +124,7 @@ class TestSQLAlchemyForexRepository:
         """Smoke test for SQLAlchemyForexRepository.get_rates_in_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rates_in_period(from_currency="test_value", to_currency="test_value", start_date=date.today(), end_date=date.today())
+            await instance.get_rates_in_period(from_currency="test_value", to_currency="test_value", start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rates_in_period needs specific domain fixtures/data: {e}")
             return
@@ -135,7 +135,7 @@ class TestSQLAlchemyForexRepository:
         """Smoke test for SQLAlchemyForexRepository.save_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_rate(rate=MagicMock())
+            await instance.save_rate(rate=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_rate needs specific domain fixtures/data: {e}")
             return

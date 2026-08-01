@@ -69,7 +69,7 @@ class TestRetentionPolicyEnforcer:
         """Smoke test for RetentionPolicyEnforcer.enforce_policy_for_file using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce_policy_for_file(uri="test_value", metadata={})
+            await instance.enforce_policy_for_file(uri="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce_policy_for_file needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestRetentionPolicyEnforcer:
         """Smoke test for RetentionPolicyEnforcer.scan_and_enforce using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.scan_and_enforce(prefix="test_value", dry_run=True)
+            await instance.scan_and_enforce(prefix="test_value", dry_run=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_and_enforce needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestRetentionPolicyEnforcer:
         """Smoke test for RetentionPolicyEnforcer.start_periodic_scan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_scan(interval_hours=1)
+            await instance.start_periodic_scan(interval_hours=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_scan needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestRetentionPolicyEnforcer:
         """Smoke test for RetentionPolicyEnforcer.stop_periodic_scan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_periodic_scan()
+            await instance.stop_periodic_scan()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_periodic_scan needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestRetentionPolicyEnforcer:
 async def test_get_retention_policy_enforcer_smoke():
     """Smoke test for module-level function get_retention_policy_enforcer."""
     try:
-        result = await get_retention_policy_enforcer()
+        await get_retention_policy_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_retention_policy_enforcer needs specific input data: {e}")
         return
@@ -123,7 +123,7 @@ async def test_get_retention_policy_enforcer_smoke():
 async def test_get_retention_enforcer_dep_smoke():
     """Smoke test for module-level function get_retention_enforcer_dep."""
     try:
-        result = await get_retention_enforcer_dep()
+        await get_retention_enforcer_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_retention_enforcer_dep needs specific input data: {e}")
         return

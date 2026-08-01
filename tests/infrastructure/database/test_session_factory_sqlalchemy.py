@@ -325,7 +325,7 @@ def test_get_session_factory_sync_raises_if_factory_none():
     import infrastructure.database.session_factory_sqlalchemy as module
     module._session_factory = None
 
-    with patch("infrastructure.database.session_factory_sqlalchemy._ensure_initialized_sync") as mock_ensure:
+    with patch("infrastructure.database.session_factory_sqlalchemy._ensure_initialized_sync"):
         # We need to simulate that after _ensure_initialized_sync, _session_factory is still None
         # But _ensure_initialized_sync is called, and if it raises, we catch.
         # Actually _ensure_initialized_sync will call initialize, which might fail.
@@ -439,7 +439,7 @@ def test_get_engine_not_initialized():
     import infrastructure.database.session_factory_sqlalchemy as module
     module._session_factory = None
 
-    with patch("infrastructure.database.session_factory_sqlalchemy._ensure_initialized_sync") as mock_ensure:
+    with patch("infrastructure.database.session_factory_sqlalchemy._ensure_initialized_sync"):
         # Simulate that after ensure, factory exists but engine is None
         mock_factory = MagicMock()
         mock_factory.get_engine = MagicMock(return_value=None)

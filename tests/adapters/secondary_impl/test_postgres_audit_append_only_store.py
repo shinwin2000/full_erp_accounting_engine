@@ -31,7 +31,7 @@ class TestPostgresAuditAppendOnlyStore:
         """Smoke test for PostgresAuditAppendOnlyStore.append using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append(stream="test_value", event_data={})
+            await instance.append(stream="test_value", event_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"append needs specific domain fixtures/data: {e}")
             return

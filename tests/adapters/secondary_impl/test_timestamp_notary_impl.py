@@ -31,7 +31,7 @@ class TestTimestampNotaryImpl:
         """Smoke test for TimestampNotaryImpl.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestTimestampNotaryImpl:
         """Smoke test for TimestampNotaryImpl.timestamp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.timestamp(data_hash="test_value", metadata={})
+            await instance.timestamp(data_hash="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"timestamp needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestTimestampNotaryImpl:
         """Smoke test for TimestampNotaryImpl.timestamp_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.timestamp_batch(data_hashes=["test_value"], metadata={})
+            await instance.timestamp_batch(data_hashes=["test_value"], metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"timestamp_batch needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestTimestampNotaryImpl:
         """Smoke test for TimestampNotaryImpl.verify_timestamp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_timestamp(timestamp_token="test_value", data_hash="test_value")
+            await instance.verify_timestamp(timestamp_token="test_value", data_hash="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_timestamp needs specific domain fixtures/data: {e}")
             return

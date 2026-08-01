@@ -61,23 +61,23 @@ class TestWorkOrderCreateRequest:
     """Tests for the WorkOrderCreateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_number="test_value",
-            product_id=uuid4(),
-            product_name="test_value",
-            planned_quantity=Decimal("100.00"),
-            bom_id=uuid4(),
-            routing_id=uuid4(),
-            planned_start_date=date.today(),
-            planned_end_date=date.today(),
-            legal_entity_id=uuid4(),
-            created_by=uuid4(),
-            description="test_value",
-            cost_center="test_value",
-            standard_cost=Decimal("100.00"),
-            priority=1,
-            order_type=ManufacturingOrderType.STANDARD,
-        )
+        return {
+            'work_order_number': "test_value",
+            'product_id': uuid4(),
+            'product_name': "test_value",
+            'planned_quantity': Decimal("100.00"),
+            'bom_id': uuid4(),
+            'routing_id': uuid4(),
+            'planned_start_date': date.today(),
+            'planned_end_date': date.today(),
+            'legal_entity_id': uuid4(),
+            'created_by': uuid4(),
+            'description': "test_value",
+            'cost_center': "test_value",
+            'standard_cost': Decimal("100.00"),
+            'priority': 1,
+            'order_type': ManufacturingOrderType.STANDARD,
+        }
 
     def test_construction_success(self):
         """WorkOrderCreateRequest can be constructed with valid field values."""
@@ -95,18 +95,18 @@ class TestMaterialIssueRequest:
     """Tests for the MaterialIssueRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            material_id=uuid4(),
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            issue_date=date.today(),
-            issued_by=uuid4(),
-            legal_entity_id=uuid4(),
-            bin_location="test_value",
-            batch_number="test_value",
-            notes="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'material_id': uuid4(),
+            'quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'issue_date': date.today(),
+            'issued_by': uuid4(),
+            'legal_entity_id': uuid4(),
+            'bin_location': "test_value",
+            'batch_number': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """MaterialIssueRequest can be constructed with valid field values."""
@@ -124,17 +124,17 @@ class TestLaborRecordRequest:
     """Tests for the LaborRecordRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            employee_id=uuid4(),
-            hours=Decimal("100.00"),
-            hourly_rate=Decimal("100.00"),
-            labor_date=date.today(),
-            recorded_by=uuid4(),
-            legal_entity_id=uuid4(),
-            operation_code="test_value",
-            notes="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'employee_id': uuid4(),
+            'hours': Decimal("100.00"),
+            'hourly_rate': Decimal("100.00"),
+            'labor_date': date.today(),
+            'recorded_by': uuid4(),
+            'legal_entity_id': uuid4(),
+            'operation_code': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """LaborRecordRequest can be constructed with valid field values."""
@@ -152,17 +152,17 @@ class TestProductionCompletionRequest:
     """Tests for the ProductionCompletionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            completed_quantity=Decimal("100.00"),
-            rejected_quantity=Decimal("100.00"),
-            completion_date=date.today(),
-            unit_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            completed_by=uuid4(),
-            legal_entity_id=uuid4(),
-            remarks="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'completed_quantity': Decimal("100.00"),
+            'rejected_quantity': Decimal("100.00"),
+            'completion_date': date.today(),
+            'unit_cost': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'completed_by': uuid4(),
+            'legal_entity_id': uuid4(),
+            'remarks': "test_value",
+        }
 
     def test_construction_success(self):
         """ProductionCompletionRequest can be constructed with valid field values."""
@@ -180,15 +180,15 @@ class TestUpdateWorkOrderRequest:
     """Tests for the UpdateWorkOrderRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            planned_start_date=date.today(),
-            planned_end_date=date.today(),
-            priority=1,
-            status=WorkOrderStatus.DRAFT,
-            description="test_value",
-            notes="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'planned_start_date': date.today(),
+            'planned_end_date': date.today(),
+            'priority': 1,
+            'status': WorkOrderStatus.DRAFT,
+            'description': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """UpdateWorkOrderRequest can be constructed with valid field values."""
@@ -206,10 +206,10 @@ class TestGetWorkOrderRequest:
     """Tests for the GetWorkOrderRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            'work_order_id': uuid4(),
+            'legal_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """GetWorkOrderRequest can be constructed with valid field values."""
@@ -227,15 +227,15 @@ class TestListWorkOrdersRequest:
     """Tests for the ListWorkOrdersRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            status=WorkOrderStatus.DRAFT,
-            product_id=uuid4(),
-            from_date=date.today(),
-            to_date=date.today(),
-            limit=1,
-            offset=1,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'status': WorkOrderStatus.DRAFT,
+            'product_id': uuid4(),
+            'from_date': date.today(),
+            'to_date': date.today(),
+            'limit': 1,
+            'offset': 1,
+        }
 
     def test_construction_success(self):
         """ListWorkOrdersRequest can be constructed with valid field values."""
@@ -253,11 +253,11 @@ class TestManufacturingCostSummaryRequest:
     """Tests for the ManufacturingCostSummaryRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-        )
+        return {
+            'work_order_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'as_of_date': date.today(),
+        }
 
     def test_construction_success(self):
         """ManufacturingCostSummaryRequest can be constructed with valid field values."""
@@ -289,8 +289,8 @@ class TestManufacturingRequestFactory:
     def test_create_work_order_smoke(self):
         """Smoke test for ManufacturingRequestFactory.create_work_order using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ManufacturingRequestFactory.create_work_order(work_order_number="test_value", product_id=uuid4(), product_name="test_value", planned_quantity=Decimal("100.00"), bom_id=uuid4(), legal_entity_id=uuid4(), created_by=uuid4(), planned_start_date=date.today(), planned_end_date=date.today())
+            self._build_instance()
+            ManufacturingRequestFactory.create_work_order(work_order_number="test_value", product_id=uuid4(), product_name="test_value", planned_quantity=Decimal("100.00"), bom_id=uuid4(), legal_entity_id=uuid4(), created_by=uuid4(), planned_start_date=date.today(), planned_end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_work_order needs specific domain fixtures/data: {e}")
             return
@@ -300,8 +300,8 @@ class TestManufacturingRequestFactory:
     def test_create_material_issue_smoke(self):
         """Smoke test for ManufacturingRequestFactory.create_material_issue using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ManufacturingRequestFactory.create_material_issue(work_order_id=uuid4(), material_id=uuid4(), quantity=Decimal("100.00"), unit_cost=Decimal("100.00"), issue_date=date.today(), issued_by=uuid4())
+            self._build_instance()
+            ManufacturingRequestFactory.create_material_issue(work_order_id=uuid4(), material_id=uuid4(), quantity=Decimal("100.00"), unit_cost=Decimal("100.00"), issue_date=date.today(), issued_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_material_issue needs specific domain fixtures/data: {e}")
             return
@@ -311,8 +311,8 @@ class TestManufacturingRequestFactory:
     def test_create_labor_record_smoke(self):
         """Smoke test for ManufacturingRequestFactory.create_labor_record using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ManufacturingRequestFactory.create_labor_record(work_order_id=uuid4(), employee_id=uuid4(), hours=Decimal("100.00"), hourly_rate=Decimal("100.00"), labor_date=date.today(), recorded_by=uuid4())
+            self._build_instance()
+            ManufacturingRequestFactory.create_labor_record(work_order_id=uuid4(), employee_id=uuid4(), hours=Decimal("100.00"), hourly_rate=Decimal("100.00"), labor_date=date.today(), recorded_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_labor_record needs specific domain fixtures/data: {e}")
             return

@@ -67,18 +67,18 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.CAPITAL_CONTRIBUTION_RECORDED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.CAPITAL_CONTRIBUTION_RECORDED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -96,8 +96,8 @@ class TestCapitalContributionRecordedEvent:
     """Tests for the CapitalContributionRecordedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalContributionRecordedEvent can be constructed with valid field values."""
@@ -114,8 +114,8 @@ class TestCapitalContributionApprovedEvent:
     """Tests for the CapitalContributionApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalContributionApprovedEvent can be constructed with valid field values."""
@@ -132,8 +132,8 @@ class TestCapitalContributionPostedEvent:
     """Tests for the CapitalContributionPostedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalContributionPostedEvent can be constructed with valid field values."""
@@ -150,8 +150,8 @@ class TestCapitalContributionCancelledEvent:
     """Tests for the CapitalContributionCancelledEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalContributionCancelledEvent can be constructed with valid field values."""
@@ -168,8 +168,8 @@ class TestCapitalWithdrawalRecordedEvent:
     """Tests for the CapitalWithdrawalRecordedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalWithdrawalRecordedEvent can be constructed with valid field values."""
@@ -186,8 +186,8 @@ class TestCapitalWithdrawalApprovedEvent:
     """Tests for the CapitalWithdrawalApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalWithdrawalApprovedEvent can be constructed with valid field values."""
@@ -204,8 +204,8 @@ class TestCapitalWithdrawalPostedEvent:
     """Tests for the CapitalWithdrawalPostedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalWithdrawalPostedEvent can be constructed with valid field values."""
@@ -222,8 +222,8 @@ class TestCapitalWithdrawalCancelledEvent:
     """Tests for the CapitalWithdrawalCancelledEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CapitalWithdrawalCancelledEvent can be constructed with valid field values."""
@@ -240,8 +240,8 @@ class TestRetainedEarningsUpdatedEvent:
     """Tests for the RetainedEarningsUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RetainedEarningsUpdatedEvent can be constructed with valid field values."""
@@ -258,8 +258,8 @@ class TestRetainedEarningsAdjustedEvent:
     """Tests for the RetainedEarningsAdjustedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RetainedEarningsAdjustedEvent can be constructed with valid field values."""
@@ -276,8 +276,8 @@ class TestRetainedEarningsTransferEvent:
     """Tests for the RetainedEarningsTransferEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RetainedEarningsTransferEvent can be constructed with valid field values."""
@@ -294,8 +294,8 @@ class TestDividendDeclaredEvent:
     """Tests for the DividendDeclaredEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """DividendDeclaredEvent can be constructed with valid field values."""
@@ -312,8 +312,8 @@ class TestDividendApprovedEvent:
     """Tests for the DividendApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """DividendApprovedEvent can be constructed with valid field values."""
@@ -330,8 +330,8 @@ class TestDividendPaidEvent:
     """Tests for the DividendPaidEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """DividendPaidEvent can be constructed with valid field values."""
@@ -348,8 +348,8 @@ class TestDividendPartiallyPaidEvent:
     """Tests for the DividendPartiallyPaidEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """DividendPartiallyPaidEvent can be constructed with valid field values."""
@@ -366,8 +366,8 @@ class TestDividendCancelledEvent:
     """Tests for the DividendCancelledEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """DividendCancelledEvent can be constructed with valid field values."""
@@ -398,8 +398,8 @@ class TestDomainEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -409,8 +409,8 @@ class TestDomainEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await DomainEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -420,8 +420,8 @@ class TestDomainEventPublisher:
     def test_get_published_events_smoke(self):
         """Smoke test for DomainEventPublisher.get_published_events using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.get_published_events()
+            self._build_instance()
+            DomainEventPublisher.get_published_events()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_published_events needs specific domain fixtures/data: {e}")
             return
@@ -431,8 +431,8 @@ class TestDomainEventPublisher:
     def test_clear_smoke(self):
         """Smoke test for DomainEventPublisher.clear using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.clear()
+            self._build_instance()
+            DomainEventPublisher.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -443,7 +443,7 @@ class TestDomainEventPublisher:
 def test_deserialize_domain_event_smoke():
     """Smoke test for module-level function deserialize_domain_event."""
     try:
-        result = deserialize_domain_event(json_str="test_value")
+        deserialize_domain_event(json_str="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"deserialize_domain_event needs specific input data: {e}")
         return
@@ -453,7 +453,7 @@ def test_deserialize_domain_event_smoke():
 def test_serialize_domain_event_smoke():
     """Smoke test for module-level function serialize_domain_event."""
     try:
-        result = serialize_domain_event(event=MagicMock())
+        serialize_domain_event(event=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"serialize_domain_event needs specific input data: {e}")
         return

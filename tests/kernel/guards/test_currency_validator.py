@@ -43,7 +43,7 @@ class Test_FallbackExchangeRateRepository:
         """Smoke test for _FallbackExchangeRateRepository.get_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rate(from_currency="test_value", to_currency="test_value", as_of=datetime.now(UTC))
+            await instance.get_rate(from_currency="test_value", to_currency="test_value", as_of=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rate needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class Test_FallbackExchangeRateRepository:
         """Smoke test for _FallbackExchangeRateRepository.add_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_rate(from_currency="test_value", to_currency="test_value", rate=Decimal("100.00"), effective_date=datetime.now(UTC), source="test_value")
+            await instance.add_rate(from_currency="test_value", to_currency="test_value", rate=Decimal("100.00"), effective_date=datetime.now(UTC), source="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_rate needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class Test_FallbackExchangeRateRepository:
         """Smoke test for _FallbackExchangeRateRepository.get_historical_rates using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_historical_rates(from_currency="test_value", to_currency="test_value", start_date=datetime.now(UTC), end_date=datetime.now(UTC))
+            await instance.get_historical_rates(from_currency="test_value", to_currency="test_value", start_date=datetime.now(UTC), end_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_historical_rates needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class Test_FallbackExchangeRateRepository:
         """Smoke test for _FallbackExchangeRateRepository.get_rate_source using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rate_source(from_currency="test_value", to_currency="test_value", effective_date=datetime.now(UTC))
+            await instance.get_rate_source(from_currency="test_value", to_currency="test_value", effective_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rate_source needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class Test_FallbackLegalEntityRepository:
         """Smoke test for _FallbackLegalEntityRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(entity_id=uuid4())
+            await instance.get_by_id(entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class Test_FallbackLegalEntityRepository:
         """Smoke test for _FallbackLegalEntityRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(entity_code="test_value")
+            await instance.get_by_code(entity_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -125,7 +125,7 @@ class Test_FallbackLegalEntityRepository:
         """Smoke test for _FallbackLegalEntityRepository.get_functional_currency using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_functional_currency(entity_id=uuid4())
+            await instance.get_functional_currency(entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_functional_currency needs specific domain fixtures/data: {e}")
             return
@@ -136,7 +136,7 @@ class Test_FallbackLegalEntityRepository:
         """Smoke test for _FallbackLegalEntityRepository.get_reporting_currency using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_reporting_currency(entity_id=uuid4())
+            await instance.get_reporting_currency(entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_reporting_currency needs specific domain fixtures/data: {e}")
             return
@@ -163,23 +163,23 @@ class TestCurrencyValidationResult:
     """Tests for the CurrencyValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            check_id=uuid4(),
-            currency="test_value",
-            functional_currency="test_value",
-            legal_entity_id=uuid4(),
-            exchange_rate=Decimal("100.00"),
-            is_supported=True,
-            rate_available=True,
-            deviation_percentage=Decimal("100.00"),
-            severity=CurrencyValidatorSeverity.CRITICAL,
-            message="test_value",
-            source_currency="test_value",
-            target_currency="test_value",
-            converted_amount=Decimal("100.00"),
-            timestamp=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "check_id": uuid4(),
+            "currency": "test_value",
+            "functional_currency": "test_value",
+            "legal_entity_id": uuid4(),
+            "exchange_rate": Decimal("100.00"),
+            "is_supported": True,
+            "rate_available": True,
+            "deviation_percentage": Decimal("100.00"),
+            "severity": CurrencyValidatorSeverity.CRITICAL,
+            "message": "test_value",
+            "source_currency": "test_value",
+            "target_currency": "test_value",
+            "converted_amount": Decimal("100.00"),
+            "timestamp": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """CurrencyValidationResult can be constructed with valid field values."""
@@ -220,7 +220,7 @@ class TestCurrencyValidator:
         """Smoke test for CurrencyValidator.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -231,7 +231,7 @@ class TestCurrencyValidator:
         """Smoke test for CurrencyValidator.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -242,7 +242,7 @@ class TestCurrencyValidator:
         """Smoke test for CurrencyValidator.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -252,8 +252,8 @@ class TestCurrencyValidator:
     def test_from_dict_smoke(self):
         """Smoke test for CurrencyValidator.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = CurrencyValidator.from_dict(data={})
+            self._build_instance()
+            CurrencyValidator.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -264,7 +264,7 @@ class TestCurrencyValidator:
 def test_get_currency_validator_smoke():
     """Smoke test for module-level function get_currency_validator."""
     try:
-        result = get_currency_validator()
+        get_currency_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_currency_validator needs specific input data: {e}")
         return

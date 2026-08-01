@@ -42,7 +42,7 @@ class Test_NotImplementedStub:
 def test_get_all_port_classes_smoke():
     """Smoke test for module-level function get_all_port_classes."""
     try:
-        result = get_all_port_classes()
+        get_all_port_classes()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_all_port_classes needs specific input data: {e}")
         return
@@ -52,7 +52,7 @@ def test_get_all_port_classes_smoke():
 def test_get_all_adapter_classes_smoke():
     """Smoke test for module-level function get_all_adapter_classes."""
     try:
-        result = get_all_adapter_classes()
+        get_all_adapter_classes()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_all_adapter_classes needs specific input data: {e}")
         return
@@ -62,7 +62,7 @@ def test_get_all_adapter_classes_smoke():
 def test_find_matching_adapter_smoke():
     """Smoke test for module-level function find_matching_adapter."""
     try:
-        result = find_matching_adapter(port_name="test_value", port_methods=set(), adapters={})
+        find_matching_adapter(port_name="test_value", port_methods=set(), adapters={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"find_matching_adapter needs specific input data: {e}")
         return
@@ -72,7 +72,7 @@ def test_find_matching_adapter_smoke():
 def test_create_stub_smoke():
     """Smoke test for module-level function create_stub."""
     try:
-        result = create_stub(port_name="test_value")
+        create_stub(port_name="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_stub needs specific input data: {e}")
         return
@@ -82,7 +82,7 @@ def test_create_stub_smoke():
 def test_instantiate_adapter_smoke():
     """Smoke test for module-level function instantiate_adapter."""
     try:
-        result = instantiate_adapter(impl_class=MagicMock())
+        instantiate_adapter(impl_class=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"instantiate_adapter needs specific input data: {e}")
         return
@@ -92,7 +92,7 @@ def test_instantiate_adapter_smoke():
 def test_manual_lookup_coretax_smoke():
     """Smoke test for module-level function manual_lookup_coretax."""
     try:
-        result = manual_lookup_coretax(port_name="test_value", adapters={}, container=MagicMock(), port_class=MagicMock(), registered=MagicMock(), fallback=MagicMock())
+        manual_lookup_coretax(port_name="test_value", adapters={}, container=MagicMock(), port_class=MagicMock(), registered=MagicMock(), fallback=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"manual_lookup_coretax needs specific input data: {e}")
         return
@@ -102,7 +102,7 @@ def test_manual_lookup_coretax_smoke():
 def test_auto_register_ports_smoke():
     """Smoke test for module-level function auto_register_ports."""
     try:
-        result = auto_register_ports(container=MagicMock())
+        auto_register_ports(container=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"auto_register_ports needs specific input data: {e}")
         return
@@ -112,7 +112,7 @@ def test_auto_register_ports_smoke():
 def test_register_all_ports_smoke():
     """Smoke test for module-level function register_all_ports."""
     try:
-        result = register_all_ports(container=MagicMock())
+        register_all_ports(container=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"register_all_ports needs specific input data: {e}")
         return

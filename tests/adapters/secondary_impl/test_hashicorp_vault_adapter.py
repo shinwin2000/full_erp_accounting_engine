@@ -31,7 +31,7 @@ class TestHashicorpVaultAdapter:
         """Smoke test for HashicorpVaultAdapter.get_secret using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_secret(path="test_value", key="test_value")
+            await instance.get_secret(path="test_value", key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_secret needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestHashicorpVaultAdapter:
         """Smoke test for HashicorpVaultAdapter.set_secret using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set_secret(path="test_value", key="test_value", value="test_value")
+            await instance.set_secret(path="test_value", key="test_value", value="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_secret needs specific domain fixtures/data: {e}")
             return

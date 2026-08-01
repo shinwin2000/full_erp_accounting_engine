@@ -50,7 +50,7 @@ class Test_FallbackAssetRegistryPort:
         """Smoke test for _FallbackAssetRegistryPort.get_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_asset(asset_id=uuid4())
+            await instance.get_asset(asset_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_asset needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class Test_FallbackAssetRegistryPort:
         """Smoke test for _FallbackAssetRegistryPort.get_assets_by_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_assets_by_entity(legal_entity_id=uuid4())
+            await instance.get_assets_by_entity(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_assets_by_entity needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class Test_FallbackAssetRegistryPort:
         """Smoke test for _FallbackAssetRegistryPort.find_by_serial using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_by_serial(serial_number="test_value")
+            await instance.find_by_serial(serial_number="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_by_serial needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class Test_FallbackAssetRegistryPort:
         """Smoke test for _FallbackAssetRegistryPort.verify_rfid using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_rfid(asset_id=uuid4(), rfid="test_value")
+            await instance.verify_rfid(asset_id=uuid4(), rfid="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_rfid needs specific domain fixtures/data: {e}")
             return
@@ -127,20 +127,20 @@ class TestAssetExistenceRecord:
     """Tests for the AssetExistenceRecord value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            record_id=uuid4(),
-            asset_id=uuid4(),
-            verification_date=datetime.now(UTC),
-            verification_method=VerificationMethod.QR_SCAN,
-            verified_by="test_value",
-            status=AssetExistenceStatus.VERIFIED,
-            notes="test_value",
-            location="test_value",
-            serial_number="test_value",
-            supporting_document="test_value",
-            qr_code_data="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "record_id": uuid4(),
+            "asset_id": uuid4(),
+            "verification_date": datetime.now(UTC),
+            "verification_method": VerificationMethod.QR_SCAN,
+            "verified_by": "test_value",
+            "status": AssetExistenceStatus.VERIFIED,
+            "notes": "test_value",
+            "location": "test_value",
+            "serial_number": "test_value",
+            "supporting_document": "test_value",
+            "qr_code_data": "test_value",
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """AssetExistenceRecord can be constructed with valid field values."""
@@ -173,7 +173,7 @@ class TestAssetExistenceValidator:
         """Smoke test for AssetExistenceValidator.set_asset_registry using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_asset_registry(asset_registry=MagicMock())
+            instance.set_asset_registry(asset_registry=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_asset_registry needs specific domain fixtures/data: {e}")
             return
@@ -184,7 +184,7 @@ class TestAssetExistenceValidator:
         """Smoke test for AssetExistenceValidator.set_verification_validity_days using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_verification_validity_days(days=1)
+            instance.set_verification_validity_days(days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_verification_validity_days needs specific domain fixtures/data: {e}")
             return
@@ -195,7 +195,7 @@ class TestAssetExistenceValidator:
         """Smoke test for AssetExistenceValidator.verify_asset_existence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_asset_existence(asset_id=uuid4(), verification_method=VerificationMethod.QR_SCAN, verified_by="test_value", location="test_value", serial_number="test_value", qr_code_data="test_value", supporting_document="test_value")
+            await instance.verify_asset_existence(asset_id=uuid4(), verification_method=VerificationMethod.QR_SCAN, verified_by="test_value", location="test_value", serial_number="test_value", qr_code_data="test_value", supporting_document="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_asset_existence needs specific domain fixtures/data: {e}")
             return
@@ -206,7 +206,7 @@ class TestAssetExistenceValidator:
         """Smoke test for AssetExistenceValidator.validate_before_recording using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate_before_recording(asset_id=uuid4(), economic_event=MagicMock(), user_id="test_value")
+            await instance.validate_before_recording(asset_id=uuid4(), economic_event=MagicMock(), user_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_before_recording needs specific domain fixtures/data: {e}")
             return
@@ -217,7 +217,7 @@ class TestAssetExistenceValidator:
 def test_get_asset_existence_validator_smoke():
     """Smoke test for module-level function get_asset_existence_validator."""
     try:
-        result = get_asset_existence_validator()
+        get_asset_existence_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_asset_existence_validator needs specific input data: {e}")
         return

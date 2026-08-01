@@ -275,7 +275,7 @@ class TestCreateJournalRequest:
 
     def test_validation_auto_timezone(self):
         naive = datetime(2026, 1, 15, 12, 0, 0)
-        request = CreateJournalRequest(
+        CreateJournalRequest(
             journal_type="GENERAL",
             transaction_date=naive,
             description="Test",

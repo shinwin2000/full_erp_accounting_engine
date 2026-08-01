@@ -1027,7 +1027,7 @@ class TestConstitutionalInvariants:
     def test_initialization_loads_default_invariants(self):
         inv = ConstitutionalInvariants()
         assert len(inv.invariants) > 0
-        assert inv.get_invariant(list(inv.invariants.keys())[0]) is not None
+        assert inv.get_invariant(next(iter(inv.invariants.keys()))) is not None
 
     def test_save_and_get_invariant(self):
         inv = ConstitutionalInvariants()

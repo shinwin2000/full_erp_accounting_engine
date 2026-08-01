@@ -38,7 +38,7 @@ class TestCanonicalEvent:
         """Smoke test for CanonicalEvent.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -49,7 +49,7 @@ class TestCanonicalEvent:
         """Smoke test for CanonicalEvent.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -59,8 +59,8 @@ class TestCanonicalEvent:
     def test_from_dict_smoke(self):
         """Smoke test for CanonicalEvent.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = CanonicalEvent.from_dict(data={})
+            self._build_instance()
+            CanonicalEvent.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -71,7 +71,7 @@ class TestCanonicalEvent:
         """Smoke test for CanonicalEvent.clone using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.clone()
+            instance.clone()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clone needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestEventNormalizer:
         """Smoke test for EventNormalizer.normalize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.normalize(envelope=MagicMock())
+            await instance.normalize(envelope=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"normalize needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestEventNormalizer:
         """Smoke test for EventNormalizer.normalize_raw_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.normalize_raw_event(raw_event={}, event_type="test_value")
+            await instance.normalize_raw_event(raw_event={}, event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"normalize_raw_event needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestEventNormalizer:
         """Smoke test for EventNormalizer.add_field_mapping using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_field_mapping(source_format="test_value", mapping={})
+            await instance.add_field_mapping(source_format="test_value", mapping={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_field_mapping needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestEventNormalizer:
         """Smoke test for EventNormalizer.normalize_from_format using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.normalize_from_format(raw_event={}, source_format="test_value", event_type="test_value")
+            await instance.normalize_from_format(raw_event={}, source_format="test_value", event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"normalize_from_format needs specific domain fixtures/data: {e}")
             return
@@ -142,7 +142,7 @@ class TestEventNormalizer:
 def test_is_canonical_smoke():
     """Smoke test for module-level function is_canonical."""
     try:
-        result = is_canonical(event={})
+        is_canonical(event={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"is_canonical needs specific input data: {e}")
         return
@@ -152,7 +152,7 @@ def test_is_canonical_smoke():
 def test_extract_metadata_smoke():
     """Smoke test for module-level function extract_metadata."""
     try:
-        result = extract_metadata(event={})
+        extract_metadata(event={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"extract_metadata needs specific input data: {e}")
         return
@@ -162,7 +162,7 @@ def test_extract_metadata_smoke():
 def test_extract_payload_smoke():
     """Smoke test for module-level function extract_payload."""
     try:
-        result = extract_payload(event={})
+        extract_payload(event={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"extract_payload needs specific input data: {e}")
         return

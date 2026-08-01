@@ -473,7 +473,7 @@ class TestWarmingFunctions:
             result = await warm_trial_balance()
 
             assert len(result) == 1
-            key = list(result.keys())[0]
+            key = next(iter(result.keys()))
             assert key.startswith("trial_balance:1:")
 
     @pytest.mark.asyncio
@@ -514,7 +514,7 @@ class TestWarmingFunctions:
 
             result = await warm_ar_aging()
 
-            key = list(result.keys())[0]
+            key = next(iter(result.keys()))
             assert key.startswith("ar_aging:1:")
 
     @pytest.mark.asyncio
@@ -535,7 +535,7 @@ class TestWarmingFunctions:
 
             result = await warm_ap_aging()
 
-            key = list(result.keys())[0]
+            key = next(iter(result.keys()))
             assert key.startswith("ap_aging:1:")
 
     @pytest.mark.asyncio
@@ -556,7 +556,7 @@ class TestWarmingFunctions:
 
             result = await warm_fixed_asset_summary()
 
-            key = list(result.keys())[0]
+            key = next(iter(result.keys()))
             assert key.startswith("fixed_asset_summary:1:")
 
 

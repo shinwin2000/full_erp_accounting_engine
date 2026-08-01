@@ -62,14 +62,14 @@ def tracker_with_filings(tracker):
         due_date=date(2026, 8, 10),
         title="SPT PPN",
     )
-    fid2 = tracker.create_filing(
+    tracker.create_filing(
         filing_type=FilingType.FINANCIAL_STATEMENT,
         regulatory_body="OJK",
         jurisdiction="ID",
         due_date=date(2026, 7, 20),
         title="LKPBU",
     )
-    fid3 = tracker.create_filing(
+    tracker.create_filing(
         filing_type=FilingType.AML_REPORT,
         regulatory_body="PPATK",
         jurisdiction="ID",
@@ -437,7 +437,7 @@ class TestRegulatoryFilingTracker:
             title="Overdue",
         )
         # Create non-overdue
-        fid2 = tracker.create_filing(
+        tracker.create_filing(
             filing_type=FilingType.FINANCIAL_STATEMENT,
             regulatory_body="OJK",
             jurisdiction="ID",
@@ -483,7 +483,7 @@ class TestRegulatoryFilingTracker:
             due_date=date(2026, 8, 20),
             title="Upcoming 2",
         )
-        fid3 = tracker.create_filing(
+        tracker.create_filing(
             filing_type=FilingType.AML_REPORT,
             regulatory_body="PPATK",
             jurisdiction="ID",
@@ -511,7 +511,7 @@ class TestRegulatoryFilingTracker:
             title="Reminder Test",
         )
         # Create one not upcoming
-        fid2 = tracker.create_filing(
+        tracker.create_filing(
             filing_type=FilingType.FINANCIAL_STATEMENT,
             regulatory_body="OJK",
             jurisdiction="ID",

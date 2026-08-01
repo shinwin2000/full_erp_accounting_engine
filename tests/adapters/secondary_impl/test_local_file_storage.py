@@ -560,7 +560,7 @@ class TestLocalFileStoragePresigned:
         token = hashlib.sha256(
             f"{file_id}_3600_1234567890_GET".encode()
         ).hexdigest()[:32]
-        valid = await temp_storage.verify_presigned_url(
+        await temp_storage.verify_presigned_url(
             token, file_id, "GET", 1234567890
         )
         # Note: the verification function uses 3600 as expiration? It uses variable, but we passed same
@@ -692,10 +692,10 @@ class TestLocalFileStorageQuery:
     async def test_list_files(self, temp_storage, sample_content, uploaded_by):
         # Upload multiple files
         uri1 = await temp_storage.upload(BytesIO(b"file1"), "file1.txt", uploaded_by=uploaded_by)
-        uri2 = await temp_storage.upload(BytesIO(b"file2"), "file2.txt", uploaded_by=uploaded_by)
+        await temp_storage.upload(BytesIO(b"file2"), "file2.txt", uploaded_by=uploaded_by)
         # Different uploader
         other = MagicMock()
-        uri3 = await temp_storage.upload(BytesIO(b"file3"), "file3.txt", uploaded_by=other)
+        await temp_storage.upload(BytesIO(b"file3"), "file3.txt", uploaded_by=other)
 
         # List all
         files = await temp_storage.list_files(limit=10)

@@ -85,7 +85,7 @@ class TestEventSchemaValidator:
         """Smoke test for EventSchemaValidator.get_schema using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_schema(event_type="test_value")
+            await instance.get_schema(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_schema needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestEventSchemaValidator:
         """Smoke test for EventSchemaValidator.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate(envelope=MagicMock())
+            await instance.validate(envelope=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestEventSchemaValidator:
         """Smoke test for EventSchemaValidator.register_schema using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.register_schema(event_type="test_value", schema={})
+            await instance.register_schema(event_type="test_value", schema={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_schema needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestEventSchemaValidator:
         """Smoke test for EventSchemaValidator.reload_schemas using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reload_schemas()
+            await instance.reload_schemas()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reload_schemas needs specific domain fixtures/data: {e}")
             return

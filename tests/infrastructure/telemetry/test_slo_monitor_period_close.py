@@ -36,7 +36,7 @@ class TestSLOMonitorPeriodClose:
         """Smoke test for SLOMonitorPeriodClose.start_period_close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.start_period_close(legal_entity_id=uuid4(), fiscal_year=1, period=1, started_by=uuid4())
+            instance.start_period_close(legal_entity_id=uuid4(), fiscal_year=1, period=1, started_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_period_close needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestSLOMonitorPeriodClose:
         """Smoke test for SLOMonitorPeriodClose.complete_period_close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.complete_period_close(legal_entity_id=uuid4(), fiscal_year=1, period=1, completed_by=uuid4(), errors=["test_value"])
+            instance.complete_period_close(legal_entity_id=uuid4(), fiscal_year=1, period=1, completed_by=uuid4(), errors=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"complete_period_close needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestSLOMonitorPeriodClose:
         """Smoke test for SLOMonitorPeriodClose.fail_period_close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.fail_period_close(legal_entity_id=uuid4(), fiscal_year=1, period=1, error="test_value", failed_by=uuid4())
+            instance.fail_period_close(legal_entity_id=uuid4(), fiscal_year=1, period=1, error="test_value", failed_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"fail_period_close needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestSLOMonitorPeriodClose:
         """Smoke test for SLOMonitorPeriodClose.get_active_closes using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_active_closes()
+            instance.get_active_closes()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_active_closes needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestPeriodCloseSLAMonitor:
 def test_get_slo_period_close_monitor_smoke():
     """Smoke test for module-level function get_slo_period_close_monitor."""
     try:
-        result = get_slo_period_close_monitor()
+        get_slo_period_close_monitor()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_slo_period_close_monitor needs specific input data: {e}")
         return

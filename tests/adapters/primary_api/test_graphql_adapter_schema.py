@@ -62,7 +62,7 @@ class TestMoney:
 
 class TestAccount:
     def test_construction(self):
-        now = datetime.now()
+        datetime.now()
         account = Account(
             id=uuid4(),
             account_code="101",

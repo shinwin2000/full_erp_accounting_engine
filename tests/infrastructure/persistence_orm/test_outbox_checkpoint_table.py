@@ -25,14 +25,14 @@ class TestOutboxCheckpointTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            relay_id="test_value",
-            last_processed_at=datetime.now(UTC),
-            last_event_id=MagicMock(),
-            processed_count=1,
-            error_count=1,
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'relay_id': "test_value",
+            'last_processed_at': datetime.now(UTC),
+            'last_event_id': MagicMock(),
+            'processed_count': 1,
+            'error_count': 1,
+        }
         try:
             instance = OutboxCheckpointTable(**kwargs)
         except (Exception, SystemExit) as e:

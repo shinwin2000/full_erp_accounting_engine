@@ -68,21 +68,21 @@ class TestBalanceCheckResult:
     """Tests for the BalanceCheckResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            check_id=uuid4(),
-            account_id=uuid4(),
-            account_code="test_value",
-            account_type=AccountType.ASSET,
-            legal_entity_id=uuid4(),
-            current_balance=Decimal("100.00"),
-            proposed_change=Decimal("100.00"),
-            new_balance=Decimal("100.00"),
-            is_allowed=True,
-            severity=BalanceCheckSeverity.CRITICAL,
-            message="test_value",
-            requires_approval=True,
-            timestamp=datetime.now(UTC),
-        )
+        return {
+            'check_id': uuid4(),
+            'account_id': uuid4(),
+            'account_code': "test_value",
+            'account_type': AccountType.ASSET,
+            'legal_entity_id': uuid4(),
+            'current_balance': Decimal("100.00"),
+            'proposed_change': Decimal("100.00"),
+            'new_balance': Decimal("100.00"),
+            'is_allowed': True,
+            'severity': BalanceCheckSeverity.CRITICAL,
+            'message': "test_value",
+            'requires_approval': True,
+            'timestamp': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """BalanceCheckResult can be constructed with valid field values."""
@@ -123,7 +123,7 @@ class TestBalanceChecker:
         """Smoke test for BalanceChecker.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -134,7 +134,7 @@ class TestBalanceChecker:
         """Smoke test for BalanceChecker.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -145,7 +145,7 @@ class TestBalanceChecker:
         """Smoke test for BalanceChecker.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -155,8 +155,8 @@ class TestBalanceChecker:
     def test_from_dict_smoke(self):
         """Smoke test for BalanceChecker.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BalanceChecker.from_dict(data={})
+            self._build_instance()
+            BalanceChecker.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -183,7 +183,7 @@ class TestInMemoryAccountBalancePort:
         """Smoke test for InMemoryAccountBalancePort.register_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_account(account_id=uuid4(), account_code="test_value", account_type="test_value", currency="test_value", initial_balance=Decimal("100.00"), legal_entity_id=uuid4())
+            instance.register_account(account_id=uuid4(), account_code="test_value", account_type="test_value", currency="test_value", initial_balance=Decimal("100.00"), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_account needs specific domain fixtures/data: {e}")
             return
@@ -194,7 +194,7 @@ class TestInMemoryAccountBalancePort:
         """Smoke test for InMemoryAccountBalancePort.get_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_account(account_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_account(account_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_account needs specific domain fixtures/data: {e}")
             return
@@ -205,7 +205,7 @@ class TestInMemoryAccountBalancePort:
         """Smoke test for InMemoryAccountBalancePort.get_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balance(account_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_balance(account_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balance needs specific domain fixtures/data: {e}")
             return
@@ -216,7 +216,7 @@ class TestInMemoryAccountBalancePort:
         """Smoke test for InMemoryAccountBalancePort.get_balances using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balances(account_ids=[uuid4()], legal_entity_id=uuid4())
+            await instance.get_balances(account_ids=[uuid4()], legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balances needs specific domain fixtures/data: {e}")
             return

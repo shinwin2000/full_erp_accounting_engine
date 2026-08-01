@@ -44,7 +44,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_by_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_customer(customer_id=uuid4(), legal_entity_id=uuid4(), from_date=datetime.now(UTC), to_date=datetime.now(UTC), transaction_type="test_value")
+            await instance.get_by_customer(customer_id=uuid4(), legal_entity_id=uuid4(), from_date=datetime.now(UTC), to_date=datetime.now(UTC), transaction_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_customer needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_average_daily_volume using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_average_daily_volume(customer_id=uuid4(), legal_entity_id=uuid4(), days=1)
+            await instance.get_average_daily_volume(customer_id=uuid4(), legal_entity_id=uuid4(), days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_average_daily_volume needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_circular_transfers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_circular_transfers(customer_id=uuid4(), account_ids=["test_value"], since=datetime.now(UTC))
+            await instance.get_circular_transfers(customer_id=uuid4(), account_ids=["test_value"], since=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_circular_transfers needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_accounts_by_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_accounts_by_customer(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_accounts_by_customer(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_accounts_by_customer needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class Test_FallbackCustomerRepository:
         """Smoke test for _FallbackCustomerRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class Test_FallbackCustomerRepository:
         """Smoke test for _FallbackCustomerRepository.add_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_customer(customer_id=uuid4(), legal_entity_id=uuid4(), name="test_value", typical_hours=[1])
+            instance.add_customer(customer_id=uuid4(), legal_entity_id=uuid4(), name="test_value", typical_hours=[1])
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_customer needs specific domain fixtures/data: {e}")
             return
@@ -161,19 +161,19 @@ class TestFraudAlert:
     """Tests for the FraudAlert value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            alert_id=uuid4(),
-            transaction_id=uuid4(),
-            pattern_type=FraudPatternType.STRUCTURING,
-            severity=FraudSeverity.CRITICAL,
-            description="test_value",
-            detected_at=datetime.now(UTC),
-            confidence_score=0.5,
-            supporting_data={},
-            acknowledged=True,
-            action_taken="test_value",
+        return {
+            "alert_id": uuid4(),
+            "transaction_id": uuid4(),
+            "pattern_type": FraudPatternType.STRUCTURING,
+            "severity": FraudSeverity.CRITICAL,
+            "description": "test_value",
+            "detected_at": datetime.now(UTC),
+            "confidence_score": 0.5,
+            "supporting_data": {},
+            "acknowledged": True,
+            "action_taken": "test_value",
             # cryptographic_hash dihilangkan agar tidak divalidasi, biarkan default ""
-        )
+        }
 
     def test_construction_success(self):
         """FraudAlert can be constructed with valid field values."""
@@ -238,7 +238,7 @@ class TestFraudPatternDetector:
         """Smoke test for FraudPatternDetector.check_sync using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check_sync(transaction={})
+            instance.check_sync(transaction={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_sync needs specific domain fixtures/data: {e}")
             return
@@ -249,7 +249,7 @@ class TestFraudPatternDetector:
         """Smoke test for FraudPatternDetector.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check(context={})
+            await instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -260,7 +260,7 @@ class TestFraudPatternDetector:
         """Smoke test for FraudPatternDetector.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -271,7 +271,7 @@ class TestFraudPatternDetector:
         """Smoke test for FraudPatternDetector.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -282,7 +282,7 @@ class TestFraudPatternDetector:
 def test_get_fraud_pattern_detector_smoke():
     """Smoke test for module-level function get_fraud_pattern_detector."""
     try:
-        result = get_fraud_pattern_detector()
+        get_fraud_pattern_detector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_fraud_pattern_detector needs specific input data: {e}")
         return

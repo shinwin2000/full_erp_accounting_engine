@@ -68,7 +68,7 @@ class TestPagerDutyIncidentAdapter:
         """Smoke test for PagerDutyIncidentAdapter.trigger using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.trigger(title="test_value", message="test_value", severity="test_value", source="test_value", custom_details={})
+            await instance.trigger(title="test_value", message="test_value", severity="test_value", source="test_value", custom_details={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"trigger needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestPagerDutyIncidentAdapter:
         """Smoke test for PagerDutyIncidentAdapter.resolve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.resolve(dedup_key="test_value", resolution_message="test_value")
+            await instance.resolve(dedup_key="test_value", resolution_message="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestPagerDutyIncidentAdapter:
         """Smoke test for PagerDutyIncidentAdapter.health_check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.health_check()
+            await instance.health_check()
         except (Exception, SystemExit) as e:
             pytest.skip(f"health_check needs specific domain fixtures/data: {e}")
             return
@@ -101,7 +101,7 @@ class TestPagerDutyIncidentAdapter:
 def test_get_pagerduty_adapter_smoke():
     """Smoke test for module-level function get_pagerduty_adapter."""
     try:
-        result = get_pagerduty_adapter(routing_key="test_value", service_id="test_value")
+        get_pagerduty_adapter(routing_key="test_value", service_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_pagerduty_adapter needs specific input data: {e}")
         return

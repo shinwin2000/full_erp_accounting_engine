@@ -32,7 +32,7 @@ class TestSQLAlchemyCQRSQueryHandler:
         """Smoke test for SQLAlchemyCQRSQueryHandler.register_handler using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_handler(handler=MagicMock())
+            instance.register_handler(handler=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_handler needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSQLAlchemyCQRSQueryHandler:
         """Smoke test for SQLAlchemyCQRSQueryHandler.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(query=MagicMock(), pagination=MagicMock(), filters=[MagicMock()])
+            await instance.execute(query=MagicMock(), pagination=MagicMock(), filters=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSQLAlchemyCQRSQueryHandler:
         """Smoke test for SQLAlchemyCQRSQueryHandler.list_handlers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_handlers()
+            await instance.list_handlers()
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_handlers needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSQLAlchemyCQRSQueryHandler:
         """Smoke test for SQLAlchemyCQRSQueryHandler.clear_cache using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.clear_cache()
+            await instance.clear_cache()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear_cache needs specific domain fixtures/data: {e}")
             return

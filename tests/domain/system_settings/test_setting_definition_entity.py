@@ -22,25 +22,25 @@ class TestSettingDefinitionEntity:
     """Tests for the SettingDefinitionEntity value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            definition_id=uuid4(),
-            key="test_value",
-            data_type=MagicMock(),
-            default_value=MagicMock(),
-            description="test_value",
-            is_required=True,
-            is_sensitive=True,
-            is_locked=True,
-            category="test_value",
-            min_value=1,
-            max_value=1,
-            allowed_values=[MagicMock()],
-            regex_pattern="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by="test_value",
-            version=1,
-        )
+        return {
+            "definition_id": uuid4(),
+            "key": "test_value",
+            "data_type": MagicMock(),
+            "default_value": MagicMock(),
+            "description": "test_value",
+            "is_required": True,
+            "is_sensitive": True,
+            "is_locked": True,
+            "category": "test_value",
+            "min_value": 1,
+            "max_value": 1,
+            "allowed_values": [MagicMock()],
+            "regex_pattern": "test_value",
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": "test_value",
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """SettingDefinitionEntity can be constructed with valid field values."""
@@ -73,7 +73,7 @@ class TestSettingDefinitionRepository:
         """Smoke test for SettingDefinitionRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(definition_id=uuid4())
+            await instance.get_by_id(definition_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -84,7 +84,7 @@ class TestSettingDefinitionRepository:
         """Smoke test for SettingDefinitionRepository.get_by_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_key(key="test_value")
+            await instance.get_by_key(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_key needs specific domain fixtures/data: {e}")
             return
@@ -95,7 +95,7 @@ class TestSettingDefinitionRepository:
         """Smoke test for SettingDefinitionRepository.get_by_category using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_category(category="test_value")
+            await instance.get_by_category(category="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_category needs specific domain fixtures/data: {e}")
             return
@@ -106,7 +106,7 @@ class TestSettingDefinitionRepository:
         """Smoke test for SettingDefinitionRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(definition=MagicMock())
+            await instance.save(definition=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return

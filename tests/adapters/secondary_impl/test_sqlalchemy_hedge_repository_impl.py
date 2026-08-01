@@ -33,7 +33,7 @@ class TestSQLAlchemyHedgeRepository:
         """Smoke test for SQLAlchemyHedgeRepository.save_hedge using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_hedge(hedge=MagicMock())
+            await instance.save_hedge(hedge=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_hedge needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class TestSQLAlchemyHedgeRepository:
         """Smoke test for SQLAlchemyHedgeRepository.get_hedge_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_hedge_by_id(hedge_id=uuid4())
+            await instance.get_hedge_by_id(hedge_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_hedge_by_id needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestSQLAlchemyHedgeRepository:
         """Smoke test for SQLAlchemyHedgeRepository.get_last_hedge_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_hedge_number(legal_entity_id=uuid4())
+            await instance.get_last_hedge_number(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_hedge_number needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestSQLAlchemyHedgeRepository:
         """Smoke test for SQLAlchemyHedgeRepository.list_hedges_by_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_hedges_by_entity(legal_entity_id=uuid4(), status=MagicMock())
+            await instance.list_hedges_by_entity(legal_entity_id=uuid4(), status=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_hedges_by_entity needs specific domain fixtures/data: {e}")
             return

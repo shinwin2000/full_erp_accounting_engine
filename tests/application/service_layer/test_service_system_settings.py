@@ -60,29 +60,29 @@ class TestSetting:
     """Tests for the Setting value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            key="test_value",
-            value=MagicMock(),
-            data_type=SettingDataType.STRING,
-            description="test_value",
-            category="test_value",
-            scope=SettingScope.GLOBAL,
-            legal_entity_id=uuid4(),
-            validation_regex="test_value",
-            min_value=Decimal("100.00"),
-            max_value=Decimal("100.00"),
-            allowed_values=["test_value"],
-            default_value="test_value",
-            is_readonly=True,
-            is_encrypted=True,
-            is_active=True,
-            is_locked=True,
-            version=1,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'key': "test_value",
+            'value': MagicMock(),
+            'data_type': SettingDataType.STRING,
+            'description': "test_value",
+            'category': "test_value",
+            'scope': SettingScope.GLOBAL,
+            'legal_entity_id': uuid4(),
+            'validation_regex': "test_value",
+            'min_value': Decimal("100.00"),
+            'max_value': Decimal("100.00"),
+            'allowed_values': ["test_value"],
+            'default_value': "test_value",
+            'is_readonly': True,
+            'is_encrypted': True,
+            'is_active': True,
+            'is_locked': True,
+            'version': 1,
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """Setting can be constructed with valid field values."""
@@ -264,12 +264,12 @@ class TestBulkUpdateResult:
     """Tests for the BulkUpdateResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            success_count=1,
-            failed_count=1,
-            failed_keys=["test_value"],
-            errors={},
-        )
+        return {
+            'success_count': 1,
+            'failed_count': 1,
+            'failed_keys': ["test_value"],
+            'errors': {},
+        }
 
     def test_construction_success(self):
         """BulkUpdateResult can be constructed with valid field values."""
@@ -287,12 +287,12 @@ class TestImportResult:
     """Tests for the ImportResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            success=True,
-            imported_count=1,
-            skipped_count=1,
-            errors=["test_value"],
-        )
+        return {
+            'success': True,
+            'imported_count': 1,
+            'skipped_count': 1,
+            'errors': ["test_value"],
+        }
 
     def test_construction_success(self):
         """ImportResult can be constructed with valid field values."""
@@ -405,7 +405,7 @@ class TestSystemSettingsService:
         """Smoke test for SystemSettingsService.create_setting using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_setting(
+            await instance.create_setting(
                 key="test_value",
                 value=MagicMock(),
                 data_type="test_value",
@@ -432,7 +432,7 @@ class TestSystemSettingsService:
         """Smoke test for SystemSettingsService.get_setting using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_setting(key="test_value", legal_entity_id=uuid4())
+            await instance.get_setting(key="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_setting needs specific domain fixtures/data: {e}")
             return
@@ -443,7 +443,7 @@ class TestSystemSettingsService:
         """Smoke test for SystemSettingsService.get_setting_value using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_setting_value(key="test_value", legal_entity_id=uuid4(), default=MagicMock())
+            await instance.get_setting_value(key="test_value", legal_entity_id=uuid4(), default=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_setting_value needs specific domain fixtures/data: {e}")
             return
@@ -454,7 +454,7 @@ class TestSystemSettingsService:
         """Smoke test for SystemSettingsService.list_settings using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_settings(legal_entity_id=uuid4(), category="test_value", scope="test_value", is_active=True, is_locked=True)
+            await instance.list_settings(legal_entity_id=uuid4(), category="test_value", scope="test_value", is_active=True, is_locked=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_settings needs specific domain fixtures/data: {e}")
             return
@@ -465,7 +465,7 @@ class TestSystemSettingsService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -484,7 +484,7 @@ def test_audit_direct_call():
 async def test_create_system_settings_service_smoke():
     """Smoke test for module-level function create_system_settings_service."""
     try:
-        result = await create_system_settings_service(event_publisher=MagicMock())
+        await create_system_settings_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_system_settings_service needs specific input data: {e}")
         return

@@ -435,7 +435,7 @@ class TestOverheadAllocationEngine:
     # ---- history and reporting ----
     def test_get_allocation_history(self, engine, mock_work_order, fixed_now, allocation_rate):
         engine.add_allocation_rate(allocation_rate)
-        result = engine.allocate(mock_work_order, fixed_now)
+        engine.allocate(mock_work_order, fixed_now)
         history = engine.get_allocation_history()
         assert len(history) == 1
         assert history[0].work_order_id == mock_work_order.work_order_id
@@ -447,7 +447,7 @@ class TestOverheadAllocationEngine:
 
     def test_get_total_allocated_for_period(self, engine, mock_work_order, fixed_now, allocation_rate):
         engine.add_allocation_rate(allocation_rate)
-        result = engine.allocate(mock_work_order, fixed_now)  # total 625
+        engine.allocate(mock_work_order, fixed_now)  # total 625
         # within period
         total = engine.get_total_allocated_for_period(
             fixed_now - timedelta(days=1), fixed_now + timedelta(days=1)

@@ -57,7 +57,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
+            instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
+            instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
             return
@@ -108,22 +108,22 @@ class TestCreateEmployeeRequest:
     """Tests for the CreateEmployeeRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            employee_code="test_value",
-            full_name="test_value",
-            npwp="test_value",
-            nik="test_value",
-            birth_date=date.today(),
-            marital_status=MaritalStatusEnum.SINGLE,
-            dependents=1,
-            basic_salary=Decimal("100.00"),
-            position_allowance=Decimal("100.00"),
-            transport_allowance=Decimal("100.00"),
-            meal_allowance=Decimal("100.00"),
-            overtime_rate=Decimal("100.00"),
-            join_date=date.today(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "employee_code": "test_value",
+            "full_name": "test_value",
+            "npwp": "test_value",
+            "nik": "test_value",
+            "birth_date": date.today(),
+            "marital_status": MaritalStatusEnum.SINGLE,
+            "dependents": 1,
+            "basic_salary": Decimal("100.00"),
+            "position_allowance": Decimal("100.00"),
+            "transport_allowance": Decimal("100.00"),
+            "meal_allowance": Decimal("100.00"),
+            "overtime_rate": Decimal("100.00"),
+            "join_date": date.today(),
+        }
 
     def test_construction_success(self):
         """CreateEmployeeRequest can be constructed with valid field values."""
@@ -141,14 +141,14 @@ class TestUpdateEmployeeRequest:
     """Tests for the UpdateEmployeeRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            full_name="test_value",
-            nik="test_value",
-            npwp="test_value",
-            birth_date=date.today(),
-            marital_status=MaritalStatusEnum.SINGLE,
-            dependents=1,
-        )
+        return {
+            "full_name": "test_value",
+            "nik": "test_value",
+            "npwp": "test_value",
+            "birth_date": date.today(),
+            "marital_status": MaritalStatusEnum.SINGLE,
+            "dependents": 1,
+        }
 
     def test_construction_success(self):
         """UpdateEmployeeRequest can be constructed with valid field values."""
@@ -166,13 +166,13 @@ class TestUpdateSalaryStructureRequest:
     """Tests for the UpdateSalaryStructureRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            basic_salary=Decimal("100.00"),
-            position_allowance=Decimal("100.00"),
-            transport_allowance=Decimal("100.00"),
-            meal_allowance=Decimal("100.00"),
-            overtime_rate=Decimal("100.00"),
-        )
+        return {
+            "basic_salary": Decimal("100.00"),
+            "position_allowance": Decimal("100.00"),
+            "transport_allowance": Decimal("100.00"),
+            "meal_allowance": Decimal("100.00"),
+            "overtime_rate": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """UpdateSalaryStructureRequest can be constructed with valid field values."""
@@ -190,12 +190,12 @@ class TestUpdateBPJSRequest:
     """Tests for the UpdateBPJSRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bpjs_kesehatan_employee=Decimal("100.00"),
-            bpjs_kesehatan_employer=Decimal("100.00"),
-            bpjs_ketenagakerjaan_employee=Decimal("100.00"),
-            bpjs_ketenagakerjaan_employer=Decimal("100.00"),
-        )
+        return {
+            "bpjs_kesehatan_employee": Decimal("100.00"),
+            "bpjs_kesehatan_employer": Decimal("100.00"),
+            "bpjs_ketenagakerjaan_employee": Decimal("100.00"),
+            "bpjs_ketenagakerjaan_employer": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """UpdateBPJSRequest can be constructed with valid field values."""
@@ -213,10 +213,10 @@ class TestUpdatePTKPRequest:
     """Tests for the UpdatePTKPRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            marital_status=MaritalStatusEnum.SINGLE,
-            dependents=1,
-        )
+        return {
+            "marital_status": MaritalStatusEnum.SINGLE,
+            "dependents": 1,
+        }
 
     def test_construction_success(self):
         """UpdatePTKPRequest can be constructed with valid field values."""
@@ -234,10 +234,10 @@ class TestResignEmployeeRequest:
     """Tests for the ResignEmployeeRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            resignation_date=date.today(),
-            reason="test_value",
-        )
+        return {
+            "resignation_date": date.today(),
+            "reason": "test_value",
+        }
 
     def test_construction_success(self):
         """ResignEmployeeRequest can be constructed with valid field values."""
@@ -255,33 +255,33 @@ class TestEmployeeResponseModel:
     """Tests for the EmployeeResponseModel value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            employee_code="test_value",
-            full_name="test_value",
-            npwp="test_value",
-            nik="test_value",
-            birth_date=date.today(),
-            marital_status="test_value",
-            dependents=1,
-            basic_salary=Decimal("100.00"),
-            position_allowance=Decimal("100.00"),
-            transport_allowance=Decimal("100.00"),
-            meal_allowance=Decimal("100.00"),
-            overtime_rate=Decimal("100.00"),
-            bpjs_kesehatan_employee=Decimal("100.00"),
-            bpjs_kesehatan_employer=Decimal("100.00"),
-            bpjs_ketenagakerjaan_employee=Decimal("100.00"),
-            bpjs_ketenagakerjaan_employer=Decimal("100.00"),
-            status="test_value",
-            join_date=date.today(),
-            resignation_date=date.today(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            "id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "employee_code": "test_value",
+            "full_name": "test_value",
+            "npwp": "test_value",
+            "nik": "test_value",
+            "birth_date": date.today(),
+            "marital_status": "test_value",
+            "dependents": 1,
+            "basic_salary": Decimal("100.00"),
+            "position_allowance": Decimal("100.00"),
+            "transport_allowance": Decimal("100.00"),
+            "meal_allowance": Decimal("100.00"),
+            "overtime_rate": Decimal("100.00"),
+            "bpjs_kesehatan_employee": Decimal("100.00"),
+            "bpjs_kesehatan_employer": Decimal("100.00"),
+            "bpjs_ketenagakerjaan_employee": Decimal("100.00"),
+            "bpjs_ketenagakerjaan_employer": Decimal("100.00"),
+            "status": "test_value",
+            "join_date": date.today(),
+            "resignation_date": date.today(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """EmployeeResponseModel can be constructed with valid field values."""
@@ -298,7 +298,7 @@ class TestEmployeeResponseModel:
 def test_get_correlation_id_smoke():
     """Smoke test for module-level function get_correlation_id."""
     try:
-        result = get_correlation_id(request=MagicMock())
+        get_correlation_id(request=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_correlation_id needs specific input data: {e}")
         return
@@ -308,7 +308,7 @@ def test_get_correlation_id_smoke():
 def test_to_employee_response_smoke():
     """Smoke test for module-level function to_employee_response."""
     try:
-        result = to_employee_response(employee=MagicMock())
+        to_employee_response(employee=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"to_employee_response needs specific input data: {e}")
         return
@@ -318,7 +318,7 @@ def test_to_employee_response_smoke():
 async def test_create_employee_smoke():
     """Smoke test for module-level function create_employee."""
     try:
-        result = await create_employee(request=MagicMock(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await create_employee(request=MagicMock(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_employee needs specific input data: {e}")
         return
@@ -328,7 +328,7 @@ async def test_create_employee_smoke():
 async def test_get_employee_smoke():
     """Smoke test for module-level function get_employee."""
     try:
-        result = await get_employee(employee_id=uuid4(), user=MagicMock(), service=MagicMock())
+        await get_employee(employee_id=uuid4(), user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_employee needs specific input data: {e}")
         return
@@ -338,7 +338,7 @@ async def test_get_employee_smoke():
 async def test_list_employees_smoke():
     """Smoke test for module-level function list_employees."""
     try:
-        result = await list_employees(legal_entity_id=uuid4(), status=EmployeeStatusEnum.ACTIVE, limit=1, offset=1, user=MagicMock(), service=MagicMock())
+        await list_employees(legal_entity_id=uuid4(), status=EmployeeStatusEnum.ACTIVE, limit=1, offset=1, user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"list_employees needs specific input data: {e}")
         return
@@ -348,7 +348,7 @@ async def test_list_employees_smoke():
 async def test_update_employee_smoke():
     """Smoke test for module-level function update_employee."""
     try:
-        result = await update_employee(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await update_employee(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"update_employee needs specific input data: {e}")
         return
@@ -358,7 +358,7 @@ async def test_update_employee_smoke():
 async def test_update_salary_structure_smoke():
     """Smoke test for module-level function update_salary_structure."""
     try:
-        result = await update_salary_structure(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await update_salary_structure(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"update_salary_structure needs specific input data: {e}")
         return
@@ -368,7 +368,7 @@ async def test_update_salary_structure_smoke():
 async def test_update_bpjs_smoke():
     """Smoke test for module-level function update_bpjs."""
     try:
-        result = await update_bpjs(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await update_bpjs(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"update_bpjs needs specific input data: {e}")
         return
@@ -378,7 +378,7 @@ async def test_update_bpjs_smoke():
 async def test_update_ptkp_smoke():
     """Smoke test for module-level function update_ptkp."""
     try:
-        result = await update_ptkp(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await update_ptkp(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"update_ptkp needs specific input data: {e}")
         return
@@ -388,7 +388,7 @@ async def test_update_ptkp_smoke():
 async def test_resign_employee_smoke():
     """Smoke test for module-level function resign_employee."""
     try:
-        result = await resign_employee(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
+        await resign_employee(request=MagicMock(), employee_id=uuid4(), payload=MagicMock(), idempotency_key="test_value", user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"resign_employee needs specific input data: {e}")
         return
@@ -398,7 +398,7 @@ async def test_resign_employee_smoke():
 async def test_get_employee_stats_smoke():
     """Smoke test for module-level function get_employee_stats."""
     try:
-        result = await get_employee_stats(user=MagicMock(), service=MagicMock())
+        await get_employee_stats(user=MagicMock(), service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_employee_stats needs specific input data: {e}")
         return

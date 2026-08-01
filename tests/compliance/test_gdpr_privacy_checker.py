@@ -659,7 +659,7 @@ class TestGDPRChecker:
 
     def test_report_data_breach_triggers_notification_supervisory(self, checker):
         # High risk > 1000 users should notify
-        breach_id = checker.report_data_breach(
+        checker.report_data_breach(
             description="Large breach",
             affected_categories=[DataCategory.PERSONAL_IDENTIFIABLE, DataCategory.SENSITIVE],
             affected_users_count=2000,
@@ -671,7 +671,7 @@ class TestGDPRChecker:
         assert breach.notified_affected_users is True  # high risk due to sensitive data
 
     def test_report_data_breach_no_notification_low_risk(self, checker):
-        breach_id = checker.report_data_breach(
+        checker.report_data_breach(
             description="Small breach",
             affected_categories=[DataCategory.PERSONAL_IDENTIFIABLE],
             affected_users_count=5,

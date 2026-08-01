@@ -31,7 +31,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.subscribe using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.subscribe(topics=["test_value"])
+            await instance.subscribe(topics=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"subscribe needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.poll using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.poll(timeout_ms=1, max_records=1)
+            await instance.poll(timeout_ms=1, max_records=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"poll needs specific domain fixtures/data: {e}")
             return

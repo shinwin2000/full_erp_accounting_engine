@@ -31,7 +31,7 @@ class TestS3FileStorageAdapter:
         """Smoke test for S3FileStorageAdapter.upload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload(key="test_value", data=b"test", metadata={})
+            await instance.upload(key="test_value", data=b"test", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestS3FileStorageAdapter:
         """Smoke test for S3FileStorageAdapter.download using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download(key="test_value")
+            await instance.download(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"download needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestS3FileStorageAdapter:
         """Smoke test for S3FileStorageAdapter.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(key="test_value")
+            await instance.delete(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestS3FileStorageAdapter:
         """Smoke test for S3FileStorageAdapter.create_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_version(key="test_value", data=b"test", metadata={})
+            await instance.create_version(key="test_value", data=b"test", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_version needs specific domain fixtures/data: {e}")
             return

@@ -260,7 +260,7 @@ class TestNPWPComparison:
     def test_equality_with_non_npwp(self, valid_npwp):
         assert valid_npwp != "123456789012345"
         assert valid_npwp != 123456789012345
-        assert valid_npwp != None
+        assert valid_npwp is not None
 
     def test_hash(self, valid_npwp):
         same = NPWP("123456789012345")
@@ -354,7 +354,7 @@ def test_from_formatted_with_different_separators():
 def test_npwp_equality_with_other_type_returns_false(valid_npwp):
     assert valid_npwp != "some string"
     assert valid_npwp != 123456789012345
-    assert valid_npwp != None
+    assert valid_npwp is not None
 
 
 def test_npwp_ordering_with_mixed_types_raises_type_error(valid_npwp):

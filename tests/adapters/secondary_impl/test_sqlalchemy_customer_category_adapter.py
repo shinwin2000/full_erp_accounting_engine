@@ -27,8 +27,8 @@ class TestCustomerCategoryTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CustomerCategoryTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -56,7 +56,7 @@ class TestSQLAlchemyCustomerCategoryAdapter:
         """Smoke test for SQLAlchemyCustomerCategoryAdapter.get_categories using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_categories(legal_entity_id=MagicMock())
+            await instance.get_categories(legal_entity_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_categories needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyCustomerCategoryAdapter:
         """Smoke test for SQLAlchemyCustomerCategoryAdapter.get_category_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_category_by_code(code="test_value", legal_entity_id=MagicMock())
+            await instance.get_category_by_code(code="test_value", legal_entity_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_category_by_code needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestSQLAlchemyCustomerCategoryAdapter:
         """Smoke test for SQLAlchemyCustomerCategoryAdapter.create_category using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_category(data={})
+            await instance.create_category(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_category needs specific domain fixtures/data: {e}")
             return
@@ -89,7 +89,7 @@ class TestSQLAlchemyCustomerCategoryAdapter:
         """Smoke test for SQLAlchemyCustomerCategoryAdapter.update_category using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_category(category_id=MagicMock(), data={})
+            await instance.update_category(category_id=MagicMock(), data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_category needs specific domain fixtures/data: {e}")
             return

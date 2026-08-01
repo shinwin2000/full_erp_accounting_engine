@@ -3529,9 +3529,10 @@ def upgrade() -> None:
 
     # 2. Pastikan semua nilai Enum terdaftar di database (PENTING)
     # Menambahkan semua kemungkinan nilai agar tidak terjadi error InvalidTextRepresentation
-    op.execute("ALTER TYPE amortizationmethod ADD VALUE IF NOT EXISTS 'straight_line'")
-    op.execute("ALTER TYPE amortizationmethod ADD VALUE IF NOT EXISTS 'double_declining'")
-    op.execute("ALTER TYPE amortizationmethod ADD VALUE IF NOT EXISTS 'sum_of_digits'")
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE amortizationmethod ADD VALUE IF NOT EXISTS 'straight_line'")
+        op.execute("ALTER TYPE amortizationmethod ADD VALUE IF NOT EXISTS 'double_declining'")
+        op.execute("ALTER TYPE amortizationmethod ADD VALUE IF NOT EXISTS 'sum_of_digits'")
 
     # 3. Ubah tipe data kolom menggunakan casting yang eksplisit
     op.alter_column('intangible_asset', 'amortization_method',

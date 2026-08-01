@@ -77,21 +77,21 @@ class TestTestResult:
     """Tests for the TestResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            attack_type=AttackType.SQL_INJECTION,
-            target="test_value",
-            status=SrcTestStatus.PENDING,
-            severity=VulnerabilitySeverity.CRITICAL,
-            details="test_value",
-            payload="test_value",
-            response_time_ms=1.5,
-            evidence="test_value",
-            remediation="test_value",
-            timestamp=datetime.now(UTC),
-            _audit_trail=[{}],
-            _snapshots=[{}],
-            _version=1,
-        )
+        return {
+            'attack_type': AttackType.SQL_INJECTION,
+            'target': "test_value",
+            'status': SrcTestStatus.PENDING,
+            'severity': VulnerabilitySeverity.CRITICAL,
+            'details': "test_value",
+            'payload': "test_value",
+            'response_time_ms': 1.5,
+            'evidence': "test_value",
+            'remediation': "test_value",
+            'timestamp': datetime.now(UTC),
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+            '_version': 1,
+        }
 
     def test_construction_success(self):
         """TestResult can be constructed with valid field values."""
@@ -109,19 +109,19 @@ class TestTestConfig:
     """Tests for the TestConfig value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            target_url="test_value",
-            api_key="test_value",
-            auth_token="test_value",
-            cookies={},
-            headers={},
-            timeout=1,
-            max_concurrent=1,
-            rate_limit_delay=1.5,
-            _audit_trail=[{}],
-            _snapshots=[{}],
-            _version=1,
-        )
+        return {
+            'target_url': "test_value",
+            'api_key': "test_value",
+            'auth_token': "test_value",
+            'cookies': {},
+            'headers': {},
+            'timeout': 1,
+            'max_concurrent': 1,
+            'rate_limit_delay': 1.5,
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+            '_version': 1,
+        }
 
     def test_construction_success(self):
         """TestConfig can be constructed with valid field values."""
@@ -154,7 +154,7 @@ class TestPenetrationTestingHarness:
         """Smoke test for PenetrationTestingHarness.test_sql_injection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.test_sql_injection(endpoint="test_value", param="test_value", method="test_value")
+            instance.test_sql_injection(endpoint="test_value", param="test_value", method="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"test_sql_injection needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestPenetrationTestingHarness:
         """Smoke test for PenetrationTestingHarness.test_xss using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.test_xss(endpoint="test_value", param="test_value", method="test_value")
+            instance.test_xss(endpoint="test_value", param="test_value", method="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"test_xss needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestPenetrationTestingHarness:
         """Smoke test for PenetrationTestingHarness.test_path_traversal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.test_path_traversal(endpoint="test_value", param="test_value", method="test_value")
+            instance.test_path_traversal(endpoint="test_value", param="test_value", method="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"test_path_traversal needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestPenetrationTestingHarness:
         """Smoke test for PenetrationTestingHarness.test_command_injection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.test_command_injection(endpoint="test_value", param="test_value", method="test_value")
+            instance.test_command_injection(endpoint="test_value", param="test_value", method="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"test_command_injection needs specific domain fixtures/data: {e}")
             return

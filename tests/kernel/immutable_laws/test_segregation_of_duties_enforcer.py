@@ -44,7 +44,7 @@ class Test_FallbackUserRepository:
         """Smoke test for _FallbackUserRepository.get_roles using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_roles(user_id="test_value", legal_entity_id=uuid4())
+            await instance.get_roles(user_id="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_roles needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackUserRepository:
         """Smoke test for _FallbackUserRepository.get_legal_entities using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_legal_entities(user_id="test_value")
+            await instance.get_legal_entities(user_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_legal_entities needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackUserRepository:
         """Smoke test for _FallbackUserRepository.get_users_by_role using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_users_by_role(role="test_value", legal_entity_id=uuid4())
+            await instance.get_users_by_role(role="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_users_by_role needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackUserRepository:
         """Smoke test for _FallbackUserRepository.get_approval_limit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_approval_limit(user_id="test_value", legal_entity_id=uuid4(), transaction_type="test_value")
+            await instance.get_approval_limit(user_id="test_value", legal_entity_id=uuid4(), transaction_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_approval_limit needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.get_by_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_transaction(transaction_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_transaction(transaction_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_transaction needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.get_by_transaction_and_approver using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_transaction_and_approver(transaction_id=uuid4(), approver_id="test_value", legal_entity_id=uuid4())
+            await instance.get_by_transaction_and_approver(transaction_id=uuid4(), approver_id="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_transaction_and_approver needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.add_approval using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_approval(transaction_id=uuid4(), legal_entity_id=uuid4(), approver_id="test_value", approval_level=1, notes="test_value", approved_at=datetime.now(UTC))
+            await instance.add_approval(transaction_id=uuid4(), legal_entity_id=uuid4(), approver_id="test_value", approval_level=1, notes="test_value", approved_at=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_approval needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.clear using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.clear()
+            instance.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -177,17 +177,17 @@ class TestSODRule:
     """Tests for the SODRule value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            rule_id="test_value",
-            rule_type=SODRuleType.MAKER_CHECKER,
-            description="test_value",
-            parameters={},
-            is_active=True,
-            severity=SODViolationSeverity.CRITICAL,
-            created_at=datetime.now(UTC),
-            created_by="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "rule_id": "test_value",
+            "rule_type": SODRuleType.MAKER_CHECKER,
+            "description": "test_value",
+            "parameters": {},
+            "is_active": True,
+            "severity": SODViolationSeverity.CRITICAL,
+            "created_at": datetime.now(UTC),
+            "created_by": "test_value",
+            "cryptographic_hash": "",  # ← empty, will be auto-computed
+        }
 
     def test_construction_success(self):
         """SODRule can be constructed with valid field values."""
@@ -205,23 +205,23 @@ class TestSODViolationRecord:
     """Tests for the SODViolationRecord value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            violation_id=uuid4(),
-            rule_id="test_value",
-            rule_type=SODRuleType.MAKER_CHECKER,
-            severity=SODViolationSeverity.CRITICAL,
-            user_id="test_value",
-            transaction_id=uuid4(),
-            legal_entity_id=uuid4(),
-            message="test_value",
-            details={},
-            detected_at=datetime.now(UTC),
-            is_resolved=True,
-            resolved_at=datetime.now(UTC),
-            resolved_by="test_value",
-            resolution_action="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "violation_id": uuid4(),
+            "rule_id": "test_value",
+            "rule_type": SODRuleType.MAKER_CHECKER,
+            "severity": SODViolationSeverity.CRITICAL,
+            "user_id": "test_value",
+            "transaction_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "message": "test_value",
+            "details": {},
+            "detected_at": datetime.now(UTC),
+            "is_resolved": True,
+            "resolved_at": datetime.now(UTC),
+            "resolved_by": "test_value",
+            "resolution_action": "test_value",
+            "cryptographic_hash": "",  # ← empty, will be auto-computed
+        }
 
     def test_construction_success(self):
         """SODViolationRecord can be constructed with valid field values."""
@@ -262,7 +262,7 @@ class TestSegregationOfDutiesEnforcer:
         """Smoke test for SegregationOfDutiesEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -273,7 +273,7 @@ class TestSegregationOfDutiesEnforcer:
         """Smoke test for SegregationOfDutiesEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -284,7 +284,7 @@ class TestSegregationOfDutiesEnforcer:
         """Smoke test for SegregationOfDutiesEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -294,8 +294,8 @@ class TestSegregationOfDutiesEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for SegregationOfDutiesEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = SegregationOfDutiesEnforcer.from_dict(data={})
+            self._build_instance()
+            SegregationOfDutiesEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -306,7 +306,7 @@ class TestSegregationOfDutiesEnforcer:
 def test_get_segregation_of_duties_enforcer_smoke():
     """Smoke test for module-level function get_segregation_of_duties_enforcer."""
     try:
-        result = get_segregation_of_duties_enforcer()
+        get_segregation_of_duties_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_segregation_of_duties_enforcer needs specific input data: {e}")
         return

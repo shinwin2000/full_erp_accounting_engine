@@ -26,23 +26,23 @@ class TestDeadLetterTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=1,
-            event_id=uuid4(),
-            event_type="test_value",
-            payload="test_value",
-            error_message="test_value",
-            retry_count=1,
-            source_topic="test_value",
-            source_partition=1,
-            source_offset=1,
-            correlation_id="test_value",
-            user_id=MagicMock(),
-            legal_entity_id=MagicMock(),
-            extra_metadata={},
-            resolved_at=datetime.now(UTC),
-            resolved_by="test_value",
-        )
+        kwargs = {
+            'id': 1,
+            'event_id': uuid4(),
+            'event_type': "test_value",
+            'payload': "test_value",
+            'error_message': "test_value",
+            'retry_count': 1,
+            'source_topic': "test_value",
+            'source_partition': 1,
+            'source_offset': 1,
+            'correlation_id': "test_value",
+            'user_id': MagicMock(),
+            'legal_entity_id': MagicMock(),
+            'extra_metadata': {},
+            'resolved_at': datetime.now(UTC),
+            'resolved_by': "test_value",
+        }
         try:
             instance = DeadLetterTable(**kwargs)
         except (Exception, SystemExit) as e:

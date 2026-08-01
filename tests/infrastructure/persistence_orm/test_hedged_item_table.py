@@ -27,19 +27,19 @@ class TestHedgedItemTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            hedge_instrument_id=uuid4(),
-            item_type="test_value",
-            reference_id=MagicMock(),
-            description="test_value",
-            amount=Decimal("100.00"),
-            currency="test_value",
-            start_date=date.today(),
-            end_date=date.today(),
-            status="test_value",
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'hedge_instrument_id': uuid4(),
+            'item_type': "test_value",
+            'reference_id': MagicMock(),
+            'description': "test_value",
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'start_date': date.today(),
+            'end_date': date.today(),
+            'status': "test_value",
+            'created_by': MagicMock(),
+        }
         try:
             instance = HedgedItemTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -31,7 +31,7 @@ class TestKafkaEventPublisher:
         """Smoke test for KafkaEventPublisher.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestKafkaEventPublisher:
         """Smoke test for KafkaEventPublisher.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestKafkaEventPublisher:
         """Smoke test for KafkaEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(topic="test_value", event={}, key="test_value")
+            await instance.publish(topic="test_value", event={}, key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestKafkaEventPublisher:
         """Smoke test for KafkaEventPublisher.publish_async using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_async(topic="test_value", event={}, key="test_value")
+            await instance.publish_async(topic="test_value", event={}, key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_async needs specific domain fixtures/data: {e}")
             return

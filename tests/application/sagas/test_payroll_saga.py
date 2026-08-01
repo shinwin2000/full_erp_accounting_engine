@@ -62,28 +62,28 @@ class TestPayrollSagaState:
     """Tests for the PayrollSagaState value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            legal_entity_id=uuid4(),
-            period_year=1,
-            period_month=1,
-            payroll_date=date.today(),
-            user_id=uuid4(),
-            correlation_id="test_value",
-            employee_ids=[uuid4()],
-            payroll_run_id=uuid4(),
-            payslip_ids=[uuid4()],
-            journal_id=uuid4(),
-            bank_file_path="test_value",
-            total_gross=Decimal("100.00"),
-            total_deductions=Decimal("100.00"),
-            total_net=Decimal("100.00"),
-            total_tax=Decimal("100.00"),
-            status="test_value",
-            errors=["test_value"],
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        return {
+            'saga_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'period_year': 1,
+            'period_month': 1,
+            'payroll_date': date.today(),
+            'user_id': uuid4(),
+            'correlation_id': "test_value",
+            'employee_ids': [uuid4()],
+            'payroll_run_id': uuid4(),
+            'payslip_ids': [uuid4()],
+            'journal_id': uuid4(),
+            'bank_file_path': "test_value",
+            'total_gross': Decimal("100.00"),
+            'total_deductions': Decimal("100.00"),
+            'total_net': Decimal("100.00"),
+            'total_tax': Decimal("100.00"),
+            'status': "test_value",
+            'errors': ["test_value"],
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PayrollSagaState can be constructed with valid field values."""
@@ -101,26 +101,26 @@ class TestPayrollSagaContext:
     """Tests for the PayrollSagaContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            legal_entity_id=uuid4(),
-            period_year=1,
-            period_month=1,
-            payroll_date=date.today(),
-            user_id=uuid4(),
-            correlation_id="test_value",
-            status="test_value",
-            employee_ids=[uuid4()],
-            payroll_run_id=uuid4(),
-            payslip_ids=[uuid4()],
-            journal_id=uuid4(),
-            bank_file_path="test_value",
-            total_gross=Decimal("100.00"),
-            total_deductions=Decimal("100.00"),
-            total_net=Decimal("100.00"),
-            total_tax=Decimal("100.00"),
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'saga_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'period_year': 1,
+            'period_month': 1,
+            'payroll_date': date.today(),
+            'user_id': uuid4(),
+            'correlation_id': "test_value",
+            'status': "test_value",
+            'employee_ids': [uuid4()],
+            'payroll_run_id': uuid4(),
+            'payslip_ids': [uuid4()],
+            'journal_id': uuid4(),
+            'bank_file_path': "test_value",
+            'total_gross': Decimal("100.00"),
+            'total_deductions': Decimal("100.00"),
+            'total_net': Decimal("100.00"),
+            'total_tax': Decimal("100.00"),
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PayrollSagaContext can be constructed with valid field values."""
@@ -153,7 +153,7 @@ class TestPayrollSagaOrchestrator:
         """Smoke test for PayrollSagaOrchestrator.start_payroll using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_payroll(legal_entity_id=uuid4(), period_year=1, period_month=1, payroll_date=date.today(), user_id=uuid4(), correlation_id="test_value")
+            await instance.start_payroll(legal_entity_id=uuid4(), period_year=1, period_month=1, payroll_date=date.today(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_payroll needs specific domain fixtures/data: {e}")
             return
@@ -180,7 +180,7 @@ class TestPayrollSaga:
         """Smoke test for PayrollSaga.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.start(saga_id="test_value", data={})
+            instance.start(saga_id="test_value", data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -191,7 +191,7 @@ class TestPayrollSaga:
         """Smoke test for PayrollSaga.get_state using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_state(saga_id="test_value")
+            instance.get_state(saga_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_state needs specific domain fixtures/data: {e}")
             return
@@ -202,7 +202,7 @@ class TestPayrollSaga:
         """Smoke test for PayrollSaga.resume using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.resume(saga_id="test_value")
+            instance.resume(saga_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"resume needs specific domain fixtures/data: {e}")
             return
@@ -213,7 +213,7 @@ class TestPayrollSaga:
         """Smoke test for PayrollSaga.compensate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.compensate(saga_id="test_value")
+            instance.compensate(saga_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compensate needs specific domain fixtures/data: {e}")
             return
@@ -224,7 +224,7 @@ class TestPayrollSaga:
 async def test_create_payroll_saga_orchestrator_smoke():
     """Smoke test for module-level function create_payroll_saga_orchestrator."""
     try:
-        result = await create_payroll_saga_orchestrator(state_store=MagicMock(), payroll_service=MagicMock(), journal_service=MagicMock(), bank_service=MagicMock())
+        await create_payroll_saga_orchestrator(state_store=MagicMock(), payroll_service=MagicMock(), journal_service=MagicMock(), bank_service=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_payroll_saga_orchestrator needs specific input data: {e}")
         return

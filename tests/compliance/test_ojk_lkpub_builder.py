@@ -866,7 +866,7 @@ class TestOJKLKPubBuilderEdgeCases:
         assert "LKPBUReport" in xml_str
 
     def test_export_to_xbrl_consolidated(self, builder):
-        report = builder.build(consolidated=True)
+        builder.build(consolidated=True)
         xbrl = builder.export_to_xbrl()
         assert "TotalAset" in xbrl
 

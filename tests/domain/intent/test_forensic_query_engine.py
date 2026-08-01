@@ -350,7 +350,7 @@ class TestForensicQueryEngine:
             )
             rejected_records.append(rec)
         # Also add sample_record (draft) and sample_record2 (approved)
-        all_records = rejected_records + [sample_record, sample_record2]
+        all_records = [*rejected_records, sample_record, sample_record2]
         forensic_engine._record_service.get_all.return_value = all_records
 
         # Mock audit writer to return empty audit for simplicity (so no additional suspicious)
@@ -379,7 +379,7 @@ class TestForensicQueryEngine:
         forensic_engine._record_service.get_all.return_value = [sample_record]
         # Run a query
         q1 = forensic_engine.query_by_user("alice", executed_by="investigator")
-        q2 = forensic_engine.query_by_status(IntentStatus.DRAFT, executed_by="investigator")
+        forensic_engine.query_by_status(IntentStatus.DRAFT, executed_by="investigator")
         history = forensic_engine.get_query_history(limit=10)
         assert len(history) == 2
 

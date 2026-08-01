@@ -154,7 +154,7 @@ class TestSQLAlchemyInventoryRepository:
         """Smoke test for SQLAlchemyInventoryRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestSQLAlchemyInventoryRepository:
         """Smoke test for SQLAlchemyInventoryRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session(value=MagicMock())
+            instance.session(value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestSQLAlchemyInventoryRepository:
         """Smoke test for SQLAlchemyInventoryRepository.add_item using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_item(item=MagicMock())
+            await instance.add_item(item=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_item needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestSQLAlchemyInventoryRepository:
         """Smoke test for SQLAlchemyInventoryRepository.get_item_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_item_by_id(item_id=uuid4())
+            await instance.get_item_by_id(item_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_item_by_id needs specific domain fixtures/data: {e}")
             return

@@ -18,12 +18,12 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type="test_value",
-            occurred_at=datetime.now(UTC),
-            version=1,
-        )
+        return {
+            "event_id": uuid4(),
+            "event_type": "test_value",
+            "occurred_at": datetime.now(UTC),
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -41,13 +41,13 @@ class TestIntegrationEvent:
     """Tests for the IntegrationEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            correlation_id="test_value",
-            causation_id="test_value",
-            user_id=uuid4(),
-            tenant_id="test_value",
-            source_system="test_value",
-        )
+        return {
+            "correlation_id": "test_value",
+            "causation_id": "test_value",
+            "user_id": uuid4(),
+            "tenant_id": "test_value",
+            "source_system": "test_value",
+        }
 
     def test_construction_success(self):
         """IntegrationEvent can be constructed with valid field values."""

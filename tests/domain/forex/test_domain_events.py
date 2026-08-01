@@ -52,7 +52,7 @@ class TestForexRateUpdatedEvent:
         """Smoke test for ForexRateUpdatedEvent.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestForexTransactionRecordedEvent:
         """Smoke test for ForexTransactionRecordedEvent.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -106,7 +106,7 @@ class TestForexRevaluationCompletedEvent:
         """Smoke test for ForexRevaluationCompletedEvent.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -133,7 +133,7 @@ class TestForexTransactionExecutedEvent:
         """Smoke test for ForexTransactionExecutedEvent.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return

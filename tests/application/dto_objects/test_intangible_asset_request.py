@@ -26,20 +26,20 @@ class TestIntangibleAssetCreateRequest:
     """Tests for the IntangibleAssetCreateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            residual_value=Decimal("100.00"),
-            useful_life_years=1,
-            asset_type="test_value",
-            amortization_method="test_value",
-            description="test_value",
-            supplier_id=uuid4(),
-            is_active=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "asset_code": "test_value",
+            "asset_name": "test_value",
+            "acquisition_date": date.today(),
+            "acquisition_cost": Decimal("100.00"),
+            "residual_value": Decimal("100.00"),
+            "useful_life_years": 1,
+            "asset_type": "test_value",
+            "amortization_method": "test_value",
+            "description": "test_value",
+            "supplier_id": uuid4(),
+            "is_active": True,
+        }
 
     def test_construction_success(self):
         """IntangibleAssetCreateRequest can be constructed with valid field values."""
@@ -57,21 +57,21 @@ class TestIntangibleAssetUpdateRequest:
     """Tests for the IntangibleAssetUpdateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            legal_entity_id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            residual_value=Decimal("100.00"),
-            useful_life_years=1,
-            asset_type="test_value",
-            amortization_method="test_value",
-            description="test_value",
-            supplier_id=uuid4(),
-            is_active=True,
-        )
+        return {
+            "asset_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "asset_code": "test_value",
+            "asset_name": "test_value",
+            "acquisition_date": date.today(),
+            "acquisition_cost": Decimal("100.00"),
+            "residual_value": Decimal("100.00"),
+            "useful_life_years": 1,
+            "asset_type": "test_value",
+            "amortization_method": "test_value",
+            "description": "test_value",
+            "supplier_id": uuid4(),
+            "is_active": True,
+        }
 
     def test_construction_success(self):
         """IntangibleAssetUpdateRequest can be constructed with valid field values."""
@@ -89,12 +89,12 @@ class TestAmortizationRunRequest:
     """Tests for the AmortizationRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_id=uuid4(),
-            period_date=date.today(),
-            asset_ids=[uuid4()],
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "period_id": uuid4(),
+            "period_date": date.today(),
+            "asset_ids": [uuid4()],
+        }
 
     def test_construction_success(self):
         """AmortizationRunRequest can be constructed with valid field values."""
@@ -112,13 +112,13 @@ class TestRevaluationRequest:
     """Tests for the RevaluationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            revaluation_date=date.today(),
-            new_fair_value=Decimal("100.00"),
-            reason="test_value",
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "asset_id": uuid4(),
+            "revaluation_date": date.today(),
+            "new_fair_value": Decimal("100.00"),
+            "reason": "test_value",
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """RevaluationRequest can be constructed with valid field values."""
@@ -136,13 +136,13 @@ class TestDisposalRequest:
     """Tests for the DisposalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            disposal_date=date.today(),
-            disposal_amount=Decimal("100.00"),
-            reason="test_value",
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "asset_id": uuid4(),
+            "disposal_date": date.today(),
+            "disposal_amount": Decimal("100.00"),
+            "reason": "test_value",
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """DisposalRequest can be constructed with valid field values."""
@@ -160,13 +160,13 @@ class TestImpairmentTestRequest:
     """Tests for the ImpairmentTestRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            test_date=date.today(),
-            recoverable_amount=Decimal("100.00"),
-            reason="test_value",
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "asset_id": uuid4(),
+            "test_date": date.today(),
+            "recoverable_amount": Decimal("100.00"),
+            "reason": "test_value",
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """ImpairmentTestRequest can be constructed with valid field values."""

@@ -322,10 +322,8 @@ class ConstitutionalRule:
             return False
         if check < self.effective_from:
             return False
-        # FIXED: inactive if check >= effective_until (bukan >)
-        if self.effective_until and check >= self.effective_until:
-            return False
-        return True
+        # Perbaikan SIM103: kembalikan kondisi secara langsung
+        return not (self.effective_until and check >= self.effective_until)
 
     def _copy(self) -> ConstitutionalRule:
         return ConstitutionalRule(

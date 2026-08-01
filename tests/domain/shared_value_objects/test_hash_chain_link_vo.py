@@ -266,7 +266,7 @@ class TestHashChainLinkVOFactory:
         with patch("domain.shared_value_objects.hash_chain_link_vo._idempotency_manager") as mock_mgr:
             mock_mgr.get_cached_result.return_value = None
             mock_mgr.cache_result.return_value = None
-            link2 = HashChainLinkVO.create_next(genesis_link, sample_data, idempotency_key="key-next")
+            HashChainLinkVO.create_next(genesis_link, sample_data, idempotency_key="key-next")
             mock_mgr.get_cached_result.assert_called_once_with("key-next", "create_next")
             mock_mgr.cache_result.assert_called_once()
 

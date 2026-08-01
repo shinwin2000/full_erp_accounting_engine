@@ -32,7 +32,7 @@ class TestPostgresSnapshotStore:
         """Smoke test for PostgresSnapshotStore.save_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_snapshot(aggregate_id=uuid4(), version=1, state={})
+            await instance.save_snapshot(aggregate_id=uuid4(), version=1, state={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestPostgresSnapshotStore:
         """Smoke test for PostgresSnapshotStore.get_latest_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_latest_snapshot(aggregate_id=uuid4())
+            await instance.get_latest_snapshot(aggregate_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_latest_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestPostgresSnapshotStore:
         """Smoke test for PostgresSnapshotStore.cleanup_expired using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cleanup_expired()
+            await instance.cleanup_expired()
         except (Exception, SystemExit) as e:
             pytest.skip(f"cleanup_expired needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestPostgresSnapshotStore:
         """Smoke test for PostgresSnapshotStore.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(snapshot_id="test_value")
+            await instance.delete(snapshot_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

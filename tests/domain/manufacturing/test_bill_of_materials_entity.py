@@ -509,7 +509,7 @@ class TestBillOfMaterialsEntity:
 
     def test_update_item_unit_cost(self, sample_bom, fixed_now):
         item_id = sample_bom.items[0].item_id
-        old_cost = sample_bom.items[0].unit_cost
+        sample_bom.items[0].unit_cost
         new_cost = Decimal("999")
         with patch("domain.manufacturing.bill_of_materials_entity.datetime") as mock_dt:
             mock_dt.now.return_value = fixed_now
@@ -526,7 +526,7 @@ class TestBillOfMaterialsEntity:
 
     def test_update_item_scrap(self, sample_bom, fixed_now):
         item_id = sample_bom.items[0].item_id
-        old_scrap = sample_bom.items[0].scrap_percentage
+        sample_bom.items[0].scrap_percentage
         new_scrap = Decimal("15")
         with patch("domain.manufacturing.bill_of_materials_entity.datetime") as mock_dt:
             mock_dt.now.return_value = fixed_now

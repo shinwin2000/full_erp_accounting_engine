@@ -54,7 +54,7 @@ class TestBankReconciliationStatus:
         """Smoke test for BankReconciliationStatus.compute_reconciliation_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_reconciliation_status(bank_account_id=uuid4(), period_end_date=date.today())
+            await instance.compute_reconciliation_status(bank_account_id=uuid4(), period_end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_reconciliation_status needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestBankReconciliationStatus:
         """Smoke test for BankReconciliationStatus.save_reconciliation_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_reconciliation_status(status_data={})
+            await instance.save_reconciliation_status(status_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_reconciliation_status needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestBankReconciliationStatus:
         """Smoke test for BankReconciliationStatus.get_reconciliation_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_reconciliation_status(bank_account_id=uuid4(), period_end_date=date.today())
+            await instance.get_reconciliation_status(bank_account_id=uuid4(), period_end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_reconciliation_status needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestBankReconciliationStatus:
         """Smoke test for BankReconciliationStatus.generate_all_periods using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_all_periods(bank_account_id=uuid4())
+            await instance.generate_all_periods(bank_account_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_all_periods needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestBankReconciliationStatusTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = BankReconciliationStatusTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestBankReconciliationStatusTable:
 async def test_get_bank_reconciliation_status_smoke():
     """Smoke test for module-level function get_bank_reconciliation_status."""
     try:
-        result = await get_bank_reconciliation_status()
+        await get_bank_reconciliation_status()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_bank_reconciliation_status needs specific input data: {e}")
         return

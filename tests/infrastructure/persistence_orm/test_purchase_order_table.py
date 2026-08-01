@@ -29,36 +29,36 @@ class TestPurchaseOrderTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            po_number="test_value",
-            po_date=date.today(),
-            supplier_id=MagicMock(),
-            total_amount=Decimal("100.00"),
-            received_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            discount_amount=Decimal("100.00"),
-            currency="test_value",
-            expected_delivery_date=date.today(),
-            actual_delivery_date=date.today(),
-            status="test_value",
-            description="test_value",
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            delivery_term_days=1,
-            payment_term_days=1,
-            incoterm="test_value",
-            reference_number="test_value",
-            requested_by=MagicMock(),
-            notes="test_value",
-            created_by=MagicMock(),
-            supplier=MagicMock(),
-            goods_receipt_notes=[MagicMock()],
-            invoices=[MagicMock()],
-            lines=[MagicMock()],
-            _events=[{}],
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'po_number': "test_value",
+            'po_date': date.today(),
+            'supplier_id': MagicMock(),
+            'total_amount': Decimal("100.00"),
+            'received_amount': Decimal("100.00"),
+            'paid_amount': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'discount_amount': Decimal("100.00"),
+            'currency': "test_value",
+            'expected_delivery_date': date.today(),
+            'actual_delivery_date': date.today(),
+            'status': "test_value",
+            'description': "test_value",
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'delivery_term_days': 1,
+            'payment_term_days': 1,
+            'incoterm': "test_value",
+            'reference_number': "test_value",
+            'requested_by': MagicMock(),
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'supplier': MagicMock(),
+            'goods_receipt_notes': [MagicMock()],
+            'invoices': [MagicMock()],
+            'lines': [MagicMock()],
+            '_events': [{}],
+        }
         try:
             instance = PurchaseOrderTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -78,21 +78,21 @@ class TestPurchaseOrderLineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            po_id=MagicMock(),
-            line_number=1,
-            product_id=MagicMock(),
-            product_code="test_value",
-            product_name="test_value",
-            quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            total_price=Decimal("100.00"),
-            unit_of_measure="test_value",
-            received_quantity=Decimal("100.00"),
-            notes="test_value",
-            purchase_order=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'po_id': MagicMock(),
+            'line_number': 1,
+            'product_id': MagicMock(),
+            'product_code': "test_value",
+            'product_name': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_price': Decimal("100.00"),
+            'total_price': Decimal("100.00"),
+            'unit_of_measure': "test_value",
+            'received_quantity': Decimal("100.00"),
+            'notes': "test_value",
+            'purchase_order': MagicMock(),
+        }
         try:
             instance = PurchaseOrderLineTable(**kwargs)
         except (Exception, SystemExit) as e:

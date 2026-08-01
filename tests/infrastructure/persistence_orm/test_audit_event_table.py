@@ -26,28 +26,28 @@ class TestAuditEventTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            event_type="test_value",
-            severity="test_value",
-            user_id=MagicMock(),
-            username="test_value",
-            ip_address="test_value",
-            user_agent="test_value",
-            action="test_value",
-            resource_type="test_value",
-            resource_id="test_value",
-            old_value={},
-            new_value={},
-            details={},
-            error_message="test_value",
-            timestamp=datetime.now(UTC),
-            correlation_id="test_value",
-            request_id="test_value",
-            aggregate_type="test_value",
-            aggregate_id=MagicMock(),
-            legal_entity_id=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'event_type': "test_value",
+            'severity': "test_value",
+            'user_id': MagicMock(),
+            'username': "test_value",
+            'ip_address': "test_value",
+            'user_agent': "test_value",
+            'action': "test_value",
+            'resource_type': "test_value",
+            'resource_id': "test_value",
+            'old_value': {},
+            'new_value': {},
+            'details': {},
+            'error_message': "test_value",
+            'timestamp': datetime.now(UTC),
+            'correlation_id': "test_value",
+            'request_id': "test_value",
+            'aggregate_type': "test_value",
+            'aggregate_id': MagicMock(),
+            'legal_entity_id': MagicMock(),
+        }
         try:
             instance = AuditEventTable(**kwargs)
         except (Exception, SystemExit) as e:

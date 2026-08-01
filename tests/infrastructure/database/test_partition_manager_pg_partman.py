@@ -86,7 +86,7 @@ class TestPartitionManagerPgPartman:
         """Smoke test for PartitionManagerPgPartman.check_pg_partman_installed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_pg_partman_installed()
+            await instance.check_pg_partman_installed()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_pg_partman_installed needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestPartitionManagerPgPartman:
         """Smoke test for PartitionManagerPgPartman.create_parent_table using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_parent_table(table_config={})
+            await instance.create_parent_table(table_config={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_parent_table needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestPartitionManagerPgPartman:
         """Smoke test for PartitionManagerPgPartman.create_partition using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_partition(table_config={}, partition_date=datetime.now(UTC))
+            await instance.create_partition(table_config={}, partition_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_partition needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestPartitionManagerPgPartman:
         """Smoke test for PartitionManagerPgPartman.create_future_partitions using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_future_partitions(table_config={})
+            await instance.create_future_partitions(table_config={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_future_partitions needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestPartitionManagerPgPartman:
 async def test_get_partition_manager_smoke():
     """Smoke test for module-level function get_partition_manager."""
     try:
-        result = await get_partition_manager()
+        await get_partition_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_partition_manager needs specific input data: {e}")
         return

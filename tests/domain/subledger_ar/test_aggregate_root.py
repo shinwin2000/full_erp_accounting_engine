@@ -118,13 +118,13 @@ def safe_invoice_status_issued() -> InvoiceStatus:
         return InvoiceStatus.ISSUED
     if hasattr(InvoiceStatus, 'OPEN'):
         return InvoiceStatus.OPEN
-    return list(InvoiceStatus)[0]
+    return next(iter(InvoiceStatus))
 
 
 def safe_payment_status_completed() -> PaymentStatus:
     if hasattr(PaymentStatus, 'COMPLETED'):
         return PaymentStatus.COMPLETED
-    return list(PaymentStatus)[0]
+    return next(iter(PaymentStatus))
 
 
 # =============================================================================
@@ -648,7 +648,7 @@ class TestARSubledger:
         assert cloned.legal_entity_id == ar1.legal_entity_id
         assert cloned.version == 1
         assert len(cloned.invoices) == 1
-        assert list(cloned.invoices.values())[0].invoice_id != sample_invoice.invoice_id
+        assert next(iter(cloned.invoices.values())).invoice_id != sample_invoice.invoice_id
         assert len(cloned.customer_cards) == 1
         trail = cloned.get_audit_trail()
         assert any(e["action"] == "CLONE" for e in trail)

@@ -87,8 +87,8 @@ class TestHashChainBuilder:
     def test_compute_event_hash_smoke(self):
         """Smoke test for HashChainBuilder.compute_event_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = HashChainBuilder.compute_event_hash(event_data={}, metadata={}, timestamp=datetime.now(UTC), previous_hash="test_value")
+            self._build_instance()
+            HashChainBuilder.compute_event_hash(event_data={}, metadata={}, timestamp=datetime.now(UTC), previous_hash="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_event_hash needs specific domain fixtures/data: {e}")
             return
@@ -98,8 +98,8 @@ class TestHashChainBuilder:
     def test_compute_batch_hash_smoke(self):
         """Smoke test for HashChainBuilder.compute_batch_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = HashChainBuilder.compute_batch_hash(events=[{}])
+            self._build_instance()
+            HashChainBuilder.compute_batch_hash(events=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_batch_hash needs specific domain fixtures/data: {e}")
             return
@@ -109,8 +109,8 @@ class TestHashChainBuilder:
     def test_is_genesis_hash_smoke(self):
         """Smoke test for HashChainBuilder.is_genesis_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = HashChainBuilder.is_genesis_hash(hash_value="test_value")
+            self._build_instance()
+            HashChainBuilder.is_genesis_hash(hash_value="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_genesis_hash needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestHashChainBuilder:
         """Smoke test for HashChainBuilder.build_chain using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.build_chain(events=[{}])
+            await instance.build_chain(events=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"build_chain needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestHashChainBuilder:
 def test_compute_hash_from_dict_smoke():
     """Smoke test for module-level function compute_hash_from_dict."""
     try:
-        result = compute_hash_from_dict(data={})
+        compute_hash_from_dict(data={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"compute_hash_from_dict needs specific input data: {e}")
         return
@@ -142,7 +142,7 @@ def test_compute_hash_from_dict_smoke():
 def test_verify_merkle_root_smoke():
     """Smoke test for module-level function verify_merkle_root."""
     try:
-        result = verify_merkle_root(events=[{}], expected_root="test_value")
+        verify_merkle_root(events=[{}], expected_root="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"verify_merkle_root needs specific input data: {e}")
         return
@@ -152,7 +152,7 @@ def test_verify_merkle_root_smoke():
 def test_get_hash_chain_builder_smoke():
     """Smoke test for module-level function get_hash_chain_builder."""
     try:
-        result = get_hash_chain_builder()
+        get_hash_chain_builder()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_hash_chain_builder needs specific input data: {e}")
         return

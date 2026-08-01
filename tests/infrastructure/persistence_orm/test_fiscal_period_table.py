@@ -28,21 +28,21 @@ class TestFiscalPeriodTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            fiscal_year=1,
-            period_number=1,
-            period_type="test_value",
-            start_date=date.today(),
-            end_date=date.today(),
-            period_name="test_value",
-            status="test_value",
-            closed_by=MagicMock(),
-            closed_at=datetime.now(UTC),
-            locked_by=MagicMock(),
-            locked_at=datetime.now(UTC),
-            notes="test_value",
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'fiscal_year': 1,
+            'period_number': 1,
+            'period_type': "test_value",
+            'start_date': date.today(),
+            'end_date': date.today(),
+            'period_name': "test_value",
+            'status': "test_value",
+            'closed_by': MagicMock(),
+            'closed_at': datetime.now(UTC),
+            'locked_by': MagicMock(),
+            'locked_at': datetime.now(UTC),
+            'notes': "test_value",
+            'created_by': MagicMock(),
+        }
         try:
             instance = FiscalPeriodTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -54,7 +54,7 @@ class TestFiscalPeriodTable:
 def test_generate_fiscal_periods_smoke():
     """Smoke test for module-level function generate_fiscal_periods."""
     try:
-        result = generate_fiscal_periods(legal_entity_id=MagicMock(), fiscal_year=1, fiscal_year_start_month=1)
+        generate_fiscal_periods(legal_entity_id=MagicMock(), fiscal_year=1, fiscal_year_start_month=1)
     except (Exception, SystemExit) as e:
         pytest.skip(f"generate_fiscal_periods needs specific input data: {e}")
         return

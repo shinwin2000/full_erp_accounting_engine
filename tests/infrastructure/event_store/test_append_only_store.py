@@ -104,7 +104,7 @@ class TestAppendOnlyStore:
         """Smoke test for AppendOnlyStore.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class TestAppendOnlyStore:
         """Smoke test for AppendOnlyStore.append using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append(stream_name="test_value", event_data={}, event_type="test_value", metadata={})
+            await instance.append(stream_name="test_value", event_data={}, event_type="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"append needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestAppendOnlyStore:
         """Smoke test for AppendOnlyStore.append_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append_batch(events=[])
+            await instance.append_batch(events=[])
         except (Exception, SystemExit) as e:
             pytest.skip(f"append_batch needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestAppendOnlyStore:
         """Smoke test for AppendOnlyStore.read_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.read_stream(stream_name="test_value", from_sequence=1, limit=1)
+            await instance.read_stream(stream_name="test_value", from_sequence=1, limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"read_stream needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestAppendOnlyStore:
 async def test_get_event_store_smoke():
     """Smoke test for module-level function get_event_store."""
     try:
-        result = await get_event_store()
+        await get_event_store()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_event_store needs specific input data: {e}")
         return
@@ -158,7 +158,7 @@ async def test_get_event_store_smoke():
 async def test_get_audit_store_smoke():
     """Smoke test for module-level function get_audit_store."""
     try:
-        result = await get_audit_store()
+        await get_audit_store()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_audit_store needs specific input data: {e}")
         return

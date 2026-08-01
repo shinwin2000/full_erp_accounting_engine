@@ -53,7 +53,7 @@ class TestMockProvider:
         """Smoke test for MockProvider.create_mock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_mock(interface=MagicMock(), spec=True)
+            instance.create_mock(interface=MagicMock(), spec=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_mock needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestMockProvider:
         """Smoke test for MockProvider.create_sync_mock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_sync_mock(interface=MagicMock(), spec=True)
+            instance.create_sync_mock(interface=MagicMock(), spec=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_sync_mock needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestMockProvider:
         """Smoke test for MockProvider.register_mock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_mock(interface=MagicMock(), mock=MagicMock())
+            instance.register_mock(interface=MagicMock(), mock=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_mock needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestMockProvider:
         """Smoke test for MockProvider.unregister_mock using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.unregister_mock(interface=MagicMock())
+            instance.unregister_mock(interface=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"unregister_mock needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestMockProvider:
 def test_get_mock_provider_smoke():
     """Smoke test for module-level function get_mock_provider."""
     try:
-        result = get_mock_provider()
+        get_mock_provider()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_mock_provider needs specific input data: {e}")
         return
@@ -107,7 +107,7 @@ def test_get_mock_provider_smoke():
 def test_patch_dependency_smoke():
     """Smoke test for module-level function patch_dependency."""
     try:
-        result = patch_dependency(interface=MagicMock(), mock=MagicMock())
+        patch_dependency(interface=MagicMock(), mock=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"patch_dependency needs specific input data: {e}")
         return

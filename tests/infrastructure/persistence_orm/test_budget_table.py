@@ -22,7 +22,7 @@ from infrastructure.persistence_orm.budget_table import BudgetTable
 @pytest.fixture
 def session():
     """Create an in-memory SQLite session for ORM testing."""
-    engine = create_engine("sqlite:///:memory:")
+    create_engine("sqlite:///:memory:")
     # We don't have the actual Base metadata, but we don't need to create tables
     # because we are just testing the model behavior in-memory without actual DB.
     # We can just instantiate the model directly without a session.

@@ -99,14 +99,14 @@ class TestAccountStatus:
 def make_account(**overrides):
     legal_entity_id = overrides.pop("legal_entity_id", uuid4())
     code = overrides.pop("code", AccountCodeVO("1000"))
-    defaults = dict(
-        id=uuid4(),
-        legal_entity_id=legal_entity_id,
-        code=code,
-        name="Cash",
-        account_type=AccountType.ASSET,
-        normal_balance=NormalBalance.DEBIT,
-    )
+    defaults = {
+        "id": uuid4(),
+        "legal_entity_id": legal_entity_id,
+        "code": code,
+        "name": "Cash",
+        "account_type": AccountType.ASSET,
+        "normal_balance": NormalBalance.DEBIT,
+    }
     defaults.update(overrides)
     return AccountEntity(**defaults)
 
@@ -473,7 +473,7 @@ class TestAccountRepository:
         assert children == [child]
 
         descendants = await repo.get_descendants(root.id, legal_entity_id)
-        assert set(a.id for a in descendants) == {child.id, grandchild.id}
+        assert {a.id for a in descendants} == {child.id, grandchild.id}
 
     async def test_get_root_accounts(self, repo, legal_entity_id):
         root = make_account(legal_entity_id=legal_entity_id, code=AccountCodeVO("1000"))

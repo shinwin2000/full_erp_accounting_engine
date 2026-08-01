@@ -34,14 +34,14 @@ class TestBudgetRequest:
     """Tests for the BudgetRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            budget_name="test_value",
-            fiscal_year=1,
-            lines=[{}],
-            period_type="test_value",
-            description="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "budget_name": "test_value",
+            "fiscal_year": 1,
+            "lines": [{}],
+            "period_type": "test_value",
+            "description": "test_value",
+        }
 
     def test_construction_success(self):
         """BudgetRequest can be constructed with valid field values."""
@@ -59,18 +59,18 @@ class TestBudgetResponse:
     """Tests for the BudgetResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            budget_id=uuid4(),
-            budget_number="test_value",
-            legal_entity_id=uuid4(),
-            budget_name="test_value",
-            fiscal_year=1,
-            period_type="test_value",
-            total_amount=Decimal("100.00"),
-            description="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "budget_id": uuid4(),
+            "budget_number": "test_value",
+            "legal_entity_id": uuid4(),
+            "budget_name": "test_value",
+            "fiscal_year": 1,
+            "period_type": "test_value",
+            "total_amount": Decimal("100.00"),
+            "description": "test_value",
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """BudgetResponse can be constructed with valid field values."""
@@ -88,13 +88,13 @@ class TestVarianceAnalysisRequest:
     """Tests for the VarianceAnalysisRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            budget_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            include_details=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "budget_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "include_details": True,
+        }
 
     def test_construction_success(self):
         """VarianceAnalysisRequest can be constructed with valid field values."""
@@ -112,15 +112,15 @@ class TestVarianceItem:
     """Tests for the VarianceItem value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            budget_amount=Decimal("100.00"),
-            actual_amount=Decimal("100.00"),
-            variance=Decimal("100.00"),
-            variance_percentage=1.5,
-            variance_type="test_value",
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "budget_amount": Decimal("100.00"),
+            "actual_amount": Decimal("100.00"),
+            "variance": Decimal("100.00"),
+            "variance_percentage": 1.5,
+            "variance_type": "test_value",
+        }
 
     def test_construction_success(self):
         """VarianceItem can be constructed with valid field values."""
@@ -138,18 +138,18 @@ class TestVarianceAnalysisResponse:
     """Tests for the VarianceAnalysisResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            budget_id=uuid4(),
-            budget_name="test_value",
-            period_start=date.today(),
-            period_end=date.today(),
-            total_budget=Decimal("100.00"),
-            total_actual=Decimal("100.00"),
-            total_variance=Decimal("100.00"),
-            variance_percentage=1.5,
-            items=[MagicMock()],
-            analysis_date=datetime.now(UTC),
-        )
+        return {
+            "budget_id": uuid4(),
+            "budget_name": "test_value",
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "total_budget": Decimal("100.00"),
+            "total_actual": Decimal("100.00"),
+            "total_variance": Decimal("100.00"),
+            "variance_percentage": 1.5,
+            "items": [MagicMock()],
+            "analysis_date": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """VarianceAnalysisResponse can be constructed with valid field values."""
@@ -167,12 +167,12 @@ class TestBudgetLineRequest:
     """Tests for the BudgetLineRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            amount=Decimal("100.00"),
-            period="test_value",
-            description="test_value",
-        )
+        return {
+            "account_code": "test_value",
+            "amount": Decimal("100.00"),
+            "period": "test_value",
+            "description": "test_value",
+        }
 
     def test_construction_success(self):
         """BudgetLineRequest can be constructed with valid field values."""
@@ -269,7 +269,7 @@ class TestBudgetService:
         """Smoke test for BudgetService.create_budget using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_budget(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_budget(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_budget needs specific domain fixtures/data: {e}")
             return
@@ -280,7 +280,7 @@ class TestBudgetService:
         """Smoke test for BudgetService.approve_budget using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.approve_budget(budget_id=uuid4(), approver_id=uuid4(), correlation_id="test_value")
+            await instance.approve_budget(budget_id=uuid4(), approver_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_budget needs specific domain fixtures/data: {e}")
             return
@@ -291,7 +291,7 @@ class TestBudgetService:
         """Smoke test for BudgetService.reject_budget using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reject_budget(budget_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.reject_budget(budget_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"reject_budget needs specific domain fixtures/data: {e}")
             return
@@ -302,7 +302,7 @@ class TestBudgetService:
         """Smoke test for BudgetService.revise_budget using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.revise_budget(budget_id=uuid4(), new_lines=[{}], revision_reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.revise_budget(budget_id=uuid4(), new_lines=[{}], revision_reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revise_budget needs specific domain fixtures/data: {e}")
             return
@@ -313,7 +313,7 @@ class TestBudgetService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -323,7 +323,7 @@ def test_audit_smoke():
 async def test_create_budget_service_smoke():
     """Smoke test for module-level function create_budget_service."""
     try:
-        result = await create_budget_service(budget_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_budget_service(budget_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_budget_service needs specific input data: {e}")
         return

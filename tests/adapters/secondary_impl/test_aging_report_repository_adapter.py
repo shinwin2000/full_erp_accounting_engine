@@ -34,7 +34,7 @@ class TestAgingReportRepositoryAdapter:
         """Smoke test for AgingReportRepositoryAdapter.get_ar_aging using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_ar_aging(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_ar_aging(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_ar_aging needs specific domain fixtures/data: {e}")
             return
@@ -45,7 +45,7 @@ class TestAgingReportRepositoryAdapter:
         """Smoke test for AgingReportRepositoryAdapter.get_ap_aging using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_ap_aging(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_ap_aging(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_ap_aging needs specific domain fixtures/data: {e}")
             return

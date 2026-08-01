@@ -24,9 +24,9 @@ class TestLedgerEntryTemplateTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+        }
         try:
             instance = LedgerEntryTemplateTable(**kwargs)
         except (Exception, SystemExit) as e:

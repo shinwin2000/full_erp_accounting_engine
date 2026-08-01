@@ -133,7 +133,7 @@ class TestEventToReadModelRegistry:
         """Smoke test for EventToReadModelRegistry.register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register(event_type="test_value", handler=MagicMock())
+            instance.register(event_type="test_value", handler=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register needs specific domain fixtures/data: {e}")
             return
@@ -144,7 +144,7 @@ class TestEventToReadModelRegistry:
         """Smoke test for EventToReadModelRegistry.register_wildcard using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_wildcard(handler=MagicMock(), priority=1)
+            instance.register_wildcard(handler=MagicMock(), priority=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_wildcard needs specific domain fixtures/data: {e}")
             return
@@ -155,7 +155,7 @@ class TestEventToReadModelRegistry:
         """Smoke test for EventToReadModelRegistry.get_handler using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_handler(event_type="test_value")
+            instance.get_handler(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_handler needs specific domain fixtures/data: {e}")
             return
@@ -166,7 +166,7 @@ class TestEventToReadModelRegistry:
         """Smoke test for EventToReadModelRegistry.get_wildcard_handlers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_wildcard_handlers()
+            instance.get_wildcard_handlers()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_wildcard_handlers needs specific domain fixtures/data: {e}")
             return
@@ -177,7 +177,7 @@ class TestEventToReadModelRegistry:
 def test_register_all_handlers_smoke():
     """Smoke test for module-level function register_all_handlers."""
     try:
-        result = register_all_handlers()
+        register_all_handlers()
     except (Exception, SystemExit) as e:
         pytest.skip(f"register_all_handlers needs specific input data: {e}")
         return
@@ -187,7 +187,7 @@ def test_register_all_handlers_smoke():
 async def test_process_event_for_read_model_smoke():
     """Smoke test for module-level function process_event_for_read_model."""
     try:
-        result = await process_event_for_read_model(event=MagicMock(), session_factory=MagicMock())
+        await process_event_for_read_model(event=MagicMock(), session_factory=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"process_event_for_read_model needs specific input data: {e}")
         return
@@ -197,7 +197,7 @@ async def test_process_event_for_read_model_smoke():
 def test_on_event_smoke():
     """Smoke test for module-level function on_event."""
     try:
-        result = on_event(event_type="test_value")
+        on_event(event_type="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"on_event needs specific input data: {e}")
         return
@@ -207,7 +207,7 @@ def test_on_event_smoke():
 def test_on_all_events_smoke():
     """Smoke test for module-level function on_all_events."""
     try:
-        result = on_all_events(priority=1)
+        on_all_events(priority=1)
     except (Exception, SystemExit) as e:
         pytest.skip(f"on_all_events needs specific input data: {e}")
         return

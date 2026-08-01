@@ -63,7 +63,7 @@ class TestLegalError:
         """Smoke test for LegalError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -74,7 +74,7 @@ class TestLegalError:
         """Smoke test for LegalError.to_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_json()
+            instance.to_json()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_json needs specific domain fixtures/data: {e}")
             return
@@ -197,7 +197,7 @@ class TestLegalExceptionRegistry:
         """Smoke test for LegalExceptionRegistry.register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register(error=MagicMock())
+            instance.register(error=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register needs specific domain fixtures/data: {e}")
             return
@@ -208,7 +208,7 @@ class TestLegalExceptionRegistry:
         """Smoke test for LegalExceptionRegistry.get_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_all(limit=1)
+            instance.get_all(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all needs specific domain fixtures/data: {e}")
             return
@@ -219,7 +219,7 @@ class TestLegalExceptionRegistry:
         """Smoke test for LegalExceptionRegistry.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_code(error_code="test_value")
+            instance.get_by_code(error_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -230,7 +230,7 @@ class TestLegalExceptionRegistry:
         """Smoke test for LegalExceptionRegistry.clear using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.clear()
+            instance.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -241,7 +241,7 @@ class TestLegalExceptionRegistry:
 def test_raise_jurisdiction_not_supported_smoke():
     """Smoke test for module-level function raise_jurisdiction_not_supported."""
     try:
-        result = raise_jurisdiction_not_supported(jurisdiction_code="test_value")
+        raise_jurisdiction_not_supported(jurisdiction_code="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_jurisdiction_not_supported needs specific input data: {e}")
         return
@@ -251,7 +251,7 @@ def test_raise_jurisdiction_not_supported_smoke():
 def test_raise_sanction_hit_smoke():
     """Smoke test for module-level function raise_sanction_hit."""
     try:
-        result = raise_sanction_hit(party_name="test_value", sanction_list="test_value")
+        raise_sanction_hit(party_name="test_value", sanction_list="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_sanction_hit needs specific input data: {e}")
         return
@@ -261,7 +261,7 @@ def test_raise_sanction_hit_smoke():
 def test_raise_filing_rejected_smoke():
     """Smoke test for module-level function raise_filing_rejected."""
     try:
-        result = raise_filing_rejected(filing_id=uuid4(), regulatory_body="test_value", reason="test_value")
+        raise_filing_rejected(filing_id=uuid4(), regulatory_body="test_value", reason="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_filing_rejected needs specific input data: {e}")
         return
@@ -271,7 +271,7 @@ def test_raise_filing_rejected_smoke():
 def test_raise_sovereignty_violation_smoke():
     """Smoke test for module-level function raise_sovereignty_violation."""
     try:
-        result = raise_sovereignty_violation(source="test_value", target="test_value", data_type="test_value")
+        raise_sovereignty_violation(source="test_value", target="test_value", data_type="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_sovereignty_violation needs specific input data: {e}")
         return

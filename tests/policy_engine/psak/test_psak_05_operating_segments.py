@@ -318,9 +318,9 @@ class TestPSAK5SegmentService:
             total_entity_assets,
         )
         # Both segments are reportable by default
-        total_segment_revenue = Decimal("6000000000") + Decimal("300000000")  # 6.3B
-        total_segment_profit = Decimal("800000000") + Decimal("50000000")  # 850M
-        total_segment_assets = Decimal("3000000000") + Decimal("200000000")  # 3.2B
+        Decimal("6000000000") + Decimal("300000000")  # 6.3B
+        Decimal("800000000") + Decimal("50000000")  # 850M
+        Decimal("3000000000") + Decimal("200000000")  # 3.2B
 
         assert "Total segmen" in rec["revenue"]
         assert str(total_entity_revenue) in rec["revenue"]

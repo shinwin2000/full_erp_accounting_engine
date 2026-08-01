@@ -70,7 +70,7 @@ class TestQualitativeAssessmentResult:
         """Smoke test for QualitativeAssessmentResult.is_material using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_material()
+            instance.is_material()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_material needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestQualitativeAssessmentResult:
         """Smoke test for QualitativeAssessmentResult.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestQualitativeMateriality:
         """Smoke test for QualitativeMateriality.assess using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.assess(error_description="test_value", triggering_factors=[QualitativeImpactArea.REGULATORY_COMPLIANCE], assessed_by="test_value")
+            instance.assess(error_description="test_value", triggering_factors=[QualitativeImpactArea.REGULATORY_COMPLIANCE], assessed_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"assess needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestQualitativeMateriality:
         """Smoke test for QualitativeMateriality.assess_from_description using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.assess_from_description(error_description="test_value", assessed_by="test_value")
+            instance.assess_from_description(error_description="test_value", assessed_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"assess_from_description needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestQualitativeMateriality:
         """Smoke test for QualitativeMateriality.is_material using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_material(error_description="test_value", assessed_by="test_value")
+            instance.is_material(error_description="test_value", assessed_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_material needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestQualitativeMateriality:
         """Smoke test for QualitativeMateriality.get_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_history()
+            instance.get_history()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_history needs specific domain fixtures/data: {e}")
             return

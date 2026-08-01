@@ -672,7 +672,7 @@ class TestDomainEventPublisher:
     def test_set_max_history_truncates(self, base_event):
         DomainEventPublisher._published_events.clear()
         # Publish 5 events
-        for i in range(5):
+        for _i in range(5):
             ev = DomainEvent(
                 event_type=DomainEventType.INVOICE_ISSUED,
                 aggregate_id=uuid4(),

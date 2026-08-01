@@ -26,19 +26,19 @@ class TestGeneralLedgerEntry:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            journal_id=uuid4(),
-            journal_number="test_value",
-            account_code="test_value",
-            debit=Decimal("100.00"),
-            credit=Decimal("0"),
-            posting_date=datetime.now(UTC),
-            fiscal_period="test_value",
-            legal_entity_id=uuid4(),
-            is_reversal=True,
-            original_entry_id=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'journal_id': uuid4(),
+            'journal_number': "test_value",
+            'account_code': "test_value",
+            'debit': Decimal("100.00"),
+            'credit': Decimal("0"),
+            'posting_date': datetime.now(UTC),
+            'fiscal_period': "test_value",
+            'legal_entity_id': uuid4(),
+            'is_reversal': True,
+            'original_entry_id': uuid4(),
+        }
         try:
             instance = GeneralLedgerEntry(**kwargs)
         except (Exception, SystemExit) as e:

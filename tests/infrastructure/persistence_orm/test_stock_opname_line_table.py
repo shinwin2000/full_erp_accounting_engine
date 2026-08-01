@@ -25,22 +25,22 @@ class TestStockOpnameLineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            stock_opname_id=MagicMock(),
-            product_id=MagicMock(),
-            product_code="test_value",
-            product_name="test_value",
-            warehouse_id=MagicMock(),
-            system_quantity=Decimal("100.00"),
-            physical_quantity=Decimal("100.00"),
-            difference_quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            difference_value=Decimal("100.00"),
-            adjustment_journal_id=MagicMock(),
-            notes="test_value",
-            stock_opname=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'stock_opname_id': MagicMock(),
+            'product_id': MagicMock(),
+            'product_code': "test_value",
+            'product_name': "test_value",
+            'warehouse_id': MagicMock(),
+            'system_quantity': Decimal("100.00"),
+            'physical_quantity': Decimal("100.00"),
+            'difference_quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'difference_value': Decimal("100.00"),
+            'adjustment_journal_id': MagicMock(),
+            'notes': "test_value",
+            'stock_opname': MagicMock(),
+        }
         try:
             instance = StockOpnameLineTable(**kwargs)
         except (Exception, SystemExit) as e:

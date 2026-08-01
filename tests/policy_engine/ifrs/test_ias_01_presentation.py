@@ -72,13 +72,13 @@ class TestGoingConcernAssessment:
     """Tests for the GoingConcernAssessment value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_going_concern_appropriate=True,
-            has_material_uncertainty=True,
-            disclosure_provided=True,
-            assessment_date=datetime.now(UTC),
-            key_assumptions=["test_value"],
-        )
+        return {
+            'is_going_concern_appropriate': True,
+            'has_material_uncertainty': True,
+            'disclosure_provided': True,
+            'assessment_date': datetime.now(UTC),
+            'key_assumptions': ["test_value"],
+        }
 
     def test_construction_success(self):
         """GoingConcernAssessment can be constructed with valid field values."""
@@ -96,17 +96,17 @@ class TestIAS1FinancialStatementSet:
     """Tests for the IAS1FinancialStatementSet value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            statement_id=uuid4(),
-            entity_id=uuid4(),
-            reporting_date=datetime.now(UTC),
-            components_present=[IAS1FinancialStatementComponent.STATEMENT_OF_FINANCIAL_POSITION],
-            going_concern=MagicMock(),
-            presentation_currency="test_value",
-            comparative_periods=1,
-            is_consolidated=True,
-            parent_entity_id=uuid4(),
-        )
+        return {
+            'statement_id': uuid4(),
+            'entity_id': uuid4(),
+            'reporting_date': datetime.now(UTC),
+            'components_present': [IAS1FinancialStatementComponent.STATEMENT_OF_FINANCIAL_POSITION],
+            'going_concern': MagicMock(),
+            'presentation_currency': "test_value",
+            'comparative_periods': 1,
+            'is_consolidated': True,
+            'parent_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """IAS1FinancialStatementSet can be constructed with valid field values."""
@@ -138,8 +138,8 @@ class TestIAS1PresentationService:
     def test_validate_completeness_smoke(self):
         """Smoke test for IAS1PresentationService.validate_completeness using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS1PresentationService.validate_completeness(statement_set=MagicMock())
+            self._build_instance()
+            IAS1PresentationService.validate_completeness(statement_set=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_completeness needs specific domain fixtures/data: {e}")
             return
@@ -149,8 +149,8 @@ class TestIAS1PresentationService:
     def test_validate_going_concern_disclosure_smoke(self):
         """Smoke test for IAS1PresentationService.validate_going_concern_disclosure using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS1PresentationService.validate_going_concern_disclosure(assessment=MagicMock())
+            self._build_instance()
+            IAS1PresentationService.validate_going_concern_disclosure(assessment=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_going_concern_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -160,8 +160,8 @@ class TestIAS1PresentationService:
     def test_validate_comparative_info_smoke(self):
         """Smoke test for IAS1PresentationService.validate_comparative_info using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS1PresentationService.validate_comparative_info(current_data=True, prior_data=True)
+            self._build_instance()
+            IAS1PresentationService.validate_comparative_info(current_data=True, prior_data=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_comparative_info needs specific domain fixtures/data: {e}")
             return
@@ -171,8 +171,8 @@ class TestIAS1PresentationService:
     def test_validate_consistency_smoke(self):
         """Smoke test for IAS1PresentationService.validate_consistency using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS1PresentationService.validate_consistency(current_policies={}, prior_policies={})
+            self._build_instance()
+            IAS1PresentationService.validate_consistency(current_policies={}, prior_policies={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_consistency needs specific domain fixtures/data: {e}")
             return
@@ -184,12 +184,12 @@ class TestIAS1ValidationResult:
     """Tests for the IAS1ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-            compliance_level=IAS1ComplianceLevel.FULL,
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'compliance_level': IAS1ComplianceLevel.FULL,
+        }
 
     def test_construction_success(self):
         """IAS1ValidationResult can be constructed with valid field values."""
@@ -221,8 +221,8 @@ class TestIAS1Rules:
     def test_assess_going_concern_smoke(self):
         """Smoke test for IAS1Rules.assess_going_concern using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS1Rules.assess_going_concern(has_net_loss_for_three_years=True, has_debt_default=True, has_negative_operating_cash_flow=True)
+            self._build_instance()
+            IAS1Rules.assess_going_concern(has_net_loss_for_three_years=True, has_debt_default=True, has_negative_operating_cash_flow=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"assess_going_concern needs specific domain fixtures/data: {e}")
             return
@@ -232,8 +232,8 @@ class TestIAS1Rules:
     def test_validate_balance_sheet_classification_smoke(self):
         """Smoke test for IAS1Rules.validate_balance_sheet_classification using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS1Rules.validate_balance_sheet_classification(accounts=[{}], format_type=IAS1PresentationFormat.CLASSIFIED)
+            self._build_instance()
+            IAS1Rules.validate_balance_sheet_classification(accounts=[{}], format_type=IAS1PresentationFormat.CLASSIFIED)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_balance_sheet_classification needs specific domain fixtures/data: {e}")
             return
@@ -260,7 +260,7 @@ class TestIAS1Validator:
         """Smoke test for IAS1Validator.validate_financial_statements using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_financial_statements(statement_set=MagicMock(), balance_sheet_accounts=[{}], presentation_format=IAS1PresentationFormat.CLASSIFIED, current_period_data_available=True, prior_period_data_available=True)
+            instance.validate_financial_statements(statement_set=MagicMock(), balance_sheet_accounts=[{}], presentation_format=IAS1PresentationFormat.CLASSIFIED, current_period_data_available=True, prior_period_data_available=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_financial_statements needs specific domain fixtures/data: {e}")
             return
@@ -271,7 +271,7 @@ class TestIAS1Validator:
         """Smoke test for IAS1Validator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -282,7 +282,7 @@ class TestIAS1Validator:
 def test_get_ias1_validator_smoke():
     """Smoke test for module-level function get_ias1_validator."""
     try:
-        result = get_ias1_validator()
+        get_ias1_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ias1_validator needs specific input data: {e}")
         return

@@ -52,7 +52,7 @@ class TestDependencyCheck:
         """Smoke test for DependencyCheck.run using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.run()
+            instance.run()
         except (Exception, SystemExit) as e:
             pytest.skip(f"run needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestReadinessProbe:
         """Smoke test for ReadinessProbe.add_check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_check(check=MagicMock())
+            instance.add_check(check=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_check needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestReadinessProbe:
         """Smoke test for ReadinessProbe.run_all_checks using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.run_all_checks()
+            instance.run_all_checks()
         except (Exception, SystemExit) as e:
             pytest.skip(f"run_all_checks needs specific domain fixtures/data: {e}")
             return
@@ -101,7 +101,7 @@ class TestReadinessProbe:
         """Smoke test for ReadinessProbe.is_ready using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_ready()
+            instance.is_ready()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_ready needs specific domain fixtures/data: {e}")
             return
@@ -112,7 +112,7 @@ class TestReadinessProbe:
 def test_readiness_probe_smoke():
     """Smoke test for module-level function readiness_probe."""
     try:
-        result = readiness_probe()
+        readiness_probe()
     except (Exception, SystemExit) as e:
         pytest.skip(f"readiness_probe needs specific input data: {e}")
         return
@@ -122,7 +122,7 @@ def test_readiness_probe_smoke():
 def test_is_ready_smoke():
     """Smoke test for module-level function is_ready."""
     try:
-        result = is_ready()
+        is_ready()
     except (Exception, SystemExit) as e:
         pytest.skip(f"is_ready needs specific input data: {e}")
         return

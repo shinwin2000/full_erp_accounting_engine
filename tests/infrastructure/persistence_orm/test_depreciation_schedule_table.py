@@ -26,23 +26,23 @@ class TestDepreciationScheduleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            asset_id=MagicMock(),
-            period=1,
-            fiscal_year=1,
-            month=1,
-            depreciation_amount=Decimal("100.00"),
-            accumulated_depreciation=Decimal("100.00"),
-            net_book_value=Decimal("100.00"),
-            currency="test_value",
-            status="test_value",
-            journal_id=MagicMock(),
-            posted_at=datetime.now(UTC),
-            notes="test_value",
-            created_by=MagicMock(),
-            asset=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'asset_id': MagicMock(),
+            'period': 1,
+            'fiscal_year': 1,
+            'month': 1,
+            'depreciation_amount': Decimal("100.00"),
+            'accumulated_depreciation': Decimal("100.00"),
+            'net_book_value': Decimal("100.00"),
+            'currency': "test_value",
+            'status': "test_value",
+            'journal_id': MagicMock(),
+            'posted_at': datetime.now(UTC),
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'asset': MagicMock(),
+        }
         try:
             instance = DepreciationScheduleTable(**kwargs)
         except (Exception, SystemExit) as e:

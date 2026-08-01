@@ -40,22 +40,22 @@ class TestCoretaxNSFPTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            start_number=1,
-            end_number=1,
-            current_number=1,
-            status=NSFStatus.ACTIVE,
-            request_id="test_value",
-            approval_code="test_value",
-            issued_date=date.today(),
-            expiry_date=date.today(),
-            legal_entity_id=MagicMock(),
-            used_count=1,
-            cancelled_by=MagicMock(),
-            cancelled_at=datetime.now(UTC),
-            cancellation_reason="test_value",
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'start_number': 1,
+            'end_number': 1,
+            'current_number': 1,
+            'status': NSFStatus.ACTIVE,
+            'request_id': "test_value",
+            'approval_code': "test_value",
+            'issued_date': date.today(),
+            'expiry_date': date.today(),
+            'legal_entity_id': MagicMock(),
+            'used_count': 1,
+            'cancelled_by': MagicMock(),
+            'cancelled_at': datetime.now(UTC),
+            'cancellation_reason': "test_value",
+        }
         try:
             instance = CoretaxNSFPTable(**kwargs)
         except (Exception, SystemExit) as e:

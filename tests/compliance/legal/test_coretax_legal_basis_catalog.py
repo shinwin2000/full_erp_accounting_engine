@@ -70,7 +70,7 @@ class TestLegalBasis:
         """Smoke test for LegalBasis.supersede using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.supersede(new_citation="test_value")
+            instance.supersede(new_citation="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"supersede needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestLegalBasis:
         """Smoke test for LegalBasis.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestCoretaxLegalBasisCatalog:
         """Smoke test for CoretaxLegalBasisCatalog.add_basis using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_basis(basis=MagicMock())
+            instance.add_basis(basis=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_basis needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestCoretaxLegalBasisCatalog:
         """Smoke test for CoretaxLegalBasisCatalog.get_basis using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_basis(citation="test_value")
+            instance.get_basis(citation="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_basis needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestCoretaxLegalBasisCatalog:
         """Smoke test for CoretaxLegalBasisCatalog.search_by_keyword using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.search_by_keyword(keyword="test_value", case_sensitive=True)
+            instance.search_by_keyword(keyword="test_value", case_sensitive=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"search_by_keyword needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestCoretaxLegalBasisCatalog:
         """Smoke test for CoretaxLegalBasisCatalog.search_by_type using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.search_by_type(basis_type=LegalBasisType.LAW)
+            instance.search_by_type(basis_type=LegalBasisType.LAW)
         except (Exception, SystemExit) as e:
             pytest.skip(f"search_by_type needs specific domain fixtures/data: {e}")
             return

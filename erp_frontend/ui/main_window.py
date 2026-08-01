@@ -18,6 +18,7 @@ from core.session import session
 from core.workers import run_task
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from registry.module_registry import CATEGORY_ORDER, MODULES, modules_by_category
+from ui.theme import QSS
 
 NAV_ROLE = Qt.UserRole + 1
 
@@ -83,6 +85,12 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        # Terapkan ulang tema warna-warni di sini (bukan hanya di main.py).
+        # Ini jaga-jaga: kalau main.py belum/tidak sempat ikut diperbarui,
+        # MainWindow tetap memaksa tema terbaru dari ui/theme.py dipakai.
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(QSS)
         self.setWindowTitle(APP_NAME)
         self.resize(1440, 900)
         self._page_cache: dict[str, QWidget] = {}
@@ -145,11 +153,18 @@ class MainWindow(QMainWindow):
         self.entity_combo.setVisible(False)
         topbar_layout.addWidget(self.entity_combo)
 
+        self.connection_badge = QLabel("🟢 Database Connected")
+        self.connection_badge.setObjectName("pillSuccess")
+        topbar_layout.addWidget(self.connection_badge)
+        topbar_layout.addSpacing(8)
+
         self.user_badge = QLabel("")
-        self.user_badge.setObjectName("userBadge")
+        self.user_badge.setObjectName("pillInfo")
         topbar_layout.addWidget(self.user_badge)
+        topbar_layout.addSpacing(8)
 
         logout_btn = QPushButton("Keluar")
+        logout_btn.setProperty("class", "danger")
         logout_btn.clicked.connect(self._on_logout)
         topbar_layout.addWidget(logout_btn)
 
@@ -214,7 +229,11 @@ class MainWindow(QMainWindow):
     def _build_page(self, kind: str, key: str | None) -> QWidget:
         if kind == "dashboard":
             from ui.pages.dashboard_page import DashboardPage
-            return DashboardPage()
+            page = DashboardPage()
+            # Tombol "Quick Actions" di dashboard memancarkan sinyal ini
+            # untuk berpindah ke modul terkait (mis. Input Pembelian -> PO).
+            page.navigate_requested.connect(self._open_page)
+            return page
 
         if kind == "module":
             if key == "journals":

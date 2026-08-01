@@ -26,21 +26,21 @@ class TestARPaymentTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            payment_number="test_value",
-            payment_date=date.today(),
-            invoice_id=MagicMock(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            payment_method="test_value",
-            reference_number="test_value",
-            bank_account_info="test_value",
-            status="test_value",
-            notes="test_value",
-            created_by=MagicMock(),
-            invoice=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'payment_number': "test_value",
+            'payment_date': date.today(),
+            'invoice_id': MagicMock(),
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'payment_method': "test_value",
+            'reference_number': "test_value",
+            'bank_account_info': "test_value",
+            'status': "test_value",
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'invoice': MagicMock(),
+        }
         try:
             instance = ARPaymentTable(**kwargs)
         except (Exception, SystemExit) as e:

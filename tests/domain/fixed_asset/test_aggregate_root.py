@@ -540,7 +540,7 @@ class TestFixedAssetCollection:
     def test_get_all_assets(self, collection):
         assets = collection.get_all_assets()
         assert len(assets) == 1
-        assert assets[0] == list(collection.assets.values())[0]
+        assert assets[0] == next(iter(collection.assets.values()))
 
     def test_get_active_assets(self, collection):
         active = collection.get_active_assets()

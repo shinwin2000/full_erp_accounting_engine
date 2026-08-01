@@ -35,7 +35,7 @@ class TestGlacierColdStorageAdapter:
         """Smoke test for GlacierColdStorageAdapter.upload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, bucket="test_value")
+            await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, bucket="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload needs specific domain fixtures/data: {e}")
             return
@@ -46,7 +46,7 @@ class TestGlacierColdStorageAdapter:
         """Smoke test for GlacierColdStorageAdapter.download using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download(file_uri="test_value")
+            await instance.download(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"download needs specific domain fixtures/data: {e}")
             return
@@ -57,7 +57,7 @@ class TestGlacierColdStorageAdapter:
         """Smoke test for GlacierColdStorageAdapter.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(file_uri="test_value")
+            await instance.delete(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestGlacierColdStorageAdapter:
         """Smoke test for GlacierColdStorageAdapter.get_metadata using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_metadata(file_uri="test_value")
+            await instance.get_metadata(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_metadata needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestGlacierColdStorageAdapter:
 async def test_get_glacier_cold_storage_adapter_smoke():
     """Smoke test for module-level function get_glacier_cold_storage_adapter."""
     try:
-        result = await get_glacier_cold_storage_adapter()
+        await get_glacier_cold_storage_adapter()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_glacier_cold_storage_adapter needs specific input data: {e}")
         return

@@ -777,7 +777,7 @@ class TestImpairmentTester:
 
     def test_get_latest_test(self, tester, asset):
         assert tester.get_latest_test(asset.id) is None
-        test1 = tester.test_impairment(asset, recoverable_amount=Decimal("8000"))
+        tester.test_impairment(asset, recoverable_amount=Decimal("8000"))
         test2 = tester.test_impairment(asset, recoverable_amount=Decimal("9000"))
         latest = tester.get_latest_test(asset.id)
         assert latest is test2

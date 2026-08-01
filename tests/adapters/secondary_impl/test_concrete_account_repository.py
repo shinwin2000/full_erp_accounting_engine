@@ -33,7 +33,7 @@ class Test_ConcreteAccountRepository:
         """Smoke test for _ConcreteAccountRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(account=MagicMock())
+            await instance.add(account=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class Test_ConcreteAccountRepository:
         """Smoke test for _ConcreteAccountRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(account_id=uuid4())
+            await instance.get_by_id(account_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_ConcreteAccountRepository:
         """Smoke test for _ConcreteAccountRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(account_code="test_value", legal_entity_id=uuid4())
+            await instance.get_by_code(account_code="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_ConcreteAccountRepository:
         """Smoke test for _ConcreteAccountRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(account=MagicMock())
+            await instance.update(account=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return

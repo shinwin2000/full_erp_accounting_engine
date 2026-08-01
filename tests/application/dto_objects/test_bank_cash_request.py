@@ -39,24 +39,24 @@ class TestCreateBankAccountRequest:
     """Tests for the CreateBankAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            account_number="test_value",
-            account_name="test_value",
-            bank_name="test_value",
-            bank_code="test_value",
-            currency_code="test_value",
-            account_type="test_value",
-            opening_balance=Decimal("100.00"),
-            opening_balance_date=date.today(),
-            allow_overdraft=True,
-            overdraft_limit=Decimal("100.00"),
-            routing_number="test_value",
-            swift_code="test_value",
-            iban="test_value",
-            is_default=True,
-            notes="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "account_number": "test_value",
+            "account_name": "test_value",
+            "bank_name": "test_value",
+            "bank_code": "test_value",
+            "currency_code": "test_value",
+            "account_type": "test_value",
+            "opening_balance": Decimal("100.00"),
+            "opening_balance_date": date.today(),
+            "allow_overdraft": True,
+            "overdraft_limit": Decimal("100.00"),
+            "routing_number": "test_value",
+            "swift_code": "test_value",
+            "iban": "test_value",
+            "is_default": True,
+            "notes": "test_value",
+        }
 
     def test_construction_success(self):
         """CreateBankAccountRequest can be constructed with valid field values."""
@@ -74,15 +74,15 @@ class TestUpdateBankAccountRequest:
     """Tests for the UpdateBankAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            account_name="test_value",
-            status="test_value",
-            allow_overdraft=True,
-            overdraft_limit=Decimal("100.00"),
-            is_default=True,
-            notes="test_value",
-        )
+        return {
+            "account_id": uuid4(),
+            "account_name": "test_value",
+            "status": "test_value",
+            "allow_overdraft": True,
+            "overdraft_limit": Decimal("100.00"),
+            "is_default": True,
+            "notes": "test_value",
+        }
 
     def test_construction_success(self):
         """UpdateBankAccountRequest can be constructed with valid field values."""
@@ -100,10 +100,10 @@ class TestGetBankAccountRequest:
     """Tests for the GetBankAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "account_id": uuid4(),
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """GetBankAccountRequest can be constructed with valid field values."""
@@ -121,15 +121,15 @@ class TestListBankAccountsRequest:
     """Tests for the ListBankAccountsRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            status="test_value",
-            currency_code="test_value",
-            account_type="test_value",
-            is_default=True,
-            limit=1,
-            offset=1,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "status": "test_value",
+            "currency_code": "test_value",
+            "account_type": "test_value",
+            "is_default": True,
+            "limit": 1,
+            "offset": 1,
+        }
 
     def test_construction_success(self):
         """ListBankAccountsRequest can be constructed with valid field values."""
@@ -147,16 +147,16 @@ class TestDepositRequest:
     """Tests for the DepositRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            amount=Decimal("100.00"),
-            transaction_date=date.today(),
-            description="test_value",
-            reference_number="test_value",
-            counterparty_name="test_value",
-            check_number="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "transaction_date": date.today(),
+            "description": "test_value",
+            "reference_number": "test_value",
+            "counterparty_name": "test_value",
+            "check_number": "test_value",
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """DepositRequest can be constructed with valid field values."""
@@ -174,15 +174,15 @@ class TestWithdrawalRequest:
     """Tests for the WithdrawalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            amount=Decimal("100.00"),
-            transaction_date=date.today(),
-            description="test_value",
-            reference_number="test_value",
-            check_number="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "transaction_date": date.today(),
+            "description": "test_value",
+            "reference_number": "test_value",
+            "check_number": "test_value",
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """WithdrawalRequest can be constructed with valid field values."""
@@ -200,14 +200,14 @@ class TestTransferRequest:
     """Tests for the TransferRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            from_account_id=uuid4(),
-            to_account_id=uuid4(),
-            amount=Decimal("100.00"),
-            transaction_date=date.today(),
-            description="test_value",
-            reference_number="test_value",
-        )
+        return {
+            "from_account_id": uuid4(),
+            "to_account_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "transaction_date": date.today(),
+            "description": "test_value",
+            "reference_number": "test_value",
+        }
 
     def test_construction_success(self):
         """TransferRequest can be constructed with valid field values."""
@@ -225,14 +225,14 @@ class TestBankChargeRequest:
     """Tests for the BankChargeRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            amount=Decimal("100.00"),
-            transaction_date=date.today(),
-            description="test_value",
-            reference_number="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "transaction_date": date.today(),
+            "description": "test_value",
+            "reference_number": "test_value",
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """BankChargeRequest can be constructed with valid field values."""
@@ -250,14 +250,14 @@ class TestInterestRequest:
     """Tests for the InterestRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            amount=Decimal("100.00"),
-            transaction_date=date.today(),
-            description="test_value",
-            reference_number="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "transaction_date": date.today(),
+            "description": "test_value",
+            "reference_number": "test_value",
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """InterestRequest can be constructed with valid field values."""
@@ -275,12 +275,12 @@ class TestStartReconciliationRequest:
     """Tests for the StartReconciliationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            statement_date=date.today(),
-            statement_balance=Decimal("100.00"),
-            statement_balance_source="test_value",
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "statement_date": date.today(),
+            "statement_balance": Decimal("100.00"),
+            "statement_balance_source": "test_value",
+        }
 
     def test_construction_success(self):
         """StartReconciliationRequest can be constructed with valid field values."""
@@ -298,12 +298,12 @@ class TestCompleteReconciliationRequest:
     """Tests for the CompleteReconciliationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            reconciliation_id=uuid4(),
-            reconciled_by=uuid4(),
-            notes="test_value",
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "reconciliation_id": uuid4(),
+            "reconciled_by": uuid4(),
+            "notes": "test_value",
+        }
 
     def test_construction_success(self):
         """CompleteReconciliationRequest can be constructed with valid field values."""
@@ -321,10 +321,10 @@ class TestGetReconciliationStatusRequest:
     """Tests for the GetReconciliationStatusRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """GetReconciliationStatusRequest can be constructed with valid field values."""
@@ -342,14 +342,14 @@ class TestCreateCashBookRequest:
     """Tests for the CreateCashBookRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            currency_code="test_value",
-            cash_type="test_value",
-            opening_balance=Decimal("100.00"),
-            opening_balance_date=date.today(),
-            petty_cash_fund=Decimal("100.00"),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "currency_code": "test_value",
+            "cash_type": "test_value",
+            "opening_balance": Decimal("100.00"),
+            "opening_balance_date": date.today(),
+            "petty_cash_fund": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """CreateCashBookRequest can be constructed with valid field values."""
@@ -367,15 +367,15 @@ class TestCashTransactionRequest:
     """Tests for the CashTransactionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            cash_book_id=uuid4(),
-            amount=Decimal("100.00"),
-            transaction_type="test_value",
-            description="test_value",
-            reference_type="test_value",
-            reference_id=uuid4(),
-            journal_id=uuid4(),
-        )
+        return {
+            "cash_book_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "transaction_type": "test_value",
+            "description": "test_value",
+            "reference_type": "test_value",
+            "reference_id": uuid4(),
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """CashTransactionRequest can be constructed with valid field values."""
@@ -393,12 +393,12 @@ class TestPettyCashReplenishRequest:
     """Tests for the PettyCashReplenishRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            cash_book_id=uuid4(),
-            amount=Decimal("100.00"),
-            description="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            "cash_book_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "description": "test_value",
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """PettyCashReplenishRequest can be constructed with valid field values."""
@@ -416,10 +416,10 @@ class TestGetCashBalanceRequest:
     """Tests for the GetCashBalanceRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            cash_book_id=uuid4(),
-            as_of_date=date.today(),
-        )
+        return {
+            "cash_book_id": uuid4(),
+            "as_of_date": date.today(),
+        }
 
     def test_construction_success(self):
         """GetCashBalanceRequest can be constructed with valid field values."""
@@ -437,10 +437,10 @@ class TestGetBankAccountBalanceRequest:
     """Tests for the GetBankAccountBalanceRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            as_of_date=date.today(),
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "as_of_date": date.today(),
+        }
 
     def test_construction_success(self):
         """GetBankAccountBalanceRequest can be constructed with valid field values."""
@@ -458,15 +458,15 @@ class TestListBankTransactionsRequest:
     """Tests for the ListBankTransactionsRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bank_account_id=uuid4(),
-            from_date=date.today(),
-            to_date=date.today(),
-            transaction_type="test_value",
-            is_reconciled=True,
-            limit=1,
-            offset=1,
-        )
+        return {
+            "bank_account_id": uuid4(),
+            "from_date": date.today(),
+            "to_date": date.today(),
+            "transaction_type": "test_value",
+            "is_reconciled": True,
+            "limit": 1,
+            "offset": 1,
+        }
 
     def test_construction_success(self):
         """ListBankTransactionsRequest can be constructed with valid field values."""
@@ -498,8 +498,8 @@ class TestBankCashRequestFactory:
     def test_create_bank_account_smoke(self):
         """Smoke test for BankCashRequestFactory.create_bank_account using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BankCashRequestFactory.create_bank_account(legal_entity_id=uuid4(), account_number="test_value", account_name="test_value", bank_name="test_value", bank_code="test_value", currency_code="test_value", account_type="test_value", opening_balance=Decimal("100.00"))
+            self._build_instance()
+            BankCashRequestFactory.create_bank_account(legal_entity_id=uuid4(), account_number="test_value", account_name="test_value", bank_name="test_value", bank_code="test_value", currency_code="test_value", account_type="test_value", opening_balance=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_bank_account needs specific domain fixtures/data: {e}")
             return
@@ -509,8 +509,8 @@ class TestBankCashRequestFactory:
     def test_create_deposit_smoke(self):
         """Smoke test for BankCashRequestFactory.create_deposit using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BankCashRequestFactory.create_deposit(bank_account_id=uuid4(), amount=Decimal("100.00"), transaction_date=date.today(), description="test_value", reference_number="test_value")
+            self._build_instance()
+            BankCashRequestFactory.create_deposit(bank_account_id=uuid4(), amount=Decimal("100.00"), transaction_date=date.today(), description="test_value", reference_number="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_deposit needs specific domain fixtures/data: {e}")
             return
@@ -520,8 +520,8 @@ class TestBankCashRequestFactory:
     def test_create_withdrawal_smoke(self):
         """Smoke test for BankCashRequestFactory.create_withdrawal using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BankCashRequestFactory.create_withdrawal(bank_account_id=uuid4(), amount=Decimal("100.00"), transaction_date=date.today(), description="test_value", reference_number="test_value")
+            self._build_instance()
+            BankCashRequestFactory.create_withdrawal(bank_account_id=uuid4(), amount=Decimal("100.00"), transaction_date=date.today(), description="test_value", reference_number="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_withdrawal needs specific domain fixtures/data: {e}")
             return
@@ -531,8 +531,8 @@ class TestBankCashRequestFactory:
     def test_create_transfer_smoke(self):
         """Smoke test for BankCashRequestFactory.create_transfer using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BankCashRequestFactory.create_transfer(from_account_id=uuid4(), to_account_id=uuid4(), amount=Decimal("100.00"), transaction_date=date.today(), description="test_value")
+            self._build_instance()
+            BankCashRequestFactory.create_transfer(from_account_id=uuid4(), to_account_id=uuid4(), amount=Decimal("100.00"), transaction_date=date.today(), description="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_transfer needs specific domain fixtures/data: {e}")
             return

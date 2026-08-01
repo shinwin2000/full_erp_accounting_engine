@@ -25,20 +25,20 @@ class TestLoginAttemptOrmTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            username="test_value",
-            user_id=uuid4(),
-            ip_address="test_value",
-            user_agent="test_value",
-            success=True,
-            failure_reason="test_value",
-            attempted_at=datetime.now(UTC),
-            request_id="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            deleted_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'username': "test_value",
+            'user_id': uuid4(),
+            'ip_address': "test_value",
+            'user_agent': "test_value",
+            'success': True,
+            'failure_reason': "test_value",
+            'attempted_at': datetime.now(UTC),
+            'request_id': "test_value",
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'deleted_at': datetime.now(UTC),
+        }
         try:
             instance = LoginAttemptOrmTable(**kwargs)
         except (Exception, SystemExit) as e:

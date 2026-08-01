@@ -87,7 +87,7 @@ class TestMTLSClientCertificateRenewer:
         """Smoke test for MTLSClientCertificateRenewer.renew_certificate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.renew_certificate(force=True)
+            await instance.renew_certificate(force=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"renew_certificate needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestMTLSClientCertificateRenewer:
         """Smoke test for MTLSClientCertificateRenewer.start_periodic_check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_check(interval_hours=1)
+            await instance.start_periodic_check(interval_hours=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_check needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestMTLSClientCertificateRenewer:
         """Smoke test for MTLSClientCertificateRenewer.stop_periodic_check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_periodic_check()
+            await instance.stop_periodic_check()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_periodic_check needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestMTLSClientCertificateRenewer:
         """Smoke test for MTLSClientCertificateRenewer.get_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_status()
+            await instance.get_status()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_status needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestMTLSClientCertificateRenewer:
 async def test_get_mtls_certificate_renewer_smoke():
     """Smoke test for module-level function get_mtls_certificate_renewer."""
     try:
-        result = await get_mtls_certificate_renewer()
+        await get_mtls_certificate_renewer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_mtls_certificate_renewer needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ async def test_get_mtls_certificate_renewer_smoke():
 async def test_start_certificate_renewer_smoke():
     """Smoke test for module-level function start_certificate_renewer."""
     try:
-        result = await start_certificate_renewer()
+        await start_certificate_renewer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_certificate_renewer needs specific input data: {e}")
         return
@@ -151,7 +151,7 @@ async def test_start_certificate_renewer_smoke():
 async def test_stop_certificate_renewer_smoke():
     """Smoke test for module-level function stop_certificate_renewer."""
     try:
-        result = await stop_certificate_renewer()
+        await stop_certificate_renewer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_certificate_renewer needs specific input data: {e}")
         return

@@ -28,8 +28,8 @@ class TestSupplierTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = SupplierTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -57,7 +57,7 @@ class TestSQLAlchemySupplierRepository:
         """Smoke test for SQLAlchemySupplierRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(supplier_id=uuid4())
+            await instance.get_by_id(supplier_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestSQLAlchemySupplierRepository:
         """Smoke test for SQLAlchemySupplierRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(legal_entity_id=uuid4(), supplier_code="test_value")
+            await instance.get_by_code(legal_entity_id=uuid4(), supplier_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestSQLAlchemySupplierRepository:
         """Smoke test for SQLAlchemySupplierRepository.is_active using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_active(supplier_id=uuid4())
+            await instance.is_active(supplier_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_active needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestSQLAlchemySupplierRepository:
         """Smoke test for SQLAlchemySupplierRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(supplier=MagicMock())
+            await instance.save(supplier=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return

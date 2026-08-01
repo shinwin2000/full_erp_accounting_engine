@@ -84,29 +84,29 @@ class TestExportJob:
     """Tests for the ExportJob value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            name="test_value",
-            query_type="test_value",
-            query_parameters={},
-            filters=[{}],
-            format=ExportFormat.CSV,
-            compression=CompressionType.NONE,
-            encryption_key_id="test_value",
-            delivery_method=DeliveryMethod.NONE,
-            delivery_config={},
-            created_by=uuid4(),
-            created_at=datetime.now(UTC),
-            scheduled_at=datetime.now(UTC),
-            status=ExportStatus.PENDING,
-            started_at=datetime.now(UTC),
-            completed_at=datetime.now(UTC),
-            error_message="test_value",
-            output_url="test_value",
-            output_size_bytes=1,
-            row_count=1,
-            file_hash="test_value",
-        )
+        return {
+            'id': uuid4(),
+            'name': "test_value",
+            'query_type': "test_value",
+            'query_parameters': {},
+            'filters': [{}],
+            'format': ExportFormat.CSV,
+            'compression': CompressionType.NONE,
+            'encryption_key_id': "test_value",
+            'delivery_method': DeliveryMethod.NONE,
+            'delivery_config': {},
+            'created_by': uuid4(),
+            'created_at': datetime.now(UTC),
+            'scheduled_at': datetime.now(UTC),
+            'status': ExportStatus.PENDING,
+            'started_at': datetime.now(UTC),
+            'completed_at': datetime.now(UTC),
+            'error_message': "test_value",
+            'output_url': "test_value",
+            'output_size_bytes': 1,
+            'row_count': 1,
+            'file_hash': "test_value",
+        }
 
     def test_construction_success(self):
         """ExportJob can be constructed with valid field values."""
@@ -139,7 +139,7 @@ class TestAnalyticsExportPort:
         """Smoke test for AnalyticsExportPort.set_data_provider using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_data_provider(provider=(lambda *a, **kw: None))
+            instance.set_data_provider(provider=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_data_provider needs specific domain fixtures/data: {e}")
             return
@@ -150,7 +150,7 @@ class TestAnalyticsExportPort:
         """Smoke test for AnalyticsExportPort.create_export_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_export_job(name="test_value", query_type="test_value", query_parameters={}, format=ExportFormat.CSV, created_by=uuid4(), filters=[{}], compression=CompressionType.NONE, encryption_key_id="test_value", delivery_method=DeliveryMethod.NONE, delivery_config={}, scheduled_at=datetime.now(UTC))
+            await instance.create_export_job(name="test_value", query_type="test_value", query_parameters={}, format=ExportFormat.CSV, created_by=uuid4(), filters=[{}], compression=CompressionType.NONE, encryption_key_id="test_value", delivery_method=DeliveryMethod.NONE, delivery_config={}, scheduled_at=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_export_job needs specific domain fixtures/data: {e}")
             return
@@ -161,7 +161,7 @@ class TestAnalyticsExportPort:
         """Smoke test for AnalyticsExportPort.execute_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute_job(job_id=uuid4())
+            await instance.execute_job(job_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute_job needs specific domain fixtures/data: {e}")
             return
@@ -172,7 +172,7 @@ class TestAnalyticsExportPort:
         """Smoke test for AnalyticsExportPort.cancel_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cancel_job(job_id=uuid4())
+            await instance.cancel_job(job_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"cancel_job needs specific domain fixtures/data: {e}")
             return

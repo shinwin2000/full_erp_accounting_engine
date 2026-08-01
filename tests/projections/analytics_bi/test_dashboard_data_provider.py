@@ -54,7 +54,7 @@ class TestDashboardDataProvider:
         """Smoke test for DashboardDataProvider.get_dashboard_data using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_dashboard_data(legal_entity_id=uuid4(), period_id=uuid4(), force_refresh=True)
+            await instance.get_dashboard_data(legal_entity_id=uuid4(), period_id=uuid4(), force_refresh=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_dashboard_data needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestDashboardDataProvider:
         """Smoke test for DashboardDataProvider.get_executive_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_executive_summary(legal_entity_id=uuid4(), period_id=uuid4())
+            await instance.get_executive_summary(legal_entity_id=uuid4(), period_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_executive_summary needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestDashboardDataProvider:
         """Smoke test for DashboardDataProvider.get_chart_data using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_chart_data(legal_entity_id=uuid4(), period_id=uuid4(), chart_type="test_value")
+            await instance.get_chart_data(legal_entity_id=uuid4(), period_id=uuid4(), chart_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_chart_data needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestDashboardDataProvider:
         """Smoke test for DashboardDataProvider.clear_cache using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.clear_cache()
+            await instance.clear_cache()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear_cache needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestDashboardSnapshotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = DashboardSnapshotTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestDashboardSnapshotTable:
 async def test_get_dashboard_provider_smoke():
     """Smoke test for module-level function get_dashboard_provider."""
     try:
-        result = await get_dashboard_provider()
+        await get_dashboard_provider()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_dashboard_provider needs specific input data: {e}")
         return
@@ -129,7 +129,7 @@ async def test_get_dashboard_provider_smoke():
 async def test_get_dashboard_data_dep_smoke():
     """Smoke test for module-level function get_dashboard_data_dep."""
     try:
-        result = await get_dashboard_data_dep()
+        await get_dashboard_data_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_dashboard_data_dep needs specific input data: {e}")
         return

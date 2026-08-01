@@ -62,7 +62,7 @@ class TestEthicsError:
         """Smoke test for EthicsError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -73,7 +73,7 @@ class TestEthicsError:
         """Smoke test for EthicsError.to_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_json()
+            instance.to_json()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_json needs specific domain fixtures/data: {e}")
             return
@@ -164,7 +164,7 @@ class TestEthicsExceptionRegistry:
         """Smoke test for EthicsExceptionRegistry.register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register(error=MagicMock())
+            instance.register(error=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register needs specific domain fixtures/data: {e}")
             return
@@ -175,7 +175,7 @@ class TestEthicsExceptionRegistry:
         """Smoke test for EthicsExceptionRegistry.get_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_all(limit=1)
+            instance.get_all(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all needs specific domain fixtures/data: {e}")
             return
@@ -186,7 +186,7 @@ class TestEthicsExceptionRegistry:
         """Smoke test for EthicsExceptionRegistry.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_code(error_code="test_value")
+            instance.get_by_code(error_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -197,7 +197,7 @@ class TestEthicsExceptionRegistry:
         """Smoke test for EthicsExceptionRegistry.get_by_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_user(user_id=uuid4())
+            instance.get_by_user(user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_user needs specific domain fixtures/data: {e}")
             return
@@ -208,7 +208,7 @@ class TestEthicsExceptionRegistry:
 def test_handle_ethics_exceptions_smoke():
     """Smoke test for module-level function handle_ethics_exceptions."""
     try:
-        result = handle_ethics_exceptions(func=(lambda *a, **kw: None))
+        handle_ethics_exceptions(func=(lambda *a, **kw: None))
     except (Exception, SystemExit) as e:
         pytest.skip(f"handle_ethics_exceptions needs specific input data: {e}")
         return
@@ -218,7 +218,7 @@ def test_handle_ethics_exceptions_smoke():
 def test_raise_conflict_of_interest_smoke():
     """Smoke test for module-level function raise_conflict_of_interest."""
     try:
-        result = raise_conflict_of_interest(declarant_name="test_value", related_party="test_value", nature="test_value", declarant_id=uuid4())
+        raise_conflict_of_interest(declarant_name="test_value", related_party="test_value", nature="test_value", declarant_id=uuid4())
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_conflict_of_interest needs specific input data: {e}")
         return
@@ -228,7 +228,7 @@ def test_raise_conflict_of_interest_smoke():
 def test_raise_professional_judgment_error_smoke():
     """Smoke test for module-level function raise_professional_judgment_error."""
     try:
-        result = raise_professional_judgment_error(standard="test_value", issue="test_value", assumptions=["test_value"])
+        raise_professional_judgment_error(standard="test_value", issue="test_value", assumptions=["test_value"])
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_professional_judgment_error needs specific input data: {e}")
         return
@@ -238,7 +238,7 @@ def test_raise_professional_judgment_error_smoke():
 def test_raise_ethics_violation_smoke():
     """Smoke test for module-level function raise_ethics_violation."""
     try:
-        result = raise_ethics_violation(violation_type="test_value", description="test_value", reported_by=uuid4(), evidence=["test_value"])
+        raise_ethics_violation(violation_type="test_value", description="test_value", reported_by=uuid4(), evidence=["test_value"])
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_ethics_violation needs specific input data: {e}")
         return
@@ -248,7 +248,7 @@ def test_raise_ethics_violation_smoke():
 def test_raise_whistleblower_error_smoke():
     """Smoke test for module-level function raise_whistleblower_error."""
     try:
-        result = raise_whistleblower_error(message="test_value", case_id=uuid4(), reporter_identity="test_value")
+        raise_whistleblower_error(message="test_value", case_id=uuid4(), reporter_identity="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"raise_whistleblower_error needs specific input data: {e}")
         return

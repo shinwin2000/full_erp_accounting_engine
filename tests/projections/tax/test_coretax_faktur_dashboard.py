@@ -31,8 +31,8 @@ class TestCoretaxFakturTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CoretaxFakturTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -52,8 +52,8 @@ class TestCoretaxNSFPTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CoretaxNSFPTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -73,8 +73,8 @@ class TestCoretaxDashboardSnapshotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CoretaxDashboardSnapshotTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -118,7 +118,7 @@ class TestCoretaxFakturDashboard:
         """Smoke test for CoretaxFakturDashboard.compute_dashboard using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_dashboard(npwp="test_value", legal_entity_id=uuid4(), date_range_days=1)
+            await instance.compute_dashboard(npwp="test_value", legal_entity_id=uuid4(), date_range_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_dashboard needs specific domain fixtures/data: {e}")
             return
@@ -129,7 +129,7 @@ class TestCoretaxFakturDashboard:
         """Smoke test for CoretaxFakturDashboard.save_dashboard_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_dashboard_snapshot(dashboard_data={})
+            await instance.save_dashboard_snapshot(dashboard_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_dashboard_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -140,7 +140,7 @@ class TestCoretaxFakturDashboard:
         """Smoke test for CoretaxFakturDashboard.get_dashboard_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_dashboard_snapshot(npwp="test_value", legal_entity_id=uuid4())
+            await instance.get_dashboard_snapshot(npwp="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_dashboard_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -151,7 +151,7 @@ class TestCoretaxFakturDashboard:
         """Smoke test for CoretaxFakturDashboard.refresh_dashboard using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.refresh_dashboard(npwp="test_value", legal_entity_id=uuid4())
+            await instance.refresh_dashboard(npwp="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"refresh_dashboard needs specific domain fixtures/data: {e}")
             return
@@ -162,7 +162,7 @@ class TestCoretaxFakturDashboard:
 async def test_get_coretax_dashboard_smoke():
     """Smoke test for module-level function get_coretax_dashboard."""
     try:
-        result = await get_coretax_dashboard()
+        await get_coretax_dashboard()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_coretax_dashboard needs specific input data: {e}")
         return

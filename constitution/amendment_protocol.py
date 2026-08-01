@@ -130,9 +130,8 @@ class AmendmentProposal:
             AmendmentType.MODIFY_RULE,
             AmendmentType.REPEAL_RULE,
             AmendmentType.SUSPEND_RULE,
-        ]:
-            if self.target_rule_id is None:
-                errors.append("target_rule_id required")
+        ] and self.target_rule_id is None:
+            errors.append("target_rule_id required")
         if self.amendment_type == AmendmentType.ADD_RULE and self.new_rule is None:
             errors.append("new_rule required")
         if self.requires_emergency and not self.emergency_reason:
@@ -341,8 +340,9 @@ class AmendmentProposal:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
-        return self._version
+    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
+    # def version(self) -> int:
+    #     return self._version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -524,8 +524,9 @@ class AmendmentVoteRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
-        return self.version
+    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
+    # def version(self) -> int:
+    #     return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -695,8 +696,9 @@ class AmendmentExecutionRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
-        return self.version
+    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
+    # def version(self) -> int:
+    #     return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -835,8 +837,9 @@ class AmendmentReviewComment:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
-        return self.version
+    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
+    # def version(self) -> int:
+    #     return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -1398,11 +1401,10 @@ class AmendmentProtocolService:
             raise AmendmentProtocolError(
                 f"Cannot propose amendment when system status is {guardian.get_current_status().name}"
             )
-        if requires_emergency or urgency == AmendmentUrgency.EMERGENCY:
-            if proposed_by not in self._protocol.committee_members:
-                raise InsufficientApprovalError(
-                    "Emergency amendment can only be proposed by committee members"
-                )
+        if (requires_emergency or urgency == AmendmentUrgency.EMERGENCY) and proposed_by not in self._protocol.committee_members:
+            raise InsufficientApprovalError(
+                "Emergency amendment can only be proposed by committee members"
+            )
         return self._protocol.submit_proposal(
             amendment_type=amendment_type,
             justification=justification,

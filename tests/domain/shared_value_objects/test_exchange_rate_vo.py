@@ -501,8 +501,8 @@ class TestHelperFunctions:
         # But if we use a different combination where no common currency exists?
         # Actually the function detects common by checking from/to pairs; if it finds none it raises.
         # To force no common, we can pass rates that share no currency
-        rate3 = ExchangeRateVO(idr, usd, Decimal("0.000064"), FIXED_NOW)
-        rate4 = ExchangeRateVO(eur, idr, Decimal("15625"), FIXED_NOW)  # shares IDR with rate3? Yes.
+        ExchangeRateVO(idr, usd, Decimal("0.000064"), FIXED_NOW)
+        ExchangeRateVO(eur, idr, Decimal("15625"), FIXED_NOW)  # shares IDR with rate3? Yes.
         # So we need two rates with no common: e.g., IDR->USD and EUR->GBP
         gbp = CurrencyVO(CurrencyCode.GBP)
         rate5 = ExchangeRateVO(idr, usd, Decimal("0.000064"), FIXED_NOW)

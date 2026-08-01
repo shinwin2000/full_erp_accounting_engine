@@ -456,7 +456,7 @@ class TestConcreteEvents:
         for key in kwargs:
             if key not in ("aggregate_id", "aggregate_version"):
                 value = kwargs[key]
-                if isinstance(value, uuid4().__class__) or isinstance(value, Decimal):
+                if isinstance(value, uuid4().__class__ | Decimal):
                     assert str(value) == event.event_data.get(key)
                 elif isinstance(value, datetime):
                     assert value.isoformat() == event.event_data.get(key)
@@ -480,7 +480,7 @@ class TestConcreteEvents:
         for key in kwargs:
             if key not in ("aggregate_id", "aggregate_version"):
                 value = kwargs[key]
-                if isinstance(value, uuid4().__class__) or isinstance(value, Decimal):
+                if isinstance(value, uuid4().__class__ | Decimal):
                     assert d["event_data"][key] == str(value)
                 elif isinstance(value, datetime):
                     assert d["event_data"][key] == value.isoformat()

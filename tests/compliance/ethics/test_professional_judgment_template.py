@@ -36,7 +36,7 @@ class TestProfessionalJudgmentTemplate:
         """Smoke test for ProfessionalJudgmentTemplate.approve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.approve(approver_id=uuid4())
+            instance.approve(approver_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestProfessionalJudgmentTemplate:
         """Smoke test for ProfessionalJudgmentTemplate.revise using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.revise(new_rationale="test_value", new_selected="test_value", revision_note="test_value")
+            instance.revise(new_rationale="test_value", new_selected="test_value", revision_note="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revise needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestProfessionalJudgmentTemplate:
         """Smoke test for ProfessionalJudgmentTemplate.is_approved using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_approved()
+            instance.is_approved()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_approved needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestProfessionalJudgmentTemplate:
         """Smoke test for ProfessionalJudgmentTemplate.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestJudgmentRepository:
         """Smoke test for JudgmentRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.save(judgment=MagicMock())
+            instance.save(judgment=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestJudgmentRepository:
         """Smoke test for JudgmentRepository.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get(judgment_id=uuid4())
+            instance.get(judgment_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestJudgmentRepository:
         """Smoke test for JudgmentRepository.list_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.list_all()
+            instance.list_all()
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_all needs specific domain fixtures/data: {e}")
             return
@@ -129,7 +129,7 @@ class TestJudgmentRepository:
         """Smoke test for JudgmentRepository.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.delete(judgment_id=uuid4())
+            instance.delete(judgment_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

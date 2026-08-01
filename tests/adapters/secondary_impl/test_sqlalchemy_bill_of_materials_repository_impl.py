@@ -30,8 +30,8 @@ class TestBOMTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = BOMTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -51,8 +51,8 @@ class TestBOMItemTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = BOMItemTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -80,7 +80,7 @@ class TestSQLAlchemyBillOfMaterialsRepository:
         """Smoke test for SQLAlchemyBillOfMaterialsRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(bom=MagicMock())
+            await instance.save(bom=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestSQLAlchemyBillOfMaterialsRepository:
         """Smoke test for SQLAlchemyBillOfMaterialsRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(bom_id=uuid4())
+            await instance.get_by_id(bom_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestSQLAlchemyBillOfMaterialsRepository:
         """Smoke test for SQLAlchemyBillOfMaterialsRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(bom_code="test_value", legal_entity_id=uuid4())
+            await instance.get_by_code(bom_code="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestSQLAlchemyBillOfMaterialsRepository:
         """Smoke test for SQLAlchemyBillOfMaterialsRepository.get_active_bom using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_active_bom(product_id=uuid4(), as_of_date=date.today())
+            await instance.get_active_bom(product_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_active_bom needs specific domain fixtures/data: {e}")
             return

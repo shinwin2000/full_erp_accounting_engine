@@ -1158,8 +1158,8 @@ async def test_generate_ap_invoice_pdf_success(mock_ap_svc, legal_entity_id, moc
     invoice_id = uuid4()
     mock_ap_svc.generate_invoice_pdf.return_value = b"PDF content"
 
-    with patch("adapters.primary_api.v1.fastapi_ap_router.Response") as mock_response:
-        response = await generate_ap_invoice_pdf(
+    with patch("adapters.primary_api.v1.fastapi_ap_router.Response"):
+        await generate_ap_invoice_pdf(
             invoice_id=invoice_id,
             _permission=mock_permission,
             legal_entity_id=legal_entity_id,

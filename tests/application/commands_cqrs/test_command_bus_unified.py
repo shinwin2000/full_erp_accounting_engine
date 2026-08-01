@@ -223,7 +223,6 @@ class TestCachePort:
     async def test_delete_with_idempotency(self, cache_port):
         key = "test-key"
         idempotency_key = "id-123"
-        method = "cache_delete"
 
         # First delete
         await cache_port.delete(key, idempotency_key)
@@ -540,7 +539,7 @@ class TestMiddleware:
             called = True
             return CommandResult.success(command_id=c.command_id, data={})
 
-        result = await mw.process(cmd, handler, {})
+        await mw.process(cmd, handler, {})
         assert called is True
         cache.exists.assert_not_called()
 
@@ -863,7 +862,6 @@ class TestCommandBus:
         assert result.is_success() is True
         # Middleware order: first added is outer, so mw1 wraps mw2.
         # Execution: mw1_before, mw2_before, handler, mw2_after, mw1_after
-        expected = ["mw1_before", "mw2_before", "mw1_after", "mw2_after"]
         # Actually with our implementation, middlewares are applied in reverse order.
         # In CommandBus.dispatch, we iterate reversed(self._middlewares) when building chain.
         # So outer is first added, inner is last added? Let's check.

@@ -17,24 +17,24 @@ class TestDLQItem:
     """Tests for the DLQItem value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id="test_value",
-            event_id="test_value",
-            event_type="test_value",
-            aggregate_type="test_value",
-            payload={},
-            metadata={},
-            error_message="test_value",
-            failed_at="test_value",
-            retry_count=1,
-            aggregate_id="test_value",
-            status="test_value",
-            replayed_at="test_value",
-            notes="test_value",
-            _audit_trail=[{}],
-            _snapshots=[{}],
-            _version=1,
-        )
+        return {
+            "id": "test_value",
+            "event_id": "test_value",
+            "event_type": "test_value",
+            "aggregate_type": "test_value",
+            "payload": {},
+            "metadata": {},
+            "error_message": "test_value",
+            "failed_at": "test_value",
+            "retry_count": 1,
+            "aggregate_id": "test_value",
+            "status": "test_value",
+            "replayed_at": "test_value",
+            "notes": "test_value",
+            "_audit_trail": [{}],
+            "_snapshots": [{}],
+            "_version": 1,
+        }
 
     def test_construction_success(self):
         """DLQItem can be constructed with valid field values."""
@@ -67,7 +67,7 @@ class TestDeadLetterQueueManager:
         """Smoke test for DeadLetterQueueManager.enqueue using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enqueue(envelope=MagicMock(), error_message="test_value")
+            await instance.enqueue(envelope=MagicMock(), error_message="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"enqueue needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestDeadLetterQueueManager:
         """Smoke test for DeadLetterQueueManager.dequeue using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.dequeue(item_id="test_value")
+            await instance.dequeue(item_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"dequeue needs specific domain fixtures/data: {e}")
             return
@@ -89,7 +89,7 @@ class TestDeadLetterQueueManager:
         """Smoke test for DeadLetterQueueManager.get_item using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_item(item_id="test_value")
+            await instance.get_item(item_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_item needs specific domain fixtures/data: {e}")
             return
@@ -100,7 +100,7 @@ class TestDeadLetterQueueManager:
         """Smoke test for DeadLetterQueueManager.list_items using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_items(limit=1, offset=1, event_type="test_value")
+            await instance.list_items(limit=1, offset=1, event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_items needs specific domain fixtures/data: {e}")
             return

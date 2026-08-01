@@ -70,7 +70,7 @@ class TestSeedDataLoader:
         """Smoke test for SeedDataLoader.load_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_all(dry_run=True, force=True)
+            await instance.load_all(dry_run=True, force=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_all needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestSeedDataLoader:
         """Smoke test for SeedDataLoader.load_single_file using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_single_file(file_name="test_value", dry_run=True)
+            await instance.load_single_file(file_name="test_value", dry_run=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_single_file needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestSeedDataLoader:
         """Smoke test for SeedDataLoader.reset_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reset_stats()
+            await instance.reset_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reset_stats needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestSeedDataLoader:
 async def test_get_seed_loader_smoke():
     """Smoke test for module-level function get_seed_loader."""
     try:
-        result = await get_seed_loader()
+        await get_seed_loader()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_seed_loader needs specific input data: {e}")
         return
@@ -113,7 +113,7 @@ async def test_get_seed_loader_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return

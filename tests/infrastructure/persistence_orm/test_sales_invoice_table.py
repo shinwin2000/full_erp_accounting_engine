@@ -26,27 +26,27 @@ class TestSalesInvoiceTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            invoice_number="test_value",
-            invoice_date=date.today(),
-            due_date=date.today(),
-            customer_id=MagicMock(),
-            sales_order_id=MagicMock(),
-            total_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            discount_amount=Decimal("100.00"),
-            currency="test_value",
-            status="test_value",
-            description="test_value",
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            payment_run_id=MagicMock(),
-            created_by=MagicMock(),
-            customer=MagicMock(),
-            sales_order=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'invoice_number': "test_value",
+            'invoice_date': date.today(),
+            'due_date': date.today(),
+            'customer_id': MagicMock(),
+            'sales_order_id': MagicMock(),
+            'total_amount': Decimal("100.00"),
+            'paid_amount': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'discount_amount': Decimal("100.00"),
+            'currency': "test_value",
+            'status': "test_value",
+            'description': "test_value",
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'payment_run_id': MagicMock(),
+            'created_by': MagicMock(),
+            'customer': MagicMock(),
+            'sales_order': MagicMock(),
+        }
         try:
             instance = SalesInvoiceTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -72,7 +72,7 @@ class TestTamperDetectionResult:
         """Smoke test for TamperDetectionResult.add_anomaly using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_anomaly(anomaly_type="test_value", stream_name="test_value", sequence=1, details={}, severity="test_value")
+            instance.add_anomaly(anomaly_type="test_value", stream_name="test_value", sequence=1, details={}, severity="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_anomaly needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestTamperDetectionResult:
         """Smoke test for TamperDetectionResult.finish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.finish()
+            instance.finish()
         except (Exception, SystemExit) as e:
             pytest.skip(f"finish needs specific domain fixtures/data: {e}")
             return
@@ -94,7 +94,7 @@ class TestTamperDetectionResult:
         """Smoke test for TamperDetectionResult.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestTamperDetectionScanner:
         """Smoke test for TamperDetectionScanner.scan_full using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.scan_full()
+            await instance.scan_full()
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_full needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestTamperDetectionScanner:
         """Smoke test for TamperDetectionScanner.scan_incremental using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.scan_incremental(since=datetime.now(UTC))
+            await instance.scan_incremental(since=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_incremental needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestTamperDetectionScanner:
         """Smoke test for TamperDetectionScanner.scan_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.scan_stream(stream_name="test_value")
+            await instance.scan_stream(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_stream needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestTamperDetectionScanner:
         """Smoke test for TamperDetectionScanner.get_last_scan_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_scan_result(scan_type="test_value")
+            await instance.get_last_scan_result(scan_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_scan_result needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestTamperDetectionScanner:
 def test_get_tamper_scanner_smoke():
     """Smoke test for module-level function get_tamper_scanner."""
     try:
-        result = get_tamper_scanner(event_store=MagicMock())
+        get_tamper_scanner(event_store=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_tamper_scanner needs specific input data: {e}")
         return

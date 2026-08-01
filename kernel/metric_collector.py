@@ -387,7 +387,8 @@ class MetricCollector(BaseMetricCollector):
             for key, value in self._gauges.items():
                 name, labels = self._parse_key(key)
                 result["gauges"][key] = {"value": value, "name": name, "labels": labels}
-            for key, values in self._histograms.items():
+            # Perbaikan B007: iterasi langsung atas key, tidak pakai values
+            for key in self._histograms:
                 name, labels = self._parse_key(key)
                 stats = self.get_histogram_stats(name, labels)
                 result["histograms"][key] = {"stats": stats, "name": name, "labels": labels}
@@ -408,7 +409,8 @@ class MetricCollector(BaseMetricCollector):
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 lines.append(f"{name}{label_str} {value}")
-            for key, values in self._histograms.items():
+            # Perbaikan B007: iterasi langsung atas key
+            for key in self._histograms:
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 stats = self.get_histogram_stats(name, labels)
@@ -440,11 +442,13 @@ class MetricCollector(BaseMetricCollector):
 
     def get_counter_names(self) -> list[str]:
         with self._lock_internal:
-            return list(set(self._parse_key(k)[0] for k in self._counters.keys()))
+            # Perbaikan C401 + SIM118: gunakan set comprehension dan iterasi langsung
+            return list({self._parse_key(k)[0] for k in self._counters})
 
     def get_gauge_names(self) -> list[str]:
         with self._lock_internal:
-            return list(set(self._parse_key(k)[0] for k in self._gauges.keys()))
+            # Perbaikan C401 + SIM118
+            return list({self._parse_key(k)[0] for k in self._gauges})
 
     def clear(self) -> None:
         self.reset_all()

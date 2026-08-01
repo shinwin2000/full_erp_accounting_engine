@@ -26,19 +26,19 @@ class TestAssetCategorySingularTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            category_code="test_value",
-            category_name="test_value",
-            useful_life_years=1,
-            depreciation_method="test_value",
-            salvage_value_percent=Decimal("100.00"),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'category_code': "test_value",
+            'category_name': "test_value",
+            'useful_life_years': 1,
+            'depreciation_method': "test_value",
+            'salvage_value_percent': Decimal("100.00"),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_by': uuid4(),
+        }
         try:
             instance = AssetCategorySingularTable(**kwargs)
         except (Exception, SystemExit) as e:

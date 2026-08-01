@@ -26,28 +26,28 @@ class TestInventoryMovementTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            movement_number="test_value",
-            movement_type="test_value",
-            item_id=MagicMock(),
-            quantity=Decimal("100.00"),
-            uom="test_value",
-            unit_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            currency="test_value",
-            movement_date=date.today(),
-            reference_type="test_value",
-            reference_id=MagicMock(),
-            warehouse_id=MagicMock(),
-            to_warehouse_id=MagicMock(),
-            batch_number="test_value",
-            expiry_date=date.today(),
-            notes="test_value",
-            created_by=MagicMock(),
-            from_warehouse=MagicMock(),
-            to_warehouse=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'movement_number': "test_value",
+            'movement_type': "test_value",
+            'item_id': MagicMock(),
+            'quantity': Decimal("100.00"),
+            'uom': "test_value",
+            'unit_cost': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'currency': "test_value",
+            'movement_date': date.today(),
+            'reference_type': "test_value",
+            'reference_id': MagicMock(),
+            'warehouse_id': MagicMock(),
+            'to_warehouse_id': MagicMock(),
+            'batch_number': "test_value",
+            'expiry_date': date.today(),
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'from_warehouse': MagicMock(),
+            'to_warehouse': MagicMock(),
+        }
         try:
             instance = InventoryMovementTable(**kwargs)
         except (Exception, SystemExit) as e:

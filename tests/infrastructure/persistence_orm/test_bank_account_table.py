@@ -27,27 +27,27 @@ class TestBankAccountTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            account_number="test_value",
-            bank_name="test_value",
-            bank_code="test_value",
-            account_name="test_value",
-            currency_code="test_value",
-            account_type="test_value",
-            status="test_value",
-            is_active=True,
-            is_default=True,
-            current_balance=Decimal("100.00"),
-            available_balance=Decimal("100.00"),
-            opening_balance=Decimal("100.00"),
-            opening_balance_date=date.today(),
-            gl_account_id=MagicMock(),
-            last_reconciliation_date=date.today(),
-            created_by=MagicMock(),
-            transactions=[MagicMock()],
-            reconciliations=[MagicMock()],
-        )
+        kwargs = {
+            'id': uuid4(),
+            'account_number': "test_value",
+            'bank_name': "test_value",
+            'bank_code': "test_value",
+            'account_name': "test_value",
+            'currency_code': "test_value",
+            'account_type': "test_value",
+            'status': "test_value",
+            'is_active': True,
+            'is_default': True,
+            'current_balance': Decimal("100.00"),
+            'available_balance': Decimal("100.00"),
+            'opening_balance': Decimal("100.00"),
+            'opening_balance_date': date.today(),
+            'gl_account_id': MagicMock(),
+            'last_reconciliation_date': date.today(),
+            'created_by': MagicMock(),
+            'transactions': [MagicMock()],
+            'reconciliations': [MagicMock()],
+        }
         try:
             instance = BankAccountTable(**kwargs)
         except (Exception, SystemExit) as e:

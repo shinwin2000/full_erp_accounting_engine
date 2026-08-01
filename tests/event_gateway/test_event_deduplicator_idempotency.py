@@ -69,7 +69,7 @@ class TestEventDeduplicator:
         """Smoke test for EventDeduplicator.is_duplicate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_duplicate(event_id=uuid4(), event_type="test_value", aggregate_id=uuid4(), payload={})
+            await instance.is_duplicate(event_id=uuid4(), event_type="test_value", aggregate_id=uuid4(), payload={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_duplicate needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestEventDeduplicator:
         """Smoke test for EventDeduplicator.mark_processed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.mark_processed(event_id=uuid4(), event_type="test_value", aggregate_id=uuid4(), payload={}, ttl_seconds=1)
+            await instance.mark_processed(event_id=uuid4(), event_type="test_value", aggregate_id=uuid4(), payload={}, ttl_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"mark_processed needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestEventDeduplicator:
         """Smoke test for EventDeduplicator.is_idempotent_operation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_idempotent_operation(operation_id="test_value", ttl_seconds=1)
+            await instance.is_idempotent_operation(operation_id="test_value", ttl_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_idempotent_operation needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestEventDeduplicator:
         """Smoke test for EventDeduplicator.get_event_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_event_status(event_id=uuid4())
+            await instance.get_event_status(event_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_event_status needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestEventDeduplicator:
 def test_idempotent_smoke():
     """Smoke test for module-level function idempotent."""
     try:
-        result = idempotent(key_prefix="test_value", ttl_seconds=1)
+        idempotent(key_prefix="test_value", ttl_seconds=1)
     except (Exception, SystemExit) as e:
         pytest.skip(f"idempotent needs specific input data: {e}")
         return

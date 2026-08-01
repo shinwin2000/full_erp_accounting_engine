@@ -31,7 +31,7 @@ class TestAppendOnlyEventStore:
         """Smoke test for AppendOnlyEventStore.append_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append_stream(stream_name="test_value", events=[{}])
+            await instance.append_stream(stream_name="test_value", events=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"append_stream needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestAppendOnlyEventStore:
         """Smoke test for AppendOnlyEventStore.load_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_stream(stream_name="test_value")
+            await instance.load_stream(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_stream needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestAppendOnlyEventStore:
         """Smoke test for AppendOnlyEventStore.update_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_event(stream="test_value", position=1, new_data={})
+            await instance.update_event(stream="test_value", position=1, new_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_event needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestAppendOnlyEventStore:
         """Smoke test for AppendOnlyEventStore.save_events using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_events(events=[{}])
+            await instance.save_events(events=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_events needs specific domain fixtures/data: {e}")
             return

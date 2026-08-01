@@ -34,15 +34,15 @@ class TestConsolidationRequest:
     """Tests for the ConsolidationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_end_date=date.today(),
-            currency_code="test_value",
-            eliminate_intercompany=True,
-            translate_foreign_currency=True,
-            calculate_nci=True,
-            group_legal_entity_id=uuid4(),
-            include_entities=[uuid4()],
-        )
+        return {
+            "period_end_date": date.today(),
+            "currency_code": "test_value",
+            "eliminate_intercompany": True,
+            "translate_foreign_currency": True,
+            "calculate_nci": True,
+            "group_legal_entity_id": uuid4(),
+            "include_entities": [uuid4()],
+        }
 
     def test_construction_success(self):
         """ConsolidationRequest can be constructed with valid field values."""
@@ -60,13 +60,13 @@ class TestConsolidationRow:
     """Tests for the ConsolidationRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            elimination_entries=[Decimal("100.00")],
-            consolidated_balance=Decimal("100.00"),
-            entity_balances={},
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "elimination_entries": [Decimal("100.00")],
+            "consolidated_balance": Decimal("100.00"),
+            "entity_balances": {},
+        }
 
     def test_construction_success(self):
         """ConsolidationRow can be constructed with valid field values."""
@@ -84,18 +84,18 @@ class TestConsolidationResponse:
     """Tests for the ConsolidationResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            consolidation_id=uuid4(),
-            group_entity_id=uuid4(),
-            period_end_date=date.today(),
-            total_eliminations=Decimal("100.00"),
-            total_nci=Decimal("100.00"),
-            rows=[MagicMock()],
-            is_balanced=True,
-            currency="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "consolidation_id": uuid4(),
+            "group_entity_id": uuid4(),
+            "period_end_date": date.today(),
+            "total_eliminations": Decimal("100.00"),
+            "total_nci": Decimal("100.00"),
+            "rows": [MagicMock()],
+            "is_balanced": True,
+            "currency": "test_value",
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ConsolidationResponse can be constructed with valid field values."""
@@ -113,15 +113,15 @@ class TestIntercompanyBalance:
     """Tests for the IntercompanyBalance value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            from_entity_id=uuid4(),
-            to_entity_id=uuid4(),
-            account_code="test_value",
-            amount=Decimal("100.00"),
-            transaction_date=date.today(),
-            currency="test_value",
-            is_matched=True,
-        )
+        return {
+            "from_entity_id": uuid4(),
+            "to_entity_id": uuid4(),
+            "account_code": "test_value",
+            "amount": Decimal("100.00"),
+            "transaction_date": date.today(),
+            "currency": "test_value",
+            "is_matched": True,
+        }
 
     def test_construction_success(self):
         """IntercompanyBalance can be constructed with valid field values."""
@@ -139,13 +139,13 @@ class TestIntercompanyReconciliationResponse:
     """Tests for the IntercompanyReconciliationResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            group_entity_id=uuid4(),
-            as_of_date=date.today(),
-            unmatched_balances=[MagicMock()],
-            total_unmatched=Decimal("100.00"),
-            reconciliation_status="test_value",
-        )
+        return {
+            "group_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "unmatched_balances": [MagicMock()],
+            "total_unmatched": Decimal("100.00"),
+            "reconciliation_status": "test_value",
+        }
 
     def test_construction_success(self):
         """IntercompanyReconciliationResponse can be constructed with valid field values."""
@@ -163,16 +163,16 @@ class TestLegalEntityRequest:
     """Tests for the LegalEntityRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            name="test_value",
-            code="test_value",
-            parent_id=uuid4(),
-            functional_currency="test_value",
-            country="test_value",
-            ownership_percentage=Decimal("100.00"),
-            is_active=True,
-        )
+        return {
+            "id": uuid4(),
+            "name": "test_value",
+            "code": "test_value",
+            "parent_id": uuid4(),
+            "functional_currency": "test_value",
+            "country": "test_value",
+            "ownership_percentage": Decimal("100.00"),
+            "is_active": True,
+        }
 
     def test_construction_success(self):
         """LegalEntityRequest can be constructed with valid field values."""
@@ -269,7 +269,7 @@ class TestConsolidationService:
         """Smoke test for ConsolidationService.create_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_legal_entity(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_legal_entity(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -280,7 +280,7 @@ class TestConsolidationService:
         """Smoke test for ConsolidationService.update_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_legal_entity(entity_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.update_legal_entity(entity_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -291,7 +291,7 @@ class TestConsolidationService:
         """Smoke test for ConsolidationService.deactivate_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.deactivate_legal_entity(entity_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.deactivate_legal_entity(entity_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"deactivate_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -302,7 +302,7 @@ class TestConsolidationService:
         """Smoke test for ConsolidationService.consolidate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.consolidate(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.consolidate(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"consolidate needs specific domain fixtures/data: {e}")
             return
@@ -313,7 +313,7 @@ class TestConsolidationService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -323,7 +323,7 @@ def test_audit_smoke():
 async def test_create_consolidation_service_smoke():
     """Smoke test for module-level function create_consolidation_service."""
     try:
-        result = await create_consolidation_service(consolidation_repo=MagicMock(), legal_entity_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_consolidation_service(consolidation_repo=MagicMock(), legal_entity_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_consolidation_service needs specific input data: {e}")
         return

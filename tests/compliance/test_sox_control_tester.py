@@ -748,7 +748,7 @@ class TestSoxControlTester:
 
     def test_to_json_with_file(self, tester, tmp_path):
         file_path = tmp_path / "sox_report.json"
-        json_str = tester.to_json(str(file_path))
+        tester.to_json(str(file_path))
         assert file_path.exists()
         data = json.loads(file_path.read_text())
         assert data["company"] == "Test Corp"

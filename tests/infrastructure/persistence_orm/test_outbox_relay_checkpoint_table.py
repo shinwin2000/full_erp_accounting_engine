@@ -25,13 +25,13 @@ class TestOutboxRelayCheckpointTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            consumer_group="test_value",
-            last_processed_id=uuid4(),
-            last_processed_at=datetime.now(UTC),
-            processed_by="test_value",
-        )
+        kwargs = {
+            'id': uuid4(),
+            'consumer_group': "test_value",
+            'last_processed_id': uuid4(),
+            'last_processed_at': datetime.now(UTC),
+            'processed_by': "test_value",
+        }
         try:
             instance = OutboxRelayCheckpointTable(**kwargs)
         except (Exception, SystemExit) as e:

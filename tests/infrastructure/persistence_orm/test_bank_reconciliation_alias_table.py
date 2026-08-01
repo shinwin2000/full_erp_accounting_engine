@@ -28,22 +28,22 @@ class TestBankReconciliationAliasTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            bank_account_id=uuid4(),
-            reconciliation_date=date.today(),
-            statement_balance=Decimal("100.00"),
-            book_balance=Decimal("100.00"),
-            difference=Decimal("100.00"),
-            is_reconciled=True,
-            reconciled_by=uuid4(),
-            reconciled_at=datetime.now(UTC),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'bank_account_id': uuid4(),
+            'reconciliation_date': date.today(),
+            'statement_balance': Decimal("100.00"),
+            'book_balance': Decimal("100.00"),
+            'difference': Decimal("100.00"),
+            'is_reconciled': True,
+            'reconciled_by': uuid4(),
+            'reconciled_at': datetime.now(UTC),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_by': uuid4(),
+        }
         try:
             instance = BankReconciliationAliasTable(**kwargs)
         except (Exception, SystemExit) as e:

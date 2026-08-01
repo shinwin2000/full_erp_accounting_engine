@@ -27,18 +27,18 @@ class TestCashBookTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            currency_code="test_value",
-            current_balance=Decimal("100.00"),
-            opening_balance=Decimal("100.00"),
-            opening_balance_date=date.today(),
-            gl_cash_account_id=MagicMock(),
-            gl_bank_account_id=MagicMock(),
-            last_updated=datetime.now(UTC),
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'currency_code': "test_value",
+            'current_balance': Decimal("100.00"),
+            'opening_balance': Decimal("100.00"),
+            'opening_balance_date': date.today(),
+            'gl_cash_account_id': MagicMock(),
+            'gl_bank_account_id': MagicMock(),
+            'last_updated': datetime.now(UTC),
+            'created_by': MagicMock(),
+        }
         try:
             instance = CashBookTable(**kwargs)
         except (Exception, SystemExit) as e:

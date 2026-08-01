@@ -97,24 +97,24 @@ class TestPeriodInfo:
     """Tests for the PeriodInfo value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            fiscal_year=1,
-            period_number=1,
-            period_type=PeriodType.MONTHLY,
-            period_name="test_value",
-            start_date=datetime.now(UTC),
-            end_date=datetime.now(UTC),
-            status=PeriodStatus.OPEN,
-            closed_at=datetime.now(UTC),
-            closed_by="test_value",
-            locked_at=datetime.now(UTC),
-            locked_by="test_value",
-            reopened_at=datetime.now(UTC),
-            reopened_by="test_value",
-            reopen_reason="test_value",
-            reopen_approvals=["test_value"],
-        )
+        return {
+            'period_id': uuid4(),
+            'fiscal_year': 1,
+            'period_number': 1,
+            'period_type': PeriodType.MONTHLY,
+            'period_name': "test_value",
+            'start_date': datetime.now(UTC),
+            'end_date': datetime.now(UTC),
+            'status': PeriodStatus.OPEN,
+            'closed_at': datetime.now(UTC),
+            'closed_by': "test_value",
+            'locked_at': datetime.now(UTC),
+            'locked_by': "test_value",
+            'reopened_at': datetime.now(UTC),
+            'reopened_by': "test_value",
+            'reopen_reason': "test_value",
+            'reopen_approvals': ["test_value"],
+        }
 
     def test_construction_success(self):
         """PeriodInfo can be constructed with valid field values."""
@@ -132,15 +132,15 @@ class TestClosePeriodRequest:
     """Tests for the ClosePeriodRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-            closed_by="test_value",
-            adjustment_journal_id=uuid4(),
-            force_close=True,
-            notes="test_value",
-            idempotency_key="test_value",
-        )
+        return {
+            'period_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'closed_by': "test_value",
+            'adjustment_journal_id': uuid4(),
+            'force_close': True,
+            'notes': "test_value",
+            'idempotency_key': "test_value",
+        }
 
     def test_construction_success(self):
         """ClosePeriodRequest can be constructed with valid field values."""
@@ -158,12 +158,12 @@ class TestLockPeriodRequest:
     """Tests for the LockPeriodRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-            locked_by="test_value",
-            notes="test_value",
-        )
+        return {
+            'period_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'locked_by': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """LockPeriodRequest can be constructed with valid field values."""
@@ -181,16 +181,16 @@ class TestReopenPeriodRequest:
     """Tests for the ReopenPeriodRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-            reopened_by="test_value",
-            reason=ReopenReason.CORRECTION,
-            reason_description="test_value",
-            approved_by=["test_value"],
-            notes="test_value",
-            idempotency_key="test_value",
-        )
+        return {
+            'period_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'reopened_by': "test_value",
+            'reason': ReopenReason.CORRECTION,
+            'reason_description': "test_value",
+            'approved_by': ["test_value"],
+            'notes': "test_value",
+            'idempotency_key': "test_value",
+        }
 
     def test_construction_success(self):
         """ReopenPeriodRequest can be constructed with valid field values."""
@@ -208,12 +208,12 @@ class TestArchivePeriodRequest:
     """Tests for the ArchivePeriodRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-            archived_by="test_value",
-            notes="test_value",
-        )
+        return {
+            'period_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'archived_by': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """ArchivePeriodRequest can be constructed with valid field values."""
@@ -231,10 +231,10 @@ class TestGetPeriodRequest:
     """Tests for the GetPeriodRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            'period_id': uuid4(),
+            'legal_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """GetPeriodRequest can be constructed with valid field values."""
@@ -252,10 +252,10 @@ class TestGetPeriodByDateRequest:
     """Tests for the GetPeriodByDateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            date=datetime.now(UTC),
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'date': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """GetPeriodByDateRequest can be constructed with valid field values."""
@@ -273,16 +273,16 @@ class TestListPeriodsRequest:
     """Tests for the ListPeriodsRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            fiscal_year=1,
-            period_type=PeriodType.MONTHLY,
-            status=PeriodStatus.OPEN,
-            from_date=datetime.now(UTC),
-            to_date=datetime.now(UTC),
-            limit=1,
-            offset=1,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'fiscal_year': 1,
+            'period_type': PeriodType.MONTHLY,
+            'status': PeriodStatus.OPEN,
+            'from_date': datetime.now(UTC),
+            'to_date': datetime.now(UTC),
+            'limit': 1,
+            'offset': 1,
+        }
 
     def test_construction_success(self):
         """ListPeriodsRequest can be constructed with valid field values."""
@@ -300,10 +300,10 @@ class TestGetCurrentPeriodRequest:
     """Tests for the GetCurrentPeriodRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=datetime.now(UTC),
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'as_of_date': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """GetCurrentPeriodRequest can be constructed with valid field values."""
@@ -321,10 +321,10 @@ class TestVerifyPeriodReadinessRequest:
     """Tests for the VerifyPeriodReadinessRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            'period_id': uuid4(),
+            'legal_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """VerifyPeriodReadinessRequest can be constructed with valid field values."""
@@ -342,19 +342,19 @@ class TestPeriodReadinessReport:
     """Tests for the PeriodReadinessReport value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            period_name="test_value",
-            is_ready=True,
-            unposted_journals_count=1,
-            unposted_journals=[{}],
-            unreconciled_transactions_count=1,
-            unbalanced_accounts=[{}],
-            pending_approvals_count=1,
-            warnings=["test_value"],
-            errors=["test_value"],
-            verified_at=datetime.now(UTC),
-        )
+        return {
+            'period_id': uuid4(),
+            'period_name': "test_value",
+            'is_ready': True,
+            'unposted_journals_count': 1,
+            'unposted_journals': [{}],
+            'unreconciled_transactions_count': 1,
+            'unbalanced_accounts': [{}],
+            'pending_approvals_count': 1,
+            'warnings': ["test_value"],
+            'errors': ["test_value"],
+            'verified_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PeriodReadinessReport can be constructed with valid field values."""
@@ -372,17 +372,17 @@ class TestPeriodCloseSummary:
     """Tests for the PeriodCloseSummary value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            period_name="test_value",
-            closed_at=datetime.now(UTC),
-            closed_by="test_value",
-            closing_journal_id=uuid4(),
-            closing_journal_number="test_value",
-            adjustment_entries_count=1,
-            previous_period_status="test_value",
-            next_period_status="test_value",
-        )
+        return {
+            'period_id': uuid4(),
+            'period_name': "test_value",
+            'closed_at': datetime.now(UTC),
+            'closed_by': "test_value",
+            'closing_journal_id': uuid4(),
+            'closing_journal_number': "test_value",
+            'adjustment_entries_count': 1,
+            'previous_period_status': "test_value",
+            'next_period_status': "test_value",
+        }
 
     def test_construction_success(self):
         """PeriodCloseSummary can be constructed with valid field values."""
@@ -415,17 +415,17 @@ class TestPeriodCloseResponseDTO:
     """Tests for the PeriodCloseResponseDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            period_year=1,
-            period_month=1,
-            started_by=uuid4(),
-            started_at=datetime.now(UTC),
-            status=PeriodCloseStatusDTO.PENDING,
-            completed_at=datetime.now(UTC),
-            steps_completed=["test_value"],
-            error_message="test_value",
-        )
+        return {
+            'id': uuid4(),
+            'period_year': 1,
+            'period_month': 1,
+            'started_by': uuid4(),
+            'started_at': datetime.now(UTC),
+            'status': PeriodCloseStatusDTO.PENDING,
+            'completed_at': datetime.now(UTC),
+            'steps_completed': ["test_value"],
+            'error_message': "test_value",
+        }
 
     def test_construction_success(self):
         """PeriodCloseResponseDTO can be constructed with valid field values."""
@@ -457,8 +457,8 @@ class TestPeriodCloseRequestFactory:
     def test_create_close_request_smoke(self):
         """Smoke test for PeriodCloseRequestFactory.create_close_request using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PeriodCloseRequestFactory.create_close_request(period_id=uuid4(), legal_entity_id=uuid4(), closed_by="test_value", adjustment_journal_id=uuid4(), notes="test_value")
+            self._build_instance()
+            PeriodCloseRequestFactory.create_close_request(period_id=uuid4(), legal_entity_id=uuid4(), closed_by="test_value", adjustment_journal_id=uuid4(), notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_close_request needs specific domain fixtures/data: {e}")
             return
@@ -468,8 +468,8 @@ class TestPeriodCloseRequestFactory:
     def test_create_reopen_request_smoke(self):
         """Smoke test for PeriodCloseRequestFactory.create_reopen_request using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PeriodCloseRequestFactory.create_reopen_request(period_id=uuid4(), legal_entity_id=uuid4(), reopened_by="test_value", reason=ReopenReason.CORRECTION, reason_description="test_value", approved_by=["test_value"], notes="test_value")
+            self._build_instance()
+            PeriodCloseRequestFactory.create_reopen_request(period_id=uuid4(), legal_entity_id=uuid4(), reopened_by="test_value", reason=ReopenReason.CORRECTION, reason_description="test_value", approved_by=["test_value"], notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_reopen_request needs specific domain fixtures/data: {e}")
             return
@@ -479,8 +479,8 @@ class TestPeriodCloseRequestFactory:
     def test_create_lock_request_smoke(self):
         """Smoke test for PeriodCloseRequestFactory.create_lock_request using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PeriodCloseRequestFactory.create_lock_request(period_id=uuid4(), legal_entity_id=uuid4(), locked_by="test_value", notes="test_value")
+            self._build_instance()
+            PeriodCloseRequestFactory.create_lock_request(period_id=uuid4(), legal_entity_id=uuid4(), locked_by="test_value", notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_lock_request needs specific domain fixtures/data: {e}")
             return
@@ -490,8 +490,8 @@ class TestPeriodCloseRequestFactory:
     def test_create_archive_request_smoke(self):
         """Smoke test for PeriodCloseRequestFactory.create_archive_request using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PeriodCloseRequestFactory.create_archive_request(period_id=uuid4(), legal_entity_id=uuid4(), archived_by="test_value", notes="test_value")
+            self._build_instance()
+            PeriodCloseRequestFactory.create_archive_request(period_id=uuid4(), legal_entity_id=uuid4(), archived_by="test_value", notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_archive_request needs specific domain fixtures/data: {e}")
             return

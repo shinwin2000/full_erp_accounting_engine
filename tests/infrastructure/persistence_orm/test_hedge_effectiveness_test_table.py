@@ -29,18 +29,18 @@ class TestHedgeEffectivenessTestTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            hedge_instrument_id=uuid4(),
-            test_date=date.today(),
-            prospective_range_low=Decimal("100.00"),
-            prospective_range_high=Decimal("100.00"),
-            retrospective_result=Decimal("100.00"),
-            result="test_value",
-            ineffectiveness_amount=Decimal("100.00"),
-            notes="test_value",
-            performed_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'hedge_instrument_id': uuid4(),
+            'test_date': date.today(),
+            'prospective_range_low': Decimal("100.00"),
+            'prospective_range_high': Decimal("100.00"),
+            'retrospective_result': Decimal("100.00"),
+            'result': "test_value",
+            'ineffectiveness_amount': Decimal("100.00"),
+            'notes': "test_value",
+            'performed_by': MagicMock(),
+        }
         try:
             instance = HedgeEffectivenessTestTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -40,7 +40,7 @@ class TestBase:
         """Smoke test for Base.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict(exclude=MagicMock())
+            instance.to_dict(exclude=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -51,7 +51,7 @@ class TestBase:
         """Smoke test for Base.to_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_json(exclude=MagicMock())
+            instance.to_json(exclude=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_json needs specific domain fixtures/data: {e}")
             return
@@ -61,8 +61,8 @@ class TestBase:
     def test_from_dict_smoke(self):
         """Smoke test for Base.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = Base.from_dict(data={})
+            self._build_instance()
+            Base.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestSoftDeleteMixin:
         """Smoke test for SoftDeleteMixin.soft_delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.soft_delete()
+            instance.soft_delete()
         except (Exception, SystemExit) as e:
             pytest.skip(f"soft_delete needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestSoftDeleteMixin:
         """Smoke test for SoftDeleteMixin.is_deleted using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_deleted()
+            instance.is_deleted()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_deleted needs specific domain fixtures/data: {e}")
             return
@@ -159,7 +159,7 @@ class TestVersionMixin:
         """Smoke test for VersionMixin.increment_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.increment_version()
+            instance.increment_version()
         except (Exception, SystemExit) as e:
             pytest.skip(f"increment_version needs specific domain fixtures/data: {e}")
             return

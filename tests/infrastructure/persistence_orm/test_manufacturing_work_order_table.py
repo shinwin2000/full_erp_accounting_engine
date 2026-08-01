@@ -29,31 +29,31 @@ class TestManufacturingWorkOrderTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            wo_number="test_value",
-            product_id=uuid4(),
-            product_code="test_value",
-            product_name="test_value",
-            bill_of_materials_id=MagicMock(),
-            quantity=Decimal("100.00"),
-            completed_quantity=Decimal("100.00"),
-            rejected_quantity=Decimal("100.00"),
-            planned_start_date=date.today(),
-            planned_end_date=date.today(),
-            actual_start_date=date.today(),
-            actual_completion_date=date.today(),
-            status="test_value",
-            priority="test_value",
-            total_material_cost=Decimal("100.00"),
-            total_labor_cost=Decimal("100.00"),
-            total_overhead_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            notes="test_value",
-            created_by=MagicMock(),
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'wo_number': "test_value",
+            'product_id': uuid4(),
+            'product_code': "test_value",
+            'product_name': "test_value",
+            'bill_of_materials_id': MagicMock(),
+            'quantity': Decimal("100.00"),
+            'completed_quantity': Decimal("100.00"),
+            'rejected_quantity': Decimal("100.00"),
+            'planned_start_date': date.today(),
+            'planned_end_date': date.today(),
+            'actual_start_date': date.today(),
+            'actual_completion_date': date.today(),
+            'status': "test_value",
+            'priority': "test_value",
+            'total_material_cost': Decimal("100.00"),
+            'total_labor_cost': Decimal("100.00"),
+            'total_overhead_cost': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+        }
         try:
             instance = ManufacturingWorkOrderTable(**kwargs)
         except (Exception, SystemExit) as e:

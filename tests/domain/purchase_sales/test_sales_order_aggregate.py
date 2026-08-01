@@ -264,7 +264,6 @@ class TestSalesOrderAggregate:
         """Adding SO with duplicate SO number raises ValueError."""
         agg = empty_aggregate.add_sales_order(sales_order_entity)
         # another_sales_order_entity has a different number; change to duplicate.
-        dup_so = another_sales_order_entity
         # Need to mutate so_number; we'll create a new one with same number.
         # Since frozen, we create a copy with new number.
         # Assuming we have a method to change number; we'll use a simple hack:
@@ -303,7 +302,6 @@ class TestSalesOrderAggregate:
     def test_update_sales_order(self, aggregate_with_so, sales_order_entity):
         """update_sales_order replaces an existing SO."""
         # Modify the SO (e.g., change status)
-        updated_so = sales_order_entity
         # We'll create a new one with changed status (if possible)
         # For simplicity, we'll just use the same object (mutation not allowed if frozen).
         # In practice, we'd have a method to create a new SO with new status.
@@ -390,7 +388,7 @@ class TestSalesOrderAggregate:
         assert len(aggregate_with_so.get_overdue_sales_orders()) == 0
         # Mock the is_overdue method to return True for our SO.
         # Since we can't easily mock on a real object, we'll patch the method.
-        with pytest.MonkeyPatch.context() as mp:
+        with pytest.MonkeyPatch.context():
             # We'll patch the is_overdue method of SalesOrderEntity to return True.
             # But we need to patch the instance, not class.
             # Instead, we can create a new SO that is overdue.

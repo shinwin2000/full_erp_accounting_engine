@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_user
@@ -351,10 +351,10 @@ class BaseImmutabilityEnforcer(ABC):
 # ============================================================================
 
 class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
-    IMMUTABLE_STATUSES = {JournalStatus.POSTED, JournalStatus.REVERSED, JournalStatus.ARCHIVED}
-    MUTABLE_STATUSES = {JournalStatus.DRAFT, JournalStatus.SUBMITTED, JournalStatus.APPROVED}
-    ALLOWED_OPERATIONS_ON_IMMUTABLE = {"READ", "SELECT", "GET", "VIEW", "EXPORT"}
-    CORRECTION_OPERATIONS = {"REVERSE", "CORRECT", "ADJUST", "AMEND"}
+    IMMUTABLE_STATUSES: ClassVar[set[JournalStatus]] = {JournalStatus.POSTED, JournalStatus.REVERSED, JournalStatus.ARCHIVED}
+    MUTABLE_STATUSES: ClassVar[set[JournalStatus]] = {JournalStatus.DRAFT, JournalStatus.SUBMITTED, JournalStatus.APPROVED}
+    ALLOWED_OPERATIONS_ON_IMMUTABLE: ClassVar[set[str]] = {"READ", "SELECT", "GET", "VIEW", "EXPORT"}
+    CORRECTION_OPERATIONS: ClassVar[set[str]] = {"REVERSE", "CORRECT", "ADJUST", "AMEND"}
 
     def __init__(self, journal_repository: Any | None = None):
         self._journal_repo = journal_repository or _FallbackJournalRepository()

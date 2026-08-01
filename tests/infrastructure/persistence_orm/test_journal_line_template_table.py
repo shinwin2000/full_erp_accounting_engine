@@ -24,9 +24,9 @@ class TestJournalLineTemplateTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+        }
         try:
             instance = JournalLineTemplateTable(**kwargs)
         except (Exception, SystemExit) as e:

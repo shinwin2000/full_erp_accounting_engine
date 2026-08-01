@@ -192,7 +192,7 @@ class TestEliminationEntry:
         result = entry.validate()
         assert result["is_valid"] is True
 
-        entry_invalid = EliminationEntry(
+        EliminationEntry(
             id=uuid4(),
             account_code="4001",
             debit=Decimal("0"),

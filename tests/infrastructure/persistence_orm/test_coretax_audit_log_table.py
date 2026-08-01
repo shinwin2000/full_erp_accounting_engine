@@ -25,23 +25,23 @@ class TestCoretaxAuditLogTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            api_endpoint="test_value",
-            request_payload="test_value",
-            response_payload="test_value",
-            http_status=1,
-            coretax_tracking_id="test_value",
-            duration_ms=1,
-            is_success=True,
-            error_message="test_value",
-            retry_count=1,
-            ip_address="test_value",
-            user_agent="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'api_endpoint': "test_value",
+            'request_payload': "test_value",
+            'response_payload': "test_value",
+            'http_status': 1,
+            'coretax_tracking_id': "test_value",
+            'duration_ms': 1,
+            'is_success': True,
+            'error_message': "test_value",
+            'retry_count': 1,
+            'ip_address': "test_value",
+            'user_agent': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
         try:
             instance = CoretaxAuditLogTable(**kwargs)
         except (Exception, SystemExit) as e:

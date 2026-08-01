@@ -28,8 +28,8 @@ class TestSagaStateTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = SagaStateTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -57,7 +57,7 @@ class TestSQLAlchemySagaStateStoreRepository:
         """Smoke test for SQLAlchemySagaStateStoreRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(saga_type="test_value", saga_id=uuid4(), state={})
+            await instance.save(saga_type="test_value", saga_id=uuid4(), state={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestSQLAlchemySagaStateStoreRepository:
         """Smoke test for SQLAlchemySagaStateStoreRepository.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get(saga_type="test_value", saga_id=uuid4())
+            await instance.get(saga_type="test_value", saga_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return

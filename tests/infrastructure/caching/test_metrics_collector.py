@@ -38,7 +38,7 @@ class TestCacheMetricsCollector:
         """Smoke test for CacheMetricsCollector.collect_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_metrics()
+            await instance.collect_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_metrics needs specific domain fixtures/data: {e}")
             return
@@ -49,7 +49,7 @@ class TestCacheMetricsCollector:
         """Smoke test for CacheMetricsCollector.record_operation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_operation(operation="test_value", duration_seconds=1.5, success=True)
+            await instance.record_operation(operation="test_value", duration_seconds=1.5, success=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_operation needs specific domain fixtures/data: {e}")
             return
@@ -60,7 +60,7 @@ class TestCacheMetricsCollector:
         """Smoke test for CacheMetricsCollector.record_hit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_hit()
+            await instance.record_hit()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_hit needs specific domain fixtures/data: {e}")
             return
@@ -71,7 +71,7 @@ class TestCacheMetricsCollector:
         """Smoke test for CacheMetricsCollector.record_miss using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_miss()
+            await instance.record_miss()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_miss needs specific domain fixtures/data: {e}")
             return
@@ -82,7 +82,7 @@ class TestCacheMetricsCollector:
 async def test_get_cache_metrics_collector_smoke():
     """Smoke test for module-level function get_cache_metrics_collector."""
     try:
-        result = await get_cache_metrics_collector()
+        await get_cache_metrics_collector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_cache_metrics_collector needs specific input data: {e}")
         return
@@ -92,7 +92,7 @@ async def test_get_cache_metrics_collector_smoke():
 async def test_start_cache_metrics_collection_smoke():
     """Smoke test for module-level function start_cache_metrics_collection."""
     try:
-        result = await start_cache_metrics_collection()
+        await start_cache_metrics_collection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_cache_metrics_collection needs specific input data: {e}")
         return
@@ -102,7 +102,7 @@ async def test_start_cache_metrics_collection_smoke():
 async def test_stop_cache_metrics_collection_smoke():
     """Smoke test for module-level function stop_cache_metrics_collection."""
     try:
-        result = await stop_cache_metrics_collection()
+        await stop_cache_metrics_collection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_cache_metrics_collection needs specific input data: {e}")
         return
@@ -112,7 +112,7 @@ async def test_stop_cache_metrics_collection_smoke():
 def test_with_cache_metrics_smoke():
     """Smoke test for module-level function with_cache_metrics."""
     try:
-        result = with_cache_metrics(operation="test_value")
+        with_cache_metrics(operation="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"with_cache_metrics needs specific input data: {e}")
         return

@@ -567,7 +567,7 @@ class TestEncryptionMaster:
 
     def test_add_key_inactive(self, master):
         key_id = "inactive"
-        key = master._add_key(key_id, b"a" * 32, is_active=False)
+        master._add_key(key_id, b"a" * 32, is_active=False)
         assert key_id in master._keys
         assert master._current_key_id != key_id  # active key unchanged
 
@@ -635,7 +635,7 @@ class TestEncryptionMaster:
 
     def test_decrypt_fallback_crypto_unavailable(self):
         with patch('config.encryption_master.CRYPTO_AVAILABLE', False), \
-             patch('config.encryption_master.logger') as mock_log:
+             patch('config.encryption_master.logger'):
             master = EncryptionMaster()
             plain = "test"
             encrypted = master.encrypt(plain)  # uses base64 fallback

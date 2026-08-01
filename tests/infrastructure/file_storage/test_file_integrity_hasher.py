@@ -32,7 +32,7 @@ class TestFileIntegrityHasher:
         """Smoke test for FileIntegrityHasher.compute_hash using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.compute_hash(content=b"test")
+            instance.compute_hash(content=b"test")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_hash needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestFileIntegrityHasher:
         """Smoke test for FileIntegrityHasher.compute_hash_from_file using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.compute_hash_from_file(file_path="test_value")
+            instance.compute_hash_from_file(file_path="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_hash_from_file needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestFileIntegrityHasher:
         """Smoke test for FileIntegrityHasher.compute_hash_from_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.compute_hash_from_stream(stream=MagicMock())
+            instance.compute_hash_from_stream(stream=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_hash_from_stream needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestFileIntegrityHasher:
         """Smoke test for FileIntegrityHasher.verify_hash using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.verify_hash(content=b"test", expected_hash="test_value")
+            instance.verify_hash(content=b"test", expected_hash="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_hash needs specific domain fixtures/data: {e}")
             return

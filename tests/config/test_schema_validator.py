@@ -39,7 +39,7 @@ class TestSchemaValidator:
         """Smoke test for SchemaValidator.validate_config using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_config(config={})
+            instance.validate_config(config={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_config needs specific domain fixtures/data: {e}")
             return
@@ -50,7 +50,7 @@ class TestSchemaValidator:
         """Smoke test for SchemaValidator.validate_single_field using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_single_field(field_path="test_value", value=MagicMock())
+            instance.validate_single_field(field_path="test_value", value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_single_field needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class TestSchemaValidator:
         """Smoke test for SchemaValidator.add_rule using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_rule(field_path="test_value", expected_type=MagicMock(), required=True, validator=(lambda *a, **kw: None))
+            instance.add_rule(field_path="test_value", expected_type=MagicMock(), required=True, validator=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_rule needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestSchemaValidator:
         """Smoke test for SchemaValidator.remove_rule using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.remove_rule(field_path="test_value")
+            instance.remove_rule(field_path="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"remove_rule needs specific domain fixtures/data: {e}")
             return
@@ -99,7 +99,7 @@ class TestPydanticSchemaValidator:
         """Smoke test for PydanticSchemaValidator.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate(config={})
+            instance.validate(config={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class TestPydanticSchemaValidator:
         """Smoke test for PydanticSchemaValidator.validate_self using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_self()
+            instance.validate_self()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_self needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestPydanticSchemaValidator:
         """Smoke test for PydanticSchemaValidator.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -131,8 +131,8 @@ class TestPydanticSchemaValidator:
     def test_from_dict_smoke(self):
         """Smoke test for PydanticSchemaValidator.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PydanticSchemaValidator.from_dict(data={})
+            self._build_instance()
+            PydanticSchemaValidator.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestPydanticSchemaValidator:
 def test_get_schema_validator_smoke():
     """Smoke test for module-level function get_schema_validator."""
     try:
-        result = get_schema_validator()
+        get_schema_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_schema_validator needs specific input data: {e}")
         return
@@ -153,7 +153,7 @@ def test_get_schema_validator_smoke():
 def test_get_pydantic_validator_smoke():
     """Smoke test for module-level function get_pydantic_validator."""
     try:
-        result = get_pydantic_validator()
+        get_pydantic_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_pydantic_validator needs specific input data: {e}")
         return
@@ -163,7 +163,7 @@ def test_get_pydantic_validator_smoke():
 def test_validate_config_smoke():
     """Smoke test for module-level function validate_config."""
     try:
-        result = validate_config(config={})
+        validate_config(config={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"validate_config needs specific input data: {e}")
         return
@@ -173,7 +173,7 @@ def test_validate_config_smoke():
 def test_validate_config_with_pydantic_smoke():
     """Smoke test for module-level function validate_config_with_pydantic."""
     try:
-        result = validate_config_with_pydantic(config={})
+        validate_config_with_pydantic(config={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"validate_config_with_pydantic needs specific input data: {e}")
         return

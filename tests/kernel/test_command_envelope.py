@@ -56,10 +56,10 @@ class TestCommandResult:
     """Tests for the CommandResult value object / model."""
 
     def _build_success_kwargs(self):
-        return dict(success=True, data={"key": "value"}, error=None)
+        return {'success': True, 'data': {"key": "value"}, 'error': None}
 
     def _build_failure_kwargs(self):
-        return dict(success=False, data=None, error="Something went wrong")
+        return {'success': False, 'data': None, 'error': "Something went wrong"}
 
     # --- Construction Tests ---
 
@@ -316,23 +316,23 @@ class TestCommandEnvelope:
 
     def _build_valid_kwargs(self):
         """Build valid kwargs for CommandEnvelope construction."""
-        return dict(
-            command_id=uuid4(),
-            command_type="CreateTransaction",
-            command_data={"amount": 100, "currency": "IDR"},
-            idempotency_key="idem-key-123",
-            user_id="user-123",
-            legal_entity_id=uuid4(),
-            timestamp=datetime.now(UTC),
-            correlation_id="corr-123",
-            causation_id=uuid4(),
-            status=CommandStatus.PENDING,
-            result=None,
-            error=None,
-            execution_time_ms=0.0,
-            retry_count=0,
-            command=MagicMock(),
-        )
+        return {
+            'command_id': uuid4(),
+            'command_type': "CreateTransaction",
+            'command_data': {"amount": 100, "currency": "IDR"},
+            'idempotency_key': "idem-key-123",
+            'user_id': "user-123",
+            'legal_entity_id': uuid4(),
+            'timestamp': datetime.now(UTC),
+            'correlation_id': "corr-123",
+            'causation_id': uuid4(),
+            'status': CommandStatus.PENDING,
+            'result': None,
+            'error': None,
+            'execution_time_ms': 0.0,
+            'retry_count': 0,
+            'command': MagicMock(),
+        }
 
     # --- Construction Tests ---
 

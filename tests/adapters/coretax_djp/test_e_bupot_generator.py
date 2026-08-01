@@ -8,8 +8,9 @@ Covers:
   validate, approve, reject, cancel, void, submit, print, download, get_status,
   get_history, snapshot, clone, to_dict, from_dict, audit_trail, can_transition,
   transition, register_event, get_events, clear_events, calculate_tax, recalculate,
-  attach_evidence, set_coretax_response, set_xml_content, set_pdf_content
-- EBupotGenerator: all async methods with proper mocking
+  attach_evidence, set_coretax_response, set_xml_content, set_pdf_content,
+  _create_xml, _create_pdf, _calculate_hash, _register_event
+- EBupotGenerator: all async methods with proper mocking, including private methods
 - Repository: _FallbackEBupotRepository CRUD and queries
 - Exceptions
 - Module-level get_e_bupot_generator
@@ -19,7 +20,7 @@ All tests use mocked datetime to avoid flakiness.
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -43,19 +44,17 @@ from adapters.coretax_djp.e_bupot_generator import (
 # Fixtures
 # =============================================================================
 
+FIXED_NOW = datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
+
+
 @pytest.fixture(autouse=True)
-def mock_datetime_now(mocker):
+def mock_datetime_now():
     """Mock datetime.now in the module to a fixed time."""
-    fixed = datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
-    mocker.patch("adapters.coretax_djp.e_bupot_generator.datetime", return_value=fixed)
-    # Also patch datetime.now specifically
-    mocker.patch("adapters.coretax_djp.e_bupot_generator.datetime.now", return_value=fixed)
-    return fixed
-
-
-@pytest.fixture
-def fixed_datetime():
-    return datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
+    with patch("adapters.coretax_djp.e_bupot_generator.datetime") as mock_dt:
+        mock_dt.now.return_value = FIXED_NOW
+        mock_dt.utcnow.return_value = FIXED_NOW
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        yield mock_dt
 
 
 @pytest.fixture
@@ -105,18 +104,15 @@ def mock_coretax_client():
 
 @pytest.fixture
 def generator_with_mocks(mocker, mock_coretax_client):
-    # Patch get_coretax_client to return mock
     mocker.patch(
         "adapters.coretax_djp.e_bupot_generator.get_coretax_client",
         return_value=mock_coretax_client,
     )
-    # Patch S3FileStorageAdapter to avoid actual instantiation
     mocker.patch(
         "adapters.coretax_djp.e_bupot_generator.S3FileStorageAdapter",
         return_value=AsyncMock(),
     )
     generator = EBupotGenerator(config={})
-    # Override coretax_client with mock
     generator._coretax_client = mock_coretax_client
     return generator
 
@@ -404,7 +400,6 @@ class TestEBupotMethods:
     def test_submit_success(self, sample_bupot):
         sample_bupot._status = EBupotStatus.DRAFT
         user = uuid4()
-        # Patch validate to avoid actual validation errors
         with patch.object(sample_bupot, "validate", return_value=sample_bupot):
             bupot = sample_bupot.submit(user)
             assert bupot.status == EBupotStatus.SUBMITTED
@@ -533,6 +528,55 @@ class TestEBupotMethods:
         assert clone.status == EBupotStatus.DRAFT
         assert clone.bupot_id != sample_bupot.bupot_id
 
+    # ========================================================================
+    # Additional tests for private methods
+    # ========================================================================
+
+    def test__register_event(self, sample_bupot):
+        # Directly call _register_event
+        sample_bupot._register_event("test_event", {"key": "value"})
+        events = sample_bupot.get_events()
+        assert len(events) == 1
+        assert events[0]["event_type"] == "test_event"
+        assert events[0]["data"] == {"key": "value"}
+        assert events[0]["aggregate_id"] == str(sample_bupot.bupot_id)
+        assert events[0]["aggregate_type"] == "EBupot"
+
+    def test__calculate_hash(self, sample_bupot):
+        # Hash should be set in __init__
+        assert sample_bupot.hash != ""
+        # Update should recalculate
+        original_hash = sample_bupot.hash
+        sample_bupot._status = EBupotStatus.PENDING
+        sample_bupot._calculate_hash()
+        assert sample_bupot.hash != original_hash
+
+    def test__create_xml(self, sample_bupot):
+        xml = sample_bupot._create_xml()
+        assert "<EBupot" in xml
+        assert sample_bupot.bupot_number in xml
+        assert sample_bupot.npwp_pemotong in xml
+        assert sample_bupot.npwp_penerima in xml
+        assert "DPP" in xml
+        assert f"{sample_bupot.dpp:.2f}" in xml
+
+    def test__create_pdf(self, sample_bupot):
+        with patch("adapters.coretax_djp.e_bupot_generator.REPORTLAB_AVAILABLE", False):
+            # Using simple canvas path
+            pdf = sample_bupot._create_pdf()
+            assert isinstance(pdf, bytes)
+            assert len(pdf) > 0
+
+        # Test with reportlab available (can't easily mock reportlab, but we can test the branch)
+        with patch("adapters.coretax_djp.e_bupot_generator.REPORTLAB_AVAILABLE", True):
+            with patch("adapters.coretax_djp.e_bupot_generator.SimpleDocTemplate") as mock_doc:
+                with patch("adapters.coretax_djp.e_bupot_generator.getSampleStyleSheet") as mock_styles:
+                    with patch("adapters.coretax_djp.e_bupot_generator.Paragraph") as mock_para:
+                        with patch("adapters.coretax_djp.e_bupot_generator.Table") as mock_table:
+                            mock_styles.return_value = {"Title": MagicMock()}
+                            pdf = sample_bupot._create_pdf()
+                            assert isinstance(pdf, bytes)
+
 
 # =============================================================================
 # Tests for _FallbackEBupotRepository
@@ -593,10 +637,9 @@ class TestFallbackEBupotRepository:
         repo = _FallbackEBupotRepository()
         sample_bupot._invoice_reference = "INV-001"
         await repo.add(sample_bupot)
-        result = await repo.get_by_reference("invoice", UUID(int=1))  # not found
+        # Can't test with UUID matching string exactly, but test no crash
+        result = await repo.get_by_reference("invoice", UUID(int=1))
         assert result is None
-        # Can't test with real UUID because we need to match string
-        # We'll just test that it doesn't crash
 
     @pytest.mark.asyncio
     async def test_search(self, sample_bupot):
@@ -746,7 +789,6 @@ class TestEBupotGenerator:
     async def test_submit_success(self, generator_with_mocks, sample_bupot):
         generator = generator_with_mocks
         sample_bupot._status = EBupotStatus.VALIDATED
-        # Patch validate to avoid actual validation
         with patch.object(sample_bupot, "validate", return_value=sample_bupot):
             await generator._repository.add(sample_bupot)
             result = await generator.submit(sample_bupot.bupot_id, uuid4())
@@ -778,7 +820,6 @@ class TestEBupotGenerator:
     async def test_download_success(self, generator_with_mocks, sample_bupot):
         generator = generator_with_mocks
         await generator._repository.add(sample_bupot)
-        # mock coretax client get
         generator._coretax_client.get.return_value = {"status": "success", "bupot_xml": "base64data"}
         with patch("base64.b64decode", return_value=b"<xml>"):
             result = await generator.download(sample_bupot.bupot_id, uuid4())
@@ -810,7 +851,6 @@ class TestEBupotGenerator:
         generator._coretax_client.get.return_value = {"status": "approved"}
         result = await generator.get_status(sample_bupot.bupot_id)
         assert result["status"] == "approved"
-        # Check that bupot was auto-approved
         updated = await generator.get_by_id(sample_bupot.bupot_id)
         assert updated.status == EBupotStatus.APPROVED
 
@@ -938,7 +978,6 @@ class TestEBupotGenerator:
         assert "202607" in number
 
     def test_init_file_storage(self, generator_with_mocks):
-        # _init_file_storage is called in __init__; we can just test that no exception
         assert generator_with_mocks._file_storage is not None
 
     def test_load_config(self, generator_with_mocks):
@@ -959,6 +998,28 @@ class TestEBupotGenerator:
         await generator_with_mocks._set_cached("BUPOT-123", {"data": "value"})
         cached = await generator_with_mocks._get_cached("BUPOT-123")
         assert cached == {"data": "value"}
+
+    # Additional test for private _get_coretax_client
+    @pytest.mark.asyncio
+    async def test_get_coretax_client_initializes(self, generator_with_mocks):
+        # Reset the client to force initialization
+        generator_with_mocks._coretax_client = None
+        with patch("adapters.coretax_djp.e_bupot_generator.get_coretax_client") as mock_get:
+            mock_get.return_value = AsyncMock()
+            client = await generator_with_mocks._get_coretax_client()
+            assert client is not None
+            mock_get.assert_called_once()
+
+    # Test status transition with ERROR
+    def test_status_error_transition(self, sample_bupot):
+        sample_bupot._status = EBupotStatus.ERROR
+        assert sample_bupot.can_transition(EBupotStatus.PENDING) is True
+        assert sample_bupot.can_transition(EBupotStatus.DRAFT) is True
+
+    def test_status_synced_transition(self, sample_bupot):
+        sample_bupot._status = EBupotStatus.SYNCED
+        assert sample_bupot.can_transition(EBupotStatus.VALIDATED) is True
+        assert sample_bupot.can_transition(EBupotStatus.ERROR) is True
 
 
 # =============================================================================

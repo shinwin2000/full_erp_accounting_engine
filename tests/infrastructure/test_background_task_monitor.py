@@ -39,7 +39,7 @@ class TestBackgroundTaskMonitor:
         """Smoke test for BackgroundTaskMonitor.register_task using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_task(task=MagicMock(), name="test_value", metadata={})
+            instance.register_task(task=MagicMock(), name="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_task needs specific domain fixtures/data: {e}")
             return
@@ -50,7 +50,7 @@ class TestBackgroundTaskMonitor:
         """Smoke test for BackgroundTaskMonitor.get_active_tasks using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_active_tasks()
+            await instance.get_active_tasks()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_active_tasks needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class TestBackgroundTaskMonitor:
         """Smoke test for BackgroundTaskMonitor.should_cancel using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.should_cancel(task_id="test_value")
+            instance.should_cancel(task_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"should_cancel needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestBackgroundTaskMonitor:
         """Smoke test for BackgroundTaskMonitor.revoke_task using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.revoke_task(task_id="test_value")
+            await instance.revoke_task(task_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revoke_task needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestBackgroundTaskMonitor:
 def test_get_task_monitor_smoke():
     """Smoke test for module-level function get_task_monitor."""
     try:
-        result = get_task_monitor()
+        get_task_monitor()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_task_monitor needs specific input data: {e}")
         return
@@ -93,7 +93,7 @@ def test_get_task_monitor_smoke():
 async def test_get_active_tasks_smoke():
     """Smoke test for module-level function get_active_tasks."""
     try:
-        result = await get_active_tasks()
+        await get_active_tasks()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_active_tasks needs specific input data: {e}")
         return
@@ -103,7 +103,7 @@ async def test_get_active_tasks_smoke():
 async def test_revoke_task_smoke():
     """Smoke test for module-level function revoke_task."""
     try:
-        result = await revoke_task(task_id="test_value")
+        await revoke_task(task_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"revoke_task needs specific input data: {e}")
         return
@@ -113,7 +113,7 @@ async def test_revoke_task_smoke():
 def test_register_task_smoke():
     """Smoke test for module-level function register_task."""
     try:
-        result = register_task(task=MagicMock(), name="test_value", metadata={})
+        register_task(task=MagicMock(), name="test_value", metadata={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"register_task needs specific input data: {e}")
         return
@@ -123,7 +123,7 @@ def test_register_task_smoke():
 def test_should_cancel_current_task_smoke():
     """Smoke test for module-level function should_cancel_current_task."""
     try:
-        result = should_cancel_current_task(task_id="test_value")
+        should_cancel_current_task(task_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"should_cancel_current_task needs specific input data: {e}")
         return

@@ -55,7 +55,7 @@ class TestBalanceSheetSnapshot:
         """Smoke test for BalanceSheetSnapshot.compute_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_snapshot(legal_entity_id=uuid4(), period_id=uuid4())
+            await instance.compute_snapshot(legal_entity_id=uuid4(), period_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestBalanceSheetSnapshot:
         """Smoke test for BalanceSheetSnapshot.save_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_snapshot(snapshot={})
+            await instance.save_snapshot(snapshot={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestBalanceSheetSnapshot:
         """Smoke test for BalanceSheetSnapshot.rebuild_for_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_for_legal_entity(legal_entity_id=uuid4())
+            await instance.rebuild_for_legal_entity(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_for_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -88,7 +88,7 @@ class TestBalanceSheetSnapshot:
         """Smoke test for BalanceSheetSnapshot.rebuild_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_all()
+            await instance.rebuild_all()
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_all needs specific domain fixtures/data: {e}")
             return
@@ -107,8 +107,8 @@ class TestBalanceSheetSnapshotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = BalanceSheetSnapshotTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -136,7 +136,7 @@ class TestBalanceSheetProjection:
         """Smoke test for BalanceSheetProjection.generate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.generate()
+            instance.generate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate needs specific domain fixtures/data: {e}")
             return
@@ -147,7 +147,7 @@ class TestBalanceSheetProjection:
 async def test_get_balance_sheet_snapshot_smoke():
     """Smoke test for module-level function get_balance_sheet_snapshot."""
     try:
-        result = await get_balance_sheet_snapshot()
+        await get_balance_sheet_snapshot()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_balance_sheet_snapshot needs specific input data: {e}")
         return

@@ -67,8 +67,8 @@ class TestAuditHashChainBuilder:
     def test_compute_record_hash_smoke(self):
         """Smoke test for AuditHashChainBuilder.compute_record_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = AuditHashChainBuilder.compute_record_hash(record={}, previous_hash="test_value")
+            self._build_instance()
+            AuditHashChainBuilder.compute_record_hash(record={}, previous_hash="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_record_hash needs specific domain fixtures/data: {e}")
             return
@@ -78,8 +78,8 @@ class TestAuditHashChainBuilder:
     def test_compute_batch_hash_smoke(self):
         """Smoke test for AuditHashChainBuilder.compute_batch_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = AuditHashChainBuilder.compute_batch_hash(records=[{}])
+            self._build_instance()
+            AuditHashChainBuilder.compute_batch_hash(records=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_batch_hash needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestAuditHashChainBuilder:
         """Smoke test for AuditHashChainBuilder.build_chain using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.build_chain(records=[{}], stream_name="test_value")
+            await instance.build_chain(records=[{}], stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"build_chain needs specific domain fixtures/data: {e}")
             return
@@ -101,7 +101,7 @@ class TestAuditHashChainBuilder:
         """Smoke test for AuditHashChainBuilder.verify_chain using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_chain(records=[{}], stream_name="test_value")
+            await instance.verify_chain(records=[{}], stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_chain needs specific domain fixtures/data: {e}")
             return
@@ -112,7 +112,7 @@ class TestAuditHashChainBuilder:
 def test_get_audit_hash_builder_smoke():
     """Smoke test for module-level function get_audit_hash_builder."""
     try:
-        result = get_audit_hash_builder()
+        get_audit_hash_builder()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_audit_hash_builder needs specific input data: {e}")
         return

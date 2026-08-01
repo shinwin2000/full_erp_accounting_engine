@@ -59,16 +59,16 @@ class TestQueryResult:
     """Tests for the QueryResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            status=QueryStatus.SUCCESS,
-            data=MagicMock(),
-            total_count=1,
-            page=1,
-            page_size=1,
-            execution_time_ms=1.5,
-            cached=True,
-            error_message="test_value",
-        )
+        return {
+            'status': QueryStatus.SUCCESS,
+            'data': MagicMock(),
+            'total_count': 1,
+            'page': 1,
+            'page_size': 1,
+            'execution_time_ms': 1.5,
+            'cached': True,
+            'error_message': "test_value",
+        }
 
     def test_construction_success(self):
         """QueryResult can be constructed with valid field values."""
@@ -86,15 +86,15 @@ class TestQuery:
     """Tests for the Query value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            query_type="test_value",
-            parameters={},
-            user_id=uuid4(),
-            legal_entity_id=uuid4(),
-            request_id=uuid4(),
-            timeout_seconds=1,
-            cache_ttl_seconds=1,
-        )
+        return {
+            'query_type': "test_value",
+            'parameters': {},
+            'user_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'request_id': uuid4(),
+            'timeout_seconds': 1,
+            'cache_ttl_seconds': 1,
+        }
 
     def test_construction_success(self):
         """Query can be constructed with valid field values."""
@@ -112,12 +112,12 @@ class TestPagination:
     """Tests for the Pagination value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            page=1,
-            page_size=1,
-            sort_by="test_value",
-            sort_direction="test_value",
-        )
+        return {
+            'page': 1,
+            'page_size': 1,
+            'sort_by': "test_value",
+            'sort_direction': "test_value",
+        }
 
     def test_construction_success(self):
         """Pagination can be constructed with valid field values."""
@@ -135,11 +135,11 @@ class TestFilterCondition:
     """Tests for the FilterCondition value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            field="test_value",
-            operator="test_value",
-            value=MagicMock(),
-        )
+        return {
+            'field': "test_value",
+            'operator': "test_value",
+            'value': MagicMock(),
+        }
 
     def test_construction_success(self):
         """FilterCondition can be constructed with valid field values."""
@@ -180,7 +180,7 @@ class TestCQRSQueryHandlerPort:
         """Smoke test for CQRSQueryHandlerPort.register_handler using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_handler(handler=MagicMock())
+            instance.register_handler(handler=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_handler needs specific domain fixtures/data: {e}")
             return
@@ -191,7 +191,7 @@ class TestCQRSQueryHandlerPort:
         """Smoke test for CQRSQueryHandlerPort.unregister_handler using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.unregister_handler(query_type="test_value")
+            instance.unregister_handler(query_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"unregister_handler needs specific domain fixtures/data: {e}")
             return
@@ -202,7 +202,7 @@ class TestCQRSQueryHandlerPort:
         """Smoke test for CQRSQueryHandlerPort.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(query=MagicMock(), pagination=MagicMock(), filters=[MagicMock()], rate_limit_per_minute=1)
+            await instance.execute(query=MagicMock(), pagination=MagicMock(), filters=[MagicMock()], rate_limit_per_minute=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -213,7 +213,7 @@ class TestCQRSQueryHandlerPort:
         """Smoke test for CQRSQueryHandlerPort.execute_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute_batch(queries=[MagicMock()], pagination_list=[], filters_list=[[]])
+            await instance.execute_batch(queries=[MagicMock()], pagination_list=[], filters_list=[[]])
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute_batch needs specific domain fixtures/data: {e}")
             return
@@ -240,7 +240,7 @@ class TestBaseQueryHandler:
         """Smoke test for BaseQueryHandler.query_type using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.query_type()
+            instance.query_type()
         except (Exception, SystemExit) as e:
             pytest.skip(f"query_type needs specific domain fixtures/data: {e}")
             return
@@ -251,7 +251,7 @@ class TestBaseQueryHandler:
         """Smoke test for BaseQueryHandler.handle using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.handle(query=MagicMock(), pagination=MagicMock(), filters=[MagicMock()])
+            await instance.handle(query=MagicMock(), pagination=MagicMock(), filters=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"handle needs specific domain fixtures/data: {e}")
             return
@@ -262,7 +262,7 @@ class TestBaseQueryHandler:
 def test_apply_filters_smoke():
     """Smoke test for module-level function apply_filters."""
     try:
-        result = apply_filters(data=[{}], filters=[MagicMock()])
+        apply_filters(data=[{}], filters=[MagicMock()])
     except (Exception, SystemExit) as e:
         pytest.skip(f"apply_filters needs specific input data: {e}")
         return
@@ -272,7 +272,7 @@ def test_apply_filters_smoke():
 def test_apply_sorting_smoke():
     """Smoke test for module-level function apply_sorting."""
     try:
-        result = apply_sorting(data=[{}], sort_by="test_value", sort_direction="test_value")
+        apply_sorting(data=[{}], sort_by="test_value", sort_direction="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"apply_sorting needs specific input data: {e}")
         return
@@ -282,7 +282,7 @@ def test_apply_sorting_smoke():
 def test_apply_pagination_smoke():
     """Smoke test for module-level function apply_pagination."""
     try:
-        result = apply_pagination(data=[{}], page=1, page_size=1)
+        apply_pagination(data=[{}], page=1, page_size=1)
     except (Exception, SystemExit) as e:
         pytest.skip(f"apply_pagination needs specific input data: {e}")
         return

@@ -20,11 +20,11 @@ class TestSanctionCheckResult:
     """Tests for the SanctionCheckResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_matched=True,
-            sanction_reason="test_value",
-            matched_name="test_value",
-        )
+        return {
+            "is_matched": True,
+            "sanction_reason": "test_value",
+            "matched_name": "test_value",
+        }
 
     def test_construction_success(self):
         """SanctionCheckResult can be constructed with valid field values."""
@@ -42,12 +42,12 @@ class TestSanctionListEntry:
     """Tests for the SanctionListEntry value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            name="test_value",
-            list_name="test_value",
-            reason="test_value",
-            uid="test_value",
-        )
+        return {
+            "name": "test_value",
+            "list_name": "test_value",
+            "reason": "test_value",
+            "uid": "test_value",
+        }
 
     def test_construction_success(self):
         """SanctionListEntry can be constructed with valid field values."""
@@ -80,7 +80,7 @@ class TestSanctionListChecker:
         """Smoke test for SanctionListChecker.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(name="test_value", check_aliases=True)
+            instance.check(name="test_value", check_aliases=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return

@@ -105,7 +105,7 @@ class TestReportArchiverPermanent:
         """Smoke test for ReportArchiverPermanent.archive_report using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.archive_report(report_content=b"test", report_type="test_value", report_id="test_value", report_name="test_value", legal_entity_id=uuid4(), period="test_value", metadata={})
+            await instance.archive_report(report_content=b"test", report_type="test_value", report_id="test_value", report_name="test_value", legal_entity_id=uuid4(), period="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"archive_report needs specific domain fixtures/data: {e}")
             return
@@ -116,7 +116,7 @@ class TestReportArchiverPermanent:
         """Smoke test for ReportArchiverPermanent.archive_report_from_file using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.archive_report_from_file(file_path=MagicMock(), report_type="test_value", report_id="test_value", report_name="test_value", legal_entity_id=uuid4(), period="test_value", metadata={})
+            await instance.archive_report_from_file(file_path=MagicMock(), report_type="test_value", report_id="test_value", report_name="test_value", legal_entity_id=uuid4(), period="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"archive_report_from_file needs specific domain fixtures/data: {e}")
             return
@@ -127,7 +127,7 @@ class TestReportArchiverPermanent:
         """Smoke test for ReportArchiverPermanent.restore_report using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.restore_report(archive_id="test_value", target_path=MagicMock())
+            await instance.restore_report(archive_id="test_value", target_path=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"restore_report needs specific domain fixtures/data: {e}")
             return
@@ -138,7 +138,7 @@ class TestReportArchiverPermanent:
         """Smoke test for ReportArchiverPermanent.get_archive_info using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_archive_info(archive_id="test_value")
+            await instance.get_archive_info(archive_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_archive_info needs specific domain fixtures/data: {e}")
             return
@@ -149,7 +149,7 @@ class TestReportArchiverPermanent:
 async def test_get_report_archiver_smoke():
     """Smoke test for module-level function get_report_archiver."""
     try:
-        result = await get_report_archiver()
+        await get_report_archiver()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_report_archiver needs specific input data: {e}")
         return
@@ -159,7 +159,7 @@ async def test_get_report_archiver_smoke():
 async def test_get_report_archiver_dep_smoke():
     """Smoke test for module-level function get_report_archiver_dep."""
     try:
-        result = await get_report_archiver_dep()
+        await get_report_archiver_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_report_archiver_dep needs specific input data: {e}")
         return

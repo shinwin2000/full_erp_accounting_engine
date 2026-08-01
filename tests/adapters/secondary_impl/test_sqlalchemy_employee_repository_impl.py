@@ -28,8 +28,8 @@ class TestEmployeeTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = EmployeeTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -57,7 +57,7 @@ class TestSQLAlchemyEmployeeRepository:
         """Smoke test for SQLAlchemyEmployeeRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(employee=MagicMock())
+            await instance.add(employee=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestSQLAlchemyEmployeeRepository:
         """Smoke test for SQLAlchemyEmployeeRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(employee=MagicMock())
+            await instance.update(employee=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestSQLAlchemyEmployeeRepository:
         """Smoke test for SQLAlchemyEmployeeRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(employee=MagicMock())
+            await instance.save(employee=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestSQLAlchemyEmployeeRepository:
         """Smoke test for SQLAlchemyEmployeeRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(employee_id=uuid4())
+            await instance.get_by_id(employee_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return

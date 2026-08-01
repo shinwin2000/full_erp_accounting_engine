@@ -219,7 +219,7 @@ class TestEthicsTrainingCertificateTracker:
 
     @patch("threading.Thread")
     def test_construction_with_monitor(self, mock_thread):
-        tracker = EthicsTrainingCertificateTracker(enable_expiry_monitor=True, expiry_check_interval_hours=12)
+        EthicsTrainingCertificateTracker(enable_expiry_monitor=True, expiry_check_interval_hours=12)
         mock_thread.assert_called_once()
         # Thread should be daemon
         args, kwargs = mock_thread.call_args
@@ -319,7 +319,7 @@ class TestEthicsTrainingCertificateTracker:
             provider="Provider A",
         )
         # Add expired cert (past expiry date)
-        expired_cert_id = tracker.add_certificate(
+        tracker.add_certificate(
             employee_id=employee_id,
             employee_name="John Doe",
             training_type=TrainingType.ANTI_BRIBERY,

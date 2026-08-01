@@ -123,37 +123,37 @@ class TestCapitalWithdrawalEntity:
     """Tests for the CapitalWithdrawalEntity value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            withdrawal_id=uuid4(),
-            legal_entity_id=uuid4(),
-            withdrawal_number="test_value",
-            withdrawal_type=WithdrawalType.DIVIDEND,
-            shareholder_id=uuid4(),
-            shareholder_name="test_value",
-            amount=Decimal("100.00"),
-            currency="test_value",
-            withdrawal_date=datetime.now(UTC),
-            status=WithdrawalStatus.DRAFT,
-            description="test_value",
-            approval_reference="test_value",
-            approved_by="test_value",
-            approved_at=datetime.now(UTC),
-            posted_by="test_value",
-            posted_at=datetime.now(UTC),
-            cancelled_by="test_value",
-            cancelled_at=datetime.now(UTC),
-            cancel_reason="test_value",
-            tax_withheld_amount=Decimal("100.00"),
-            bank_account_reference="test_value",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by="test_value",
-            updated_by="test_value",
-            version=1,
-            metadata={},
-            _audit_trail=MagicMock(),
-            _snapshots=MagicMock(),
-        )
+        return {
+            'withdrawal_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'withdrawal_number': "test_value",
+            'withdrawal_type': WithdrawalType.DIVIDEND,
+            'shareholder_id': uuid4(),
+            'shareholder_name': "test_value",
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'withdrawal_date': datetime.now(UTC),
+            'status': WithdrawalStatus.DRAFT,
+            'description': "test_value",
+            'approval_reference': "test_value",
+            'approved_by': "test_value",
+            'approved_at': datetime.now(UTC),
+            'posted_by': "test_value",
+            'posted_at': datetime.now(UTC),
+            'cancelled_by': "test_value",
+            'cancelled_at': datetime.now(UTC),
+            'cancel_reason': "test_value",
+            'tax_withheld_amount': Decimal("100.00"),
+            'bank_account_reference': "test_value",
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': "test_value",
+            'updated_by': "test_value",
+            'version': 1,
+            'metadata': {},
+            '_audit_trail': MagicMock(),
+            '_snapshots': MagicMock(),
+        }
 
     def test_construction_success(self):
         """CapitalWithdrawalEntity can be constructed with valid field values."""
@@ -185,8 +185,8 @@ class TestCapitalWithdrawalRepository:
     async def test_get_by_id_smoke(self):
         """Smoke test for CapitalWithdrawalRepository.get_by_id using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await CapitalWithdrawalRepository.get_by_id(withdrawal_id=uuid4(), legal_entity_id=uuid4())
+            self._build_instance()
+            await CapitalWithdrawalRepository.get_by_id(withdrawal_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -196,8 +196,8 @@ class TestCapitalWithdrawalRepository:
     async def test_get_by_number_smoke(self):
         """Smoke test for CapitalWithdrawalRepository.get_by_number using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await CapitalWithdrawalRepository.get_by_number(withdrawal_number="test_value", legal_entity_id=uuid4())
+            self._build_instance()
+            await CapitalWithdrawalRepository.get_by_number(withdrawal_number="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_number needs specific domain fixtures/data: {e}")
             return
@@ -207,8 +207,8 @@ class TestCapitalWithdrawalRepository:
     async def test_get_by_shareholder_smoke(self):
         """Smoke test for CapitalWithdrawalRepository.get_by_shareholder using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await CapitalWithdrawalRepository.get_by_shareholder(shareholder_id=uuid4(), legal_entity_id=uuid4(), limit=1)
+            self._build_instance()
+            await CapitalWithdrawalRepository.get_by_shareholder(shareholder_id=uuid4(), legal_entity_id=uuid4(), limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_shareholder needs specific domain fixtures/data: {e}")
             return
@@ -218,8 +218,8 @@ class TestCapitalWithdrawalRepository:
     async def test_get_by_status_smoke(self):
         """Smoke test for CapitalWithdrawalRepository.get_by_status using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await CapitalWithdrawalRepository.get_by_status(status=WithdrawalStatus.DRAFT, legal_entity_id=uuid4(), limit=1)
+            self._build_instance()
+            await CapitalWithdrawalRepository.get_by_status(status=WithdrawalStatus.DRAFT, legal_entity_id=uuid4(), limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_status needs specific domain fixtures/data: {e}")
             return

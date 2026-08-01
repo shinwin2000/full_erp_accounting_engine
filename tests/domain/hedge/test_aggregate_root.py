@@ -1546,7 +1546,7 @@ class TestHedgeRepository:
         await HedgeRepository.save(agg2)
         results = await HedgeRepository.get_by_legal_entity(legal_entity_id)
         assert len(results) == 2
-        assert set(a.hedge.hedge_number for a in results) == {"H003", "H004"}
+        assert {a.hedge.hedge_number for a in results} == {"H003", "H004"}
         await HedgeRepository.clear()
 
     @pytest.mark.asyncio

@@ -283,7 +283,7 @@ class TestRetainedEarningsEntity:
     def test_validation_balance_mismatch_warning(self, caplog):
         # Create entity with one entry but current_balance doesn't match sum
         entry = create_valid_entry(amount=Decimal("500000"), balance_after=Decimal("1500000"))
-        entity = create_valid_entity(
+        create_valid_entity(
             opening_balance=Decimal("1000000"),
             current_balance=Decimal("2000000"),
             entries=[entry],

@@ -1112,7 +1112,7 @@ class TestIAMAuthentication:
         iam, user = active_user
         # Set max attempts to 3
         with patch.object(PasswordHashedVO, 'verify', return_value=False):
-            for i in range(3):
+            for _i in range(3):
                 iam, _ = iam.authenticate(
                     username=user.username,
                     password="wrong",

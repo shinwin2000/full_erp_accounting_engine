@@ -15,7 +15,7 @@ from infrastructure.telemetry.alert_manager_trigger import trigger_alert
 async def test_trigger_alert_smoke():
     """Smoke test for module-level function trigger_alert."""
     try:
-        result = await trigger_alert(title="test_value", message="test_value", severity="test_value", source="test_value", tags={})
+        await trigger_alert(title="test_value", message="test_value", severity="test_value", source="test_value", tags={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"trigger_alert needs specific input data: {e}")
         return

@@ -715,7 +715,7 @@ class TestRollbackHandler:
         rollback_handler._build_rollback_steps = MagicMock(return_value=steps)
 
         with patch.object(rollback_handler, "_emergency_shutdown") as mock_emergency:
-            record = await rollback_handler.rollback_startup(
+            await rollback_handler.rollback_startup(
                 reason=RollbackReason.STARTUP_FAILURE,
                 trigger_component="db",
                 trigger_error="error",

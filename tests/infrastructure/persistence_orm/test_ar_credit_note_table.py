@@ -26,22 +26,22 @@ class TestARCreditNoteTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            credit_note_number="test_value",
-            credit_note_date=date.today(),
-            invoice_id=MagicMock(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            reason_code="test_value",
-            description="test_value",
-            status="test_value",
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            applied_by=MagicMock(),
-            applied_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            invoice=MagicMock(),
-        )
+        kwargs = {
+            'credit_note_number': "test_value",
+            'credit_note_date': date.today(),
+            'invoice_id': MagicMock(),
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'reason_code': "test_value",
+            'description': "test_value",
+            'status': "test_value",
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'applied_by': MagicMock(),
+            'applied_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'invoice': MagicMock(),
+        }
         try:
             instance = ARCreditNoteTable(**kwargs)
         except (Exception, SystemExit) as e:

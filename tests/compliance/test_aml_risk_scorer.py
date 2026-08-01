@@ -260,7 +260,7 @@ class TestSanctionListManager:
 
     def test_construction_with_remote(self):
         with patch.object(SanctionListManager, "_fetch_remote_lists") as mock_fetch:
-            manager = SanctionListManager(enable_remote_fetch=True)
+            SanctionListManager(enable_remote_fetch=True)
             mock_fetch.assert_called_once()
 
     def test_create_session(self, sanction_manager):
@@ -683,7 +683,7 @@ class TestAMLRiskScorer:
         registered_customer.is_pep = True
         transaction_record.amount = Decimal("2000000000")
         assert registered_customer.edd_status == EDDStatus.NOT_REQUIRED
-        report = risk_scorer.analyze_transaction(transaction_record)
+        risk_scorer.analyze_transaction(transaction_record)
         assert registered_customer.edd_status == EDDStatus.IN_PROGRESS
         assert risk_scorer._edd_workflows[registered_customer.customer_id] is not None
 

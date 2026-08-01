@@ -25,7 +25,7 @@ from monitoring.health_endpoints.metrics_exporter import (
 def test_init_metrics_smoke():
     """Smoke test for module-level function init_metrics."""
     try:
-        result = init_metrics()
+        init_metrics()
     except (Exception, SystemExit) as e:
         pytest.skip(f"init_metrics needs specific input data: {e}")
         return
@@ -35,7 +35,7 @@ def test_init_metrics_smoke():
 def test_record_http_request_smoke():
     """Smoke test for module-level function record_http_request."""
     try:
-        result = record_http_request(method="test_value", endpoint="test_value", status_code=1, duration_seconds=1.5)
+        record_http_request(method="test_value", endpoint="test_value", status_code=1, duration_seconds=1.5)
     except (Exception, SystemExit) as e:
         pytest.skip(f"record_http_request needs specific input data: {e}")
         return
@@ -45,7 +45,7 @@ def test_record_http_request_smoke():
 def test_record_journal_post_smoke():
     """Smoke test for module-level function record_journal_post."""
     try:
-        result = record_journal_post(journal_type="test_value", status="test_value")
+        record_journal_post(journal_type="test_value", status="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"record_journal_post needs specific input data: {e}")
         return
@@ -55,7 +55,7 @@ def test_record_journal_post_smoke():
 def test_record_audit_event_smoke():
     """Smoke test for module-level function record_audit_event."""
     try:
-        result = record_audit_event(event_type="test_value")
+        record_audit_event(event_type="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"record_audit_event needs specific input data: {e}")
         return
@@ -65,7 +65,7 @@ def test_record_audit_event_smoke():
 def test_record_coretax_api_call_smoke():
     """Smoke test for module-level function record_coretax_api_call."""
     try:
-        result = record_coretax_api_call(endpoint="test_value", status="test_value", duration_seconds=1.5)
+        record_coretax_api_call(endpoint="test_value", status="test_value", duration_seconds=1.5)
     except (Exception, SystemExit) as e:
         pytest.skip(f"record_coretax_api_call needs specific input data: {e}")
         return
@@ -75,7 +75,7 @@ def test_record_coretax_api_call_smoke():
 def test_set_gl_balance_smoke():
     """Smoke test for module-level function set_gl_balance."""
     try:
-        result = set_gl_balance(account_code="test_value", account_type="test_value", currency="test_value", decimal_amount=Decimal("100.00"))
+        set_gl_balance(account_code="test_value", account_type="test_value", currency="test_value", decimal_amount=Decimal("100.00"))
     except (Exception, SystemExit) as e:
         pytest.skip(f"set_gl_balance needs specific input data: {e}")
         return
@@ -85,7 +85,7 @@ def test_set_gl_balance_smoke():
 def test_metrics_exporter_smoke():
     """Smoke test for module-level function metrics_exporter."""
     try:
-        result = metrics_exporter()
+        metrics_exporter()
     except (Exception, SystemExit) as e:
         pytest.skip(f"metrics_exporter needs specific input data: {e}")
         return
@@ -95,7 +95,7 @@ def test_metrics_exporter_smoke():
 def test_get_metrics_content_type_smoke():
     """Smoke test for module-level function get_metrics_content_type."""
     try:
-        result = get_metrics_content_type()
+        get_metrics_content_type()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_metrics_content_type needs specific input data: {e}")
         return

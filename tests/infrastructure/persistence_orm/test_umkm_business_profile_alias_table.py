@@ -28,17 +28,17 @@ class TestUmkmBusinessProfileTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            business_type="test_value",
-            annual_turnover=Decimal("100.00"),
-            uses_simplified_journal=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'business_type': "test_value",
+            'annual_turnover': Decimal("100.00"),
+            'uses_simplified_journal': True,
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_by': uuid4(),
+        }
         try:
             instance = UmkmBusinessProfileTable(**kwargs)
         except (Exception, SystemExit) as e:

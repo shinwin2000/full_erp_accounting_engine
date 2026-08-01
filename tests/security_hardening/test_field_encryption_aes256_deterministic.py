@@ -36,7 +36,7 @@ class TestDeterministicKeyManager:
         """Smoke test for DeterministicKeyManager.get_current_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_current_key()
+            instance.get_current_key()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_key needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestDeterministicKeyManager:
         """Smoke test for DeterministicKeyManager.get_key_by_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_key_by_version(version=1)
+            instance.get_key_by_version(version=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_key_by_version needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestDeterministicKeyManager:
         """Smoke test for DeterministicKeyManager.rotate_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.rotate_key()
+            instance.rotate_key()
         except (Exception, SystemExit) as e:
             pytest.skip(f"rotate_key needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestDeterministicKeyManager:
         """Smoke test for DeterministicKeyManager.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestDeterministicEncryption:
         """Smoke test for DeterministicEncryption.encrypt using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.encrypt(plaintext="test_value", key_version=1)
+            instance.encrypt(plaintext="test_value", key_version=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"encrypt needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestDeterministicEncryption:
         """Smoke test for DeterministicEncryption.decrypt using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.decrypt(ciphertext_b64_or_str="test_value")
+            instance.decrypt(ciphertext_b64_or_str="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"decrypt needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestDeterministicEncryption:
         """Smoke test for DeterministicEncryption.rotate_keys using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.rotate_keys(reencrypt_func=(lambda *a, **kw: None))
+            instance.rotate_keys(reencrypt_func=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"rotate_keys needs specific domain fixtures/data: {e}")
             return
@@ -129,7 +129,7 @@ class TestDeterministicEncryption:
         """Smoke test for DeterministicEncryption.get_current_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_current_version()
+            instance.get_current_version()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_version needs specific domain fixtures/data: {e}")
             return
@@ -156,7 +156,7 @@ class TestEncryptedField:
         """Smoke test for EncryptedField.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -167,7 +167,7 @@ class TestEncryptedField:
         """Smoke test for EncryptedField.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -177,8 +177,8 @@ class TestEncryptedField:
     def test_from_dict_smoke(self):
         """Smoke test for EncryptedField.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EncryptedField.from_dict(data={}, cipher=MagicMock())
+            self._build_instance()
+            EncryptedField.from_dict(data={}, cipher=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -189,7 +189,7 @@ class TestEncryptedField:
         """Smoke test for EncryptedField.clone using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.clone()
+            instance.clone()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clone needs specific domain fixtures/data: {e}")
             return

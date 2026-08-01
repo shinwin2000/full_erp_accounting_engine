@@ -484,7 +484,6 @@ class TestIntegration:
         # We'll do a lightweight check.
         assert isinstance(token, str)
         # Decode using the public key (which we have)
-        public_key = jwt_issuer._public_key
         # Use jose jwt decode with verify=False to just inspect payload
         payload = jwt.get_unverified_claims(token)
         assert payload["sub"] == str(user_id)

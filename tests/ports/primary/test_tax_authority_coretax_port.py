@@ -67,14 +67,14 @@ class TestSubmissionResponse:
     """Tests for the SubmissionResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            submission_id="test_value",
-            status=TaxStatus.PENDING,
-            reference_number="test_value",
-            message="test_value",
-            timestamp=datetime.now(UTC),
-            additional_data=MagicMock(),
-        )
+        return {
+            'submission_id': "test_value",
+            'status': TaxStatus.PENDING,
+            'reference_number': "test_value",
+            'message': "test_value",
+            'timestamp': datetime.now(UTC),
+            'additional_data': MagicMock(),
+        }
 
     def test_construction_success(self):
         """SubmissionResponse can be constructed with valid field values."""
@@ -143,16 +143,16 @@ class TestNSFPResponse:
     """Tests for the NSFPResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            nsfp_list=["test_value"],
-            tahun=1,
-            bulan=1,
-            jumlah=1,
-            sisa=1,
-            response_code="test_value",
-            response_message="test_value",
-            timestamp=datetime.now(UTC),
-        )
+        return {
+            'nsfp_list': ["test_value"],
+            'tahun': 1,
+            'bulan': 1,
+            'jumlah': 1,
+            'sisa': 1,
+            'response_code': "test_value",
+            'response_message': "test_value",
+            'timestamp': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """NSFPResponse can be constructed with valid field values."""
@@ -170,16 +170,16 @@ class TestFakturResponse:
     """Tests for the FakturResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            faktur_id="test_value",
-            status=FakturStatus.DRAFT,
-            approval_code="test_value",
-            rejection_reason="test_value",
-            qr_code_url="test_value",
-            response_code="test_value",
-            response_message="test_value",
-            timestamp=datetime.now(UTC),
-        )
+        return {
+            'faktur_id': "test_value",
+            'status': FakturStatus.DRAFT,
+            'approval_code': "test_value",
+            'rejection_reason': "test_value",
+            'qr_code_url': "test_value",
+            'response_code': "test_value",
+            'response_message': "test_value",
+            'timestamp': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """FakturResponse can be constructed with valid field values."""
@@ -197,15 +197,15 @@ class TestSPTPResponse:
     """Tests for the SPTPResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            spt_id="test_value",
-            status=SPTStatus.DRAFT,
-            bukti_penerimaan="test_value",
-            rejection_reason="test_value",
-            response_code="test_value",
-            response_message="test_value",
-            timestamp=datetime.now(UTC),
-        )
+        return {
+            'spt_id': "test_value",
+            'status': SPTStatus.DRAFT,
+            'bukti_penerimaan': "test_value",
+            'rejection_reason': "test_value",
+            'response_code': "test_value",
+            'response_message': "test_value",
+            'timestamp': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """SPTPResponse can be constructed with valid field values."""
@@ -223,15 +223,15 @@ class TestNTPNValidationResponse:
     """Tests for the NTPNValidationResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            ntpn="test_value",
-            valid=True,
-            amount=Decimal("100.00"),
-            payment_date=date.today(),
-            taxpayer_name="test_value",
-            response_code="test_value",
-            response_message="test_value",
-        )
+        return {
+            'ntpn': "test_value",
+            'valid': True,
+            'amount': Decimal("100.00"),
+            'payment_date': date.today(),
+            'taxpayer_name': "test_value",
+            'response_code': "test_value",
+            'response_message': "test_value",
+        }
 
     def test_construction_success(self):
         """NTPNValidationResponse can be constructed with valid field values."""
@@ -249,19 +249,19 @@ class TestCoretaxRequestLog:
     """Tests for the CoretaxRequestLog value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            endpoint="test_value",
-            request_payload={},
-            response_payload={},
-            http_status=1,
-            success=True,
-            error_message="test_value",
-            duration_ms=1,
-            request_id="test_value",
-            timestamp=datetime.now(UTC),
-            retry_count=1,
-        )
+        return {
+            'id': uuid4(),
+            'endpoint': "test_value",
+            'request_payload': {},
+            'response_payload': {},
+            'http_status': 1,
+            'success': True,
+            'error_message': "test_value",
+            'duration_ms': 1,
+            'request_id': "test_value",
+            'timestamp': datetime.now(UTC),
+            'retry_count': 1,
+        }
 
     def test_construction_success(self):
         """CoretaxRequestLog can be constructed with valid field values."""

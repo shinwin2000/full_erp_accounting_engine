@@ -126,8 +126,8 @@ class TestEventMetadataSchema:
     def test_get_schema_smoke(self):
         """Smoke test for EventMetadataSchema.get_schema using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EventMetadataSchema.get_schema(event_type="test_value")
+            self._build_instance()
+            EventMetadataSchema.get_schema(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_schema needs specific domain fixtures/data: {e}")
             return
@@ -137,8 +137,8 @@ class TestEventMetadataSchema:
     def test_validate_event_smoke(self):
         """Smoke test for EventMetadataSchema.validate_event using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EventMetadataSchema.validate_event(event_type="test_value", data={})
+            self._build_instance()
+            EventMetadataSchema.validate_event(event_type="test_value", data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_event needs specific domain fixtures/data: {e}")
             return
@@ -164,8 +164,8 @@ class TestEventTypeCatalog:
     def test_get_description_smoke(self):
         """Smoke test for EventTypeCatalog.get_description using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EventTypeCatalog.get_description(event_type="test_value")
+            self._build_instance()
+            EventTypeCatalog.get_description(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_description needs specific domain fixtures/data: {e}")
             return
@@ -175,8 +175,8 @@ class TestEventTypeCatalog:
     def test_get_default_severity_smoke(self):
         """Smoke test for EventTypeCatalog.get_default_severity using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EventTypeCatalog.get_default_severity(event_type="test_value")
+            self._build_instance()
+            EventTypeCatalog.get_default_severity(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_default_severity needs specific domain fixtures/data: {e}")
             return
@@ -186,8 +186,8 @@ class TestEventTypeCatalog:
     def test_is_valid_type_smoke(self):
         """Smoke test for EventTypeCatalog.is_valid_type using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EventTypeCatalog.is_valid_type(event_type="test_value")
+            self._build_instance()
+            EventTypeCatalog.is_valid_type(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_valid_type needs specific domain fixtures/data: {e}")
             return
@@ -197,8 +197,8 @@ class TestEventTypeCatalog:
     def test_list_all_types_smoke(self):
         """Smoke test for EventTypeCatalog.list_all_types using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = EventTypeCatalog.list_all_types()
+            self._build_instance()
+            EventTypeCatalog.list_all_types()
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_all_types needs specific domain fixtures/data: {e}")
             return

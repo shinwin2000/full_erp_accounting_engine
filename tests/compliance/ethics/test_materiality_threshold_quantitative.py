@@ -428,7 +428,7 @@ class TestQuantitativeMateriality:
             BenchmarkType.TOTAL_ASSETS: Decimal("0"),
         }
         results = qm.sensitivity_analysis(financials)
-        for pct, val in results.items():
+        for _pct, val in results.items():
             assert val is None
 
     # ---- generate_report ----

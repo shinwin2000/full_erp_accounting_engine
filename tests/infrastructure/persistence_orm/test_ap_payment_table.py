@@ -26,26 +26,26 @@ class TestAPPaymentTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            payment_number="test_value",
-            payment_date=date.today(),
-            supplier_id=MagicMock(),
-            invoice_id=MagicMock(),
-            total_amount=Decimal("100.00"),
-            currency="test_value",
-            payment_method="test_value",
-            status="test_value",
-            reference_number="test_value",
-            bank_reference="test_value",
-            payment_run_id=MagicMock(),
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            supplier=MagicMock(),
-            invoice=MagicMock(),
-            bupots=[MagicMock()],
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'payment_number': "test_value",
+            'payment_date': date.today(),
+            'supplier_id': MagicMock(),
+            'invoice_id': MagicMock(),
+            'total_amount': Decimal("100.00"),
+            'currency': "test_value",
+            'payment_method': "test_value",
+            'status': "test_value",
+            'reference_number': "test_value",
+            'bank_reference': "test_value",
+            'payment_run_id': MagicMock(),
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'supplier': MagicMock(),
+            'invoice': MagicMock(),
+            'bupots': [MagicMock()],
+        }
         try:
             instance = APPaymentTable(**kwargs)
         except (Exception, SystemExit) as e:

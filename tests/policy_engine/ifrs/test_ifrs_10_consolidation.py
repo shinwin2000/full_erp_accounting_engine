@@ -71,11 +71,11 @@ class TestIFRS10VotingRights:
     """Tests for the IFRS10VotingRights value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            total_voting_rights=Decimal("100.00"),
-            voting_rights_held=Decimal("100.00"),
-            percentage_held=Decimal("100.00"),
-        )
+        return {
+            'total_voting_rights': Decimal("100.00"),
+            'voting_rights_held': Decimal("100.00"),
+            'percentage_held': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """IFRS10VotingRights can be constructed with valid field values."""
@@ -93,13 +93,13 @@ class TestIFRS10PotentialVotingRights:
     """Tests for the IFRS10PotentialVotingRights value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            instrument_type="test_value",
-            number_of_shares=Decimal("100.00"),
-            exercise_price=MagicMock(),
-            exercise_date=datetime.now(UTC),
-            is_currently_exercisable=True,
-        )
+        return {
+            'instrument_type': "test_value",
+            'number_of_shares': Decimal("100.00"),
+            'exercise_price': MagicMock(),
+            'exercise_date': datetime.now(UTC),
+            'is_currently_exercisable': True,
+        }
 
     def test_construction_success(self):
         """IFRS10PotentialVotingRights can be constructed with valid field values."""
@@ -117,17 +117,17 @@ class TestIFRS10ControlAssessmentResult:
     """Tests for the IFRS10ControlAssessmentResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            assessment_id=uuid4(),
-            parent_entity_id=uuid4(),
-            investee_entity_id=uuid4(),
-            assessment_date=datetime.now(UTC),
-            control_assessment=IFRS10ControlAssessment.CONTROL,
-            consolidation_method=IFRS10ConsolidationMethod.FULL_CONSOLIDATION,
-            voting_rights=MagicMock(),
-            potential_voting_rights=[MagicMock()],
-            other_indicators_of_power=["test_value"],
-        )
+        return {
+            'assessment_id': uuid4(),
+            'parent_entity_id': uuid4(),
+            'investee_entity_id': uuid4(),
+            'assessment_date': datetime.now(UTC),
+            'control_assessment': IFRS10ControlAssessment.CONTROL,
+            'consolidation_method': IFRS10ConsolidationMethod.FULL_CONSOLIDATION,
+            'voting_rights': MagicMock(),
+            'potential_voting_rights': [MagicMock()],
+            'other_indicators_of_power': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IFRS10ControlAssessmentResult can be constructed with valid field values."""
@@ -159,8 +159,8 @@ class TestIFRS10ControlService:
     def test_assess_control_smoke(self):
         """Smoke test for IFRS10ControlService.assess_control using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS10ControlService.assess_control(voting_rights_percentage=Decimal("100.00"), has_potential_voting_rights=True, has_contractual_arrangements=True, has_power_over_returns=True)
+            self._build_instance()
+            IFRS10ControlService.assess_control(voting_rights_percentage=Decimal("100.00"), has_potential_voting_rights=True, has_contractual_arrangements=True, has_power_over_returns=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"assess_control needs specific domain fixtures/data: {e}")
             return
@@ -170,8 +170,8 @@ class TestIFRS10ControlService:
     def test_determine_consolidation_method_smoke(self):
         """Smoke test for IFRS10ControlService.determine_consolidation_method using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS10ControlService.determine_consolidation_method(control_assessment=IFRS10ControlAssessment.CONTROL)
+            self._build_instance()
+            IFRS10ControlService.determine_consolidation_method(control_assessment=IFRS10ControlAssessment.CONTROL)
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_consolidation_method needs specific domain fixtures/data: {e}")
             return
@@ -183,11 +183,11 @@ class TestIFRS10ValidationResult:
     """Tests for the IFRS10ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IFRS10ValidationResult can be constructed with valid field values."""
@@ -219,8 +219,8 @@ class TestIFRS10Rules:
     def test_validate_consolidation_scope_smoke(self):
         """Smoke test for IFRS10Rules.validate_consolidation_scope using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS10Rules.validate_consolidation_scope(control_assessment=IFRS10ControlAssessment.CONTROL)
+            self._build_instance()
+            IFRS10Rules.validate_consolidation_scope(control_assessment=IFRS10ControlAssessment.CONTROL)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_consolidation_scope needs specific domain fixtures/data: {e}")
             return
@@ -247,7 +247,7 @@ class TestIFRS10Validator:
         """Smoke test for IFRS10Validator.validate_control_assessment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_control_assessment(assessment=MagicMock())
+            instance.validate_control_assessment(assessment=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_control_assessment needs specific domain fixtures/data: {e}")
             return
@@ -258,7 +258,7 @@ class TestIFRS10Validator:
         """Smoke test for IFRS10Validator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -269,7 +269,7 @@ class TestIFRS10Validator:
 def test_get_ifrs10_validator_smoke():
     """Smoke test for module-level function get_ifrs10_validator."""
     try:
-        result = get_ifrs10_validator()
+        get_ifrs10_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ifrs10_validator needs specific input data: {e}")
         return

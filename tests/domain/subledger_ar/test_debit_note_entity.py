@@ -14,6 +14,9 @@ from uuid import uuid4
 import pytest
 
 from domain.subledger_ar.debit_note_entity import (
+    ARDebitNote,
+    ARDebitNoteReason,
+    ARDebitNoteStatus,
     DebitNoteEntity,
     DebitNoteReason,
     DebitNoteRepository,
@@ -543,14 +546,10 @@ class TestDebitNoteEntityStateTransitions:
         assert restored.status == DebitNoteStatus.DRAFT
 
     def test_state_flow_issued_to_cancelled(self, issued_debit_note):
-        # This test is different from test_cancel_success_issued because it includes
-        # verification that the cancellation is permanent (cannot restore to issued)
         cancelled = issued_debit_note.cancel("alice", "Error")
         assert cancelled.status == DebitNoteStatus.CANCELLED
-        # Cannot restore a cancelled note that was issued? Actually restore sets status to DRAFT, not ISSUED.
         restored = cancelled.restore("alice")
         assert restored.status == DebitNoteStatus.DRAFT
-        # Reactivate to issued
         reactivated = restored.activate("alice")
         assert reactivated.status == DebitNoteStatus.ISSUED
 
@@ -706,7 +705,7 @@ class TestDebitNoteEntityEdgeCases:
         assert len(trail) == 5
 
     def test_snapshot_limit(self, sample_debit_note):
-        for i in range(15):
+        for _i in range(15):
             sample_debit_note._take_snapshot()
         assert len(sample_debit_note._snapshots) == 10
 
@@ -727,23 +726,45 @@ class TestDebitNoteEntityEdgeCases:
             applied_debit_note.apply("bob")
 
     def test_cancel_already_cancelled(self, cancelled_debit_note):
-        # Cancelled note can still be cancelled? According to can_cancel(), CANCELLED returns False, so raise.
         with pytest.raises(ValueError, match="Cannot cancel debit note in status cancelled"):
             cancelled_debit_note.cancel("alice", "Again")
 
-    # The following tests were previously duplicates of earlier tests; they are now redundant because
-    # we have parameterized tests above. We keep one version for clarity, but they are already covered.
-    # We'll remove the duplicates to avoid duplication warnings.
-    # The original duplicates were:
-    # - test_restore_from_draft_raises (covered by test_restore_invalid_states_raises)
-    # - test_restore_from_applied_raises (covered by test_restore_invalid_states_raises)
-    # - test_deactivate_from_applied_raises (covered by test_deactivate_invalid_states_raises)
-    # - test_activate_from_applied_raises (covered by test_activate_invalid_states_raises)
-    # - test_activate_from_cancelled_raises (covered by test_activate_invalid_states_raises)
-
-    # We keep the test below to ensure that deactivate from DRAFT returns self, which is a special case.
     def test_deactivate_from_draft_returns_self(self, sample_debit_note):
         result = sample_debit_note.deactivate("alice")
         assert result is sample_debit_note
-        # No version change
         assert result.version == sample_debit_note.version
+
+
+# =============================================================================
+# Tests for Aliases (ARDebitNote, ARDebitNoteStatus, ARDebitNoteReason)
+# =============================================================================
+
+class TestAliases:
+    def test_ar_debit_note_alias(self):
+        assert ARDebitNote is DebitNoteEntity
+
+    def test_ar_debit_note_status_alias(self):
+        assert ARDebitNoteStatus is DebitNoteStatus
+
+    def test_ar_debit_note_reason_alias(self):
+        assert ARDebitNoteReason is DebitNoteReason
+
+    def test_ar_debit_note_usage(self):
+        # Create using alias to ensure it works
+        entity = ARDebitNote(
+            debit_note_id=uuid4(),
+            debit_note_number="DN-ALIAS-001",
+            invoice_id=uuid4(),
+            invoice_number="INV-ALIAS-001",
+            customer_id=uuid4(),
+            customer_name="Alias Customer",
+            issue_date=datetime.now(UTC),
+            amount=Decimal("100"),
+            currency="IDR",
+            reason=ARDebitNoteReason.ADDITIONAL_CHARGE,
+            status=ARDebitNoteStatus.DRAFT,
+            description="Alias test",
+        )
+        assert isinstance(entity, DebitNoteEntity)
+        assert entity.status == DebitNoteStatus.DRAFT
+        assert entity.reason == DebitNoteReason.ADDITIONAL_CHARGE

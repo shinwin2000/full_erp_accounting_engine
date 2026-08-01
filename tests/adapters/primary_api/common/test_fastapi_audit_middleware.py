@@ -89,7 +89,7 @@ class TestAuditRecord:
         """Smoke test for AuditRecord.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -116,7 +116,7 @@ class TestAuditMiddleware:
         """Smoke test for AuditMiddleware.dispatch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.dispatch(request=MagicMock(), call_next=MagicMock())
+            await instance.dispatch(request=MagicMock(), call_next=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"dispatch needs specific domain fixtures/data: {e}")
             return
@@ -127,7 +127,7 @@ class TestAuditMiddleware:
 def test_get_audit_store_smoke():
     """Smoke test for module-level function get_audit_store."""
     try:
-        result = get_audit_store()
+        get_audit_store()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_audit_store needs specific input data: {e}")
         return

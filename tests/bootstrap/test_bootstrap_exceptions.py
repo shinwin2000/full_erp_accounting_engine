@@ -104,7 +104,7 @@ class TestBootstrapError:
         """Smoke test for BootstrapError.original_message using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.original_message()
+            instance.original_message()
         except (Exception, SystemExit) as e:
             pytest.skip(f"original_message needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class TestBootstrapError:
         """Smoke test for BootstrapError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestBootstrapError:
         """Smoke test for BootstrapError.is_critical using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_critical()
+            instance.is_critical()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_critical needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestBootstrapError:
         """Smoke test for BootstrapError.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -451,8 +451,8 @@ class TestBootstrapExceptionFactory:
     def test_config_not_found_smoke(self):
         """Smoke test for BootstrapExceptionFactory.config_not_found using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BootstrapExceptionFactory.config_not_found(file_path="test_value")
+            self._build_instance()
+            BootstrapExceptionFactory.config_not_found(file_path="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"config_not_found needs specific domain fixtures/data: {e}")
             return
@@ -462,8 +462,8 @@ class TestBootstrapExceptionFactory:
     def test_config_validation_error_smoke(self):
         """Smoke test for BootstrapExceptionFactory.config_validation_error using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BootstrapExceptionFactory.config_validation_error(message="test_value", errors={})
+            self._build_instance()
+            BootstrapExceptionFactory.config_validation_error(message="test_value", errors={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"config_validation_error needs specific domain fixtures/data: {e}")
             return
@@ -473,8 +473,8 @@ class TestBootstrapExceptionFactory:
     def test_database_connection_error_smoke(self):
         """Smoke test for BootstrapExceptionFactory.database_connection_error using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BootstrapExceptionFactory.database_connection_error(message="test_value", host="test_value", db="test_value")
+            self._build_instance()
+            BootstrapExceptionFactory.database_connection_error(message="test_value", host="test_value", db="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"database_connection_error needs specific domain fixtures/data: {e}")
             return
@@ -484,8 +484,8 @@ class TestBootstrapExceptionFactory:
     def test_component_init_error_smoke(self):
         """Smoke test for BootstrapExceptionFactory.component_init_error using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BootstrapExceptionFactory.component_init_error(component="test_value", message="test_value")
+            self._build_instance()
+            BootstrapExceptionFactory.component_init_error(component="test_value", message="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"component_init_error needs specific domain fixtures/data: {e}")
             return

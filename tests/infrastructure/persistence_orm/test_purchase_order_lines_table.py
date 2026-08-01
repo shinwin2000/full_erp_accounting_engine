@@ -26,24 +26,24 @@ class TestPurchaseOrderLinesTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            purchase_order_id=uuid4(),
-            line_number=1,
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            quantity=Decimal("100.00"),
-            received_quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            discount_percent=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            total_amount=Decimal("100.00"),
-            expected_delivery_date=date.today(),
-            legal_entity_id=uuid4(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'purchase_order_id': uuid4(),
+            'line_number': 1,
+            'item_id': uuid4(),
+            'item_code': "test_value",
+            'item_name': "test_value",
+            'quantity': Decimal("100.00"),
+            'received_quantity': Decimal("100.00"),
+            'unit_price': Decimal("100.00"),
+            'discount_percent': Decimal("100.00"),
+            'tax_rate': Decimal("100.00"),
+            'total_amount': Decimal("100.00"),
+            'expected_delivery_date': date.today(),
+            'legal_entity_id': uuid4(),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+        }
         try:
             instance = PurchaseOrderLinesTable(**kwargs)
         except (Exception, SystemExit) as e:

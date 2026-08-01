@@ -26,16 +26,16 @@ class TestCoretaxNTPNTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            ntpn="test_value",
-            amount=Decimal("100.00"),
-            payment_date=date.today(),
-            npwp="test_value",
-            is_valid=True,
-            validation_result={},
-            validated_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'ntpn': "test_value",
+            'amount': Decimal("100.00"),
+            'payment_date': date.today(),
+            'npwp': "test_value",
+            'is_valid': True,
+            'validation_result': {},
+            'validated_at': datetime.now(UTC),
+        }
         try:
             instance = CoretaxNTPNTable(**kwargs)
         except (Exception, SystemExit) as e:

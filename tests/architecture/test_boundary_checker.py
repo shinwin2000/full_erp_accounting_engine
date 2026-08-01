@@ -234,7 +234,6 @@ class TestImportViolation:
         assert trail[0]["action"] == "TOUCH"
 
     def test_str(self, sample_violation):
-        expected = "f.py:10: Bad import (application.module -> domain.bad)"
         # Note: sample_violation source_file is "/project/application/module.py", not f.py.
         # We'll use a fresh one.
         v = ImportViolation(

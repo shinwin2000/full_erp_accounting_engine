@@ -346,7 +346,7 @@ def test_enum_members_exist(enum_class, members):
 
 @pytest.mark.parametrize("enum_class,_", ENUM_CLASSES)
 def test_enum_member_is_instance(enum_class, _):
-    first_member = list(enum_class)[0]
+    first_member = next(iter(enum_class))
     assert isinstance(first_member, enum_class)
 
 

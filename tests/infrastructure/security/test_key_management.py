@@ -629,8 +629,8 @@ class TestModuleFunctions:
     def test_rotate_key_with_callback(self):
         """Test rotate_key with callback."""
         callback = MagicMock()
-        new_id = rotate_key(callback=callback)
-        old_key = get_current_key()  # But this will be new key after rotation; we need old before.
+        rotate_key(callback=callback)
+        get_current_key()  # But this will be new key after rotation; we need old before.
         # To properly test, we would need more control, but we can at least verify callback called.
         # Actually, we need to capture old key before rotation.
         # Simpler: just verify callback called with bytes.

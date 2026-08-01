@@ -55,17 +55,17 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.COMPANY_REGISTERED,
-            aggregate_id=uuid4(),
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.COMPANY_REGISTERED,
+            'aggregate_id': uuid4(),
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -83,8 +83,8 @@ class TestCompanyRegisteredEvent:
     """Tests for the CompanyRegisteredEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CompanyRegisteredEvent can be constructed with valid field values."""
@@ -101,8 +101,8 @@ class TestCompanySuspendedEvent:
     """Tests for the CompanySuspendedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CompanySuspendedEvent can be constructed with valid field values."""
@@ -119,8 +119,8 @@ class TestCompanyReactivatedEvent:
     """Tests for the CompanyReactivatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CompanyReactivatedEvent can be constructed with valid field values."""
@@ -137,8 +137,8 @@ class TestCompanyDissolvedEvent:
     """Tests for the CompanyDissolvedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CompanyDissolvedEvent can be constructed with valid field values."""
@@ -155,8 +155,8 @@ class TestTaxProfileUpdatedEvent:
     """Tests for the TaxProfileUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """TaxProfileUpdatedEvent can be constructed with valid field values."""
@@ -173,8 +173,8 @@ class TestCompanyAddressUpdatedEvent:
     """Tests for the CompanyAddressUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CompanyAddressUpdatedEvent can be constructed with valid field values."""
@@ -191,8 +191,8 @@ class TestCompanyContactUpdatedEvent:
     """Tests for the CompanyContactUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """CompanyContactUpdatedEvent can be constructed with valid field values."""
@@ -209,8 +209,8 @@ class TestPKPStatusChangedEvent:
     """Tests for the PKPStatusChangedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PKPStatusChangedEvent can be constructed with valid field values."""
@@ -227,8 +227,8 @@ class TestLegalEntityCreated:
     """Tests for the LegalEntityCreated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """LegalEntityCreated can be constructed with valid field values."""
@@ -245,8 +245,8 @@ class TestLegalEntityDeactivated:
     """Tests for the LegalEntityDeactivated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """LegalEntityDeactivated can be constructed with valid field values."""
@@ -263,8 +263,8 @@ class TestLegalEntityUpdated:
     """Tests for the LegalEntityUpdated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """LegalEntityUpdated can be constructed with valid field values."""
@@ -296,7 +296,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock())
+            await instance.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -307,7 +307,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_many(events=[MagicMock()])
+            await instance.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return

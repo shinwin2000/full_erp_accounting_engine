@@ -26,18 +26,18 @@ class TestReportScheduleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            definition_id=uuid4(),
-            cron_expression="test_value",
-            next_run_at=datetime.now(UTC),
-            last_run_at=datetime.now(UTC),
-            is_active=True,
-            recipient_emails="test_value",
-            created_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            definition=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'definition_id': uuid4(),
+            'cron_expression': "test_value",
+            'next_run_at': datetime.now(UTC),
+            'last_run_at': datetime.now(UTC),
+            'is_active': True,
+            'recipient_emails': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'definition': MagicMock(),
+        }
         try:
             instance = ReportScheduleTable(**kwargs)
         except (Exception, SystemExit) as e:

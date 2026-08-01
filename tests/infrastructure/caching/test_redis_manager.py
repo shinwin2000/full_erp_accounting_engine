@@ -42,7 +42,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.get_cached_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
+            instance.get_cached_result(idempotency_key="test_value", method_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cached_result needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestIdempotencyManager:
         """Smoke test for IdempotencyManager.cache_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
+            instance.cache_result(idempotency_key="test_value", method_name="test_value", result={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"cache_result needs specific domain fixtures/data: {e}")
             return
@@ -128,7 +128,7 @@ class TestRedisManager:
         """Smoke test for RedisManager.connect using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.connect()
+            await instance.connect()
         except (Exception, SystemExit) as e:
             pytest.skip(f"connect needs specific domain fixtures/data: {e}")
             return
@@ -139,7 +139,7 @@ class TestRedisManager:
         """Smoke test for RedisManager.disconnect using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.disconnect()
+            await instance.disconnect()
         except (Exception, SystemExit) as e:
             pytest.skip(f"disconnect needs specific domain fixtures/data: {e}")
             return
@@ -150,7 +150,7 @@ class TestRedisManager:
         """Smoke test for RedisManager.get_client using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_client()
+            await instance.get_client()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_client needs specific domain fixtures/data: {e}")
             return
@@ -161,7 +161,7 @@ class TestRedisManager:
         """Smoke test for RedisManager.is_healthy using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_healthy()
+            await instance.is_healthy()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_healthy needs specific domain fixtures/data: {e}")
             return
@@ -172,7 +172,7 @@ class TestRedisManager:
 async def test_get_redis_manager_smoke():
     """Smoke test for module-level function get_redis_manager."""
     try:
-        result = await get_redis_manager()
+        await get_redis_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_redis_manager needs specific input data: {e}")
         return
@@ -182,7 +182,7 @@ async def test_get_redis_manager_smoke():
 async def test_get_redis_client_smoke():
     """Smoke test for module-level function get_redis_client."""
     try:
-        result = await get_redis_client()
+        await get_redis_client()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_redis_client needs specific input data: {e}")
         return
@@ -192,7 +192,7 @@ async def test_get_redis_client_smoke():
 async def test_ping_redis_smoke():
     """Smoke test for module-level function ping_redis."""
     try:
-        result = await ping_redis()
+        await ping_redis()
     except (Exception, SystemExit) as e:
         pytest.skip(f"ping_redis needs specific input data: {e}")
         return
@@ -202,7 +202,7 @@ async def test_ping_redis_smoke():
 async def test_close_redis_smoke():
     """Smoke test for module-level function close_redis."""
     try:
-        result = await close_redis()
+        await close_redis()
     except (Exception, SystemExit) as e:
         pytest.skip(f"close_redis needs specific input data: {e}")
         return
@@ -212,7 +212,7 @@ async def test_close_redis_smoke():
 async def test_close_smoke():
     """Smoke test for module-level function close."""
     try:
-        result = await close()
+        await close()
     except (Exception, SystemExit) as e:
         pytest.skip(f"close needs specific input data: {e}")
         return

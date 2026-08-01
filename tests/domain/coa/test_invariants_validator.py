@@ -126,14 +126,14 @@ def legal_entity_id():
 
 
 def make_account(legal_entity_id, **overrides):
-    defaults = dict(
-        id=uuid4(),
-        legal_entity_id=legal_entity_id,
-        code=AccountCodeVO("1000"),
-        name="Cash",
-        account_type=AccountType.ASSET,
-        normal_balance=NormalBalance.DEBIT,
-    )
+    defaults = {
+        "id": uuid4(),
+        "legal_entity_id": legal_entity_id,
+        "code": AccountCodeVO("1000"),
+        "name": "Cash",
+        "account_type": AccountType.ASSET,
+        "normal_balance": NormalBalance.DEBIT,
+    }
     defaults.update(overrides)
     return AccountEntity(**defaults)
 

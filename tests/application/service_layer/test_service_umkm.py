@@ -784,7 +784,7 @@ class TestUMKMService:
         assert stats2["transactions"] == 1
 
         # Update
-        update_req = UpdateTransactionRequest(
+        UpdateTransactionRequest(
             transaction_id=req.transaction_id,  # We need the actual ID from creation
             amount=Decimal("200"),
         )
@@ -867,7 +867,7 @@ class TestUMKMService:
         assert audit1[0]["action"] == "record_transaction"
 
         # Update
-        created = await service.record_transaction(req, user_id)  # But we already have one; we need a separate one.
+        await service.record_transaction(req, user_id)  # But we already have one; we need a separate one.
         # Let's create another transaction
         req2 = TransactionRequest(
             legal_entity_id=legal_entity_id,

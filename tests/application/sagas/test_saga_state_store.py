@@ -55,7 +55,7 @@ class TestSagaStateStore:
         """Smoke test for SagaStateStore.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(saga_type="test_value", saga_id=uuid4(), state={})
+            await instance.save(saga_type="test_value", saga_id=uuid4(), state={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestSagaStateStore:
         """Smoke test for SagaStateStore.load using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load(saga_type="test_value", saga_id=uuid4())
+            await instance.load(saga_type="test_value", saga_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"load needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestSagaStateStore:
         """Smoke test for SagaStateStore.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(saga_type="test_value", saga_id=uuid4())
+            await instance.delete(saga_type="test_value", saga_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -88,7 +88,7 @@ class TestSagaStateStore:
         """Smoke test for SagaStateStore.list_sagas using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_sagas(saga_type="test_value", status="test_value", limit=1, offset=1)
+            await instance.list_sagas(saga_type="test_value", status="test_value", limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_sagas needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class TestInMemorySagaStateStore:
         """Smoke test for InMemorySagaStateStore.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.save(saga_id="test_value", state={})
+            instance.save(saga_id="test_value", state={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestInMemorySagaStateStore:
         """Smoke test for InMemorySagaStateStore.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get(saga_id="test_value")
+            instance.get(saga_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestInMemorySagaStateStore:
         """Smoke test for InMemorySagaStateStore.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.delete(saga_id="test_value")
+            instance.delete(saga_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestInMemorySagaStateStore:
         """Smoke test for InMemorySagaStateStore.list_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.list_all()
+            instance.list_all()
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_all needs specific domain fixtures/data: {e}")
             return
@@ -159,7 +159,7 @@ class TestInMemorySagaStateStore:
 async def test_create_saga_state_store_smoke():
     """Smoke test for module-level function create_saga_state_store."""
     try:
-        result = await create_saga_state_store(db_pool=MagicMock(), redis_client=MagicMock(), cache_ttl_seconds=1, table_name="test_value")
+        await create_saga_state_store(db_pool=MagicMock(), redis_client=MagicMock(), cache_ttl_seconds=1, table_name="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_saga_state_store needs specific input data: {e}")
         return

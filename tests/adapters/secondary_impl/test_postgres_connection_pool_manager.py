@@ -31,7 +31,7 @@ class TestAsyncPGConnectionPoolManager:
         """Smoke test for AsyncPGConnectionPoolManager.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestAsyncPGConnectionPoolManager:
         """Smoke test for AsyncPGConnectionPoolManager.close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.close()
+            await instance.close()
         except (Exception, SystemExit) as e:
             pytest.skip(f"close needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestAsyncPGConnectionPoolManager:
         """Smoke test for AsyncPGConnectionPoolManager.acquire using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.acquire()
+            await instance.acquire()
         except (Exception, SystemExit) as e:
             pytest.skip(f"acquire needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestAsyncPGConnectionPoolManager:
         """Smoke test for AsyncPGConnectionPoolManager.get_connection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_connection()
+            await instance.get_connection()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_connection needs specific domain fixtures/data: {e}")
             return

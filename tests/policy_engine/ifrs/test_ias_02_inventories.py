@@ -70,18 +70,18 @@ class TestIAS2InventoryItem:
     """Tests for the IAS2InventoryItem value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            item_code="test_value",
-            description="test_value",
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            nrv_per_unit=Decimal("100.00"),
-            total_nrv=Decimal("100.00"),
-            valuation_basis=IAS2MeasurementBasis.COST,
-            write_down=Decimal("100.00"),
-        )
+        return {
+            'item_id': uuid4(),
+            'item_code': "test_value",
+            'description': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'nrv_per_unit': Decimal("100.00"),
+            'total_nrv': Decimal("100.00"),
+            'valuation_basis': IAS2MeasurementBasis.COST,
+            'write_down': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """IAS2InventoryItem can be constructed with valid field values."""
@@ -99,13 +99,13 @@ class TestIAS2Inventory:
     """Tests for the IAS2Inventory value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            inventory_id=uuid4(),
-            entity_id=uuid4(),
-            valuation_method=IAS2InventoryValuationMethod.FIFO,
-            items=[MagicMock()],
-            as_of_date=datetime.now(UTC),
-        )
+        return {
+            'inventory_id': uuid4(),
+            'entity_id': uuid4(),
+            'valuation_method': IAS2InventoryValuationMethod.FIFO,
+            'items': [MagicMock()],
+            'as_of_date': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """IAS2Inventory can be constructed with valid field values."""
@@ -137,8 +137,8 @@ class TestIAS2InventoryService:
     def test_calculate_nrv_smoke(self):
         """Smoke test for IAS2InventoryService.calculate_nrv using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS2InventoryService.calculate_nrv(estimated_selling_price=Decimal("100.00"), estimated_costs_to_complete=Decimal("100.00"), estimated_costs_to_sell=Decimal("100.00"))
+            self._build_instance()
+            IAS2InventoryService.calculate_nrv(estimated_selling_price=Decimal("100.00"), estimated_costs_to_complete=Decimal("100.00"), estimated_costs_to_sell=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_nrv needs specific domain fixtures/data: {e}")
             return
@@ -148,8 +148,8 @@ class TestIAS2InventoryService:
     def test_calculate_weighted_average_cost_smoke(self):
         """Smoke test for IAS2InventoryService.calculate_weighted_average_cost using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS2InventoryService.calculate_weighted_average_cost(purchases=[()], beginning_inventory_quantity=Decimal("100.00"), beginning_inventory_cost=Decimal("100.00"))
+            self._build_instance()
+            IAS2InventoryService.calculate_weighted_average_cost(purchases=[()], beginning_inventory_quantity=Decimal("100.00"), beginning_inventory_cost=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_weighted_average_cost needs specific domain fixtures/data: {e}")
             return
@@ -159,8 +159,8 @@ class TestIAS2InventoryService:
     def test_calculate_fifo_cost_smoke(self):
         """Smoke test for IAS2InventoryService.calculate_fifo_cost using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS2InventoryService.calculate_fifo_cost(outward_quantity=Decimal("100.00"), inventory_layers=[()])
+            self._build_instance()
+            IAS2InventoryService.calculate_fifo_cost(outward_quantity=Decimal("100.00"), inventory_layers=[()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_fifo_cost needs specific domain fixtures/data: {e}")
             return
@@ -170,8 +170,8 @@ class TestIAS2InventoryService:
     def test_apply_lcnrv_smoke(self):
         """Smoke test for IAS2InventoryService.apply_lcnrv using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS2InventoryService.apply_lcnrv(cost=Decimal("100.00"), nrv=Decimal("100.00"), existing_allowance=Decimal("100.00"))
+            self._build_instance()
+            IAS2InventoryService.apply_lcnrv(cost=Decimal("100.00"), nrv=Decimal("100.00"), existing_allowance=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"apply_lcnrv needs specific domain fixtures/data: {e}")
             return
@@ -183,11 +183,11 @@ class TestIAS2ValidationResult:
     """Tests for the IAS2ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IAS2ValidationResult can be constructed with valid field values."""
@@ -219,8 +219,8 @@ class TestIAS2Rules:
     def test_validate_valuation_method_smoke(self):
         """Smoke test for IAS2Rules.validate_valuation_method using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS2Rules.validate_valuation_method(method=IAS2InventoryValuationMethod.FIFO)
+            self._build_instance()
+            IAS2Rules.validate_valuation_method(method=IAS2InventoryValuationMethod.FIFO)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_valuation_method needs specific domain fixtures/data: {e}")
             return
@@ -230,8 +230,8 @@ class TestIAS2Rules:
     def test_validate_nrv_calculation_smoke(self):
         """Smoke test for IAS2Rules.validate_nrv_calculation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS2Rules.validate_nrv_calculation(selling_price=Decimal("100.00"), costs_to_complete=Decimal("100.00"), costs_to_sell=Decimal("100.00"))
+            self._build_instance()
+            IAS2Rules.validate_nrv_calculation(selling_price=Decimal("100.00"), costs_to_complete=Decimal("100.00"), costs_to_sell=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_nrv_calculation needs specific domain fixtures/data: {e}")
             return
@@ -258,7 +258,7 @@ class TestIAS2Validator:
         """Smoke test for IAS2Validator.validate_inventory using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_inventory(inventory=MagicMock())
+            instance.validate_inventory(inventory=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_inventory needs specific domain fixtures/data: {e}")
             return
@@ -269,7 +269,7 @@ class TestIAS2Validator:
         """Smoke test for IAS2Validator.calculate_inventory_value using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_inventory_value(items=[{}], valuation_method=IAS2InventoryValuationMethod.FIFO, as_of_date=datetime.now(UTC))
+            instance.calculate_inventory_value(items=[{}], valuation_method=IAS2InventoryValuationMethod.FIFO, as_of_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_inventory_value needs specific domain fixtures/data: {e}")
             return
@@ -280,7 +280,7 @@ class TestIAS2Validator:
         """Smoke test for IAS2Validator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -291,7 +291,7 @@ class TestIAS2Validator:
 def test_get_ias2_validator_smoke():
     """Smoke test for module-level function get_ias2_validator."""
     try:
-        result = get_ias2_validator()
+        get_ias2_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ias2_validator needs specific input data: {e}")
         return

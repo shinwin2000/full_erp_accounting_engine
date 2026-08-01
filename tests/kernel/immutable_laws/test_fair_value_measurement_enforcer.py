@@ -50,7 +50,7 @@ class Test_FallbackMarketDataRepository:
         """Smoke test for _FallbackMarketDataRepository.get_market_price using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_market_price(asset_type="test_value", as_of=datetime.now(UTC), legal_entity_id=uuid4())
+            await instance.get_market_price(asset_type="test_value", as_of=datetime.now(UTC), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_market_price needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class Test_FallbackMarketDataRepository:
         """Smoke test for _FallbackMarketDataRepository.get_price_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_price_history(asset_type="test_value", from_date=datetime.now(UTC), to_date=datetime.now(UTC), legal_entity_id=uuid4())
+            await instance.get_price_history(asset_type="test_value", from_date=datetime.now(UTC), to_date=datetime.now(UTC), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_price_history needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class Test_FallbackMarketDataRepository:
         """Smoke test for _FallbackMarketDataRepository.get_market_index using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_market_index(index_code="test_value", as_of=datetime.now(UTC), legal_entity_id=uuid4())
+            await instance.get_market_index(index_code="test_value", as_of=datetime.now(UTC), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_market_index needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class Test_FallbackMarketDataRepository:
         """Smoke test for _FallbackMarketDataRepository.get_volatility using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_volatility(asset_type="test_value", as_of=datetime.now(UTC), lookback_days=1, legal_entity_id=uuid4())
+            await instance.get_volatility(asset_type="test_value", as_of=datetime.now(UTC), lookback_days=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_volatility needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class Test_FallbackValuationRepository:
         """Smoke test for _FallbackValuationRepository.get_observable_inputs using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_observable_inputs(asset_id=uuid4(), measurement_date=datetime.now(UTC))
+            await instance.get_observable_inputs(asset_id=uuid4(), measurement_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_observable_inputs needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class Test_FallbackValuationRepository:
         """Smoke test for _FallbackValuationRepository.get_unobservable_inputs using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_unobservable_inputs(asset_id=uuid4(), measurement_date=datetime.now(UTC))
+            await instance.get_unobservable_inputs(asset_id=uuid4(), measurement_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_unobservable_inputs needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class Test_FallbackValuationRepository:
         """Smoke test for _FallbackValuationRepository.get_sensitivity_analysis using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_sensitivity_analysis(asset_id=uuid4(), measurement_date=datetime.now(UTC))
+            await instance.get_sensitivity_analysis(asset_id=uuid4(), measurement_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_sensitivity_analysis needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class Test_FallbackValuationRepository:
         """Smoke test for _FallbackValuationRepository.get_last_measurement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_measurement(asset_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_last_measurement(asset_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_measurement needs specific domain fixtures/data: {e}")
             return
@@ -260,24 +260,24 @@ class TestFairValueMeasurement:
     """Tests for the FairValueMeasurement value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            measurement_id=uuid4(),
-            asset_id=uuid4(),
-            asset_class=AssetClass.FINANCIAL_INSTRUMENT,
-            legal_entity_id=uuid4(),
-            fair_value=Decimal("100.00"),
-            measurement_date=datetime.now(UTC),
-            hierarchy_level=FairValueHierarchy.LEVEL_1,
-            valuation_technique=ValuationTechnique.MARKET_APPROACH,
-            measured_by="test_value",
-            measured_at=datetime.now(UTC),
-            market_price_used=Decimal("100.00"),
-            market_price_source="test_value",
-            observable_inputs={},
-            sensitivity_analysis={},
-            notes="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "measurement_id": uuid4(),
+            "asset_id": uuid4(),
+            "asset_class": AssetClass.FINANCIAL_INSTRUMENT,
+            "legal_entity_id": uuid4(),
+            "fair_value": Decimal("100.00"),
+            "measurement_date": datetime.now(UTC),
+            "hierarchy_level": FairValueHierarchy.LEVEL_1,
+            "valuation_technique": ValuationTechnique.MARKET_APPROACH,
+            "measured_by": "test_value",
+            "measured_at": datetime.now(UTC),
+            "market_price_used": Decimal("100.00"),
+            "market_price_source": "test_value",
+            "observable_inputs": {},
+            "sensitivity_analysis": {},
+            "notes": "test_value",
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """FairValueMeasurement can be constructed with valid field values."""
@@ -295,20 +295,20 @@ class TestFairValueValidationResult:
     """Tests for the FairValueValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            validation_id=uuid4(),
-            asset_id=uuid4(),
-            legal_entity_id=uuid4(),
-            measurement_id=uuid4(),
-            hierarchy_level=FairValueHierarchy.LEVEL_1,
-            is_valid=True,
-            severity=MagicMock(),
-            message="test_value",
-            issues=["test_value"],
-            validated_by="test_value",
-            validated_at=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "validation_id": uuid4(),
+            "asset_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "measurement_id": uuid4(),
+            "hierarchy_level": FairValueHierarchy.LEVEL_1,
+            "is_valid": True,
+            "severity": MagicMock(),
+            "message": "test_value",
+            "issues": ["test_value"],
+            "validated_by": "test_value",
+            "validated_at": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """FairValueValidationResult can be constructed with valid field values."""
@@ -349,7 +349,7 @@ class TestFairValueMeasurementEnforcer:
         """Smoke test for FairValueMeasurementEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -360,7 +360,7 @@ class TestFairValueMeasurementEnforcer:
         """Smoke test for FairValueMeasurementEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -371,7 +371,7 @@ class TestFairValueMeasurementEnforcer:
         """Smoke test for FairValueMeasurementEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -381,8 +381,8 @@ class TestFairValueMeasurementEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for FairValueMeasurementEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = FairValueMeasurementEnforcer.from_dict(data={})
+            self._build_instance()
+            FairValueMeasurementEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -393,7 +393,7 @@ class TestFairValueMeasurementEnforcer:
 def test_get_fair_value_measurement_enforcer_smoke():
     """Smoke test for module-level function get_fair_value_measurement_enforcer."""
     try:
-        result = get_fair_value_measurement_enforcer()
+        get_fair_value_measurement_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_fair_value_measurement_enforcer needs specific input data: {e}")
         return

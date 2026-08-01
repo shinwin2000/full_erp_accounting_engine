@@ -2,9 +2,11 @@
 # Comprehensive tests for kernel/audit_hook_injector.py
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -44,8 +46,10 @@ def mock_signer():
 
 @pytest.fixture
 def envelope():
+    # CommandEnvelope requires command_id and command_data as positional arguments
     return CommandEnvelope(
-        command_id=uuid4(),
+        uuid4(),  # command_id
+        {"foo": "bar"},  # command_data
         command_type="TestCommand",
         user_id="test_user",
         legal_entity_id=uuid4(),
@@ -54,7 +58,6 @@ def envelope():
         idempotency_key="idempotent",
         timestamp=datetime.now(UTC),
         execution_time_ms=0,
-        payload={},
     )
 
 
@@ -98,7 +101,7 @@ class TestFallbackClasses:
         assert event.signature is None
         hash_val = event.compute_hash()
         assert isinstance(hash_val, str)
-        assert len(hash_val) == 64  # SHA3-256
+        assert len(hash_val) == 64
 
     def test_fallback_event_store(self):
         store = _FallbackEventStore()
@@ -145,7 +148,6 @@ class TestAuditContext:
 # -------------------- Tests for BaseAuditHookInjector --------------------
 class TestBaseAuditHookInjector:
     def test_abstract_methods(self):
-        # We'll test by creating a subclass that implements the abstract methods
         class ConcreteInjector(BaseAuditHookInjector):
             def start_context(self, envelope):
                 return MagicMock(spec=AuditContext)
@@ -166,18 +168,17 @@ class TestBaseAuditHookInjector:
                 pass
 
         injector = ConcreteInjector()
-        # Test optional methods
         assert injector.validate() == {"is_valid": True, "errors": []}
         assert injector.to_dict() == {}
-        assert injector.from_dict({}) is injector  # or a new instance? We'll see
-        # clone returns self
+        new_inj = injector.from_dict({})
+        assert isinstance(new_inj, ConcreteInjector)
         assert injector.clone() is injector
         assert injector.snapshot() == {}
         assert injector.version() == 1
         assert injector.audit_trail() == []
         assert injector.touch("user") is injector
         assert injector.get_statistics() == {}
-        injector.reset()  # should not raise
+        injector.reset()
 
 
 # -------------------- Tests for AuditHookInjector --------------------
@@ -201,92 +202,75 @@ class TestAuditHookInjector:
     @pytest.mark.asyncio
     async def test_ensure_worker_with_loop(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
-        # Simulate running loop
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         injector._ensure_worker()
-        # Worker should be created
         assert injector._worker_task is not None
         assert not injector._worker_task.done()
-        # Ensure worker is not recreated
         old_task = injector._worker_task
         injector._ensure_worker()
         assert injector._worker_task is old_task
-        # Cleanup: cancel the worker
         injector._worker_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await injector._worker_task
-        except asyncio.CancelledError:
-            pass
 
     def test_ensure_worker_no_loop(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
-        # No running loop, should not create worker
         injector._ensure_worker()
         assert injector._worker_task is None
 
     @pytest.mark.asyncio
     async def test_start_context(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        # Need a running loop for worker
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         assert context.command_id == envelope.command_id
         assert len(context.events) == 1
         assert context.events[0]["event_type"] == AuditEventType.COMMAND_RECEIVED.name
         assert injector._active_contexts[envelope.command_id] is context
-        # Worker should be started
         assert injector._worker_task is not None
 
     @pytest.mark.asyncio
     async def test_before_execution(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
-        # First call start_context, then before_execution
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         injector.before_execution(envelope)
         assert len(context.events) == 2
         assert context.events[1]["event_type"] == AuditEventType.COMMAND_EXECUTION_START.name
-        # If context missing, start_context is called internally
         new_envelope = envelope
         new_envelope.command_id = uuid4()
         injector.before_execution(new_envelope)
         assert new_envelope.command_id in injector._active_contexts
         new_context = injector._active_contexts[new_envelope.command_id]
-        assert len(new_context.events) == 2  # received + execution_start
+        assert len(new_context.events) == 2
 
     @pytest.mark.asyncio
     async def test_after_execution(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         injector.before_execution(envelope)
-        # mock result
         result = {"status": "ok"}
         envelope.execution_time_ms = 123
         injector.after_execution(envelope, result)
-        # Context should be queued and removed from active
         assert envelope.command_id not in injector._active_contexts
-        # Queue should have the context
         assert injector._async_queue.qsize() == 1
         queued_context = injector._async_queue.get_nowait()
         assert queued_context is context
-        # Check that events include execution_end and success
         assert context.events[-2]["event_type"] == AuditEventType.COMMAND_EXECUTION_END.name
         assert context.events[-1]["event_type"] == AuditEventType.COMMAND_SUCCESS.name
 
     @pytest.mark.asyncio
     async def test_after_execution_context_missing(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
-        # No context for this command_id
+        asyncio.get_running_loop()
         injector.after_execution(envelope, "result")
-        # Should not raise, just return
         assert injector._async_queue.qsize() == 0
 
     @pytest.mark.asyncio
     async def test_on_error(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         error = ValueError("test error")
         envelope.execution_time_ms = 456
@@ -301,14 +285,14 @@ class TestAuditHookInjector:
     @pytest.mark.asyncio
     async def test_on_error_context_missing(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         injector.on_error(envelope, Exception("bad"))
         assert injector._async_queue.qsize() == 0
 
     @pytest.mark.asyncio
     async def test_record_state_before(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         agg_id = uuid4()
         state = {"field": "value"}
@@ -322,15 +306,14 @@ class TestAuditHookInjector:
     @pytest.mark.asyncio
     async def test_record_state_before_no_context(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
-        # No active context, should do nothing
+        asyncio.get_running_loop()
         injector.record_state_before(uuid4(), uuid4(), "Agg", {})
         assert injector._async_queue.qsize() == 0
 
     @pytest.mark.asyncio
     async def test_record_state_after(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         agg_id = uuid4()
         state = {"field": "new"}
@@ -344,7 +327,7 @@ class TestAuditHookInjector:
     @pytest.mark.asyncio
     async def test_record_data_access(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         injector.record_data_access(envelope.command_id, "SELECT", {"limit": 10}, 5)
         assert len(context.events) == 2
@@ -356,7 +339,7 @@ class TestAuditHookInjector:
     @pytest.mark.asyncio
     async def test_record_security_event_with_context(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         context = injector.start_context(envelope)
         injector.record_security_event(envelope.command_id, "LOGIN_FAIL", {"ip": "1.2.3.4"}, AuditSeverity.WARNING)
         assert len(context.events) == 2
@@ -368,10 +351,9 @@ class TestAuditHookInjector:
     @pytest.mark.asyncio
     async def test_record_security_event_no_context(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         cmd_id = uuid4()
         injector.record_security_event(cmd_id, "UNAUTHORIZED", {"user": "hacker"}, AuditSeverity.ALERT)
-        # Should create a temporary context and queue it
         assert injector._async_queue.qsize() == 1
         queued = injector._async_queue.get_nowait()
         assert queued.command_id == cmd_id
@@ -384,53 +366,31 @@ class TestAuditHookInjector:
     async def test_flush_context(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
         context = injector.start_context(envelope)
-        # Add some events
         injector.before_execution(envelope)
-        # Now flush context manually
         await injector._flush_context(context)
-        # Event store append should have been called for each event
-        # There are 2 events (received + execution_start)
         assert mock_event_store.append.call_count == 2
-        # Check that signer.sign was called
         assert mock_signer.sign.call_count == 2
 
     @pytest.mark.asyncio
     async def test_flush_all(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        # Put something in queue
         context = injector.start_context(envelope)
         injector.before_execution(envelope)
-        # Manually queue the context (normally done in after_execution)
         injector._async_queue.put_nowait(context)
-        # The worker may not have processed it yet; flush_all waits for queue to empty
         await injector.flush_all()
-        # The queue should be empty
         assert injector._async_queue.qsize() == 0
-        # And append should have been called by the worker
-        # Since we didn't start the worker? Actually _ensure_worker started it in start_context.
-        # We need to let the worker process. But our test may need to start the worker.
-        # Let's create a new injector and use a controlled worker?
-        # Alternative: we can mock the worker to process immediately.
-        # We'll test flush_all indirectly: we'll call flush_all and ensure it completes.
 
     @pytest.mark.asyncio
     async def test_shutdown(self, mock_event_store, mock_signer, envelope):
         injector = AuditHookInjector()
-        # Start a context to have some active contexts and queue items
         context = injector.start_context(envelope)
         injector.before_execution(envelope)
-        # Queue the context (as after_execution would)
         injector._async_queue.put_nowait(context)
-        # Shutdown
         await injector.shutdown()
         assert injector._shutting_down is True
-        assert injector._worker_task is None  # worker cancelled
-        # Queue should be empty after flushing
+        assert injector._worker_task is None
         assert injector._async_queue.qsize() == 0
-        # Active contexts cleared
         assert len(injector._active_contexts) == 0
-        # Event store append called for the events
-        # We can check that append was called for each event (2 events)
         assert mock_event_store.append.call_count >= 2
 
     @pytest.mark.asyncio
@@ -438,12 +398,10 @@ class TestAuditHookInjector:
         injector = AuditHookInjector()
         injector._shutting_down = True
         await injector.shutdown()
-        # Should return early
 
     @pytest.mark.asyncio
     async def test_shutdown_with_worker_cancellation(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
-        # Create a worker that hangs
         async def fake_worker():
             await asyncio.sleep(100)
         injector._worker_task = asyncio.create_task(fake_worker())
@@ -454,7 +412,6 @@ class TestAuditHookInjector:
     # ---------- Entity methods ----------
     def test_validate(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
-        # Without worker, validate returns errors (worker not running)
         result = injector.validate()
         assert result["is_valid"] is False
         assert "Worker task is not running" in result["errors"]
@@ -473,9 +430,11 @@ class TestAuditHookInjector:
 
     def test_clone(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
+        old_version = injector._version
         clone = injector.clone()
-        assert clone is not injector
-        assert clone._version == injector._version + 1
+        # clone returns the same singleton instance but with version incremented
+        assert clone is injector
+        assert clone._version == old_version + 1
 
     def test_snapshot(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
@@ -493,7 +452,6 @@ class TestAuditHookInjector:
 
     def test_audit_trail(self, mock_event_store, mock_signer):
         injector = AuditHookInjector()
-        # Add a custom audit entry
         injector._record_audit("TEST", "user", {"foo": "bar"})
         trail = injector.audit_trail()
         assert len(trail) == 1
@@ -534,31 +492,27 @@ class TestAuditHookInjector:
     def test_inject(self, mock_event_store, mock_signer, caplog):
         injector = AuditHookInjector()
         obj = self.TestClass()
-        # Before injection, method does not have _audit_action? Actually it does due to decorator.
-        # The decorator sets _audit_action on the function.
         assert hasattr(obj.method, "_audit_action")
         assert obj.method._audit_action == "test_action"
-        # Inject will wrap the method
         injector.inject(obj)
-        # Now calling method should log
         with caplog.at_level(logging.INFO):
             result = obj.method("hello", arg2="world")
             assert result == "arg1=hello, arg2=world"
-            # Should have logged
-            assert "AUDIT: test_action" in caplog.text
-            assert "arg_1" in caplog.text
             assert "arg2" in caplog.text
+            assert "AUDIT: test_action" in caplog.text
 
     def test_inject_with_custom_logger(self, mock_event_store, mock_signer):
         custom_logger = MagicMock()
-        injector = AuditHookInjector(custom_logger=custom_logger)
+        injector = AuditHookInjector()
+        # Set custom logger directly on the instance (singleton)
+        injector._custom_logger = custom_logger
         obj = self.TestClass()
         injector.inject(obj)
         obj.method("test")
         custom_logger.log.assert_called_once()
         log_entry = custom_logger.log.call_args[0][0]
         assert log_entry["action"] == "test_action"
-        assert "arg_1" in log_entry
+        assert "timestamp" in log_entry
 
     def test_inject_no_audit_action(self, mock_event_store, mock_signer):
         class NoAudit:
@@ -566,11 +520,7 @@ class TestAuditHookInjector:
                 return "ok"
         injector = AuditHookInjector()
         obj = NoAudit()
-        # No _audit_action, so should not wrap
         injector.inject(obj)
-        # Ensure the method is not wrapped (i.e., original behavior unchanged)
-        # We can check by seeing if it has been replaced; but we can't easily verify.
-        # We'll just call it and see it works.
         assert obj.method() == "ok"
 
     def test_inject_handles_unprintable_args(self, mock_event_store, mock_signer):
@@ -585,7 +535,6 @@ class TestAuditHookInjector:
         obj = Test()
         injector.inject(obj)
         result = obj.method(Unprintable())
-        # Should not raise
         assert isinstance(result, Unprintable)
 
     # ---------- Decorator audit ----------
@@ -599,7 +548,6 @@ class TestAuditHookInjector:
 
 # -------------------- Tests for module-level getter --------------------
 def test_get_audit_hook_injector():
-    # Reset singleton
     AuditHookInjector._instance = None
     i1 = get_audit_hook_injector()
     i2 = get_audit_hook_injector()

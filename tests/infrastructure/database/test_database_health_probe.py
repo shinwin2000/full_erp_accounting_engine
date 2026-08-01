@@ -53,7 +53,7 @@ class TestDatabaseHealthProbe:
         """Smoke test for DatabaseHealthProbe.check_connectivity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_connectivity()
+            await instance.check_connectivity()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_connectivity needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestDatabaseHealthProbe:
         """Smoke test for DatabaseHealthProbe.check_query_performance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_query_performance()
+            await instance.check_query_performance()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_query_performance needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestDatabaseHealthProbe:
         """Smoke test for DatabaseHealthProbe.check_replication_lag using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_replication_lag()
+            await instance.check_replication_lag()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_replication_lag needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestDatabaseHealthProbe:
         """Smoke test for DatabaseHealthProbe.check_connection_pool using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_connection_pool()
+            await instance.check_connection_pool()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_connection_pool needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestDatabaseHealthProbe:
 async def test_get_health_probe_smoke():
     """Smoke test for module-level function get_health_probe."""
     try:
-        result = await get_health_probe()
+        await get_health_probe()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_health_probe needs specific input data: {e}")
         return
@@ -107,7 +107,7 @@ async def test_get_health_probe_smoke():
 async def test_readiness_probe_smoke():
     """Smoke test for module-level function readiness_probe."""
     try:
-        result = await readiness_probe()
+        await readiness_probe()
     except (Exception, SystemExit) as e:
         pytest.skip(f"readiness_probe needs specific input data: {e}")
         return
@@ -117,7 +117,7 @@ async def test_readiness_probe_smoke():
 async def test_liveness_probe_smoke():
     """Smoke test for module-level function liveness_probe."""
     try:
-        result = await liveness_probe()
+        await liveness_probe()
     except (Exception, SystemExit) as e:
         pytest.skip(f"liveness_probe needs specific input data: {e}")
         return

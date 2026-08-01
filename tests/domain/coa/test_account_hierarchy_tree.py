@@ -81,15 +81,15 @@ def reset_class_level_state():
 
 
 def make_account(code, name, legal_entity_id, parent=None, **overrides):
-    defaults = dict(
-        id=uuid4(),
-        legal_entity_id=legal_entity_id,
-        code=AccountCodeVO(code),
-        name=name,
-        account_type=AccountType.ASSET,
-        normal_balance=NormalBalance.DEBIT,
-        parent_id=parent,
-    )
+    defaults = {
+        "id": uuid4(),
+        "legal_entity_id": legal_entity_id,
+        "code": AccountCodeVO(code),
+        "name": name,
+        "account_type": AccountType.ASSET,
+        "normal_balance": NormalBalance.DEBIT,
+        "parent_id": parent,
+    }
     defaults.update(overrides)
     return AccountEntity(**defaults)
 

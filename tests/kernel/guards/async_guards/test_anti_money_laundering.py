@@ -460,7 +460,7 @@ class TestAntiMoneyLaunderingEngine:
         engine._large_transaction_threshold = Decimal("1000000")
         tx_id = uuid4()
         now = FIXED_NOW
-        country = list(HIGH_RISK_COUNTRIES)[0]
+        country = next(iter(HIGH_RISK_COUNTRIES))
         score = await engine.calculate_risk_score(
             transaction_id=tx_id,
             customer_id=customer_id,
@@ -476,7 +476,7 @@ class TestAntiMoneyLaunderingEngine:
 
     @pytest.mark.asyncio
     async def test_calculate_risk_score_monitored_country(self, engine, customer_id, legal_entity_id):
-        country = list(MONITORED_COUNTRIES)[0]
+        country = next(iter(MONITORED_COUNTRIES))
         tx_id = uuid4()
         now = FIXED_NOW
         score = await engine.calculate_risk_score(

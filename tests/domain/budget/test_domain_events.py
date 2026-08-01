@@ -55,18 +55,18 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=BudgetEventType.BUDGET_CREATED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id=uuid4(),
-            correlation_id="test_value",
-            causation_id="test_value",
-            version=1,
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': BudgetEventType.BUDGET_CREATED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': uuid4(),
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -84,8 +84,8 @@ class TestBudgetCreated:
     """Tests for the BudgetCreated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetCreated can be constructed with valid field values."""
@@ -102,8 +102,8 @@ class TestBudgetApproved:
     """Tests for the BudgetApproved value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetApproved can be constructed with valid field values."""
@@ -120,8 +120,8 @@ class TestBudgetRejected:
     """Tests for the BudgetRejected value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetRejected can be constructed with valid field values."""
@@ -138,8 +138,8 @@ class TestBudgetRevised:
     """Tests for the BudgetRevised value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetRevised can be constructed with valid field values."""
@@ -156,8 +156,8 @@ class TestBudgetCancelled:
     """Tests for the BudgetCancelled value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetCancelled can be constructed with valid field values."""
@@ -174,8 +174,8 @@ class TestBudgetClosed:
     """Tests for the BudgetClosed value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetClosed can be constructed with valid field values."""
@@ -192,8 +192,8 @@ class TestBudgetArchived:
     """Tests for the BudgetArchived value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetArchived can be constructed with valid field values."""
@@ -210,8 +210,8 @@ class TestBudgetLineAdded:
     """Tests for the BudgetLineAdded value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetLineAdded can be constructed with valid field values."""
@@ -228,8 +228,8 @@ class TestBudgetLineRemoved:
     """Tests for the BudgetLineRemoved value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetLineRemoved can be constructed with valid field values."""
@@ -246,8 +246,8 @@ class TestBudgetLineAdjusted:
     """Tests for the BudgetLineAdjusted value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetLineAdjusted can be constructed with valid field values."""
@@ -264,8 +264,8 @@ class TestBudgetStatusChanged:
     """Tests for the BudgetStatusChanged value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BudgetStatusChanged can be constructed with valid field values."""
@@ -296,8 +296,8 @@ class TestBudgetEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for BudgetEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await BudgetEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await BudgetEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -307,8 +307,8 @@ class TestBudgetEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for BudgetEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await BudgetEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await BudgetEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -318,8 +318,8 @@ class TestBudgetEventPublisher:
     def test_get_published_events_smoke(self):
         """Smoke test for BudgetEventPublisher.get_published_events using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BudgetEventPublisher.get_published_events()
+            self._build_instance()
+            BudgetEventPublisher.get_published_events()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_published_events needs specific domain fixtures/data: {e}")
             return
@@ -329,8 +329,8 @@ class TestBudgetEventPublisher:
     def test_clear_smoke(self):
         """Smoke test for BudgetEventPublisher.clear using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BudgetEventPublisher.clear()
+            self._build_instance()
+            BudgetEventPublisher.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return

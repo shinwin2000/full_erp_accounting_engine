@@ -712,7 +712,7 @@ class TestBankAggregate:
             transaction_type=BankTransactionType.WITHDRAWAL,
             is_outflow=True,
         )
-        new_agg = bank_aggregate.add_transaction(tx)
+        bank_aggregate.add_transaction(tx)
         sample_account.withdraw.assert_called_once_with(Decimal("200"), tx.created_by)
 
     def test_add_transaction_insufficient_funds_raises(self, bank_aggregate, sample_account):

@@ -89,7 +89,7 @@ class TestForensicReplayer:
         """Smoke test for ForensicReplayer.replay_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_stream(stream_name="test_value", from_sequence=1, limit=1, verify_chain=True)
+            await instance.replay_stream(stream_name="test_value", from_sequence=1, limit=1, verify_chain=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_stream needs specific domain fixtures/data: {e}")
             return
@@ -100,7 +100,7 @@ class TestForensicReplayer:
         """Smoke test for ForensicReplayer.replay_by_time_range using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_by_time_range(start_time=datetime.now(UTC), end_time=datetime.now(UTC), stream_name="test_value", limit=1)
+            await instance.replay_by_time_range(start_time=datetime.now(UTC), end_time=datetime.now(UTC), stream_name="test_value", limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_by_time_range needs specific domain fixtures/data: {e}")
             return
@@ -111,7 +111,7 @@ class TestForensicReplayer:
         """Smoke test for ForensicReplayer.replay_aggregate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.replay_aggregate(aggregate_type="test_value", aggregate_id=uuid4(), verify_chain=True)
+            await instance.replay_aggregate(aggregate_type="test_value", aggregate_id=uuid4(), verify_chain=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"replay_aggregate needs specific domain fixtures/data: {e}")
             return
@@ -122,7 +122,7 @@ class TestForensicReplayer:
         """Smoke test for ForensicReplayer.reconstruct_aggregate_state using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reconstruct_aggregate_state(aggregate_type="test_value", aggregate_id=uuid4(), snapshot_store=MagicMock())
+            await instance.reconstruct_aggregate_state(aggregate_type="test_value", aggregate_id=uuid4(), snapshot_store=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"reconstruct_aggregate_state needs specific domain fixtures/data: {e}")
             return
@@ -133,7 +133,7 @@ class TestForensicReplayer:
 async def test_get_forensic_replayer_smoke():
     """Smoke test for module-level function get_forensic_replayer."""
     try:
-        result = await get_forensic_replayer()
+        await get_forensic_replayer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_forensic_replayer needs specific input data: {e}")
         return
@@ -143,7 +143,7 @@ async def test_get_forensic_replayer_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return

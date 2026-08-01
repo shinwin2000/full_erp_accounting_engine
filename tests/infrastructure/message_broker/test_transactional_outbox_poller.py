@@ -91,14 +91,14 @@ class TestOutboxEventPayload:
     """Tests for the OutboxEventPayload value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_type="test_value",
-            aggregate_id="test_value",
-            aggregate_type="test_value",
-            data={},
-            metadata={},
-            idempotency_key="test_value",
-        )
+        return {
+            "event_type": "test_value",
+            "aggregate_id": "test_value",
+            "aggregate_type": "test_value",
+            "data": {},
+            "metadata": {},
+            "idempotency_key": "test_value",
+        }
 
     def test_construction_success(self):
         """OutboxEventPayload can be constructed with valid field values."""
@@ -131,7 +131,7 @@ class TestCircuitBreaker:
         """Smoke test for CircuitBreaker.record_success using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_success()
+            instance.record_success()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_success needs specific domain fixtures/data: {e}")
             return
@@ -142,7 +142,7 @@ class TestCircuitBreaker:
         """Smoke test for CircuitBreaker.record_failure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_failure()
+            instance.record_failure()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_failure needs specific domain fixtures/data: {e}")
             return
@@ -153,7 +153,7 @@ class TestCircuitBreaker:
         """Smoke test for CircuitBreaker.allow_request using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.allow_request()
+            instance.allow_request()
         except (Exception, SystemExit) as e:
             pytest.skip(f"allow_request needs specific domain fixtures/data: {e}")
             return
@@ -164,7 +164,7 @@ class TestCircuitBreaker:
         """Smoke test for CircuitBreaker.is_open using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_open()
+            instance.is_open()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_open needs specific domain fixtures/data: {e}")
             return
@@ -191,7 +191,7 @@ class TestTransactionalOutboxPoller:
         """Smoke test for TransactionalOutboxPoller.configure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.configure()
+            instance.configure()
         except (Exception, SystemExit) as e:
             pytest.skip(f"configure needs specific domain fixtures/data: {e}")
             return
@@ -202,7 +202,7 @@ class TestTransactionalOutboxPoller:
         """Smoke test for TransactionalOutboxPoller.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -213,7 +213,7 @@ class TestTransactionalOutboxPoller:
         """Smoke test for TransactionalOutboxPoller.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -224,7 +224,7 @@ class TestTransactionalOutboxPoller:
         """Smoke test for TransactionalOutboxPoller.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_stats()
+            await instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -235,7 +235,7 @@ class TestTransactionalOutboxPoller:
 async def test_get_outbox_poller_smoke():
     """Smoke test for module-level function get_outbox_poller."""
     try:
-        result = await get_outbox_poller()
+        await get_outbox_poller()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_outbox_poller needs specific input data: {e}")
         return
@@ -245,7 +245,7 @@ async def test_get_outbox_poller_smoke():
 async def test_start_outbox_poller_smoke():
     """Smoke test for module-level function start_outbox_poller."""
     try:
-        result = await start_outbox_poller()
+        await start_outbox_poller()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_outbox_poller needs specific input data: {e}")
         return
@@ -255,7 +255,7 @@ async def test_start_outbox_poller_smoke():
 async def test_stop_outbox_poller_smoke():
     """Smoke test for module-level function stop_outbox_poller."""
     try:
-        result = await stop_outbox_poller()
+        await stop_outbox_poller()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_outbox_poller needs specific input data: {e}")
         return

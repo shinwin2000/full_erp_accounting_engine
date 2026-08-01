@@ -37,7 +37,7 @@ class TestCacheInvalidator:
         """Smoke test for CacheInvalidator.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -48,7 +48,7 @@ class TestCacheInvalidator:
         """Smoke test for CacheInvalidator.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -59,7 +59,7 @@ class TestCacheInvalidator:
         """Smoke test for CacheInvalidator.invalidate_pattern using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.invalidate_pattern(pattern="test_value")
+            await instance.invalidate_pattern(pattern="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"invalidate_pattern needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestCacheInvalidator:
         """Smoke test for CacheInvalidator.invalidate_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.invalidate_key(key="test_value")
+            await instance.invalidate_key(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"invalidate_key needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestCacheInvalidator:
 async def test_get_cache_invalidator_smoke():
     """Smoke test for module-level function get_cache_invalidator."""
     try:
-        result = await get_cache_invalidator()
+        await get_cache_invalidator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_cache_invalidator needs specific input data: {e}")
         return
@@ -91,7 +91,7 @@ async def test_get_cache_invalidator_smoke():
 async def test_start_cache_invalidator_smoke():
     """Smoke test for module-level function start_cache_invalidator."""
     try:
-        result = await start_cache_invalidator()
+        await start_cache_invalidator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_cache_invalidator needs specific input data: {e}")
         return
@@ -101,7 +101,7 @@ async def test_start_cache_invalidator_smoke():
 async def test_stop_cache_invalidator_smoke():
     """Smoke test for module-level function stop_cache_invalidator."""
     try:
-        result = await stop_cache_invalidator()
+        await stop_cache_invalidator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_cache_invalidator needs specific input data: {e}")
         return

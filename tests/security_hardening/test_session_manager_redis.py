@@ -201,7 +201,7 @@ class TestSessionData:
         # Should have 1 snapshot from __post_init__
         assert len(valid_session_data._snapshots) == 1
         # Add many snapshots
-        for i in range(15):
+        for _i in range(15):
             valid_session_data._take_snapshot()
         # Should be limited to 10
         assert len(valid_session_data._snapshots) == 10
@@ -415,7 +415,7 @@ class TestRedisSessionManager:
         mock_redis_client.get.return_value = None
         # Should evict oldest (revoke)
         with patch.object(manager, 'revoke_session') as mock_revoke:
-            session_id = manager.create_session(
+            manager.create_session(
                 user_id="user123",
                 user_data={},
                 client_fingerprint="fp",

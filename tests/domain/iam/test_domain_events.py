@@ -77,18 +77,18 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.USER_CREATED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.USER_CREATED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -106,8 +106,8 @@ class TestUserCreatedEvent:
     """Tests for the UserCreatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserCreatedEvent can be constructed with valid field values."""
@@ -124,8 +124,8 @@ class TestUserUpdatedEvent:
     """Tests for the UserUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserUpdatedEvent can be constructed with valid field values."""
@@ -142,8 +142,8 @@ class TestUserActivatedEvent:
     """Tests for the UserActivatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserActivatedEvent can be constructed with valid field values."""
@@ -160,8 +160,8 @@ class TestUserDeactivatedEvent:
     """Tests for the UserDeactivatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserDeactivatedEvent can be constructed with valid field values."""
@@ -178,8 +178,8 @@ class TestUserSuspendedEvent:
     """Tests for the UserSuspendedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserSuspendedEvent can be constructed with valid field values."""
@@ -196,8 +196,8 @@ class TestUserUnlockedEvent:
     """Tests for the UserUnlockedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserUnlockedEvent can be constructed with valid field values."""
@@ -214,8 +214,8 @@ class TestUserPasswordChangedEvent:
     """Tests for the UserPasswordChangedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserPasswordChangedEvent can be constructed with valid field values."""
@@ -232,8 +232,8 @@ class TestUserDeletedEvent:
     """Tests for the UserDeletedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """UserDeletedEvent can be constructed with valid field values."""
@@ -250,8 +250,8 @@ class TestRoleCreatedEvent:
     """Tests for the RoleCreatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RoleCreatedEvent can be constructed with valid field values."""
@@ -268,8 +268,8 @@ class TestRoleUpdatedEvent:
     """Tests for the RoleUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RoleUpdatedEvent can be constructed with valid field values."""
@@ -286,8 +286,8 @@ class TestRoleDeletedEvent:
     """Tests for the RoleDeletedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RoleDeletedEvent can be constructed with valid field values."""
@@ -304,8 +304,8 @@ class TestRoleAssignedEvent:
     """Tests for the RoleAssignedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RoleAssignedEvent can be constructed with valid field values."""
@@ -322,8 +322,8 @@ class TestRoleRevokedEvent:
     """Tests for the RoleRevokedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RoleRevokedEvent can be constructed with valid field values."""
@@ -340,8 +340,8 @@ class TestSessionCreatedEvent:
     """Tests for the SessionCreatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SessionCreatedEvent can be constructed with valid field values."""
@@ -358,8 +358,8 @@ class TestSessionRefreshedEvent:
     """Tests for the SessionRefreshedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SessionRefreshedEvent can be constructed with valid field values."""
@@ -376,8 +376,8 @@ class TestSessionTerminatedEvent:
     """Tests for the SessionTerminatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SessionTerminatedEvent can be constructed with valid field values."""
@@ -394,8 +394,8 @@ class TestSessionCompromisedEvent:
     """Tests for the SessionCompromisedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SessionCompromisedEvent can be constructed with valid field values."""
@@ -412,8 +412,8 @@ class TestLoginSuccessEvent:
     """Tests for the LoginSuccessEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """LoginSuccessEvent can be constructed with valid field values."""
@@ -430,8 +430,8 @@ class TestLoginFailureEvent:
     """Tests for the LoginFailureEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """LoginFailureEvent can be constructed with valid field values."""
@@ -448,8 +448,8 @@ class TestPermissionGrantedEvent:
     """Tests for the PermissionGrantedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PermissionGrantedEvent can be constructed with valid field values."""
@@ -466,8 +466,8 @@ class TestPermissionRevokedEvent:
     """Tests for the PermissionRevokedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PermissionRevokedEvent can be constructed with valid field values."""
@@ -498,8 +498,8 @@ class TestDomainEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -509,8 +509,8 @@ class TestDomainEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await DomainEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -520,8 +520,8 @@ class TestDomainEventPublisher:
     def test_get_published_events_smoke(self):
         """Smoke test for DomainEventPublisher.get_published_events using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.get_published_events()
+            self._build_instance()
+            DomainEventPublisher.get_published_events()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_published_events needs specific domain fixtures/data: {e}")
             return
@@ -531,8 +531,8 @@ class TestDomainEventPublisher:
     def test_clear_smoke(self):
         """Smoke test for DomainEventPublisher.clear using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.clear()
+            self._build_instance()
+            DomainEventPublisher.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -543,7 +543,7 @@ class TestDomainEventPublisher:
 def test_deserialize_domain_event_smoke():
     """Smoke test for module-level function deserialize_domain_event."""
     try:
-        result = deserialize_domain_event(json_str="test_value")
+        deserialize_domain_event(json_str="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"deserialize_domain_event needs specific input data: {e}")
         return
@@ -553,7 +553,7 @@ def test_deserialize_domain_event_smoke():
 def test_serialize_domain_event_smoke():
     """Smoke test for module-level function serialize_domain_event."""
     try:
-        result = serialize_domain_event(event=MagicMock())
+        serialize_domain_event(event=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"serialize_domain_event needs specific input data: {e}")
         return

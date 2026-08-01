@@ -688,6 +688,6 @@ class TestPaymentEntityEdgeCases:
         assert len(trail) == 5
 
     def test_snapshot_limit(self, sample_payment):
-        for i in range(15):
+        for _i in range(15):
             sample_payment._take_snapshot()
         assert len(sample_payment._snapshots) == 10

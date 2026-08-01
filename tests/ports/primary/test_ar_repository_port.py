@@ -65,48 +65,48 @@ class TestARInvoice:
     """Tests for the ARInvoice value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            invoice_number="test_value",
-            customer_id=uuid4(),
-            legal_entity_id=uuid4(),
-            sales_order_id=uuid4(),
-            invoice_date=date.today(),
-            due_date=date.today(),
-            total_amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            discount_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            outstanding_amount=Decimal("100.00"),
-            currency_code="test_value",
-            exchange_rate=Decimal("100.00"),
-            status=ARInvoiceStatus.DRAFT,
-            collection_status=CollectionStatus.NOT_DUE,
-            description="test_value",
-            payment_terms="test_value",
-            payment_schedule_date=date.today(),
-            payment_received_date=date.today(),
-            last_payment_amount=Decimal("100.00"),
-            last_payment_date=date.today(),
-            approved_by=uuid4(),
-            approved_at=datetime.now(UTC),
-            cancelled_by=uuid4(),
-            cancelled_at=datetime.now(UTC),
-            cancellation_reason="test_value",
-            disputed_reason="test_value",
-            write_off_amount=Decimal("100.00"),
-            write_off_date=date.today(),
-            write_off_reason="test_value",
-            dunning_level=1,
-            last_dunning_date=date.today(),
-            attachment_urls=["test_value"],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'invoice_number': "test_value",
+            'customer_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'sales_order_id': uuid4(),
+            'invoice_date': date.today(),
+            'due_date': date.today(),
+            'total_amount': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'discount_amount': Decimal("100.00"),
+            'paid_amount': Decimal("100.00"),
+            'outstanding_amount': Decimal("100.00"),
+            'currency_code': "test_value",
+            'exchange_rate': Decimal("100.00"),
+            'status': ARInvoiceStatus.DRAFT,
+            'collection_status': CollectionStatus.NOT_DUE,
+            'description': "test_value",
+            'payment_terms': "test_value",
+            'payment_schedule_date': date.today(),
+            'payment_received_date': date.today(),
+            'last_payment_amount': Decimal("100.00"),
+            'last_payment_date': date.today(),
+            'approved_by': uuid4(),
+            'approved_at': datetime.now(UTC),
+            'cancelled_by': uuid4(),
+            'cancelled_at': datetime.now(UTC),
+            'cancellation_reason': "test_value",
+            'disputed_reason': "test_value",
+            'write_off_amount': Decimal("100.00"),
+            'write_off_date': date.today(),
+            'write_off_reason': "test_value",
+            'dunning_level': 1,
+            'last_dunning_date': date.today(),
+            'attachment_urls': ["test_value"],
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """ARInvoice can be constructed with valid field values."""
@@ -124,18 +124,18 @@ class TestCreditNoteAR:
     """Tests for the CreditNoteAR value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            credit_note_number="test_value",
-            customer_id=uuid4(),
-            legal_entity_id=uuid4(),
-            original_invoice_id=uuid4(),
-            credit_date=date.today(),
-            amount=Decimal("100.00"),
-            reason="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'credit_note_number': "test_value",
+            'customer_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'original_invoice_id': uuid4(),
+            'credit_date': date.today(),
+            'amount': Decimal("100.00"),
+            'reason': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """CreditNoteAR can be constructed with valid field values."""
@@ -153,18 +153,18 @@ class TestDebitNoteAR:
     """Tests for the DebitNoteAR value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            debit_note_number="test_value",
-            customer_id=uuid4(),
-            legal_entity_id=uuid4(),
-            original_invoice_id=uuid4(),
-            debit_date=date.today(),
-            amount=Decimal("100.00"),
-            reason="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'debit_note_number': "test_value",
+            'customer_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'original_invoice_id': uuid4(),
+            'debit_date': date.today(),
+            'amount': Decimal("100.00"),
+            'reason': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """DebitNoteAR can be constructed with valid field values."""
@@ -205,7 +205,7 @@ class TestInMemoryARRepository:
         """Smoke test for InMemoryARRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(invoice=MagicMock())
+            await instance.add(invoice=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -216,7 +216,7 @@ class TestInMemoryARRepository:
         """Smoke test for InMemoryARRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(invoice_id=uuid4())
+            await instance.get_by_id(invoice_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -227,7 +227,7 @@ class TestInMemoryARRepository:
         """Smoke test for InMemoryARRepository.get_by_invoice_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_invoice_number(invoice_number="test_value", legal_entity_id=uuid4())
+            await instance.get_by_invoice_number(invoice_number="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_invoice_number needs specific domain fixtures/data: {e}")
             return
@@ -238,7 +238,7 @@ class TestInMemoryARRepository:
         """Smoke test for InMemoryARRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(invoice=MagicMock())
+            await instance.update(invoice=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return

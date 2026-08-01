@@ -68,21 +68,21 @@ class TestHashChainEntry:
     """Tests for the HashChainEntry value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            sequence=1,
-            prev_hash="test_value",
-            current_hash="test_value",
-            payload_hash="test_value",
-            payload_type="test_value",
-            payload_ref_id=uuid4(),
-            timestamp=datetime.now(UTC),
-            created_by=uuid4(),
-            signature="test_value",
-            signature_algorithm=SignatureAlgorithm.RSA_PSS,
-            signer_cert_fingerprint="test_value",
-            timestamp_token="test_value",
-            metadata={},
-        )
+        return {
+            'sequence': 1,
+            'prev_hash': "test_value",
+            'current_hash': "test_value",
+            'payload_hash': "test_value",
+            'payload_type': "test_value",
+            'payload_ref_id': uuid4(),
+            'timestamp': datetime.now(UTC),
+            'created_by': uuid4(),
+            'signature': "test_value",
+            'signature_algorithm': SignatureAlgorithm.RSA_PSS,
+            'signer_cert_fingerprint': "test_value",
+            'timestamp_token': "test_value",
+            'metadata': {},
+        }
 
     def test_construction_success(self):
         """HashChainEntry can be constructed with valid field values."""
@@ -100,18 +100,18 @@ class TestIntegrityCheckResult:
     """Tests for the IntegrityCheckResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            chain_type=ChainType.EVENT_STORE,
-            chain_id=uuid4(),
-            status=ChainStatus.VALID,
-            total_entries=1,
-            valid_entries=1,
-            invalid_entries=1,
-            first_invalid_sequence=1,
-            error_message="test_value",
-            checked_at=datetime.now(UTC),
-            duration_ms=1,
-        )
+        return {
+            'chain_type': ChainType.EVENT_STORE,
+            'chain_id': uuid4(),
+            'status': ChainStatus.VALID,
+            'total_entries': 1,
+            'valid_entries': 1,
+            'invalid_entries': 1,
+            'first_invalid_sequence': 1,
+            'error_message': "test_value",
+            'checked_at': datetime.now(UTC),
+            'duration_ms': 1,
+        }
 
     def test_construction_success(self):
         """IntegrityCheckResult can be constructed with valid field values."""
@@ -143,8 +143,8 @@ class TestHashChainServicePort:
     async def test_compute_hash_smoke(self):
         """Smoke test for HashChainServicePort.compute_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await HashChainServicePort.compute_hash(data={}, prev_hash="test_value")
+            self._build_instance()
+            await HashChainServicePort.compute_hash(data={}, prev_hash="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_hash needs specific domain fixtures/data: {e}")
             return
@@ -154,8 +154,8 @@ class TestHashChainServicePort:
     async def test_compute_payload_hash_smoke(self):
         """Smoke test for HashChainServicePort.compute_payload_hash using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await HashChainServicePort.compute_payload_hash(payload={})
+            self._build_instance()
+            await HashChainServicePort.compute_payload_hash(payload={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_payload_hash needs specific domain fixtures/data: {e}")
             return
@@ -166,7 +166,7 @@ class TestHashChainServicePort:
         """Smoke test for HashChainServicePort.sign_hash using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.sign_hash(hash_value="test_value", key_id="test_value")
+            await instance.sign_hash(hash_value="test_value", key_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"sign_hash needs specific domain fixtures/data: {e}")
             return
@@ -177,7 +177,7 @@ class TestHashChainServicePort:
         """Smoke test for HashChainServicePort.verify_signature using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_signature(hash_value="test_value", signature="test_value", cert_fingerprint="test_value")
+            await instance.verify_signature(hash_value="test_value", signature="test_value", cert_fingerprint="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_signature needs specific domain fixtures/data: {e}")
             return

@@ -34,16 +34,16 @@ class TestGoodwillRecognitionRequest:
     """Tests for the GoodwillRecognitionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            fair_value_of_identifiable_net_assets=Decimal("100.00"),
-            description="test_value",
-            cgu_code="test_value",
-            cgu_name="test_value",
-            created_by=uuid4(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "acquisition_date": date.today(),
+            "acquisition_cost": Decimal("100.00"),
+            "fair_value_of_identifiable_net_assets": Decimal("100.00"),
+            "description": "test_value",
+            "cgu_code": "test_value",
+            "cgu_name": "test_value",
+            "created_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """GoodwillRecognitionRequest can be constructed with valid field values."""
@@ -61,11 +61,11 @@ class TestGoodwillUpdateRequest:
     """Tests for the GoodwillUpdateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            description="test_value",
-            cgu_code="test_value",
-            cgu_name="test_value",
-        )
+        return {
+            "description": "test_value",
+            "cgu_code": "test_value",
+            "cgu_name": "test_value",
+        }
 
     def test_construction_success(self):
         """GoodwillUpdateRequest can be constructed with valid field values."""
@@ -83,18 +83,18 @@ class TestGoodwillResponse:
     """Tests for the GoodwillResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            goodwill_id=uuid4(),
-            goodwill_number="test_value",
-            legal_entity_id=uuid4(),
-            amount=Decimal("100.00"),
-            carrying_amount=Decimal("100.00"),
-            acquisition_date=date.today(),
-            cgu_code="test_value",
-            description="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "goodwill_id": uuid4(),
+            "goodwill_number": "test_value",
+            "legal_entity_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "carrying_amount": Decimal("100.00"),
+            "acquisition_date": date.today(),
+            "cgu_code": "test_value",
+            "description": "test_value",
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """GoodwillResponse can be constructed with valid field values."""
@@ -112,15 +112,15 @@ class TestImpairmentTestRequest:
     """Tests for the ImpairmentTestRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            goodwill_id=uuid4(),
-            test_date=date.today(),
-            recoverable_amount=Decimal("100.00"),
-            method="test_value",
-            discount_rate=Decimal("100.00"),
-            growth_rate=Decimal("100.00"),
-            created_by=uuid4(),
-        )
+        return {
+            "goodwill_id": uuid4(),
+            "test_date": date.today(),
+            "recoverable_amount": Decimal("100.00"),
+            "method": "test_value",
+            "discount_rate": Decimal("100.00"),
+            "growth_rate": Decimal("100.00"),
+            "created_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """ImpairmentTestRequest can be constructed with valid field values."""
@@ -138,16 +138,16 @@ class TestImpairmentTestResponse:
     """Tests for the ImpairmentTestResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            goodwill_id=uuid4(),
-            test_date=date.today(),
-            carrying_amount=Decimal("100.00"),
-            recoverable_amount=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            new_carrying_amount=Decimal("100.00"),
-            is_impaired=True,
-            journal_id=uuid4(),
-        )
+        return {
+            "goodwill_id": uuid4(),
+            "test_date": date.today(),
+            "carrying_amount": Decimal("100.00"),
+            "recoverable_amount": Decimal("100.00"),
+            "impairment_loss": Decimal("100.00"),
+            "new_carrying_amount": Decimal("100.00"),
+            "is_impaired": True,
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """ImpairmentTestResponse can be constructed with valid field values."""
@@ -165,13 +165,13 @@ class TestGoodwillDisposalRequest:
     """Tests for the GoodwillDisposalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            goodwill_id=uuid4(),
-            disposal_date=date.today(),
-            reason="test_value",
-            proceeds=Decimal("100.00"),
-            disposed_by=uuid4(),
-        )
+        return {
+            "goodwill_id": uuid4(),
+            "disposal_date": date.today(),
+            "reason": "test_value",
+            "proceeds": Decimal("100.00"),
+            "disposed_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """GoodwillDisposalRequest can be constructed with valid field values."""
@@ -268,7 +268,7 @@ class TestGoodwillService:
         """Smoke test for GoodwillService.recognize_goodwill using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.recognize_goodwill(request=MagicMock(), correlation_id="test_value")
+            await instance.recognize_goodwill(request=MagicMock(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"recognize_goodwill needs specific domain fixtures/data: {e}")
             return
@@ -279,7 +279,7 @@ class TestGoodwillService:
         """Smoke test for GoodwillService.update_goodwill using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_goodwill(goodwill_id=uuid4(), request=MagicMock(), updated_by=uuid4(), correlation_id="test_value")
+            await instance.update_goodwill(goodwill_id=uuid4(), request=MagicMock(), updated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_goodwill needs specific domain fixtures/data: {e}")
             return
@@ -290,7 +290,7 @@ class TestGoodwillService:
         """Smoke test for GoodwillService.test_impairment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.test_impairment(request=MagicMock(), correlation_id="test_value")
+            await instance.test_impairment(request=MagicMock(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"test_impairment needs specific domain fixtures/data: {e}")
             return
@@ -301,7 +301,7 @@ class TestGoodwillService:
         """Smoke test for GoodwillService.reverse_impairment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reverse_impairment(goodwill_id=uuid4(), reversal_date=date.today(), reversal_amount=Decimal("100.00"), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.reverse_impairment(goodwill_id=uuid4(), reversal_date=date.today(), reversal_amount=Decimal("100.00"), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"reverse_impairment needs specific domain fixtures/data: {e}")
             return
@@ -312,7 +312,7 @@ class TestGoodwillService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -322,7 +322,7 @@ def test_audit_smoke():
 async def test_create_goodwill_service_smoke():
     """Smoke test for module-level function create_goodwill_service."""
     try:
-        result = await create_goodwill_service(goodwill_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_goodwill_service(goodwill_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_goodwill_service needs specific input data: {e}")
         return

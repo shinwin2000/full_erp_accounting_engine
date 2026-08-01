@@ -71,18 +71,18 @@ class TestIAS21ForeignCurrencyTransaction:
     """Tests for the IAS21ForeignCurrencyTransaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            transaction_id=uuid4(),
-            date=datetime.now(UTC),
-            foreign_currency=MagicMock(),
-            functional_currency=MagicMock(),
-            original_amount=MagicMock(),
-            spot_rate=Decimal("100.00"),
-            functional_amount=MagicMock(),
-            settlement_date=datetime.now(UTC),
-            settlement_rate=Decimal("100.00"),
-            exchange_difference=MagicMock(),
-        )
+        return {
+            'transaction_id': uuid4(),
+            'date': datetime.now(UTC),
+            'foreign_currency': MagicMock(),
+            'functional_currency': MagicMock(),
+            'original_amount': MagicMock(),
+            'spot_rate': Decimal("100.00"),
+            'functional_amount': MagicMock(),
+            'settlement_date': datetime.now(UTC),
+            'settlement_rate': Decimal("100.00"),
+            'exchange_difference': MagicMock(),
+        }
 
     def test_construction_success(self):
         """IAS21ForeignCurrencyTransaction can be constructed with valid field values."""
@@ -100,15 +100,15 @@ class TestIAS21ForeignOperation:
     """Tests for the IAS21ForeignOperation value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            operation_id=uuid4(),
-            operation_name="test_value",
-            functional_currency=MagicMock(),
-            reporting_currency=MagicMock(),
-            net_assets_beginning=MagicMock(),
-            net_assets_end=MagicMock(),
-            cumulative_translation_adjustment=MagicMock(),
-        )
+        return {
+            'operation_id': uuid4(),
+            'operation_name': "test_value",
+            'functional_currency': MagicMock(),
+            'reporting_currency': MagicMock(),
+            'net_assets_beginning': MagicMock(),
+            'net_assets_end': MagicMock(),
+            'cumulative_translation_adjustment': MagicMock(),
+        }
 
     def test_construction_success(self):
         """IAS21ForeignOperation can be constructed with valid field values."""
@@ -126,17 +126,17 @@ class TestIAS21FunctionalCurrencyAssessment:
     """Tests for the IAS21FunctionalCurrencyAssessment value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            assessment_id=uuid4(),
-            entity_id=uuid4(),
-            primary_sales_currency=MagicMock(),
-            labor_material_currency=MagicMock(),
-            financing_currency=MagicMock(),
-            operating_currency=MagicMock(),
-            determined_functional_currency=MagicMock(),
-            assessment_date=datetime.now(UTC),
-            indicators_used=[IAS21FunctionalCurrencyIndicators.SALES_PRICE_SETTING],
-        )
+        return {
+            'assessment_id': uuid4(),
+            'entity_id': uuid4(),
+            'primary_sales_currency': MagicMock(),
+            'labor_material_currency': MagicMock(),
+            'financing_currency': MagicMock(),
+            'operating_currency': MagicMock(),
+            'determined_functional_currency': MagicMock(),
+            'assessment_date': datetime.now(UTC),
+            'indicators_used': [IAS21FunctionalCurrencyIndicators.SALES_PRICE_SETTING],
+        }
 
     def test_construction_success(self):
         """IAS21FunctionalCurrencyAssessment can be constructed with valid field values."""
@@ -168,8 +168,8 @@ class TestIAS21FunctionalCurrencyService:
     def test_determine_functional_currency_smoke(self):
         """Smoke test for IAS21FunctionalCurrencyService.determine_functional_currency using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS21FunctionalCurrencyService.determine_functional_currency(primary_sales_currency=MagicMock(), labor_material_currency=MagicMock(), financing_currency=MagicMock(), operating_currency=MagicMock())
+            self._build_instance()
+            IAS21FunctionalCurrencyService.determine_functional_currency(primary_sales_currency=MagicMock(), labor_material_currency=MagicMock(), financing_currency=MagicMock(), operating_currency=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_functional_currency needs specific domain fixtures/data: {e}")
             return
@@ -179,8 +179,8 @@ class TestIAS21FunctionalCurrencyService:
     def test_translate_balance_sheet_smoke(self):
         """Smoke test for IAS21FunctionalCurrencyService.translate_balance_sheet using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS21FunctionalCurrencyService.translate_balance_sheet(assets_liabilities={}, closing_rate=Decimal("100.00"), reporting_currency=MagicMock())
+            self._build_instance()
+            IAS21FunctionalCurrencyService.translate_balance_sheet(assets_liabilities={}, closing_rate=Decimal("100.00"), reporting_currency=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"translate_balance_sheet needs specific domain fixtures/data: {e}")
             return
@@ -190,8 +190,8 @@ class TestIAS21FunctionalCurrencyService:
     def test_translate_income_statement_smoke(self):
         """Smoke test for IAS21FunctionalCurrencyService.translate_income_statement using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS21FunctionalCurrencyService.translate_income_statement(income_expenses={}, average_rate=Decimal("100.00"), reporting_currency=MagicMock())
+            self._build_instance()
+            IAS21FunctionalCurrencyService.translate_income_statement(income_expenses={}, average_rate=Decimal("100.00"), reporting_currency=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"translate_income_statement needs specific domain fixtures/data: {e}")
             return
@@ -201,8 +201,8 @@ class TestIAS21FunctionalCurrencyService:
     def test_calculate_cumulative_translation_adjustment_smoke(self):
         """Smoke test for IAS21FunctionalCurrencyService.calculate_cumulative_translation_adjustment using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS21FunctionalCurrencyService.calculate_cumulative_translation_adjustment(opening_net_assets=MagicMock(), closing_net_assets=MagicMock(), opening_rate=Decimal("100.00"), closing_rate=Decimal("100.00"), average_rate=Decimal("100.00"))
+            self._build_instance()
+            IAS21FunctionalCurrencyService.calculate_cumulative_translation_adjustment(opening_net_assets=MagicMock(), closing_net_assets=MagicMock(), opening_rate=Decimal("100.00"), closing_rate=Decimal("100.00"), average_rate=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_cumulative_translation_adjustment needs specific domain fixtures/data: {e}")
             return
@@ -214,11 +214,11 @@ class TestIAS21ValidationResult:
     """Tests for the IAS21ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IAS21ValidationResult can be constructed with valid field values."""
@@ -250,8 +250,8 @@ class TestIAS21Rules:
     def test_validate_functional_currency_change_smoke(self):
         """Smoke test for IAS21Rules.validate_functional_currency_change using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS21Rules.validate_functional_currency_change(old_currency=MagicMock(), new_currency=MagicMock(), has_significant_change=True)
+            self._build_instance()
+            IAS21Rules.validate_functional_currency_change(old_currency=MagicMock(), new_currency=MagicMock(), has_significant_change=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_functional_currency_change needs specific domain fixtures/data: {e}")
             return
@@ -261,8 +261,8 @@ class TestIAS21Rules:
     def test_validate_translation_method_smoke(self):
         """Smoke test for IAS21Rules.validate_translation_method using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS21Rules.validate_translation_method(method=IAS21TranslationMethod.CLOSING_RATE, is_hyperinflationary=True)
+            self._build_instance()
+            IAS21Rules.validate_translation_method(method=IAS21TranslationMethod.CLOSING_RATE, is_hyperinflationary=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_translation_method needs specific domain fixtures/data: {e}")
             return
@@ -289,7 +289,7 @@ class TestIAS21Validator:
         """Smoke test for IAS21Validator.validate_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_transaction(transaction=MagicMock())
+            instance.validate_transaction(transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_transaction needs specific domain fixtures/data: {e}")
             return
@@ -300,7 +300,7 @@ class TestIAS21Validator:
         """Smoke test for IAS21Validator.validate_functional_currency_assessment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_functional_currency_assessment(assessment=MagicMock())
+            instance.validate_functional_currency_assessment(assessment=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_functional_currency_assessment needs specific domain fixtures/data: {e}")
             return
@@ -311,7 +311,7 @@ class TestIAS21Validator:
         """Smoke test for IAS21Validator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -322,7 +322,7 @@ class TestIAS21Validator:
 def test_get_ias21_validator_smoke():
     """Smoke test for module-level function get_ias21_validator."""
     try:
-        result = get_ias21_validator()
+        get_ias21_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ias21_validator needs specific input data: {e}")
         return

@@ -43,7 +43,7 @@ class TestDepreciationMonthlyRunCommand:
         """Smoke test for DepreciationMonthlyRunCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestDepreciationMonthlyRunUseCase:
         """Smoke test for DepreciationMonthlyRunUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestDepreciationMonthlyRunUseCase:
         """Smoke test for DepreciationMonthlyRunUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestDepreciationMonthlyRunUseCase:
         """Smoke test for DepreciationMonthlyRunUseCase.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestDepreciationMonthlyRunUseCase:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -129,7 +129,7 @@ def test_audit_smoke():
 def test_transactional_smoke():
     """Smoke test for module-level function transactional."""
     try:
-        result = transactional(method=MagicMock())
+        transactional(method=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"transactional needs specific input data: {e}")
         return
@@ -139,7 +139,7 @@ def test_transactional_smoke():
 def test_build_depreciation_monthly_run_use_case_smoke():
     """Smoke test for module-level function build_depreciation_monthly_run_use_case."""
     try:
-        result = build_depreciation_monthly_run_use_case(fixed_asset_service=MagicMock(), journal_service=MagicMock(), uow=MagicMock(), sealed_gate=MagicMock())
+        build_depreciation_monthly_run_use_case(fixed_asset_service=MagicMock(), journal_service=MagicMock(), uow=MagicMock(), sealed_gate=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"build_depreciation_monthly_run_use_case needs specific input data: {e}")
         return
@@ -149,7 +149,7 @@ def test_build_depreciation_monthly_run_use_case_smoke():
 async def test_depreciation_monthly_run_handler_smoke():
     """Smoke test for module-level function depreciation_monthly_run_handler."""
     try:
-        result = await depreciation_monthly_run_handler(command=MagicMock(), use_case=MagicMock())
+        await depreciation_monthly_run_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"depreciation_monthly_run_handler needs specific input data: {e}")
         return

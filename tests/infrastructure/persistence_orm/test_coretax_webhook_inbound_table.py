@@ -25,17 +25,17 @@ class TestCoretaxWebhookInboundTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            webhook_type="test_value",
-            payload="test_value",
-            received_at=datetime.now(UTC),
-            processed_at=datetime.now(UTC),
-            status="test_value",
-            error_message="test_value",
-            signature_verified=True,
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'webhook_type': "test_value",
+            'payload': "test_value",
+            'received_at': datetime.now(UTC),
+            'processed_at': datetime.now(UTC),
+            'status': "test_value",
+            'error_message': "test_value",
+            'signature_verified': True,
+        }
         try:
             instance = CoretaxWebhookInboundTable(**kwargs)
         except (Exception, SystemExit) as e:

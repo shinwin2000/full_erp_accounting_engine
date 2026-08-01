@@ -25,14 +25,14 @@ class TestAggregateSnapshotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_id=uuid4(),
-            version=1,
-            snapshot_data="test_value",
-            created_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_id': uuid4(),
+            'version': 1,
+            'snapshot_data': "test_value",
+            'created_at': datetime.now(UTC),
+        }
         try:
             instance = AggregateSnapshotTable(**kwargs)
         except (Exception, SystemExit) as e:

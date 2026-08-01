@@ -114,7 +114,6 @@ class TestCacheEntry:
 
     def test_touch(self):
         entry = CacheEntry(key="k", value="v")
-        old_access = entry.last_access
         old_count = entry.access_count
         with patch("policy_engine.cache_engine.datetime") as mock_dt:
             new_time = FIXED_NOW + timedelta(seconds=5)
@@ -420,7 +419,7 @@ class TestInvalidation:
         # We need to set memory keys too.
         engine.set("user_1", 1)
         engine.set("user_2", 2)
-        count2 = engine.invalidate_pattern("user_")
+        engine.invalidate_pattern("user_")
         # Should be 2 (memory) + 2 (redis) = 4? But the redis scan returns only those two, so 4 total.
         # However, the method counts Redis and memory separately.
         # Let's just check the Redis delete was called.

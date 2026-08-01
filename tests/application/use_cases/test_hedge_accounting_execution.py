@@ -71,7 +71,7 @@ class TestHedgeAccountingCommand:
         """Smoke test for HedgeAccountingCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestHedgeAccountingUseCase:
         """Smoke test for HedgeAccountingUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestHedgeAccountingUseCase:
         """Smoke test for HedgeAccountingUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -152,7 +152,7 @@ class TestHedgeAccountingUseCase:
         """Smoke test for HedgeAccountingUseCase.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -163,7 +163,7 @@ class TestHedgeAccountingUseCase:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -173,7 +173,7 @@ def test_audit_smoke():
 async def test_hedge_accounting_handler_smoke():
     """Smoke test for module-level function hedge_accounting_handler."""
     try:
-        result = await hedge_accounting_handler(command=MagicMock(), use_case=MagicMock())
+        await hedge_accounting_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"hedge_accounting_handler needs specific input data: {e}")
         return

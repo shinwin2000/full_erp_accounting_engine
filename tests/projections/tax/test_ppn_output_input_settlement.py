@@ -54,7 +54,7 @@ class TestPPNSettlement:
         """Smoke test for PPNSettlement.compute_settlement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_settlement(npwp="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4())
+            await instance.compute_settlement(npwp="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_settlement needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestPPNSettlement:
         """Smoke test for PPNSettlement.save_settlement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_settlement(settlement_data={})
+            await instance.save_settlement(settlement_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_settlement needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestPPNSettlement:
         """Smoke test for PPNSettlement.get_settlement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_settlement(npwp="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4())
+            await instance.get_settlement(npwp="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_settlement needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestPPNSettlement:
         """Smoke test for PPNSettlement.generate_all_periods using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_all_periods(npwp="test_value", legal_entity_id=uuid4(), tahun_pajak=1)
+            await instance.generate_all_periods(npwp="test_value", legal_entity_id=uuid4(), tahun_pajak=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_all_periods needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestPPNSettlementTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = PPNSettlementTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -135,7 +135,7 @@ class TestPpnProjection:
         """Smoke test for PpnProjection.handle using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.handle(event={})
+            instance.handle(event={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"handle needs specific domain fixtures/data: {e}")
             return
@@ -146,7 +146,7 @@ class TestPpnProjection:
         """Smoke test for PpnProjection.get_output_ppn using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_output_ppn(month=1, year=1)
+            instance.get_output_ppn(month=1, year=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_output_ppn needs specific domain fixtures/data: {e}")
             return
@@ -157,7 +157,7 @@ class TestPpnProjection:
 async def test_get_ppn_settlement_smoke():
     """Smoke test for module-level function get_ppn_settlement."""
     try:
-        result = await get_ppn_settlement()
+        await get_ppn_settlement()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ppn_settlement needs specific input data: {e}")
         return

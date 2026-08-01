@@ -1042,7 +1042,7 @@ class TestAdditional:
 
     def test_constitution_verify_integrity_broken_chain(self):
         constitution = Constitution(version="1.0")
-        snap1 = constitution.get_snapshot(FIXED_NOW)
+        constitution.get_snapshot(FIXED_NOW)
         snap2 = constitution.get_snapshot(FIXED_NOW + timedelta(days=1))
         snap2.hash_chain_previous = "tampered"
         result = constitution.verify_integrity()

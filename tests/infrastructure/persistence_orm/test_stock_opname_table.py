@@ -26,28 +26,28 @@ class TestStockOpnameTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            legal_entity_id=MagicMock(),
-            opname_number="test_value",
-            opname_date=date.today(),
-            location_code="test_value",
-            warehouse_id=MagicMock(),
-            description="test_value",
-            status="test_value",
-            total_expected_value=Decimal("100.00"),
-            total_counted_value=Decimal("100.00"),
-            total_variance_value=Decimal("100.00"),
-            adjustment_journal_id=MagicMock(),
-            completed_by=MagicMock(),
-            completed_at=datetime.now(UTC),
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            extra_metadata={},
-            lines=[MagicMock()],
-            warehouse=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'legal_entity_id': MagicMock(),
+            'opname_number': "test_value",
+            'opname_date': date.today(),
+            'location_code': "test_value",
+            'warehouse_id': MagicMock(),
+            'description': "test_value",
+            'status': "test_value",
+            'total_expected_value': Decimal("100.00"),
+            'total_counted_value': Decimal("100.00"),
+            'total_variance_value': Decimal("100.00"),
+            'adjustment_journal_id': MagicMock(),
+            'completed_by': MagicMock(),
+            'completed_at': datetime.now(UTC),
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'extra_metadata': {},
+            'lines': [MagicMock()],
+            'warehouse': MagicMock(),
+        }
         try:
             instance = StockOpnameTable(**kwargs)
         except (Exception, SystemExit) as e:

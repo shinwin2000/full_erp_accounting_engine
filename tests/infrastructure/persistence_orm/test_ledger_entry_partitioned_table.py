@@ -28,25 +28,25 @@ class TestLedgerEntryPartitionedTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            journal_id=uuid4(),
-            journal_line_id=uuid4(),
-            account_id=uuid4(),
-            account_code="test_value",
-            debit_amount=Decimal("100.00"),
-            credit_amount=Decimal("0"),
-            posting_date=date.today(),
-            fiscal_year=1,
-            period=1,
-            description="test_value",
-            reference_number="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            hash_link="test_value",
-            version=1,
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'journal_id': uuid4(),
+            'journal_line_id': uuid4(),
+            'account_id': uuid4(),
+            'account_code': "test_value",
+            'debit_amount': Decimal("100.00"),
+            'credit_amount': Decimal("0"),
+            'posting_date': date.today(),
+            'fiscal_year': 1,
+            'period': 1,
+            'description': "test_value",
+            'reference_number': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'hash_link': "test_value",
+            'version': 1,
+        }
         try:
             instance = LedgerEntryPartitionedTable(**kwargs)
         except (Exception, SystemExit) as e:

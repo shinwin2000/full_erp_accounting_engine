@@ -649,7 +649,7 @@ class TestNegativePaths:
 
     def test_deregister_with_no_registration(self):
         vo = CustomerTaxStatusVO()
-        with pytest.raises(TaxStatusError, match="Already deregistered") as exc:
+        with pytest.raises(TaxStatusError, match="Already deregistered"):
             # Actually if deregistration_date is None but registration_status not CANCELLED, it should allow
             # but our deregister method checks if deregistration_date is not None.
             # We'll set deregistration_date manually to test.

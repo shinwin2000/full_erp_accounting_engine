@@ -55,7 +55,7 @@ class TestIFRS15Validator:
         """Smoke test for IFRS15Validator.create_contract using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_contract(contract_number="test_value", customer_id=uuid4(), customer_name="test_value", total_price=Decimal("100.00"), currency="test_value")
+            instance.create_contract(contract_number="test_value", customer_id=uuid4(), customer_name="test_value", total_price=Decimal("100.00"), currency="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_contract needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestIFRS15Validator:
         """Smoke test for IFRS15Validator.add_performance_obligation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_performance_obligation(contract=MagicMock(), description="test_value", stand_alone_price=Decimal("100.00"), satisfaction_timing=MagicMock())
+            instance.add_performance_obligation(contract=MagicMock(), description="test_value", stand_alone_price=Decimal("100.00"), satisfaction_timing=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_performance_obligation needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestIFRS15Validator:
         """Smoke test for IFRS15Validator.allocate_prices using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.allocate_prices(contract=MagicMock())
+            instance.allocate_prices(contract=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"allocate_prices needs specific domain fixtures/data: {e}")
             return
@@ -88,7 +88,7 @@ class TestIFRS15Validator:
         """Smoke test for IFRS15Validator.recognize_revenue using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.recognize_revenue(contract=MagicMock(), obligation_id=uuid4(), satisfaction_date=datetime.now(UTC), control_transferred=True, progress_measure=Decimal("100.00"))
+            instance.recognize_revenue(contract=MagicMock(), obligation_id=uuid4(), satisfaction_date=datetime.now(UTC), control_transferred=True, progress_measure=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"recognize_revenue needs specific domain fixtures/data: {e}")
             return
@@ -114,8 +114,8 @@ class TestIFRS15:
     def test_allocate_transaction_price_smoke(self):
         """Smoke test for IFRS15.allocate_transaction_price using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS15.allocate_transaction_price(transaction_price=Decimal("100.00"), standalone_prices=[Decimal("100.00")])
+            self._build_instance()
+            IFRS15.allocate_transaction_price(transaction_price=Decimal("100.00"), standalone_prices=[Decimal("100.00")])
         except (Exception, SystemExit) as e:
             pytest.skip(f"allocate_transaction_price needs specific domain fixtures/data: {e}")
             return
@@ -125,8 +125,8 @@ class TestIFRS15:
     def test_recognize_over_time_smoke(self):
         """Smoke test for IFRS15.recognize_over_time using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS15.recognize_over_time(asset_has_alternative_use=True, entity_has_enforceable_right_to_payment=True)
+            self._build_instance()
+            IFRS15.recognize_over_time(asset_has_alternative_use=True, entity_has_enforceable_right_to_payment=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"recognize_over_time needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestIFRS15:
 def test_get_ifrs15_validator_smoke():
     """Smoke test for module-level function get_ifrs15_validator."""
     try:
-        result = get_ifrs15_validator()
+        get_ifrs15_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ifrs15_validator needs specific input data: {e}")
         return

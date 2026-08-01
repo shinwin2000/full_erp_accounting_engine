@@ -104,7 +104,7 @@ class TestSnapshotStoreAggregate:
         """Smoke test for SnapshotStoreAggregate.save_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_snapshot(aggregate_id=uuid4(), aggregate_type="test_value", state={}, version=1, metadata={}, encrypt=True)
+            await instance.save_snapshot(aggregate_id=uuid4(), aggregate_type="test_value", state={}, version=1, metadata={}, encrypt=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class TestSnapshotStoreAggregate:
         """Smoke test for SnapshotStoreAggregate.load_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_snapshot(aggregate_id=uuid4(), aggregate_type="test_value", decrypt=True)
+            await instance.load_snapshot(aggregate_id=uuid4(), aggregate_type="test_value", decrypt=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestSnapshotStoreAggregate:
         """Smoke test for SnapshotStoreAggregate.load_snapshot_at_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_snapshot_at_version(aggregate_id=uuid4(), aggregate_type="test_value", version=1, decrypt=True)
+            await instance.load_snapshot_at_version(aggregate_id=uuid4(), aggregate_type="test_value", version=1, decrypt=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_snapshot_at_version needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestSnapshotStoreAggregate:
         """Smoke test for SnapshotStoreAggregate.delete_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_snapshot(snapshot_id=uuid4())
+            await instance.delete_snapshot(snapshot_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestSnapshotStoreAggregate:
 async def test_get_snapshot_store_smoke():
     """Smoke test for module-level function get_snapshot_store."""
     try:
-        result = await get_snapshot_store()
+        await get_snapshot_store()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_snapshot_store needs specific input data: {e}")
         return

@@ -42,23 +42,23 @@ class TestRetainerContract:
     """Tests for the RetainerContract value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            customer_id=uuid4(),
-            contract_number="test_value",
-            description="test_value",
-            start_date=date.today(),
-            end_date=date.today(),
-            monthly_fee=Decimal("100.00"),
-            total_amount=Decimal("100.00"),
-            remaining_balance=Decimal("100.00"),
-            status=RetainerStatus.DRAFT,
-            created_by=uuid4(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'customer_id': uuid4(),
+            'contract_number': "test_value",
+            'description': "test_value",
+            'start_date': date.today(),
+            'end_date': date.today(),
+            'monthly_fee': Decimal("100.00"),
+            'total_amount': Decimal("100.00"),
+            'remaining_balance': Decimal("100.00"),
+            'status': RetainerStatus.DRAFT,
+            'created_by': uuid4(),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """RetainerContract can be constructed with valid field values."""
@@ -123,7 +123,7 @@ class TestRetainerService:
         """Smoke test for RetainerService.create_retainer_contract using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_retainer_contract(legal_entity_id=uuid4(), customer_id=uuid4(), contract_number="test_value", description="test_value", start_date=date.today(), monthly_fee=Decimal("100.00"), end_date=date.today(), created_by=uuid4(), correlation_id="test_value")
+            await instance.create_retainer_contract(legal_entity_id=uuid4(), customer_id=uuid4(), contract_number="test_value", description="test_value", start_date=date.today(), monthly_fee=Decimal("100.00"), end_date=date.today(), created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_retainer_contract needs specific domain fixtures/data: {e}")
             return
@@ -134,7 +134,7 @@ class TestRetainerService:
         """Smoke test for RetainerService.activate_retainer_contract using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.activate_retainer_contract(contract_id=uuid4(), activated_by=uuid4(), correlation_id="test_value")
+            await instance.activate_retainer_contract(contract_id=uuid4(), activated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"activate_retainer_contract needs specific domain fixtures/data: {e}")
             return
@@ -145,7 +145,7 @@ class TestRetainerService:
         """Smoke test for RetainerService.cancel_retainer_contract using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cancel_retainer_contract(contract_id=uuid4(), reason="test_value", cancelled_by=uuid4(), correlation_id="test_value")
+            await instance.cancel_retainer_contract(contract_id=uuid4(), reason="test_value", cancelled_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"cancel_retainer_contract needs specific domain fixtures/data: {e}")
             return
@@ -156,7 +156,7 @@ class TestRetainerService:
         """Smoke test for RetainerService.suspend_retainer_contract using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.suspend_retainer_contract(contract_id=uuid4(), reason="test_value", suspended_by=uuid4(), correlation_id="test_value")
+            await instance.suspend_retainer_contract(contract_id=uuid4(), reason="test_value", suspended_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"suspend_retainer_contract needs specific domain fixtures/data: {e}")
             return
@@ -167,7 +167,7 @@ class TestRetainerService:
 async def test_create_retainer_service_smoke():
     """Smoke test for module-level function create_retainer_service."""
     try:
-        result = await create_retainer_service(event_publisher=MagicMock())
+        await create_retainer_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_retainer_service needs specific input data: {e}")
         return

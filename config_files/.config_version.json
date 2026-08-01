@@ -1,0 +1,23 @@
+{
+  "current_version_id": "v2_1785383227",
+  "versions": [
+    {
+      "version_id": "v1_1785383227",
+      "version_number": 1,
+      "timestamp": "2026-07-30T03:47:07.189284+00:00",
+      "config_hash": "d3a42da2d2de565b9d2e6a575a903699adc6abd41152193ec1e91569f1c74fd5",
+      "created_by": "admin",
+      "description": "Initial config",
+      "parent_version_id": null
+    },
+    {
+      "version_id": "v2_1785383227",
+      "version_number": 2,
+      "timestamp": "2026-07-30T03:47:07.224131+00:00",
+      "config_hash": "840eed4d8f880fd6719eb9de8c096c905e578f318785a3967bcd165c79beb790",
+      "created_by": "admin",
+      "description": "Update config",
+      "parent_version_id": "v1_1785383227"
+    }
+  ]
+}

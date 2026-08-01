@@ -26,21 +26,21 @@ class TestAssetGroup:
     """Tests for the AssetGroup value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            group_code="test_value",
-            group_name="test_value",
-            description="test_value",
-            depreciation_method="test_value",
-            useful_life_years=1,
-            salvage_value_percentage=1.5,
-            is_active=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            "id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "group_code": "test_value",
+            "group_name": "test_value",
+            "description": "test_value",
+            "depreciation_method": "test_value",
+            "useful_life_years": 1,
+            "salvage_value_percentage": 1.5,
+            "is_active": True,
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """AssetGroup can be constructed with valid field values."""
@@ -105,7 +105,7 @@ class TestAssetGroupService:
         """Smoke test for AssetGroupService.create_asset_group using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_asset_group(legal_entity_id=uuid4(), group_code="test_value", group_name="test_value", depreciation_method="test_value", useful_life_years=1, salvage_value_percentage=1.5, description="test_value", created_by=uuid4(), correlation_id="test_value")
+            await instance.create_asset_group(legal_entity_id=uuid4(), group_code="test_value", group_name="test_value", depreciation_method="test_value", useful_life_years=1, salvage_value_percentage=1.5, description="test_value", created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_asset_group needs specific domain fixtures/data: {e}")
             return
@@ -116,7 +116,7 @@ class TestAssetGroupService:
         """Smoke test for AssetGroupService.get_asset_group using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_asset_group(group_id=uuid4())
+            await instance.get_asset_group(group_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_asset_group needs specific domain fixtures/data: {e}")
             return
@@ -127,7 +127,7 @@ class TestAssetGroupService:
         """Smoke test for AssetGroupService.list_asset_groups using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_asset_groups(legal_entity_id=uuid4(), is_active=True)
+            await instance.list_asset_groups(legal_entity_id=uuid4(), is_active=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_asset_groups needs specific domain fixtures/data: {e}")
             return
@@ -138,7 +138,7 @@ class TestAssetGroupService:
         """Smoke test for AssetGroupService.update_asset_group using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_asset_group(group_id=uuid4(), group_name="test_value", description="test_value", depreciation_method="test_value", useful_life_years=1, salvage_value_percentage=1.5, is_active=True, updated_by=uuid4(), correlation_id="test_value")
+            await instance.update_asset_group(group_id=uuid4(), group_name="test_value", description="test_value", depreciation_method="test_value", useful_life_years=1, salvage_value_percentage=1.5, is_active=True, updated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_asset_group needs specific domain fixtures/data: {e}")
             return
@@ -149,7 +149,7 @@ class TestAssetGroupService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -159,7 +159,7 @@ def test_audit_smoke():
 async def test_create_asset_group_service_smoke():
     """Smoke test for module-level function create_asset_group_service."""
     try:
-        result = await create_asset_group_service(event_publisher=MagicMock())
+        await create_asset_group_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_asset_group_service needs specific input data: {e}")
         return

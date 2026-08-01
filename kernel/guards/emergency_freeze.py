@@ -451,6 +451,8 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
         self._emergency_roles = {"emergency_admin", "super_admin", "ceo", "cfo"}
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
+        # Store auto-unfreeze task reference to satisfy RUF006
+        self._auto_unfreeze_task: asyncio.Task | None = None
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
 
@@ -544,8 +546,12 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
     def is_frozen(self) -> bool:
         """Memeriksa apakah sistem dalam keadaan frozen."""
         if self._is_frozen and self._current_freeze and self._current_freeze.is_expired():
-            # Auto-unfreeze
-            asyncio.create_task(self.unfreeze("system", "Auto-unfreeze after expiry"))
+            # Auto-unfreeze - cancel any existing auto-unfreeze task and create a new one
+            if self._auto_unfreeze_task and not self._auto_unfreeze_task.done():
+                self._auto_unfreeze_task.cancel()
+            self._auto_unfreeze_task = asyncio.create_task(
+                self.unfreeze("system", "Auto-unfreeze after expiry")
+            )
         return self._is_frozen
 
     def get_current_freeze(self) -> FreezeRecord | None:
@@ -684,6 +690,11 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
         self._is_frozen = False
         self._current_freeze = None
 
+        # Cancel any pending auto-unfreeze task
+        if self._auto_unfreeze_task and not self._auto_unfreeze_task.done():
+            self._auto_unfreeze_task.cancel()
+            self._auto_unfreeze_task = None
+
         self._record_audit("UNFREEZE", unfrozen_by, {"reason": reason})
 
         # Notify sovereignty guardian (would need method to lift lockdown)
@@ -715,13 +726,15 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
             logger.warning(f"Emergency override by {user_id} during freeze")
             return True, None
 
-        # Check scope
+        # Check scope - FIX: SIM102 - combine nested if into single condition
         if self._current_freeze.scope == FreezeScope.ALL_WRITES:
             return False, "System is in emergency freeze. No write operations allowed."
 
-        if self._current_freeze.scope == FreezeScope.BULK_ONLY:
-            if "bulk" in operation_type.lower() or "batch" in operation_type.lower():
-                return False, "Bulk operations are disabled during emergency freeze."
+        if (
+            self._current_freeze.scope == FreezeScope.BULK_ONLY
+            and ("bulk" in operation_type.lower() or "batch" in operation_type.lower())
+        ):
+            return False, "Bulk operations are disabled during emergency freeze."
 
         if self._current_freeze.scope == FreezeScope.CRITICAL_ONLY:
             critical_ops = ["PERIOD_CLOSE", "YEAR_END_CLOSE", "CONSOLIDATION", "POST", "REVERSE"]
@@ -789,6 +802,9 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
         self._freeze_history = []
         self._version += 1
         self._audit_trail = []
+        if self._auto_unfreeze_task and not self._auto_unfreeze_task.done():
+            self._auto_unfreeze_task.cancel()
+            self._auto_unfreeze_task = None
 
 
 # === 4. SINGLETON ACCESSOR ===

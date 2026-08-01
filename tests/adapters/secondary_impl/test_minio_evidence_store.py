@@ -68,7 +68,7 @@ class TestMinioEvidenceStore:
         """Smoke test for MinioEvidenceStore.upload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload(bucket="test_value", key="test_value", data=b"test", metadata={}, content_type="test_value")
+            await instance.upload(bucket="test_value", key="test_value", data=b"test", metadata={}, content_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestMinioEvidenceStore:
         """Smoke test for MinioEvidenceStore.download using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download(bucket="test_value", key="test_value")
+            await instance.download(bucket="test_value", key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"download needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestMinioEvidenceStore:
         """Smoke test for MinioEvidenceStore.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(bucket="test_value", key="test_value")
+            await instance.delete(bucket="test_value", key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -101,7 +101,7 @@ class TestMinioEvidenceStore:
         """Smoke test for MinioEvidenceStore.exists using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.exists(bucket="test_value", key="test_value")
+            await instance.exists(bucket="test_value", key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"exists needs specific domain fixtures/data: {e}")
             return
@@ -112,7 +112,7 @@ class TestMinioEvidenceStore:
 def test_get_minio_evidence_store_smoke():
     """Smoke test for module-level function get_minio_evidence_store."""
     try:
-        result = get_minio_evidence_store()
+        get_minio_evidence_store()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_minio_evidence_store needs specific input data: {e}")
         return

@@ -103,7 +103,7 @@ class TestSQLAlchemyJournalRepository:
         """Smoke test for SQLAlchemyJournalRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(journal=MagicMock())
+            await instance.save(journal=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestSQLAlchemyJournalRepository:
         """Smoke test for SQLAlchemyJournalRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(journal=MagicMock())
+            await instance.add(journal=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -125,7 +125,7 @@ class TestSQLAlchemyJournalRepository:
         """Smoke test for SQLAlchemyJournalRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(journal=MagicMock())
+            await instance.update(journal=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -136,7 +136,7 @@ class TestSQLAlchemyJournalRepository:
         """Smoke test for SQLAlchemyJournalRepository.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(journal_id=uuid4(), user_id=uuid4(), permanent=True)
+            await instance.delete(journal_id=uuid4(), user_id=uuid4(), permanent=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

@@ -36,7 +36,7 @@ class TestAuditChainLengthMetrics:
         """Smoke test for AuditChainLengthMetrics.collect_stream_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_stream_metrics(stream_name="test_value")
+            await instance.collect_stream_metrics(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_stream_metrics needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestAuditChainLengthMetrics:
         """Smoke test for AuditChainLengthMetrics.collect_all_streams using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_all_streams()
+            await instance.collect_all_streams()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_all_streams needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestAuditChainLengthMetrics:
         """Smoke test for AuditChainLengthMetrics.start_periodic_collection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_collection(interval_seconds=1)
+            await instance.start_periodic_collection(interval_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_collection needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestAuditChainLengthMetrics:
         """Smoke test for AuditChainLengthMetrics.stop_periodic_collection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_periodic_collection()
+            await instance.stop_periodic_collection()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_periodic_collection needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestAuditChainLengthMetrics:
 async def test_get_audit_chain_metrics_smoke():
     """Smoke test for module-level function get_audit_chain_metrics."""
     try:
-        result = await get_audit_chain_metrics()
+        await get_audit_chain_metrics()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_audit_chain_metrics needs specific input data: {e}")
         return
@@ -90,7 +90,7 @@ async def test_get_audit_chain_metrics_smoke():
 async def test_start_audit_chain_collection_smoke():
     """Smoke test for module-level function start_audit_chain_collection."""
     try:
-        result = await start_audit_chain_collection()
+        await start_audit_chain_collection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_audit_chain_collection needs specific input data: {e}")
         return
@@ -100,7 +100,7 @@ async def test_start_audit_chain_collection_smoke():
 async def test_stop_audit_chain_collection_smoke():
     """Smoke test for module-level function stop_audit_chain_collection."""
     try:
-        result = await stop_audit_chain_collection()
+        await stop_audit_chain_collection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_audit_chain_collection needs specific input data: {e}")
         return

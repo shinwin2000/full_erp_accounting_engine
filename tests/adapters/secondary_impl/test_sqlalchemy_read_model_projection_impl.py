@@ -50,7 +50,7 @@ class TestSQLAlchemyReadModelProjection:
         """Smoke test for SQLAlchemyReadModelProjection.save_projection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_projection(projection_name="test_value", data={})
+            await instance.save_projection(projection_name="test_value", data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_projection needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class TestSQLAlchemyReadModelProjection:
         """Smoke test for SQLAlchemyReadModelProjection.get_projection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_projection(projection_name="test_value")
+            await instance.get_projection(projection_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_projection needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestSQLAlchemyReadModelProjection:
         """Smoke test for SQLAlchemyReadModelProjection.delete_projection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_projection(projection_name="test_value")
+            await instance.delete_projection(projection_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_projection needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestSQLAlchemyReadModelProjection:
         """Smoke test for SQLAlchemyReadModelProjection.list_projections using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_projections()
+            await instance.list_projections()
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_projections needs specific domain fixtures/data: {e}")
             return

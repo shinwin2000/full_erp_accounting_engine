@@ -53,7 +53,7 @@ class TestFinancialRatiosCalculator:
         """Smoke test for FinancialRatiosCalculator.calculate_ratios using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.calculate_ratios(legal_entity_id=uuid4(), period_id=uuid4())
+            await instance.calculate_ratios(legal_entity_id=uuid4(), period_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_ratios needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestFinancialRatiosCalculator:
         """Smoke test for FinancialRatiosCalculator.get_trend_ratios using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trend_ratios(legal_entity_id=uuid4(), periods=1)
+            await instance.get_trend_ratios(legal_entity_id=uuid4(), periods=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trend_ratios needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestFinancialRatiosCalculator:
         """Smoke test for FinancialRatiosCalculator.save_ratios using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_ratios(legal_entity_id=uuid4(), period_id=uuid4(), ratios_data={})
+            await instance.save_ratios(legal_entity_id=uuid4(), period_id=uuid4(), ratios_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_ratios needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestFinancialRatiosCalculator:
         """Smoke test for FinancialRatiosCalculator.get_saved_ratios using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_saved_ratios(legal_entity_id=uuid4(), period_id=uuid4())
+            await instance.get_saved_ratios(legal_entity_id=uuid4(), period_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_saved_ratios needs specific domain fixtures/data: {e}")
             return
@@ -105,8 +105,8 @@ class TestFinancialRatiosTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = FinancialRatiosTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -118,7 +118,7 @@ class TestFinancialRatiosTable:
 async def test_get_financial_ratios_calculator_smoke():
     """Smoke test for module-level function get_financial_ratios_calculator."""
     try:
-        result = await get_financial_ratios_calculator()
+        await get_financial_ratios_calculator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_financial_ratios_calculator needs specific input data: {e}")
         return

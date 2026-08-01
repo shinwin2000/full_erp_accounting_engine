@@ -381,7 +381,7 @@ class TestFieldDecryptionServiceIntegration:
         """Test decrypt_nested logs error when decrypt fails."""
         mock_encryption.decrypt.side_effect = DecryptionError("bad")
         svc = FieldDecryptionService(encryption_service=mock_encryption)
-        with patch("infrastructure.security.field_decryption_service.logger") as mock_logger:
+        with patch("infrastructure.security.field_decryption_service.logger"):
             data = {"user": {"email": "encrypted"}}
             result = svc.decrypt_nested(data, "user.email")
             assert result is None

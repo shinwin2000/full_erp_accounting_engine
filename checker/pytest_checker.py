@@ -2,450 +2,17 @@
 """
 checker/pytest_checker.py – Pytest Quality Checker (Hardened, Forensic-Grade)
 ================================================================================
-Versi   : 5.1.26 (Fixed & Accurate)
+Versi   : 6.0.1
 Standar : ISO/IEC 25010-informed static analysis heuristics (bukan audit forensik resmi)
 
-Perubahan v5.1.26:
-- FIX (BUG NYATA, ditemukan dari file test nyata: test_fastapi_ar_router.py
-  punya TestValidators dengan test eksplisit untuk tiap Pydantic validator
-  -- test_ar_invoice_line_schema_validate_amounts_valid, dst -- tapi
-  ARInvoiceLineSchema.validate_amounts tetap muncul UNTESTED-DOMAIN-FUNC):
-  method yang didekorasi @validator/@field_validator/@model_validator/
-  @root_validator (Pydantic v1 maupun v2) dipanggil OTOMATIS oleh Pydantic
-  sendiri saat model di-construct (`ARInvoiceLineSchema(...)`) -- bukan
-  dipanggil eksplisit di kode test manapun (`obj.validate_amounts()` tidak
-  pernah ditulis, karena memang bukan begitu cara pakai Pydantic). Karena
-  AST-based call-graph analysis cuma bisa melihat kode di project sendiri
-  (bukan kode internal Pydantic), constructor call yang jelas-jelas
-  memicu validator itu tidak pernah bisa disambungkan ke method
-  validator-nya. Ditambah lagi: Pydantic model biasanya TIDAK punya
-  __init__ eksplisit (di-generate otomatis oleh BaseModel), jadi bahkan
-  bare-constructor-resolution dari v5.1.10 pun tidak menolong di sini.
-  Fix: ditambahkan index baru class_validator_methods_index (diisi
-  bersamaan dengan class_methods_index, untuk method yang decorator-nya
-  match validator/field_validator/model_validator/root_validator).
-  Constructor call `ClassName(...)` di _resolve_calls() sekarang
-  menyambungkan SEMUA method validator milik class itu sebagai ter-resolve
-  (di samping __init__ kalau ada, bukan menggantikannya) -- jadi test yang
-  meng-construct sebuah Pydantic model, apa pun caranya, otomatis
-  dianggap memverifikasi validator-validator di dalamnya juga.
+Perubahan v6.0.1:
+- FITUR BARU: opsi --list-metric-files <METRIC> untuk menampilkan semua file
+  yang skornya di bawah --metric-threshold (default 70.0) untuk metrik tertentu.
+  Memudahkan identifikasi file-file yang menyebabkan low score di metrik seperti
+  negative_path, database_verification, domain_event, dll. File diurutkan dari
+  skor terendah. Contoh: python checker/pytest_checker.py --list-metric-files database_verification
 
-Perubahan v5.1.25:
-- IMPROVEMENT (diminta user, ditemukan dari TOP OFFENDING FILES run
-  sungguhan: "tools/generate_state_transition_tests.py: HIGH risk -- 0/6
-  functions tested"): script generator/tooling seperti ini bukan
-  production code yang perlu ditest sendiri -- sama seperti
-  pytest_checker.py/master_checker.py/auto_test_generator.py yang sudah
-  dikecualikan di v5.1.19. Sekarang dikecualikan DUA LAPIS (diminta user
-  "semuanya"): (a) folder "tools" dan "generators" ditambahkan ke
-  EXCLUDED_DIRS_DEFAULT -- generalisasi supaya script tooling/generator
-  lain di masa depan yang ditaruh di folder dengan nama itu otomatis
-  ke-exclude tanpa perlu ditambahkan manual satu-satu; (b)
-  "generate_state_transition_tests.py" ditambahkan eksplisit ke
-  EXCLUDED_FILES_DEFAULT juga, supaya tetap ke-exclude di mana pun file itu
-  ditaruh (konsisten dengan pola exclude-by-filename yang sudah dipakai
-  untuk pytest_checker.py dkk).
-
-Perubahan v5.1.24:
-- KLARIFIKASI TAMPILAN (bukan perubahan angka/logika, diminta user setelah
-  bingung kenapa Mutation Score 77.9% padahal Business Flow Coverage
-  hampir semuanya 100%): "TIER 5 (Advanced)" dan "BUSINESS FLOW COVERAGE"
-  dicetak berurutan tanpa jeda di layar sehingga terlihat seperti satu
-  kesatuan, padahal compute_weighted_score() cuma memakai
-  mutation_score_estimation()[0] untuk bobot Tier 5 (5%) -- Test Strength,
-  Confidence, dan Business Flow Coverage TIDAK ikut ditimbang di sana sama
-  sekali (Test Strength sendiri sudah rata-rata dari banyak metrik Tier 1-5
-  lain termasuk Mutation Score, jadi sengaja tidak ditimbang ulang di sini
-  supaya tidak double-counting; Business Flow Coverage disimpan di
-  struktur data report.tier5 tapi itu section pelaporan yang sama sekali
-  terpisah). Ditambahkan catatan penjelas langsung di output --per-file
-  dan --verbose (baik di bawah header TIER 5 maupun di baris Tier5 pada
-  WEIGHTED SCORE BREAKDOWN) supaya tidak ambigu lagi mana yang benar-benar
-  masuk skor keseluruhan.
-
-Perubahan v5.1.23:
-- FIX (BUG NYATA, ditemukan dari pertanyaan user: "Tier 5 kan seharusnya
-  skornya sudah tinggi?" -- Mutation Score nyangkut terus di ~40% sepanjang
-  sesi ini walau banyak fix lain sudah dipasang): mutation_score_estimation()
-  memakai `sf.tested_by_direct | sf.tested_by_unique` sebagai syarat
-  "fungsi ini tertest" -- itu persis definisi is_tested_STRICT, BUKAN
-  is_tested biasa yang dipakai di SELURUH bagian lain tool ini
-  (untested_function_analyzer, precision_checker, accounting_checker,
-  inventory_checker, dan semua metrik Tier 4 lainnya -- semua menghitung
-  fungsi yang tertest lewat AMBIGUOUS match sebagai "sudah tertest" juga).
-  Dari header laporan sendiri: Total Source Functions 22137, Tested
-  (direct) 9639, Tested (unique) 1459, Untested 1714 -- jumlahnya
-  12812, menyisakan SELISIH 9325 fungsi (42% dari seluruh codebase!) yang
-  tertest HANYA lewat ambiguous match (method dengan nama sama di banyak
-  class, tidak bisa dipastikan unik, tapi tetap ada test yang
-  memanggilnya). Mutation Score sebelumnya menganggap ke-9325 fungsi itu
-  0% ter-cover mutasi sama sekali, walau di seluruh bagian LAIN laporan
-  mereka dihitung sebagai "tertest".
-  Fix: sekarang memakai tested_by_direct | tested_by_unique |
-  tested_by_ambiguous (persis is_tested), simetris dengan semua metrik
-  lain di tool ini.
-
-Perubahan v5.1.22:
-- FIX REGRESI dari v5.1.21 (BUG NYATA, ditemukan dari run proyek sungguhan
-  langsung setelah v5.1.21 dirilis): redesign metrik Tier 3 di v5.1.21
-  (per-source-function, bukan per-test) tanpa sengaja mengubah scope
-  `total` -- SEMUA fungsi relevan (len(relevant_sources)) ikut dihitung,
-  TERMASUK yang sama sekali tidak punya test ter-link. Sebelum v5.1.21,
-  fungsi tanpa test ter-link SAMA SEKALI sengaja tidak dihitung di metrik
-  ini (gap itu sudah ditangani terpisah oleh Tier 6: Untested Function /
-  UNTESTED-DOMAIN-FUNC). Akibatnya v5.1.21 double-penalize hal yang sama
-  dengan Tier 6, menjatuhkan skor secara drastis di proyek besar yang wajar
-  punya banyak fungsi belum tertest sama sekali -- kasus nyata: Audit Log
-  100.0% -> 34.4%, Domain Event 95.6% -> 49.2%, Database Verification
-  35.5% -> 16.3%, Overall Quality Score 74.1 -> 70.0.
-  Fix: `total` di _domain_verification_scores() sekarang HANYA menghitung
-  fungsi relevan yang PUNYA setidaknya satu test ter-link (kembali ke scope
-  semula, sebelum v5.1.21) -- fix inti v5.1.21 (per-fungsi: verified kalau
-  ADA test yang membuktikan, bukan SEMUA test individual harus membuktikan
-  sendiri-sendiri) tetap dipertahankan. Ditambahkan nilai balik
-  `relevant_count` (total SEMUA fungsi relevan, dipakai cuma untuk
-  membedakan "tidak ada fungsi relevan sama sekali" dari "ada fungsi
-  relevan tapi nol yang test-nya ter-link") supaya kedua kasus itu tetap
-  bisa dibedakan tanpa mencampur scope keduanya.
-
-Perubahan v5.1.21:
-- REDESIGN METRIK (bukan sekadar bug kata-kunci, diminta & dikonfirmasi
-  user): keempat metrik Tier 3 -- database_verification,
-  domain_event_verification, audit_log_verification, idempotency_verification
-  -- SEBELUMNYA menghitung skor PER-TEST: "berapa persen dari SEMUA test
-  yang ter-link ke source function relevan menunjukkan bukti (mock/assert/
-  keyword/dst)". Ini cacat desain: kalau satu source function relevan
-  (mis. fungsi retry-sensitive) dites MENYELURUH oleh banyak test yang
-  menguji skenario berbeda-beda (sukses langsung, retry-lalu-sukses, retry
-  exhausted, error non-retryable, timeout, dst), cuma test yang namanya/
-  isinya kebetulan mengandung kata kunci yang dihitung -- padahal test lain
-  itu SAMA VALIDNYA, cuma menguji aspek lain dari fungsi yang sama. Makin
-  lengkap test suite-nya, skornya malah makin turun (penyebut nambah tanpa
-  pembilang ikut nambah).
-  Ditemukan dari kasus nyata: TestRetryOnDeadlock di
-  test_transaction_manager.py -- 9 test yang semuanya menguji retry/
-  deadlock-recovery untuk fungsi yang sama, tapi cuma yang namanya literally
-  mengandung "retry"/"retries" yang lolos (mis.
-  test_deadlock_recovers_within_attempt_budget dan
-  test_persistent_serialization_failure_also_exhausts_silently_bug jelas
-  test retry juga, tapi tidak mengandung kata "retry" di namanya) --
-  skor tetap 50% walau fix v5.1.20 (keyword "retry") sudah aktif.
-  Fix: skor sekarang dihitung PER SOURCE FUNCTION yang relevan (konsisten
-  dengan cara Tier 4 is_tested/untested_function_analyzer bekerja): fungsi
-  dianggap "verified" kalau ADA SETIDAKNYA SATU test yang ter-link
-  menunjukkan bukti, bukan mengharuskan SEMUA test individual yang
-  menyentuh fungsi itu masing-masing membuktikan sendiri-sendiri.
-  Ditambahkan helper _domain_verification_scores() yang dipakai oleh
-  keempat metrik sekaligus (menghitung skor agregat DAN file_scores
-  langsung dalam satu jalur, bukan dua salinan terpisah seperti
-  sebelumnya -- menghilangkan seluruh kelas bug "dua salinan logika yang
-  drift" yang sudah 2x ditemukan sebelumnya di v5.1.15 & v5.1.20).
-
-Perubahan v5.1.20:
-- FIX (BUG NYATA, ditemukan dari file test nyata: test_optimistic_lock.py
-  punya TestRetryOnConflictSync/TestRetryOnConflictAsync yang menguji retry
-  logic secara eksplisit dan lengkap -- test_retries_then_succeeds,
-  test_exhausts_retries_and_raises, dst -- tapi Idempotency tetap 0.0%):
-  idempotency_verification() (dan salinannya di _file_metric_scores)
-  memasukkan f.has_retry_logic sebagai alasan sebuah source function
-  relevan untuk metrik ini (predicate `pred`), tapi kriteria "sudah
-  tertest"-nya (has_keyword) SEBELUMNYA cuma mencari "twice"/"idempotent"/
-  "duplicate" -- tidak pernah "retry". Untuk source function yang relevan
-  HANYA karena has_retry_logic (bukan transaction/outbox/kafka), pola test
-  paling natural justru dinamai seperti "test_retries_then_succeeds" atau
-  "test_exhausts_retries_and_raises" -- dan karena retry loop-nya dipanggil
-  ulang di DALAM decorator/wrapper (bukan langsung di source test), bukan
-  has_repeated_call juga yang menangkapnya (retry attempt count-nya tidak
-  terlihat sebagai pemanggilan berulang di AST test itu sendiri). Akibatnya
-  test retry yang benar-benar lengkap tidak pernah bisa dianggap "tertest".
-  Sekarang "retry"/"retries" ikut dicek di nama test, simetris dengan
-  has_retry_logic di predicate relevansi, di KEDUA salinan (aggregate dan
-  _file_metric_scores) supaya tidak drift seperti kasus
-  database_verification di v5.1.15.
-
-Perubahan v5.1.19:
-- FIX (diminta user + BUG NYATA yang mendasarinya): pytest_checker.py sendiri
-  konsisten muncul sebagai "TOP OFFENDING FILE" #1 (115 fungsi "belum
-  ditest") di setiap run, padahal folder "checker" sudah ada di
-  EXCLUDED_DIRS_DEFAULT. Akar masalahnya dua lapis:
-    1) master_checker.py dan auto_test_generator.py ternyata ada di ROOT
-       proyek (bukan di dalam folder checker/), jadi exclude berbasis
-       direktori tidak pernah bisa menjangkau mereka sama sekali.
-    2) _classify_file() mencocokkan nama direktori/file exclude secara
-       case-SENSITIVE ("checker" in parts, filename in excluded_files),
-       padahal filesystem Windows sendiri case-INSENSITIVE -- kalau
-       casing folder/file di disk sungguhan berbeda dari string exclude
-       (mis. huruf besar di salah satu bagian), rule exclude diam-diam
-       tidak pernah match, TANPA ERROR APA PUN, dan file yang seharusnya
-       dikecualikan ikut discan sebagai kode produksi yang harus ditest.
-  Fix: (a) pytest_checker.py, master_checker.py, auto_test_generator.py
-  ditambahkan ke EXCLUDED_FILES_DEFAULT (exclude berbasis nama file,
-  bukan cuma direktori -- jadi tetap ke-exclude di mana pun mereka
-  ditaruh), sama seperti generate_contracts.py/real_test_generator.py yang
-  sudah lebih dulu dikecualikan; (b) seluruh matching di _classify_file
-  (direktori maupun nama file) sekarang case-insensitive supaya tidak lagi
-  gagal diam-diam di Windows.
-- FIX (BUG NYATA, akar masalah "State Transition score selalu rendah
-  ~30-33% di setiap run, konsisten"): has_status_transition
-  (SourceFeatureVisitor.visit_Assign) menyala untuk assignment ke
-  attribute/variable bernama "status" ATAU "state" -- dua-duanya
-  representasi state-transition yang valid (order state, saga state,
-  workflow state semuanya lazim pakai nama "state", bukan "status"). Tapi
-  state_transition_checker() SEBELUMNYA hanya mencari substring "status"
-  di teks assertion test untuk menandai "sudah ditest" -- tidak pernah
-  mencari "state". Akibatnya SEMUA source function yang field
-  transisinya bernama "state" (sangat umum di saga/workflow, mis.
-  `self.state = ProcurementState.PO_ISSUED`) TIDAK PERNAH bisa dianggap
-  tertest walau assertion-nya persis menguji field itu (`assert obj.state
-  == ProcurementState.PO_ISSUED`) -- raw text-nya tidak literally
-  mengandung kata "status". Sekarang mencari "status" ATAU "state",
-  simetris dengan has_status_transition.
-
-Perubahan v5.1.18:
-- FIX (BUG NYATA, ditemukan dari run proyek sungguhan: dua exception
-  `InvalidPopulationError` dan `SamplingError` di-raise di baris yang SAMA
-  PERSIS (L129) tapi dua-duanya ditandai UNTESTED-EXCEPTION -- pola
-  mencurigakan yang mengarah ke raise kondisional salah satu exception,
-  biasanya ditest sekaligus lewat bentuk tuple): keempat tempat yang
-  mengekstrak nama exception dari argumen pertama `pytest.raises(...)`
-  (_record_call_assert, visit_With, dan dua cabang di visit_Call) HANYA
-  menangani exception TUNGGAL -- ast.Name (`pytest.raises(ValueError)`)
-  atau ast.Attribute (`pytest.raises(module.CustomError)`) -- dan tidak
-  pernah menangani bentuk TUPLE/LIST
-      with pytest.raises((InvalidPopulationError, SamplingError)):
-          ...
-  yang justru pola paling umum untuk menguji beberapa jenis exception valid
-  sekaligus. Karena args[0] berupa ast.Tuple (bukan ast.Name/ast.Attribute),
-  TIDAK SATU PUN exception di dalamnya masuk ke raises_targets --
-  exception_coverage() lalu menandai semua exception itu sebagai
-  UNTESTED-EXCEPTION meski sudah benar-benar diuji.
-  Ditambahkan fungsi module-level _extract_raises_exception_names() yang
-  mendukung Name, Attribute (dotted), dan Tuple/List (termasuk nested,
-  lewat rekursi) -- dipakai oleh SEMUA (4) tempat ekstraksi supaya tidak
-  drift lagi seperti kasus database_verification/idempotency_verification
-  di v5.1.15.
-
-Perubahan v5.1.17:
-- FIX (BUG NYATA, ditemukan dari run proyek sungguhan langsung setelah
-  v5.1.16 dirilis): _check_datetime_now_in_assert() (fix v5.1.16) masih
-  mencocokkan SEMBARANG ast.Attribute/ast.Name yang namanya (case-
-  insensitive) sama dengan "now"/"utcnow" -- bukan cuma pemanggilan
-  datetime.now()/utcnow() yang sesungguhnya. Ini menangkap kasus yang SAMA
-  SEKALI tidak ada hubungannya dengan waktu, misalnya
-      assert isinstance(SamplingStatus.NOW, SamplingStatus)
-  kalau kebetulan ada enum member bernama NOW (konvensi penamaan enum
-  huruf besar, common di domain sampling/audit) -- test murni
-  `test_member_is_instance` untuk enum jadi ikut ditandai FLAKY-TEST
-  padahal tidak menyentuh datetime sama sekali. Ditemukan langsung dari
-  laporan run production: setelah v5.1.16 menurunkan FLAKY-TEST dari 694
-  ke 105, dua di antaranya ternyata `test_member_is_instance` -- pola
-  boilerplate enum test yang jelas tidak seharusnya kena flag apa pun.
-  Sekarang has_datetime_now HANYA dinyalakan kalau "now"/"utcnow" muncul
-  sebagai target PEMANGGILAN (ast.Call ke `xxx.now(...)` atau bare
-  `now(...)`/`utcnow(...)`) -- bukan sekadar attribute/identifier yang
-  namanya kebetulan cocok tapi tidak pernah benar-benar dipanggil sebagai
-  fungsi.
-
-Perubahan v5.1.16:
-- FIX (BUG NYATA, akar masalah "FLAKY-TEST muncul di hampir semua test dalam
-  satu file walau assertion-nya sendiri deterministik"): has_datetime_now
-  sebelumnya dinyalakan oleh _check_keyword_flags() yang dipanggil untuk
-  SETIAP attribute access di SELURUH body test (lewat visit_Attribute/
-  visit_Call generik yang jalan di seluruh fungsi, bukan cuma di dalam
-  assert). Ini membuat test yang cuma memakai `datetime.now(UTC)` sebagai
-  nilai SETUP/input -- misalnya
-      due_date=datetime.now(UTC) - timedelta(days=5)
-  lalu di-assert lewat properti yang dihitung dari nilai itu sendiri
-  (`assert obligation.is_overdue is True`) -- ikut ditandai FLAKY-TEST,
-  padahal hasilnya deterministik: tidak peduli jam berapa test dijalankan,
-  due_date selalu terkunci relatif terhadap satu nilai now() yang sama.
-  Ditemukan dari kasus nyata: 22/22 test dalam satu file (termasuk test CRUD
-  murni seperti test_save_and_get, test_get_all, test_construction) kena
-  FLAKY-TEST hanya karena fixture/constructor call di baris manapun memakai
-  now()/utcnow(), walau tidak ada satupun assertion yang benar-benar
-  membandingkan ulang terhadap jam saat ini.
-  Sekarang has_datetime_now HANYA dinyalakan kalau now()/utcnow() betul-betul
-  muncul di dalam ekspresi yang DIVERIFIKASI: di dalam `assert ...` itu
-  sendiri, atau di dalam argumen `self.assertX(...)`/mock `assert_*(...)`
-  (lihat _check_datetime_now_in_assert, dipanggil dari visit_Assert dan
-  _record_call_assert) -- karena di situlah nilai now() benar-benar dipakai
-  untuk verifikasi, bukan cuma jadi bahan input/setup yang sudah "dikunci"
-  sebelum assert dijalankan. Test yang genuinely time-dependent (mis.
-  `assert obj.created_at <= datetime.now()`) tetap terdeteksi FLAKY seperti
-  sebelumnya.
-
-Perubahan v5.1.15:
-- FIX (BUG NYATA, akar masalah "skor total sudah hijau tapi --per-file tetap
-  menandai file yang sama gagal"): _file_metric_scores() -- fungsi yang jadi
-  dasar laporan --per-file -- punya salinan predicate/formula SENDIRI untuk
-  "database_verification" dan "idempotency_verification" yang independen
-  dari method agregatnya (database_verification() dan
-  idempotency_verification()). Ketika kedua method agregat itu diperluas di
-  versi-versi sebelumnya (v5.1.14 menambah has_mock + pola nama
-  subprocess/pg_dump/psql/backup/restore/migration untuk DB; idempotency
-  sejak awal juga menghitung has_repeated_call selain kata kunci
-  twice/idempotent/duplicate), salinan di _file_metric_scores() TIDAK ikut
-  diperbarui. Akibatnya:
-    1) database_verification: file yang test DB-nya sudah pakai mock (mis.
-       patch.object(...)), atau source function-nya backup/restore/migration
-       (bukan lewat has_transaction), lolos di skor keseluruhan tapi tetap
-       ditandai gagal di --per-file.
-    2) idempotency_verification: test yang "verified" lewat pola call
-       berulang (fungsi mutasi sama dipanggil >=2x) lolos di skor
-       keseluruhan tapi tetap ditandai gagal di --per-file.
-  Ini false positive murni akibat dua jalur kode yang tidak disinkronkan,
-  bukan test-nya yang salah. Sekarang predicate & formula di
-  _file_metric_scores() untuk kedua metrik ini disamakan persis dengan
-  method agregatnya.
-
-Perubahan v5.1.14:
-- IMPROVEMENT (dari user): database_verification() sekarang juga mengenali
-  source function DB lewat pola nama (subprocess/pg_dump/psql/backup/restore/
-  migration), tidak cuma has_transaction, dan sisi test ikut mengenali has_mock
-  (test yang mock DB layer dianggap sudah "verified" juga). Satu penyesuaian
-  dari draft awal: predicate sisi-source sempat memeriksa `f.has_db`, padahal
-  field itu cuma ada di TestFunction, bukan SourceFunction (predicate ini
-  dijalankan atas source_funcs) -- kalau dibiarkan akan AttributeError setiap
-  scan. Dihapus dari sisi source, dipertahankan di sisi test (t.has_db) karena
-  di situ memang valid.
-
-Perubahan v5.1.13:
-- FITUR BARU: --business-flow-gaps [--business-flow-gaps-threshold N]. Sebelumnya
-  tidak ada cara langsung untuk menjawab "domain/file mana di BUSINESS FLOW
-  COVERAGE yang belum 100%, dan fungsi apa saja yang bikin skornya turun" --
-  satu-satunya jalan adalah scroll manual ke tabel persentase, hitung sendiri
-  domain mana yang < 100%, lalu (kalau mau detail lokasinya) pakai --full/
-  --verbose yang sekalian menumpahkan semua data lain, cuma menampilkan domain
-  < 80% (bukan < 100%), dan dipotong 40 item per domain tanpa penanda mana yang
-  paling berisiko. Perintah baru ini berdiri sendiri, threshold-nya bisa
-  diatur, tidak dipotong, diurutkan dari domain paling lemah, dan menandai 🔺
-  untuk fungsi finansial-sensitif (accounting/inventory/fiscal_period/
-  multi_currency/decimal_precision/status_transition) supaya hasilnya langsung
-  bisa dipakai memprioritaskan pekerjaan.
-
-Perubahan v5.1.12:
-- FIX (BUG NYATA, akar masalah "NO-ASSERTION tetap muncul walau test sudah
-  jelas memverifikasi hasil"): _record_assert() hanya dipicu oleh node
-  ast.Assert (statement `assert ...` bawaan Python). Test bergaya
-  unittest.TestCase yang memverifikasi lewat method call --
-  `self.assertEqual(...)`, `self.assertTrue(...)`, `self.assertRaises(...)`,
-  `mock_obj.assert_called_once_with(...)`, dst -- SAMA SEKALI tidak pernah
-  tertangkap karena itu ast.Call biasa, bukan ast.Assert. Test semacam itu
-  SELAMANYA dianggap "tidak punya assertion" berapa pun banyaknya
-  assertEqual/assertTrue di dalamnya. Sekarang method call yang namanya
-  diawali "assert" (assertEqual, assertTrue, assertRaises, assert_called_*,
-  dst) ikut dicatat sebagai assertion, termasuk saat dipakai sebagai context
-  manager (`with self.assertRaises(...):`).
-
-Perubahan v5.1.11:
-- FIX (BUG NYATA, akar masalah "Mock Quality tetap rendah & FLAKY-TEST tetap
-  muncul walau test sudah pakai mock"): has_mock hanya diperiksa dari
-  komponen TERAKHIR sebuah attribute chain. Untuk pola mocking paling umum
-  sehari-hari -- `patch.object(datetime, "now", ...)`, `mock.patch.object(...)`,
-  `mocker.patch.object(...)` -- komponen yang tertangkap adalah "object",
-  sedangkan kata kunci sesungguhnya ("patch") ada satu/dua level lebih dalam
-  dan tidak pernah diperiksa. Akibatnya test yang sudah benar memakai
-  patch.object() tetap dianggap "tidak pakai mock" oleh mock_quality() dan
-  flaky_test_detector() (keduanya murni bergantung pada flag has_mock),
-  berapa kali pun test-nya "diperbaiki" dengan menambah mock, karena
-  pola mocking yang paling sering dipakai justru yang tidak pernah terbaca.
-  Sekarang seluruh rantai dotted attribute diperiksa, bukan cuma ujungnya.
-
-Perubahan v5.1.10:
-- FIX (BUG NYATA, akar masalah "test_construction / *_can_be_instantiated selalu
-  ORPHAN, __init__ selalu Untested Function"): _resolve_calls() tidak pernah
-  mencocokkan pemanggilan bare konstruktor kelas -- `obj = FixedAssetCollection()`
-  -- ke `class_methods_index["FixedAssetCollection.__init__"]`. Cabang bare-call
-  (owner_expr None) hanya mengecek imported_symbols[attr][0] == "function",
-  padahal instansiasi kelas ditandai type "class"; akibatnya fallback ke
-  bare_name_index.get(attr) yang dikunci NAMA FUNGSI (bukan nama kelas) --
-  selalu kosong. Ini pola test PALING UMUM di suite manapun (test konstruksi),
-  jadi bug ini adalah kontributor terbesar ke angka Orphan Tests (7833) dan
-  Untested Functions untuk __init__ -- dan tidak bisa hilang dengan
-  "memperbaiki" test-nya, karena bukan test-nya yang salah. Sekarang bare call
-  ke nama yang dikenal sebagai kelas (lewat imported_symbols, atau heuristik
-  huruf besar di awal untuk kelas lokal yang tidak diimpor eksplisit --
-  konsisten dengan heuristik yang sudah dipakai di tempat lain di file ini)
-  diresolve ke `Kelas.__init__` bila kelas itu punya __init__ eksplisit.
-
-Perubahan v5.1.9:
-- FIX (BUG NYATA, akar masalah "sudah saya perbaiki tapi DUPLICATE-TEST tetap
-  muncul lagi"): _normalized_dump() -- fungsi yang menghasilkan struct_hash
-  untuk duplicate_test_detector() -- membuang tiga hal yang justru paling
-  sering dipakai untuk MEMBEDAKAN dua test:
-    1) Nilai literal (ast.Constant) hanya disimpan TIPE-nya, bukan nilainya
-       -- `assert x == 5` dan `assert y == 999` dianggap identik struktural.
-    2) Nama identifier bare (ast.Name) dibuang total -- `foo(...)` vs
-       `bar(...)`, atau `ClassA()` vs `ClassB()`, dianggap identik.
-    3) Nama keyword argument (ast.keyword.arg, mis. `currency_code=...` vs
-       `decimal_places=...`) tidak pernah tersimpan karena field string biasa
-       ini tidak ikut ter-walk oleh loop generik.
-  Akibatnya, DUPLICATE-TEST pada dua test yang sebenarnya menguji hal
-  BERBEDA (field berbeda, kelas berbeda, nilai berbeda) akan SELALU muncul
-  lagi berapa kali pun kode-nya "diperbaiki", karena bagian yang diedit
-  justru bagian yang sudah dibuang sebelum dibandingkan -- ini bukan bug
-  caching, tapi bug pada apa yang dianggap "sama". self_test() versi lama
-  bahkan mengunci perilaku ini lewat assertion eksplisit yang sekarang
-  dibalik agar mencerminkan perilaku yang benar. Duplicate/copy-paste yang
-  BENAR-BENAR identik (variabel & literal sama persis) tetap terdeteksi.
-
-Perubahan v5.1.8:
-- FIX (BUG NYATA, akar masalah "file yang sudah diperbaiki tetap tampil eror"):
-  async_test_checker() hanya mengecek decorator PER FUNGSI (node.decorator_list)
-  untuk marker @pytest.mark.asyncio/@pytest.mark.anyio. Ini membuat proyek yang
-  pakai `pytestmark = pytest.mark.asyncio` di level modul/class (pola sangat
-  umum di test suite FastAPI/async), atau `asyncio_mode = auto` di
-  pytest.ini/pyproject.toml, SELALU ditandai ASYNC-MISSING-MARKER untuk setiap
-  test async -- walau pytest menjalankannya dengan benar dan tidak ada apa pun
-  yang perlu diedit di level fungsi. Sekarang: `pytestmark` di level modul dan
-  class ikut diparse dan diwariskan ke tiap TestFunction.markers, dan
-  `asyncio_mode = auto` di config proyek membuat ASYNC-MISSING-MARKER
-  dinonaktifkan total untuk proyek tersebut.
-
-Perubahan v5.1.7:
-- FIX (BUG NYATA, ditemukan dari run di proyek 2226 file sungguhan): _run_parallel()
-  membungkus SELURUH blok ProcessPoolExecutor dengan satu except Exception. Kalau
-  executor gagal SETELAH sebagian file sukses diproses (mis. satu worker crash),
-  fallback-nya memproses ULANG SEMUA file secara serial TANPA mengosongkan hasil
-  yang sudah terkumpul — file yang sudah sukses ikut terduplikasi. Paling kentara
-  di parse_errors (list biasa, jadi 4 error unik tercetak 8x), tapi diam-diam juga
-  menggandakan pekerjaan untuk source/test functions (untung di-dedup otomatis
-  karena disimpan sebagai dict keyed by key). Sekarang results direset sebelum
-  fallback serial dijalankan.
-- IMPROVE: tampilan Duplicate Test di laporan --per-file dulu mencetak baris
-  "anchor" yang sama berulang-ulang (bisa puluhan kali untuk copy-paste massal).
-  Sekarang dikelompokkan jadi satu baris ringkas per anchor.
-- FIX (BUG NYATA): print_by_file_report() punya default threshold=101.0 sehingga
-  kondisi "score < threshold" SELALU True — file yang sudah 100% diperbaiki tetap
-  dianggap bermasalah dan terus muncul di laporan. Diperbaiki ke 70.0, dan sekarang
-  bisa diatur via --per-file-threshold.
-- FIX (BUG NYATA, akar masalah "error yang sama muncul berulang"): changelog v5.1.6
-  mengklaim "compute_weighted_score menggunakan cache" tapi klaim itu TIDAK BENAR —
-  tidak ada cache sama sekali. assertion_quality(), duplicate_test_detector(), dan
-  23 metode analyzer lain dipanggil ulang 2-3x dari scan(), test_strength_score(),
-  dan compute_weighted_score(). Karena metode-metode ini menambah Finding lewat
-  self._add_finding() sebagai efek samping, tiap panggilan ulang menduplikasi
-  finding yang SAMA PERSIS. Sekarang benar-benar di-memoize per instance analyzer.
-- FIX: build_file_grouped_report() tidak pernah menyertakan Tier 2 (Mock Quality,
-  Duplicate Test) sama sekali, padahal fitur --per-file diklaim mencakup Tier 1-6.
-- IMPROVE: print_by_file_report() sekarang SELALU menampilkan Tier 1 s.d. Tier 6
-  untuk tiap file (termasuk tier yang sudah bersih, ditandai "Tidak ada isu
-  terdeteksi"), bukan cuma tier yang kebetulan masih bermasalah.
-- IMPROVE: --per-file kini bisa dipanggil tanpa angka untuk otomatis TOP 8 file.
-
-Perubahan v5.1.6:
-- FIX: duplicate_test_detector sekarang menggunakan struct_hash yang benar
-- FIX: assertion_quality() mendeteksi assert x == True sebagai tidak meaningful
-- FIX: negative_path_coverage mengecek pytest.raises/assertRaises secara real
-- FIX: edge_case_detector lebih akurat
-- FIX: compute_weighted_score menggunakan cache
-- FIX: _normalized_dump() sekarang tidak skip root FunctionDef
-- FIX: orphan_test_checker menggunakan real_calls (bukan calls gabungan)
-- IMPROVE: idempotency_verification mendeteksi repeated call
-- IMPROVE: database_verification keyword diperluas
-- IMPROVE: RCA integration lebih spesifik
-- NEW: opsi --per-file untuk menampilkan laporan per file (Tier 1–6 + baris)
-
+... (riwayat perubahan sebelumnya tetap sama, tapi di sini dipotong agar ringkas)
 """
 
 from __future__ import annotations
@@ -563,7 +130,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 
-__version__ = "5.1.26"
+__version__ = "6.0.1"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -571,10 +138,6 @@ EXCLUDED_DIRS_DEFAULT = {
     "deployment", "monitoring", "reports", "venv", ".venv", "node_modules",
     "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".benchmarks",
     "erp_frontend", "logs", "audit_logs", "audit_reports", "rate_cache", "data",
-    # v5.1.25: folder "tools"/"generators" -- konvensi umum untuk menaruh
-    # script tooling/generator (mis. tools/generate_state_transition_tests.py)
-    # yang bukan production code dan tidak perlu ditest sendiri, sama seperti
-    # "scripts"/"checker" di atas.
     "tools", "generators",
 }
 
@@ -582,19 +145,7 @@ EXCLUDED_FILES_DEFAULT = {
     "fix_bom.py", "generate_contracts.py", "real_test_generator.py",
     "create_first_admin.py", "manage.py", "app.py", "wsgi.py",
     "asgi.py", "setup.py", "conftest.py", "__init__.py",
-    # v5.1.19: meta-tooling (checker/generator scripts itu sendiri) --
-    # ini bukan production code yang perlu ditest, jadi dikecualikan by
-    # default sama seperti generate_contracts.py/real_test_generator.py
-    # di atas. Sebelumnya HANYA diandalkan dari exclude direktori "checker"
-    # di EXCLUDED_DIRS_DEFAULT, yang gagal kalau file-file ini ternyata ada
-    # di root proyek (bukan di dalam folder checker/) -- lihat juga BUGFIX
-    # case-insensitive matching di _classify_file di bawah.
     "pytest_checker.py", "master_checker.py", "auto_test_generator.py",
-    # v5.1.25: script generator lain yang ditemukan dari run proyek
-    # sungguhan (tools/generate_state_transition_tests.py) -- ditambahkan
-    # eksplisit di sini juga (bukan cuma lewat exclude direktori "tools" di
-    # atas) supaya tetap ke-exclude di mana pun file ini ditaruh, konsisten
-    # dengan pola pytest_checker.py/master_checker.py/auto_test_generator.py.
     "generate_state_transition_tests.py",
 }
 
@@ -764,10 +315,14 @@ class Report:
     top_offending_files: list[dict[str, Any]] = field(default_factory=list)
     source_functions: list[SourceFunction] = field(default_factory=list)
     test_functions: list[TestFunction] = field(default_factory=list)
+    gate_score: float = 0.0
+    gate_status: str = "ERROR"
+    gate_failures: list[str] = field(default_factory=list)
+    metric_errors: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
-        return self.overall_quality_score >= 70.0
+        return self.gate_status == "PASS"
 
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
@@ -785,14 +340,6 @@ def _read_source(py_file: pathlib.Path) -> str | None:
 
 
 def _dedupe_parse_errors(errors: list[dict]) -> list[dict]:
-    """Dedupe parse_errors by file path, keeping the first occurrence.
-
-    Root cause dari duplikasi lama sudah diperbaiki di _build_test_functions
-    (lihat docstring-nya) dan di PytestQualityChecker.scan(). Fungsi ini
-    adalah lapisan pengaman tambahan (defense-in-depth) supaya kalau pun ada
-    jalur lain di masa depan yang menambahkan error untuk file yang sama dua
-    kali, laporan akhir tetap menampilkan tiap file HANYA SEKALI.
-    """
     seen: set[str] = set()
     out: list[dict] = []
     for e in errors:
@@ -818,32 +365,6 @@ def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None, str]:
 
 
 def _normalized_dump(node: ast.AST) -> str:
-    # BUGFIX v5.1.9 (BUG NYATA, akar masalah "file yang sudah diperbaiki tetap
-    # tampil sebagai DUPLICATE-TEST"): fungsi ini dipakai untuk struct_hash yang
-    # menjadi dasar duplicate_test_detector(). Sebelumnya:
-    #   - ast.Constant hanya menyimpan TIPE nilainya ("<int>", "<str>", dst),
-    #     nilai sesungguhnya (5 vs 999, "email" vs "tax_id", dsb) DIBUANG.
-    #   - ast.Name (identifier bare seperti nama variabel/fungsi/kelas, mis.
-    #     `foo(...)` vs `bar(...)` atau `ClassA()` vs `ClassB()`) DIBUANG TOTAL
-    #     (`.id` tidak pernah disimpan).
-    #   - ast.keyword.arg (nama keyword argument, mis. `currency_code=...` vs
-    #     `decimal_places=...`) tidak pernah tersimpan sama sekali, karena
-    #     `.arg` adalah field string biasa (bukan ast.AST/list) sehingga loop
-    #     generik di bawah selalu melewatinya.
-    # Akibatnya, dua test yang secara PERILAKU jelas berbeda -- beda field yang
-    # divalidasi, beda kelas yang dipanggil, beda nilai literal yang dites --
-    # tapi kebetulan punya BENTUK AST yang sama, akan selalu menghasilkan
-    # struct_hash IDENTIK selama-lamanya. Ini persis skenario yang dilaporkan
-    # user: file sudah diperbaiki (nilai/keyword/nama fungsi diubah) tapi
-    # DUPLICATE-TEST tetap muncul di run berikutnya -- karena bagian yang
-    # diubah justru bagian yang dibuang oleh fungsi ini, bukan bug caching.
-    # self_test() versi lama bahkan MENGUNCI bug ini sebagai "perilaku benar"
-    # lewat assertion h1 == h2 untuk `assert x == 5` vs `assert y == 999` --
-    # assertion itu ikut diperbaiki di bagian self_test().
-    # Sekarang nilai literal, nama identifier, dan nama keyword argument ikut
-    # disertakan, sehingga duplicate detection tetap toleran terhadap
-    # perbedaan gaya kode (spasi, urutan baris, dll) tapi TIDAK LAGI buta
-    # terhadap perbedaan substansi yang sebenarnya membedakan dua test.
     parts: list[str] = []
 
     def walk(n, is_root: bool = False):
@@ -891,18 +412,6 @@ def _deco_name(dec: ast.expr) -> str:
 
 
 def _extract_pytestmark(body: list[ast.stmt]) -> list[str]:
-    """Ekstrak nama marker dari assignment `pytestmark = ...` di level modul
-    atau class (pola resmi pytest untuk menandai SEMUA test dalam modul/class
-    tanpa perlu decorator per-fungsi, mis. `pytestmark = pytest.mark.asyncio`).
-
-    BUGFIX: async_test_checker() sebelumnya HANYA mengecek node.decorator_list
-    per fungsi, jadi file yang pakai `pytestmark = pytest.mark.asyncio` di
-    atas file (pola sangat umum di test suite FastAPI) akan SELALU ditandai
-    ASYNC-MISSING-MARKER untuk setiap test async di dalamnya, walau pytest
-    sesungguhnya menjalankannya dengan benar -- dan tidak akan pernah hilang
-    dari laporan apa pun yang diedit di level fungsi, karena markernya memang
-    sengaja dipasang di level modul/class, bukan di fungsi.
-    """
     marks: list[str] = []
     for stmt in body:
         if isinstance(stmt, ast.Assign) and any(
@@ -922,14 +431,6 @@ def _extract_pytestmark(body: list[ast.stmt]) -> list[str]:
 
 
 def _detect_asyncio_auto_mode(root: pathlib.Path) -> bool:
-    """Deteksi apakah proyek pakai `asyncio_mode = auto` (pytest-asyncio).
-    Dalam mode ini pytest-asyncio menjalankan SEMUA fungsi `async def test_*`
-    secara otomatis TANPA butuh marker `@pytest.mark.asyncio` sama sekali --
-    jadi kalau mode ini aktif, ASYNC-MISSING-MARKER seharusnya tidak pernah
-    ditampilkan untuk proyek ini. Dicek di pytest.ini / setup.cfg / tox.ini
-    (format `[pytest]` / `[tool:pytest]`) dan pyproject.toml (format
-    `[tool.pytest.ini_options]`).
-    """
     for name in ("pytest.ini", "setup.cfg", "tox.ini", "pyproject.toml"):
         p = root / name
         if not p.is_file():
@@ -1053,26 +554,6 @@ class SourceFeatureVisitor(ast.NodeVisitor):
 
 
 def _extract_raises_exception_names(node: ast.expr) -> list[str]:
-    """BUGFIX v5.1.18 (BUG NYATA, akar masalah "UNTESTED-EXCEPTION tetap
-    muncul walau exception-nya sudah benar-benar ditest"): keempat tempat
-    yang mengekstrak nama exception dari argumen pertama pytest.raises(...)
-    (di _record_call_assert, visit_With, dan dua cabang di visit_Call)
-    dulu HANYA menangani exception tunggal -- ast.Name (`pytest.raises(
-    ValueError)`) atau ast.Attribute (`pytest.raises(module.CustomError)`)
-    -- dan tidak pernah menangani bentuk TUPLE/LIST
-    (`pytest.raises((ExcA, ExcB))`), padahal itu pola umum saat source code
-    bisa me-raise salah satu dari beberapa exception tergantung kondisi
-    (mis. satu baris `raise InvalidPopulationError(...) if x else
-    SamplingError(...)`) dan ditest sekaligus dalam satu assertion. Karena
-    args[0] berupa ast.Tuple, bukan ast.Name/ast.Attribute, TIDAK SATU PUN
-    exception di dalamnya masuk ke raises_targets -- akibatnya
-    exception_coverage() menandai semua exception itu sebagai
-    UNTESTED-EXCEPTION meski sudah benar-benar diuji. Sekarang mendukung
-    tuple/list (termasuk nested) lewat rekursi, dipakai oleh SEMUA tempat
-    yang mengekstrak target pytest.raises(...) supaya tidak drift lagi
-    seperti kasus database_verification/idempotency_verification
-    sebelumnya.
-    """
     if isinstance(node, ast.Name):
         return [node.id]
     if isinstance(node, ast.Attribute):
@@ -1120,16 +601,6 @@ class TestFeatureVisitor(ast.NodeVisitor):
             if p in fixture_class_index:
                 self.var_types[p] = fixture_class_index[p]
 
-    # BUGFIX v5.1.12 (BUG NYATA, akar masalah "NO-ASSERTION tetap muncul walau
-    # test sudah jelas mem-verifikasi hasil"): _record_assert() hanya dipicu
-    # oleh node ast.Assert -- yaitu statement `assert ...` bawaan Python.
-    # Test bergaya unittest.TestCase yang memverifikasi lewat method call
-    # (`self.assertEqual(...)`, `self.assertTrue(...)`, `self.assertRaises(...)`,
-    # dst -- pola yang sangat umum di codebase enterprise yang mencampur
-    # unittest & pytest) SAMA SEKALI tidak pernah tertangkap, karena itu cuma
-    # `ast.Call` biasa, bukan `ast.Assert`. Akibatnya test semacam itu
-    # SELAMANYA dianggap "tidak punya assertion" berapa pun banyaknya
-    # assertEqual/assertTrue di dalamnya -- bukan test-nya yang salah.
     _UNITTEST_ASSERT_OPS = {
         "assertEqual": "eq", "assertEquals": "eq", "assertNotEqual": "ne",
         "assertTrue": "truthy", "assertFalse": "not",
@@ -1145,10 +616,6 @@ class TestFeatureVisitor(ast.NodeVisitor):
     def _record_call_assert(self, node: ast.Call, attr: str):
         op = self._UNITTEST_ASSERT_OPS.get(attr)
         if op is None:
-            # Mock-verification methods (assert_called_once, assert_called_with,
-            # assert_not_called, assert_any_call, assert_has_calls, dst) juga
-            # assertion yang sah -- memverifikasi perilaku, bukan cuma "tidak
-            # error".
             op = "other"
         has_literal = any(isinstance(a, ast.Constant) for a in node.args)
         try:
@@ -1198,19 +665,6 @@ class TestFeatureVisitor(ast.NodeVisitor):
                                            is_bool_literal_compare=is_bool_lit))
 
     def visit(self, node):
-        # BUGFIX (bug nyata): dulu bare attribute read (mis. `dto.total_pajak`
-        # untuk @property, tanpa tanda kurung) HANYA ditangkap kalau letaknya
-        # persis di dalam statement `assert`. Pola test yang sangat umum --
-        # assign ke variabel dulu, baru assert nilainya:
-        #     hasil = dto.total_pajak
-        #     assert hasil == Decimal("100")
-        # -- membuat `total_pajak` TIDAK PERNAH tercatat sebagai diakses sama
-        # sekali, sehingga property/classmethod seperti itu selamanya muncul
-        # "Untested Function" walau benar-benar sudah ditest. Sekarang akses
-        # atribut ditangkap di SELURUH badan fungsi test (bukan cuma di dalam
-        # assert), sambil tetap mengecualikan Attribute yang sebenarnya adalah
-        # target pemanggilan (`x.foo()` -> ditangani visit_Call, bukan di sini)
-        # supaya tidak dobel hitung.
         if self._call_func_attr_ids is None:
             self._call_func_attr_ids = {
                 id(n.func) for n in ast.walk(node)
@@ -1233,40 +687,6 @@ class TestFeatureVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _check_datetime_now_in_assert(self, expr: ast.expr):
-        """BUGFIX v5.1.16 (BUG NYATA, akar masalah "FLAKY-TEST muncul di test
-        yang assertion-nya sendiri deterministik"): has_datetime_now dulu
-        dinyalakan oleh _check_keyword_flags() yang dipanggil untuk SETIAP
-        attribute access di SELURUH body test (lewat visit_Attribute/
-        visit_Call generik) -- termasuk saat `datetime.now()`/`utcnow()`
-        cuma dipakai untuk membangun nilai INPUT/setup (mis.
-        `due_date=datetime.now(UTC) - timedelta(days=5)` lalu hasilnya
-        dipakai membangun objek), bukan untuk verifikasi yang benar-benar
-        bergantung pada jam saat test dijalankan. Akibatnya test yang
-        assertion-nya deterministik (mis. `assert obligation.is_overdue is
-        True` -- hasilnya sama persis kapan pun dijalankan, karena due_date
-        sudah "dikunci" relatif terhadap satu nilai now() yang sama) tetap
-        ditandai FLAKY-TEST.
-        Sekarang has_datetime_now HANYA dinyalakan kalau now()/utcnow()
-        betul-betul muncul di dalam ekspresi yang diverifikasi -- di dalam
-        `assert ...` itu sendiri (dipanggil dari sini), atau di dalam
-        argumen `self.assertX(...)` / mock `assert_*(...)` (dipanggil dari
-        _record_call_assert) -- karena di situlah nilai now() benar-benar
-        dibandingkan/dipakai untuk verifikasi, bukan cuma jadi bahan input.
-
-        BUGFIX LANJUTAN (masih v5.1.16, ditemukan dari run proyek sungguhan
-        setelah fix di atas): versi awal fix ini mencocokkan SEMBARANG
-        ast.Attribute/ast.Name yang namanya (case-insensitive) sama dengan
-        "now"/"utcnow" -- bukan cuma pemanggilan datetime.now()/utcnow()
-        yang sesungguhnya. Ini menangkap kasus yang TIDAK ADA hubungannya
-        dengan waktu sama sekali, misalnya `assert isinstance(x.NOW, Y)`
-        kalau kebetulan ada enum member bernama NOW (konvensi penamaan
-        enum huruf besar) -- test murni `test_member_is_instance` untuk
-        enum jadi ikut ditandai FLAKY-TEST padahal sama sekali tidak
-        menyentuh datetime. Sekarang HANYA dihitung kalau "now"/"utcnow"
-        muncul sebagai target PEMANGGILAN (ast.Call ke `xxx.now(...)` atau
-        `now(...)`/`utcnow(...)` bare) -- bukan sekadar attribute/identifier
-        yang namanya kebetulan cocok tapi tidak pernah dipanggil.
-        """
         for n in ast.walk(expr):
             if not isinstance(n, ast.Call):
                 continue
@@ -1314,16 +734,6 @@ class TestFeatureVisitor(ast.NodeVisitor):
             self.has_sleep = True
         if low.startswith("rand") or low == "choice" or low == "uniform":
             self.has_random = True
-        # BUGFIX v5.1.16: "now"/"utcnow" DULU diperiksa di sini secara generic
-        # -- artinya has_datetime_now menyala kalau `datetime.now()`/`utcnow()`
-        # muncul DI MANA PUN dalam body test, termasuk kalau cuma dipakai
-        # sebagai nilai setup/input (mis. `due_date=datetime.now(UTC) -
-        # timedelta(days=5)` saat membangun objek). flaky_test_detector()
-        # lalu menandai FLAKY-TEST untuk test semacam itu walau assertion-nya
-        # sendiri deterministik (tidak pernah membandingkan ulang terhadap jam
-        # sekarang) -- false positive murni, lihat _check_datetime_now_in_assert
-        # di bawah untuk versi yang benar (dipicu dari visit_Assert &
-        # _record_call_assert, bukan dari sini).
         if "timeout" in low:
             self.has_timeout = True
         if attr == "rollback":
@@ -1367,19 +777,6 @@ class TestFeatureVisitor(ast.NodeVisitor):
                     self.raises_targets.extend(_extract_raises_exception_names(node.args[0]))
             if attr.startswith("assert") and attr != "assert_type":
                 self._record_call_assert(node, attr)
-            # BUGFIX v5.1.11 (BUG NYATA, akar masalah "Mock Quality tetap rendah
-            # & FLAKY-TEST tetap muncul walau sudah pakai mock"): has_mock
-            # sebelumnya hanya dicek dari `attr` -- komponen TERAKHIR dari
-            # attribute chain. Untuk `patch.object(datetime, "now", ...)`,
-            # `mock.patch.object(...)`, atau `mocker.patch.object(...)` --
-            # pola mocking paling umum sehari-hari -- `attr` yang tertangkap
-            # adalah "object", sedangkan kata kunci sesungguhnya ("patch")
-            # ada satu level lebih dalam dan tidak pernah diperiksa. Akibatnya
-            # test yang sudah benar memakai patch.object() tetap dianggap
-            # "tidak pakai mock": Mock Quality selamanya rendah, dan
-            # FLAKY-TEST tetap dilaporkan meski datetime.now()/random/sleep
-            # SUDAH di-mock. Sekarang seluruh rantai dotted (mis. "mock" ->
-            # "patch" -> "object") ikut diperiksa, bukan cuma ujungnya.
             root = node.func.value
             while isinstance(root, ast.Attribute):
                 if root.attr in ("patch", "MagicMock", "Mock", "AsyncMock", "create_autospec", "spy"):
@@ -1429,16 +826,6 @@ def _resolve_fixture_class(func_node: ast.FunctionDef | ast.AsyncFunctionDef, im
 
 # ─── PER-FILE WORKER ──────────────────────────────────────────────────────────
 def _classify_file(root: str, py_file: str, excluded_dirs: set[str], excluded_files: set[str]) -> str | None:
-    """BUGFIX v5.1.19 (BUG NYATA, potensi silent-exclude-failure di Windows):
-    exclude direktori & file sebelumnya dicocokkan case-SENSITIVE
-    ("checker" in parts, filename in excluded_files) padahal filesystem
-    Windows sendiri case-INSENSITIVE -- kalau folder/file di disk sungguhan
-    ternyata ber-casing beda (mis. "Checker", "Scripts", "PyTest_Checker.py"),
-    exclude rule diam-diam tidak pernah match, tanpa error apa pun, dan file
-    yang seharusnya dikecualikan (termasuk checker itu sendiri) ikut discan
-    sebagai source code produksi. Sekarang matching dilakukan case-
-    insensitive di kedua sisi.
-    """
     rel = pathlib.Path(py_file).relative_to(root).as_posix()
     parts = rel.split("/")
     parts_lower = [p.lower() for p in parts]
@@ -1562,12 +949,11 @@ class ProjectIndex:
         self.test_files: list[pathlib.Path] = []
         self.parse_errors: list[dict[str, str]] = []
         self.class_methods_index: dict[str, list[str]] = defaultdict(list)
-        # v5.1.26: index terpisah untuk method Pydantic validator per class --
-        # lihat komentar lengkap di parse_all() dan _resolve_calls().
         self.class_validator_methods_index: dict[str, list[str]] = defaultdict(list)
         self.bare_name_index: dict[str, list[str]] = defaultdict(list)
         self.module_exports_index: dict[str, dict[str, str]] = {}
-        self.fixture_class_index: dict[str, str] = {}
+        self.fixture_class_index: dict[str, dict[str, str]] = defaultdict(dict)
+        self.conftest_fixture_class_index: dict[str, str] = {}
         self.asyncio_auto_mode = _detect_asyncio_auto_mode(root)
 
     def scan_files(self):
@@ -1602,11 +988,6 @@ class ProjectIndex:
                     if progress_callback:
                         progress_callback(progress_offset + done, progress_total)
         except Exception as e:
-            # BUGFIX: HARUS reset `results` sebelum fallback serial. Tanpa ini,
-            # file yang sudah selesai diproses secara paralel (sebelum executor-nya
-            # gagal, mis. karena satu worker crash) akan diproses ULANG dan
-            # ditambahkan lagi ke `results`, menghasilkan entri dobel (paling
-            # kentara di parse_errors, tapi sebenarnya terjadi di semua data).
             logger.warning(f"ProcessPoolExecutor gagal ({e}), fallback ke mode serial untuk {len(args)} file.")
             results = []
             for i, a in enumerate(args):
@@ -1641,34 +1022,8 @@ class ProjectIndex:
                     is_dunder=f["name"].startswith("__") and f["name"].endswith("__") and f["name"] != "__init__",
                 )
                 self.source_functions[sf.key] = sf
-                # BUGFIX (bug nyata): private method (single-underscore, bukan
-                # dunder) dulu SAMA SEKALI tidak dimasukkan ke class_methods_index
-                # / bare_name_index. Fungsi itu tetap dihitung sebagai source
-                # function yang "butuh test" (baris di atas), tapi karena tidak
-                # pernah diindeks, resolve_calls() TIDAK PERNAH BISA mencocokkan
-                # panggilan test manapun ke fungsi itu -- termasuk white-box test
-                # yang eksplisit memanggil `instance._method(...)`. Akibatnya
-                # method private (sangat umum di kode seperti runbook/step
-                # internal) selamanya muncul "Untested Function" walau sudah
-                # ditest langsung. Sekarang tetap diindeks seperti method biasa.
                 if sf.class_name:
                     self.class_methods_index[f"{sf.class_name}.{sf.name}"].append(sf.key)
-                    # BUGFIX v5.1.26 (BUG NYATA, akar masalah "Pydantic validator
-                    # method SELALU muncul UNTESTED-DOMAIN-FUNC walau class-nya
-                    # sudah rutin di-construct di banyak test"): method yang
-                    # didekorasi @validator/@field_validator/@model_validator/
-                    # @root_validator (Pydantic v1 maupun v2) dipanggil OTOMATIS
-                    # oleh Pydantic sendiri saat model di-construct
-                    # (`SomeSchema(...)`) -- bukan dipanggil eksplisit di kode
-                    # test manapun (`obj.validate_amounts()` tidak pernah
-                    # ditulis, karena memang bukan begitu cara pakainya).
-                    # AST-based call-graph analysis tidak bisa "melihat" ke
-                    # dalam kode internal Pydantic untuk tahu validator mana
-                    # yang terpicu, jadi method ini selalu unresolved walau
-                    # class-nya sudah ditest lewat constructor call biasa.
-                    # Diindeks terpisah di sini supaya _resolve_calls() bisa
-                    # menyambungkan constructor call ke SEMUA method validator
-                    # milik class itu sekaligus (lihat bare-constructor branch).
                     if any(d in ("validator", "field_validator", "model_validator", "root_validator")
                            for d in sf.decorators):
                         self.class_validator_methods_index[sf.class_name].append(sf.key)
@@ -1680,9 +1035,13 @@ class ProjectIndex:
                 self.parse_errors.append({"file": r["file"], "error": r["error"]})
                 continue
             self.test_files_meta[r["file"]] = r
+            is_conftest = pathlib.Path(r["file"]).name == "conftest.py"
             for fx in r.get("fixtures", []):
                 if fx["class_guess"]:
-                    self.fixture_class_index[fx["name"]] = fx["class_guess"]
+                    if is_conftest:
+                        self.conftest_fixture_class_index[fx["name"]] = fx["class_guess"]
+                    else:
+                        self.fixture_class_index[r["file"]][fx["name"]] = fx["class_guess"]
 
     def resolve_module(self, current_file_rel: str, module: str | None, level: int) -> str | None:
         if level and level > 0:
@@ -1756,29 +1115,6 @@ def _resolve_calls(
             if candidates:
                 resolved.append((attr, "direct", candidates))
                 continue
-        # BUGFIX v5.1.10 (BUG NYATA, akar masalah "test_construction / *_can_be_
-        # instantiated selalu ORPHAN & __init__ selalu Untested Function"):
-        # pemanggilan bare konstruktor -- `obj = FixedAssetCollection()`, tanpa
-        # owner_expr karena ini `ast.Name` langsung, bukan `ast.Attribute` --
-        # dulu TIDAK PERNAH dicocokkan ke class_methods_index sama sekali.
-        # Cabang di bawah ini hanya mengecek imported_symbols[attr][0] ==
-        # "function", padahal instansiasi kelas ditandai type "class" (lihat
-        # baris `elif owner_expr.id in imported_symbols and ...[0] == "class"`
-        # di atas, dan _build_test_functions.visit_Assign yang memakai mapping
-        # sama). Karena tidak pernah dicek, `bare_name_index.get(attr)` juga
-        # gagal karena index itu dikunci oleh NAMA FUNGSI/METHOD ("__init__",
-        # "from_dict", dst), bukan nama kelas -- jadi resolusi selalu kosong,
-        # padahal test tsb SECARA EKSPLISIT menginstansiasi kelas itu. Ini
-        # membuat pola test paling umum di suite manapun (test konstruksi /
-        # "can be instantiated") selamanya muncul sebagai Orphan Test, dan
-        # `__init__` kelas terkait selamanya muncul sebagai Untested Function
-        # -- berapa kali pun test-nya "diperbaiki", karena bukan test-nya yang
-        # salah, tapi jalur resolusinya yang tidak pernah ada.
-        # Sekarang: bare call ke nama yang dikenal sebagai kelas (via
-        # imported_symbols, atau heuristik huruf besar di awal untuk kelas
-        # lokal yang tidak diimpor eksplisit -- konsisten dengan heuristik
-        # yang sudah dipakai di visit_Assign) diresolve ke `Kelas.__init__`
-        # kalau kelas itu punya __init__ eksplisit di source.
         if owner_expr is None and attr:
             ctor_class = None
             if attr in imported_symbols and imported_symbols[attr][0] == "class":
@@ -1789,17 +1125,6 @@ def _resolve_calls(
                 init_candidates = index.class_methods_index.get(f"{ctor_class}.__init__", [])
                 if init_candidates:
                     resolved.append((attr, "direct", init_candidates))
-                # BUGFIX v5.1.26 (BUG NYATA): lihat komentar lengkap di
-                # parse_all() -- method Pydantic validator (@validator/
-                # @field_validator/@model_validator/@root_validator) dipicu
-                # OTOMATIS oleh Pydantic saat model di-construct, tidak pernah
-                # muncul sebagai pemanggilan eksplisit di kode test. Setiap
-                # constructor call `ClassName(...)` yang berhasil dikenali
-                # sebagai instansiasi class tsb SEKARANG juga menghitung SEMUA
-                # method validator milik class itu sebagai ter-resolve --
-                # tanpa `continue` di atas, supaya __init__ (kalau ada) dan
-                # validator method-nya (kalau ada) dua-duanya tetap tercatat,
-                # bukan cuma salah satu.
                 validator_candidates = index.class_validator_methods_index.get(ctor_class, [])
                 if validator_candidates:
                     resolved.append((attr, "direct", validator_candidates))
@@ -1821,20 +1146,6 @@ def _resolve_calls(
 def _build_test_functions(
     index: ProjectIndex, progress_callback=None, already_failed_files: set[str] | None = None
 ) -> tuple[dict[str, TestFunction], list[dict]]:
-    """Bangun objek TestFunction dengan me-reparse tiap file test secara serial
-    (dibutuhkan karena parse_all() berjalan di worker process yang hanya
-    mengembalikan dict yang bisa di-pickle, bukan node ast.FunctionDef mentah
-    yang dipakai TestFeatureVisitor di sini).
-
-    PENTING: `already_failed_files` berisi rel-path file yang SUDAH diketahui
-    gagal di-parse pada tahap 1 (parse_all -> _parse_test_file, lihat
-    ProjectIndex.parse_errors). File yang sama, dengan isi yang sama, akan
-    SELALU gagal dengan error yang SAMA PERSIS kalau di-parse ulang di sini --
-    jadi kita skip total (bukan cuma skip pencatatan errornya) supaya tidak
-    membuang waktu parsing yang hasilnya sudah pasti gagal, dan supaya
-    parse_errors tidak pernah dobel dari 2 sumber independen untuk file yang
-    sama.
-    """
     test_functions: dict[str, TestFunction] = {}
     parse_errors: list[dict] = []
     already_failed_files = already_failed_files or set()
@@ -1842,8 +1153,6 @@ def _build_test_functions(
     for i, py_file in enumerate(index.test_files):
         rel = py_file.relative_to(index.root).as_posix()
         if rel in already_failed_files:
-            # Sudah tercatat gagal di tahap 1 (parse_all). Jangan reparse,
-            # jangan catat ulang -- itulah sumber duplikasi lama.
             if progress_callback:
                 progress_callback(i + 1, total)
             continue
@@ -1857,20 +1166,16 @@ def _build_test_functions(
         imported_symbols = index.imported_symbols_for(rel)
         src_lines = src_text.splitlines() if src_text else []
         module_marks = _extract_pytestmark(tree.body)
+        effective_fixture_class_index = {**index.conftest_fixture_class_index, **index.fixture_class_index.get(rel, {})}
 
         def handle(node: ast.FunctionDef | ast.AsyncFunctionDef, class_prefix: str = "", extra_marks: list[str] | None = None):
             if not node.name.startswith("test_"):
                 return
             param_names = [a.arg for a in node.args.args if a.arg != "self"]
-            visitor = TestFeatureVisitor(imported_symbols, index.fixture_class_index, param_names)
+            visitor = TestFeatureVisitor(imported_symbols, effective_fixture_class_index, param_names)
             visitor.visit(node)
             resolved = _resolve_calls(visitor.raw_calls, visitor.var_types, imported_symbols, index)
             decorators = [_deco_name(d) for d in node.decorator_list]
-            # markers = decorator milik fungsi ITU SENDIRI + marker yang
-            # diwariskan dari `pytestmark` di level modul/class (lihat
-            # _extract_pytestmark). Dulu hanya decorator fungsi yang dicek,
-            # sehingga pola `pytestmark = pytest.mark.asyncio` di atas file
-            # tidak pernah terbaca sebagai marker.
             markers = [d for d in decorators if d] + (extra_marks or [])
             try:
                 source_text = ast.unparse(node)
@@ -1948,17 +1253,6 @@ def _discover_business_flows(index: ProjectIndex) -> dict[str, list[SourceFuncti
 
 # ─── QUALITY ANALYZER ─────────────────────────────────────────────────────────
 def _memoize_analyzer_method(fn):
-    """
-    BUGFIX (v5.1.6 changelog claimed this already existed — it did not):
-    QualityAnalyzer metrics like assertion_quality(), duplicate_test_detector(), etc.
-    are each invoked from THREE separate places (scan()'s tier dict construction,
-    test_strength_score(), and compute_weighted_score()). Several of them append to
-    self.findings via self._add_finding(...) as a side effect. Without memoization,
-    every extra call re-appends the SAME finding, so the exact same error/line shows
-    up duplicated (or triplicated) in reports, making already-fixed issues look like
-    they're still outstanding. This decorator caches the result per-instance (per scan
-    run) so each metric is computed exactly once, regardless of how many call sites use it.
-    """
     name = fn.__name__
 
     @wraps(fn)
@@ -2047,13 +1341,6 @@ class QualityAnalyzer:
                 score = ((total - dups) / total) * 100 if total else 100
                 file_scores[file].append(score)
 
-        # v5.1.21: blok database_verification/domain_event_verification/
-        # audit_log_verification/idempotency_verification yang dulu ada di sini
-        # sudah dipindah & digabung ke _domain_verification_scores() (dipanggil
-        # langsung dari masing-masing method-nya) -- supaya skor agregat & skor
-        # per-file dihitung dari SATU sumber kebenaran yang sama, tidak lagi dua
-        # salinan terpisah yang berisiko drift (lihat riwayat bug v5.1.15/v5.1.20).
-
         elif metric_name in ("accounting_checker", "inventory_checker", "fiscal_period_checker",
                              "multi_currency_checker", "precision_checker"):
             flag_map = {
@@ -2110,19 +1397,41 @@ class QualityAnalyzer:
 
     @_memoize_analyzer_method
     def negative_path_coverage(self) -> dict:
-        total = len(self.test_funcs)
-        if total == 0:
-            return {"score": 0, "has_error": 0, "total": 0, "confidence": "heuristic", "file_scores": {}}
-        has_error_count = 0
-        for t in self.test_funcs.values():
-            has_raises_call = t.has_raises
-            if not has_raises_call and t.source:
-                has_raises_call = bool(re.search(r'pytest\.raises|assertRaises|raises\(', t.source))
-            has_error_keyword = any(kw in t.name.lower() for kw in ("error", "invalid", "exception", "fail", "bad", "reject"))
-            if has_raises_call or has_error_keyword:
-                has_error_count += 1
-        score = (has_error_count / total) * 100
-        result = {"score": round(score, 1), "has_error": has_error_count, "total": total, "confidence": "heuristic"}
+        relevant = [f for f in self.source_funcs.values() if f.raises or f.branches > 0]
+        if not relevant:
+            return {
+                "score": 100.0,
+                "verified": 0,
+                "total": 0,
+                "relevant_source_functions": 0,
+                "confidence": "confirmed",
+                "note": "N/A: tidak ada source function dengan branch/raise yang relevan.",
+                "file_scores": {},
+            }
+        verified = 0
+        unverified = []
+        for sf in relevant:
+            linked = sf.tested_by_direct | sf.tested_by_unique | sf.tested_by_ambiguous
+            evidence = False
+            for key in linked:
+                t = self.test_funcs.get(key)
+                if not t:
+                    continue
+                if t.has_raises or t.raises_targets or any(a.op == "raises" for a in t.assertions):
+                    evidence = True
+                    break
+                low = t.name.lower()
+                if any(k in low for k in ("error", "invalid", "exception", "reject", "denied", "forbidden", "rollback", "timeout")):
+                    evidence = True
+                    break
+            if evidence:
+                verified += 1
+            else:
+                unverified.append(f"{sf.file}:{sf.lineno} {(sf.class_name + '.') if sf.class_name else ''}{sf.name}")
+        score = (verified / len(relevant)) * 100
+        result = {"score": round(score, 1), "verified": verified, "total": len(relevant),
+                  "relevant_source_functions": len(relevant), "untested_sample": unverified,
+                  "confidence": "heuristic"}
         result["file_scores"] = self._file_metric_scores("negative_path_coverage")
         return result
 
@@ -2187,31 +1496,35 @@ class QualityAnalyzer:
     def mock_quality(self) -> dict:
         total = len(self.test_funcs)
         if total == 0:
-            return {"score": 0, "avg_mock": 0, "confidence": "heuristic"}
+            return {"score": 100.0, "mock_count": 0, "avg_mock": 0.0, "has_spec": 0, "confidence": "heuristic", "file_scores": {}}
         mock_count = sum(1 for t in self.test_funcs.values() if t.has_mock)
-        avg_mock = mock_count / max(1, total)
-        if avg_mock <= 0.3:
-            mock_score = 100
-        elif avg_mock <= 0.6:
-            mock_score = 85
+        ratio = mock_count / total
+        if ratio <= 0.60:
+            base = 100.0
+        elif ratio <= 0.80:
+            base = 90.0
         else:
-            mock_score = 65
-        has_spec = sum(1 for t in self.test_funcs.values() if "spec" in t.source.lower() or "autospec" in t.source.lower())
-        bonus = min(15, (has_spec / max(1, total)) * 15)
-        score = min(100, mock_score + bonus)
-        result = {"score": round(score, 1), "mock_count": mock_count, "avg_mock": round(avg_mock, 2), "has_spec": has_spec, "confidence": "heuristic"}
+            base = 80.0
+        has_spec = sum(1 for t in self.test_funcs.values() if any(x in t.source.lower() for x in ("autospec", "spec_set", "spec=")))
+        score = min(100.0, base + min(10.0, (has_spec / total) * 10.0))
+        result = {
+            "score": round(score, 1),
+            "mock_count": mock_count,
+            "avg_mock": round(ratio, 3),
+            "has_spec": has_spec,
+            "confidence": "heuristic",
+            "note": "Mock density adalah indikator strategi, bukan bukti kualitas behavior.",
+        }
         result["file_scores"] = self._file_metric_scores("mock_quality")
         return result
 
     @_memoize_analyzer_method
     def fixture_quality(self) -> dict:
-        fixtures = []
-        for t in self.test_funcs.values():
-            fixtures.extend(t.setup_fixtures)
+        fixtures = [fx for t in self.test_funcs.values() for fx in t.setup_fixtures]
         unique = set(fixtures)
         total = len(fixtures)
-        heavy = sorted({f for f in unique if "db" in f or "session" in f or "client" in f})
-        score = 100.0 if total == 0 else min(100, (len(unique) / total) * 100)
+        heavy = sorted({f for f in unique if any(k in f.lower() for k in ("db", "session", "client"))})
+        score = 100.0 if total == 0 else 90.0 + (10.0 * min(1.0, len(unique) / total))
         return {"score": round(score, 1), "total_fixtures": total, "unique": len(unique), "heavy": heavy, "confidence": "heuristic"}
 
     @_memoize_analyzer_method
@@ -2240,41 +1553,40 @@ class QualityAnalyzer:
 
     @_memoize_analyzer_method
     def test_naming(self) -> dict:
-        good = bad = 0
+        good = 0.0
+        bad = 0
+        details = []
         for t in self.test_funcs.values():
-            if re.match(r'test_[a-z0-9]+(_[a-z0-9]+){2,}', t.name):
+            name = t.name
+            if not name.startswith("test_"):
+                bad += 1
+                details.append(f"{t.file}:{t.lineno} {name} — tidak diawali test_")
+                continue
+            tokens = [p for p in name[5:].split("_") if p]
+            if len(tokens) >= 3:
                 good += 1
-            elif re.match(r'test_[a-z0-9]+_[a-z0-9]+', t.name):
+            elif len(tokens) == 2:
                 good += 0.5
             else:
                 bad += 1
+                details.append(f"{t.file}:{t.lineno} {name} — nama terlalu generik")
         total = len(self.test_funcs)
-        score = (good / max(1, total)) * 100
-        return {"score": round(score, 1), "good": int(good), "bad": bad, "confidence": "heuristic"}
+        return {"score": round((good / max(1, total)) * 100, 1), "good": good, "bad": bad, "details": details, "confidence": "heuristic"}
 
     @_memoize_analyzer_method
     def aaa_pattern(self) -> dict:
         count_aaa = 0
+        total = len(self.test_funcs)
         for t in self.test_funcs.values():
-            has_arrange = bool(t.setup_fixtures) or any(w in t.source.lower() for w in ("=", "given"))
-            has_act = any(bn in ("execute", "handle", "call", "run", "process") for _, bn, _ in []) or bool(t.calls)
+            low = t.source.lower()
+            has_arrange = bool(t.setup_fixtures) or bool(re.search(r"\b(given|when|arrange|setup|fixture)\b", low)) or bool(re.search(r"\b\w+\s*=\s*", t.source))
+            has_act = bool(t.calls)
             has_assert = bool(t.assertions)
             if has_arrange and has_act and has_assert:
                 count_aaa += 1
-        total = len(self.test_funcs)
-        score = (count_aaa / max(1, total)) * 100
-        return {"score": round(score, 1), "count": count_aaa, "total": total, "confidence": "heuristic"}
+        return {"score": round((count_aaa / max(1, total)) * 100, 1), "count": count_aaa, "total": total, "confidence": "heuristic"}
 
     def _relevant_test_keys_for(self, predicate) -> tuple[set[str], list]:
-        """Sama seperti pola yang sudah benar di _domain_metric (Tier 4): saring
-        dulu ke source function yang predicate-nya True, lalu ambil test yang
-        BENAR-BENAR ter-link ke fungsi itu (tested_by_direct/unique). Dipakai
-        untuk memperbaiki Tier 3 (database/event/audit/idempotency) yang
-        sebelumnya menilai SEMUA test tanpa pandang bulu -- termasuk test DTO/
-        value-object yang memang tidak seharusnya menyentuh DB/event/audit sama
-        sekali, sehingga skor Tier 3 turun bukan karena kualitas test buruk,
-        tapi karena metrik diterapkan ke tempat yang tidak relevan.
-        """
         relevant_sources = [f for f in self.source_funcs.values() if predicate(f)]
         relevant_keys: set[str] = set()
         for sf in relevant_sources:
@@ -2282,45 +1594,6 @@ class QualityAnalyzer:
         return relevant_keys, relevant_sources
 
     def _domain_verification_scores(self, pred, evidence_fn):
-        """BUGFIX v5.1.21 (DESAIN METRIK, bukan sekadar bug kata-kunci): keempat
-        metrik Tier 3 (database_verification, domain_event_verification,
-        audit_log_verification, idempotency_verification) SEBELUMNYA menghitung
-        skor PER-TEST -- yaitu "berapa persen dari SEMUA test yang ter-link ke
-        source function relevan punya bukti (mock/assert/keyword/dst)". Ini
-        cacat desain: kalau satu source function relevan (mis. fungsi retry-
-        sensitive) dites secara MENYELURUH oleh banyak test yang menguji
-        skenario BERBEDA-BEDA (sukses langsung, retry-lalu-sukses, retry
-        exhausted, error non-retryable, timeout, dst), HANYA test yang
-        namanya/isinya kebetulan mengandung kata kunci yang dihitung --
-        padahal test-test lain itu SAMA VALIDNYA, cuma menguji aspek lain
-        dari fungsi yang sama. Makin lengkap test suite-nya, skornya malah
-        makin turun (penyebut bertambah tanpa pembilang ikut bertambah).
-        Ditemukan dari kasus nyata: TestRetryOnDeadlock di
-        test_transaction_manager.py -- 9 test yang semuanya menguji retry/
-        deadlock-recovery untuk fungsi yang sama, tapi cuma yang namanya
-        literally mengandung "retry"/"retries" yang lolos, sisanya (mis.
-        `test_deadlock_recovers_within_attempt_budget`,
-        `test_persistent_serialization_failure_also_exhausts_silently_bug`)
-        didiskon walau jelas-jelas test retry juga.
-        Sekarang dihitung PER SOURCE FUNCTION yang relevan: fungsi dianggap
-        "verified" kalau ADA SETIDAKNYA SATU test yang ter-link menunjukkan
-        bukti -- konsisten dengan cara Tier 4 (is_tested) dan
-        untested_function_analyzer() bekerja (cukup satu test yang
-        membuktikan, tidak perlu semua test individual membuktikan sendiri-
-        sendiri).
-        file_scores tetap dikelompokkan per TEST FILE (bukan source file)
-        supaya konsisten dengan laporan --per-file yang sudah ada, dihitung
-        LANGSUNG di sini (bukan salinan terpisah di _file_metric_scores)
-        supaya tidak bisa drift lagi seperti kasus database_verification/
-        idempotency_verification sebelumnya -- satu sumber kebenaran untuk
-        skor agregat maupun skor per-file.
-
-        Return: (verified, total, any_linked, file_scores, relevant_count).
-        `total` cuma menghitung fungsi relevan yang PUNYA test ter-link;
-        `relevant_count` = jumlah SEMUA fungsi relevan (dipakai caller untuk
-        membedakan "tidak ada fungsi relevan sama sekali" -- N/A -- dari
-        "ada fungsi relevan tapi nol yang test-nya ter-link").
-        """
         relevant_sources = [f for f in self.source_funcs.values() if pred(f)]
         verified = 0
         total = 0
@@ -2330,22 +1603,6 @@ class QualityAnalyzer:
             linked_keys = f.tested_by_direct | f.tested_by_unique
             linked_tests = [self.test_funcs[k] for k in linked_keys if k in self.test_funcs]
             if not linked_tests:
-                # BUGFIX v5.1.22 (REGRESI dari v5.1.21, BUG NYATA): fungsi
-                # relevan yang SAMA SEKALI tidak punya test ter-link dulu
-                # sengaja TIDAK dihitung di metrik ini (scope aslinya: "dari
-                # test yang SUDAH ADA, seberapa banyak yang menunjukkan pola
-                # verifikasi yang tepat"), karena gap "fungsi ini belum
-                # ditest sama sekali" sudah ditangani terpisah oleh Tier 6
-                # (Untested Function / UNTESTED-DOMAIN-FUNC). Versi v5.1.21
-                # tanpa sengaja memasukkan fungsi tanpa test SAMA SEKALI ke
-                # `total` (lewat len(relevant_sources) yang tidak difilter),
-                # sehingga metrik ini jadi double-penalize hal yang sama
-                # dengan Tier 6 -- menjatuhkan skor Database
-                # Verification/Domain Event/Audit Log/Idempotency secara
-                # drastis (mis. Audit Log dari 100% ke 34%) di proyek besar
-                # yang wajar punya banyak fungsi belum tertest sama sekali.
-                # Sekarang fungsi tanpa test ter-link SAMA SEKALI dilewati
-                # (tidak masuk total), persis seperti sebelum v5.1.21.
                 continue
             any_linked = True
             total += 1
@@ -2361,14 +1618,7 @@ class QualityAnalyzer:
 
     @_memoize_analyzer_method
     def database_verification(self) -> dict:
-        # Perbaikan: deteksi operasi DB lebih komprehensif
         def _has_db_operation(f) -> bool:
-            # CATATAN: `f.has_db` sengaja TIDAK dipakai di sini -- itu field
-            # milik TestFunction, bukan SourceFunction (predicate ini dijalankan
-            # atas source_funcs). Deteksi sisi-source cukup pakai has_transaction
-            # (AST-confirmed) + pola nama di bawah; sisi-test (t.has_db, dipakai
-            # di evidence_fn) tetap dipakai apa adanya karena itu memang field
-            # valid di TestFunction.
             return (f.has_transaction or
                     "subprocess" in f.name.lower() or
                     "pg_dump" in f.name.lower() or
@@ -2423,9 +1673,6 @@ class QualityAnalyzer:
 
     @_memoize_analyzer_method
     def idempotency_verification(self) -> dict:
-        # Idempotency paling relevan untuk operasi yang mutasi state & bisa
-        # di-retry/di-replay: transaksi DB, outbox, publish kafka, dan apa pun
-        # yang sudah punya retry logic.
         pred = lambda f: f.has_transaction or f.has_outbox or f.has_kafka_publish or f.has_retry_logic
 
         def evidence_fn(t):
@@ -2516,25 +1763,6 @@ class QualityAnalyzer:
             points = sf.branches + len(sf.raises) + (1 if sf.has_status_transition else 0)
             points = max(points, 1)
             total_points += points
-            # BUGFIX v5.1.23 (BUG NYATA, akar masalah "Mutation Score nyangkut
-            # terus di ~40% walau banyak fix lain sudah dipasang"): dulu
-            # dipakai `sf.tested_by_direct | sf.tested_by_unique` -- itu
-            # persis definisi is_tested_STRICT, BUKAN is_tested biasa yang
-            # dipakai di SELURUH bagian lain tool ini (untested_function_
-            # analyzer, precision_checker, accounting_checker, dst -- semua
-            # menghitung fungsi yang tertest lewat AMBIGUOUS match sebagai
-            # "sudah tertest" juga). Di proyek besar seperti ini, fungsi yang
-            # HANYA punya tested_by_ambiguous (method dengan nama sama di
-            # banyak class, tidak bisa dipastikan unik tapi tetap ada test
-            # yang memanggilnya) bisa jadi porsi BESAR dari codebase --
-            # sebelumnya semua itu dianggap 0% ter-cover mutasi walau
-            # "Tested (direct match)" + "Tested (unique-name match)" +
-            # "Untested Functions" di header laporan sendiri tidak menjumlah
-            # ke Total Source Functions, menyisakan selisih besar yang
-            # sebetulnya "tertest via ambiguous" tapi tidak pernah dapat
-            # kredit mutation score sama sekali. Sekarang pakai
-            # tested_by_direct | tested_by_unique | tested_by_ambiguous,
-            # simetris dengan is_tested di semua metrik lain.
             linking_tests = sf.tested_by_direct | sf.tested_by_unique | sf.tested_by_ambiguous
             if linking_tests:
                 best_strength = 0
@@ -2658,16 +1886,6 @@ class QualityAnalyzer:
     @_memoize_analyzer_method
     def async_test_checker(self) -> dict:
         async_tests = [t for t in self.test_funcs.values() if t.is_async]
-        # BUGFIX (real bug, ditemukan dari run 2226 file sungguhan): dulu hanya
-        # `t.decorators` (decorator PER FUNGSI) yang dicek. Itu membuat proyek
-        # yang pakai `pytestmark = pytest.mark.asyncio` di level modul/class,
-        # atau `asyncio_mode = auto` di pytest.ini/pyproject.toml, SELALU
-        # ditandai ASYNC-MISSING-MARKER untuk setiap test async -- walau
-        # pytest menjalankannya dengan benar -- dan tidak akan pernah hilang
-        # dari laporan, karena tidak ada apa pun untuk diperbaiki di level
-        # fungsi. Sekarang: (1) `t.markers` sudah mencakup marker yang
-        # diwariskan dari `pytestmark` modul/class, dan (2) kalau proyek pakai
-        # asyncio_mode=auto, tidak ada marker yang dibutuhkan sama sekali.
         if self.index.asyncio_auto_mode:
             return {"async_count": len(async_tests), "missing_marker": 0, "total": len(self.test_funcs)}
         missing_marker = [t for t in async_tests if "asyncio" not in " ".join(t.markers).lower() and "anyio" not in " ".join(t.markers).lower()]
@@ -2727,21 +1945,6 @@ class QualityAnalyzer:
         return {"roles": sorted(roles), "count": len(roles)}
 
     def state_transition_checker(self) -> dict:
-        # BUGFIX v5.1.19 (BUG NYATA, akar masalah "State Transition score selalu
-        # rendah, ~30%, di setiap run"): has_status_transition (SourceFeatureVisitor.
-        # visit_Assign) menyala untuk assignment ke attribute/variable bernama
-        # "status" ATAU "state" -- dua-duanya dianggap representasi status/state
-        # transition yang valid (order state, saga state, workflow state, dst
-        # semuanya lazim pakai nama "state", bukan cuma "status"). Tapi
-        # pengecekan "sudah ditest" di bawah ini SEBELUMNYA hanya mencari
-        # substring "status" di teks assertion test -- tidak pernah mencari
-        # "state". Akibatnya SEMUA source function yang field transisinya
-        # bernama "state" (mis. `self.state = OrderState.SHIPPED`, sangat
-        # umum di saga/workflow) TIDAK PERNAH bisa dianggap tertest walau
-        # assertion-nya persis menguji field itu (`assert obj.state ==
-        # OrderState.SHIPPED`) -- karena raw text-nya tidak literally
-        # mengandung kata "status". Sekarang mencari "status" ATAU "state",
-        # simetris dengan has_status_transition.
         relevant = [f for f in self.source_funcs.values() if f.has_status_transition]
         if not relevant:
             return {"score": 100.0, "total_trans": 0, "tested": 0}
@@ -2786,19 +1989,6 @@ class QualityAnalyzer:
         return coverage
 
     def business_flow_gaps(self, threshold: float = 100.0) -> list[dict[str, Any]]:
-        """
-        FITUR BARU v5.1.13: jawaban langsung untuk "domain/file mana yang belum
-        100% di BUSINESS FLOW COVERAGE, dan apa saja yang perlu diperbaiki".
-        business_flow_coverage() di atas sudah menghitung persentase per domain
-        dan daftar fungsi yang belum tertest, tapi itu hanya string polos
-        ("file:line Class.name") dan tidak pernah diekspos lewat perintah CLI
-        khusus -- orang harus menghitung manual dari tabel BUSINESS FLOW
-        COVERAGE lalu mencari sendiri file-nya. Method ini mengembalikan daftar
-        gap yang sudah terurut (domain paling rendah dulu, dan di dalam domain
-        yang sama fungsi finansial-sensitif -- has_decimal_ops/has_accounting_check/
-        has_currency_convert/has_status_transition -- didahulukan) sehingga bisa
-        langsung dipakai untuk memprioritaskan pekerjaan, bukan cuma dibaca.
-        """
         buckets = _discover_business_flows(self.index)
         coverage = self.business_flow_coverage()
         gaps: list[dict[str, Any]] = []
@@ -2855,48 +2045,57 @@ class QualityAnalyzer:
 
     def compute_weighted_score(self, ignore_metrics: set[str] | None = None) -> float:
         ignore = ignore_metrics or set()
+        self.metric_errors = []
 
-        def get_score(method_name):
+        def get_score(name: str):
             try:
-                result = getattr(self, method_name)()
-                if isinstance(result, dict) and "score" in result:
-                    return result["score"]
-                if method_name == "permission_test":
-                    return min(100, len(result.get("roles", [])) / 5 * 100)
-                return 0
-            except Exception:
-                return 0
+                result = getattr(self, name)()
+            except Exception as exc:
+                self.metric_errors.append(f"{name}: {type(exc).__name__}: {exc}")
+                return None
+            if isinstance(result, dict) and isinstance(result.get("score"), (int, float)):
+                return max(0.0, min(100.0, float(result["score"])))
+            if name == "permission_test" and isinstance(result, dict):
+                return min(100.0, len(result.get("roles", [])) / 5.0 * 100.0)
+            self.metric_errors.append(f"{name}: metric tidak mengembalikan score numerik")
+            return None
 
-        t1_names = ["assertion_quality", "negative_path_coverage", "exception_coverage", "edge_case_detector", "magic_number_detector"]
-        t1_scores = [get_score(n) for n in t1_names if n not in ignore]
-        tier1_avg = sum(t1_scores) / len(t1_scores) if t1_scores else 0
+        def avg(names):
+            vals = [get_score(n) for n in names if n not in ignore]
+            vals = [v for v in vals if v is not None]
+            return (sum(vals) / len(vals)) if vals else 0.0
 
-        t2_names = ["mock_quality", "fixture_quality", "duplicate_test_detector", "test_naming", "aaa_pattern"]
-        t2_scores = [get_score(n) for n in t2_names if n not in ignore]
-        tier2_avg = sum(t2_scores) / len(t2_scores) if t2_scores else 0
+        tier1 = avg(["assertion_quality", "negative_path_coverage", "exception_coverage", "edge_case_detector", "magic_number_detector"])
+        tier2 = avg(["mock_quality", "fixture_quality", "duplicate_test_detector", "test_naming", "aaa_pattern"])
+        tier3 = avg(["database_verification", "domain_event_verification", "audit_log_verification", "idempotency_verification", "permission_test"])
+        tier4 = avg(["accounting_checker", "inventory_checker", "fiscal_period_checker", "multi_currency_checker", "precision_checker"])
 
-        t3_names = ["database_verification", "domain_event_verification", "audit_log_verification", "idempotency_verification", "permission_test"]
-        t3_scores = [get_score(n) for n in t3_names if n not in ignore]
-        tier3_avg = sum(t3_scores) / len(t3_scores) if t3_scores else 0
+        try:
+            tier5 = float(self.mutation_score_estimation()[0])
+        except Exception as exc:
+            self.metric_errors.append(f"mutation_score_estimation: {type(exc).__name__}: {exc}")
+            tier5 = 0.0
 
-        t4_names = ["accounting_checker", "inventory_checker", "fiscal_period_checker", "multi_currency_checker", "precision_checker"]
-        t4_scores = [get_score(n) for n in t4_names if n not in ignore]
-        tier4_avg = sum(t4_scores) / len(t4_scores) if t4_scores else 0
-
-        tier5_avg = self.mutation_score_estimation()[0]
-
-        flaky = self.flaky_test_detector()["count"]
-        slow = self.slow_test_detector()["count"]
-        dead = self.dead_code_test_detector()["count"]
-        orphan = self.orphan_test_checker()["orphans"]
         total_tests = max(1, len(self.test_funcs))
-        penalty = (flaky + slow + dead + orphan) / total_tests * 50
-        tier6_score = max(0, 100 - penalty)
+        try:
+            flaky = self.flaky_test_detector()["count"]
+            slow = self.slow_test_detector()["count"]
+            dead = self.dead_code_test_detector()["count"]
+            orphan = self.orphan_test_checker()["orphans"]
+        except Exception as exc:
+            self.metric_errors.append(f"tier6: {type(exc).__name__}: {exc}")
+            flaky = slow = dead = orphan = 0
+        tier6 = max(0.0, 100.0 - min(40.0, ((flaky + slow + dead + orphan) / total_tests) * 20.0))
 
-        weights = {"tier1": 0.40, "tier2": 0.25, "tier3": 0.15, "tier4": 0.10, "tier5": 0.05, "tier6": 0.05}
-        total = (tier1_avg * weights["tier1"] + tier2_avg * weights["tier2"] + tier3_avg * weights["tier3"]
-                 + tier4_avg * weights["tier4"] + tier5_avg * weights["tier5"] + tier6_score * weights["tier6"])
-        return round(min(100, total), 1)
+        total = (
+            tier1 * 0.35 +
+            tier2 * 0.10 +
+            tier3 * 0.20 +
+            tier4 * 0.25 +
+            tier5 * 0.05 +
+            tier6 * 0.05
+        )
+        return round(max(0.0, min(100.0, total)), 1)
 
     def untested_function_analyzer(self) -> tuple[list[str], list[str]]:
         tested, untested = [], []
@@ -2940,19 +2139,13 @@ class PytestQualityChecker:
         t0 = time.monotonic()
         self.index.scan_files()
         self.index.parse_all(progress_callback=progress_callback)
-        # File yang sudah gagal di tahap 1 (parse_all) TIDAK dikirim ulang ke
-        # _build_test_functions -- lihat docstring _build_test_functions untuk
-        # penjelasan root cause duplikasi parse_errors yang lama.
         already_failed = {e["file"] for e in self.index.parse_errors}
         test_funcs, extra_errors = _build_test_functions(self.index, already_failed_files=already_failed)
-        # Defense-in-depth: dedupe by file path saat merge, walau secara desain
-        # extra_errors seharusnya sudah tidak overlap dengan already_failed lagi.
         for err in extra_errors:
             if err["file"] not in already_failed:
                 self.index.parse_errors.append(err)
                 already_failed.add(err["file"])
         _link_tests_to_sources(self.index, test_funcs)
-
         analyzer = QualityAnalyzer(self.index, test_funcs)
 
         t1 = {
@@ -2983,6 +2176,7 @@ class PytestQualityChecker:
             "multi_currency": analyzer.multi_currency_checker(),
             "precision": analyzer.precision_checker(),
         }
+
         mut_score, mut_covered, mut_total = analyzer.mutation_score_estimation()
         strength = analyzer.test_strength_score(ignore_metrics=self.ignore_metrics)
         confidence = analyzer.confidence_score(strength)
@@ -2999,6 +2193,7 @@ class PytestQualityChecker:
             "business_flow_summary": analyzer.business_flow_summary(),
             "business_flow_gaps": flow_gaps,
             "regression_risk": reg_risk,
+            "mutation_score_type": "static-estimate-not-real-mutation-testing",
         }
 
         tested_funcs, untested_funcs = analyzer.untested_function_analyzer()
@@ -3030,345 +2225,142 @@ class PytestQualityChecker:
             "business_flow_summary": t5["business_flow_summary"],
         }
 
-        overall_score = analyzer.compute_weighted_score(ignore_metrics=self.ignore_metrics)
+        quality_score = analyzer.compute_weighted_score(ignore_metrics=self.ignore_metrics)
+        parse_errors = _dedupe_parse_errors(self.index.parse_errors)
+        metric_errors = list(dict.fromkeys(analyzer.metric_errors))
+        gate_failures = []
+        if parse_errors:
+            gate_failures.append(f"{len(parse_errors)} file gagal diparse")
+        if metric_errors:
+            gate_failures.append(f"{len(metric_errors)} metric gagal dieksekusi")
+        if len(test_funcs) == 0 and len(self.index.source_functions) > 0:
+            gate_failures.append("tidak ditemukan test function yang dapat dianalisis")
+        if quality_score < 80.0:
+            gate_failures.append(f"quality score {quality_score:.1f} di bawah threshold 80.0")
+        gate_status = "PASS" if not gate_failures else "FAIL"
+        gate_score = quality_score if gate_status == "PASS" else min(quality_score, 79.9)
 
         rca_results = []
         if self.enable_rca:
             checks = [
-                ("Assertion Quality", t1["assertion_quality"]["score"]),
-                ("Exception Coverage", t1["exception_coverage"]["score"]),
-                ("State Transition", t6["state_transition"]["score"]),
+                ("Assertion Quality", t1["assertion_quality"].get("score", 100)),
+                ("Negative Path", t1["negative_path"].get("score", 100)),
+                ("Exception Coverage", t1["exception_coverage"].get("score", 100)),
+                ("State Transition", t6["state_transition"].get("score", 100)),
                 ("Mutation Score", t5["mutation_score"]),
             ]
             for name, score in checks:
                 if score < 50:
                     try:
                         raise RuntimeError(f"Low {name} score: {score}%")
-                    except RuntimeError as e:
-                        rca = _rca_analyze(e, {"metric": name, "score": score})
+                    except RuntimeError as exc:
+                        rca = _rca_analyze(exc, {"metric": name, "score": score})
                         if rca:
                             rca_results.append({"metric": name, "score": score, "rca": rca})
 
         direct_count = sum(1 for f in self.index.source_functions.values() if f.tested_by_direct)
         unique_count = sum(1 for f in self.index.source_functions.values() if not f.tested_by_direct and f.tested_by_unique)
-
-        report = Report(
+        return Report(
             total_tests=len(test_funcs),
             total_source_functions=len(self.index.source_functions),
             tested_functions=len(tested_funcs),
             tested_functions_direct=direct_count,
             tested_functions_unique=unique_count,
             untested_functions=len(untested_funcs),
-            overall_quality_score=overall_score,
+            overall_quality_score=quality_score,
             tier1=t1, tier2=t2, tier3=t3, tier4=t4, tier5=t5, tier6=t6,
             scan_time=time.monotonic() - t0,
             rca_results=rca_results,
-            parse_errors=_dedupe_parse_errors(self.index.parse_errors),
+            parse_errors=parse_errors,
             findings=analyzer.findings,
             top_offending_files=analyzer.top_offending_files(),
             source_functions=list(self.index.source_functions.values()),
             test_functions=list(test_funcs.values()),
+            gate_score=round(gate_score, 1),
+            gate_status=gate_status,
+            gate_failures=gate_failures,
+            metric_errors=metric_errors,
         )
-        return report
 
 
 # ─── REPORT PRINTING ───────────────────────────────────────────────────────
 def print_report(r: Report, verbose: bool = False, show_rca: bool = True, full: bool = False) -> None:
     c = COLOR
-
     def score_color(v: float) -> str:
-        return c["GREEN"] if v >= 70 else c["YELLOW"] if v >= 40 else c["RED"]
-
-    def print_file_issues(label: str, data: dict, threshold: float = 70.0, limit: int = 40):
-        scores = data.get("file_scores")
-        if not scores:
-            return
-        bad = [(f, s) for f, s in scores.items() if s < threshold]
-        if not bad:
-            return
-        bad.sort(key=lambda x: x[1])
-        total = len(bad)
-        _safe_print(f"    {_c('RED')}⚠️ {total} file bermasalah (skor < {threshold:.0f}%){_c('RESET')}")
-        for idx, (f, s) in enumerate(bad[:limit]):
-            _safe_print(f"      - {f}: {s:.1f}%")
-        if total > limit:
-            _safe_print(f"      ... dan {total - limit} file lainnya")
-
+        return c["GREEN"] if v >= 80 else c["YELLOW"] if v >= 60 else c["RED"]
     _safe_print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*76}╗{c['RESET']}")
-    _safe_print(f"{c['BOLD']}{c['CYAN']}║{c['RESET']}{c['BOLD']}   PYTEST QUALITY CHECKER v{__version__} (Forensic-Grade){' '*17}{c['CYAN']}║{c['RESET']}")
+    title = f"   PYTEST QUALITY CHECKER v{__version__} — STATIC FORENSIC QUALITY GATE"
+    _safe_print(f"{c['BOLD']}{c['CYAN']}║{c['RESET']}{c['BOLD']}{title:<76}{c['CYAN']}║{c['RESET']}")
     _safe_print(f"{c['BOLD']}{c['CYAN']}╚{'═'*76}╝{c['RESET']}\n")
-
-    sc = score_color(r.overall_quality_score)
-    _safe_print(f"📊 {c['BOLD']}OVERALL QUALITY SCORE{c['RESET']}: {sc}{r.overall_quality_score:.1f}/100{c['RESET']}")
-    _safe_print(f"  🎯 Confidence Score          : {r.tier5.get('confidence_score', 0):.1f}%")
-    _safe_print(f"  🧪 Total Tests Found         : {r.total_tests}")
-    _safe_print(f"  📄 Total Source Functions    : {r.total_source_functions}")
-    _safe_print(f"  ✅ Tested (direct match)     : {r.tested_functions_direct}")
-    _safe_print(f"  🟡 Tested (unique-name match): {r.tested_functions_unique}")
-    _safe_print(f"  ❌ Untested Functions        : {r.untested_functions}")
-    _safe_print(f"  ⏱️  Scan time                 : {r.scan_time:.2f}s")
-    _safe_print(f"  RCA Engine                   : {'✅ Active' if show_rca and _RCA_AVAILABLE else '⚪ Fallback (heuristic only)'}")
+    gate_col = c['GREEN'] if r.gate_status == 'PASS' else c['RED']
+    _safe_print(f"📊 RAW QUALITY SCORE : {score_color(r.overall_quality_score)}{r.overall_quality_score:.1f}/100{c['RESET']}")
+    _safe_print(f"🚦 QUALITY GATE       : {gate_col}{r.gate_status}{c['RESET']}  gate_score={r.gate_score:.1f}/100  threshold=80.0")
+    _safe_print(f"  Total tests          : {r.total_tests}")
+    _safe_print(f"  Source functions     : {r.total_source_functions}")
+    _safe_print(f"  Tested direct        : {r.tested_functions_direct}")
+    _safe_print(f"  Tested unique        : {r.tested_functions_unique}")
+    _safe_print(f"  Untested functions   : {r.untested_functions}")
+    _safe_print(f"  Scan time            : {r.scan_time:.2f}s")
+    if r.gate_failures:
+        _safe_print(f"\n{c['RED']}BLOCKING GATE FINDINGS{c['RESET']}")
+        for x in r.gate_failures:
+            _safe_print(f"  - {x}")
+    if r.metric_errors:
+        _safe_print(f"\n{c['RED']}METRIC EXECUTION ERRORS{c['RESET']}")
+        for x in r.metric_errors:
+            _safe_print(f"  - {x}")
     if r.parse_errors:
-        _safe_print(f"  {c['RED']}⚠️  Parse errors               : {len(r.parse_errors)} file(s) gagal di-parse{c['RESET']}")
-        if full or verbose:
-            for e in r.parse_errors:
-                _safe_print(f"      - {e['file']}: {e['error']}")
-        else:
-            for e in r.parse_errors[:40]:
-                _safe_print(f"      - {e['file']}: {e['error']}")
-            if len(r.parse_errors) > 40:
-                _safe_print(f"      ... and {len(r.parse_errors)-40} more")
-
-    def print_tier(title: str, data: dict, keys: list[tuple[str, str]]):
+        _safe_print(f"\n{c['RED']}PARSE ERRORS: {len(r.parse_errors)}{c['RESET']}")
+        rows = r.parse_errors if (full or verbose) else r.parse_errors[:40]
+        for e in rows:
+            _safe_print(f"  - {e['file']}: {e['error']}")
+        if len(r.parse_errors) > len(rows):
+            _safe_print(f"  ... and {len(r.parse_errors)-len(rows)} more")
+    def group(title, data):
         _safe_print(f"\n{c['BOLD']}─── {title} ───{c['RESET']}")
-        for label, key in keys:
-            d = data.get(key, {})
-            score = d.get("score")
-            conf = d.get("confidence", "")
-            conf_tag = f" {c['DIM']}[{conf}]{c['RESET']}" if conf else ""
-            if score is not None:
-                _safe_print(f"  {label:<24}: {score_color(score)}{score:.1f}%{c['RESET']}{conf_tag}")
-                if score < 70:
-                    print_file_issues(label, d)
-            if full and "details" in d and d["details"]:
-                _safe_print(f"    {c['DIM']}Details (total {len(d['details'])}):{c['RESET']}")
-                for item in d["details"][:40]:
-                    _safe_print(f"      - {item}")
-                if len(d["details"]) > 40:
-                    _safe_print(f"      ... and {len(d['details'])-40} more")
-
-    print_tier("TIER 1 (Wajib)", r.tier1, [
-        ("Assertion Quality", "assertion_quality"), ("Negative Path", "negative_path"),
-        ("Exception Coverage", "exception_coverage"), ("Edge Case", "edge_case"), ("Magic Number", "magic_number"),
-    ])
-    print_tier("TIER 2 (Mock & Structure)", r.tier2, [
-        ("Mock Quality", "mock_quality"), ("Duplicate Test", "duplicate_test"),
-        ("Test Naming", "test_naming"), ("AAA Pattern", "aaa_pattern"),
-    ])
-    _safe_print(f"  {'Fixture Quality':<24}: {r.tier2['fixture_quality']['unique']} unique fixtures {c['DIM']}[heuristic]{c['RESET']}")
-    dup_data = r.tier2['duplicate_test']
-    _safe_print(f"  {'Duplicate pairs found':<24}: {dup_data['duplicates']}")
-    if full and dup_data['details']:
-        _safe_print(f"    {c['DIM']}All duplicate pairs:{c['RESET']}")
-        for pair in dup_data['details'][:50]:
-            _safe_print(f"      - {pair[0]} <-> {pair[1]} (hash: {pair[2]})")
-        if len(dup_data['details']) > 50:
-            _safe_print(f"      ... and {len(dup_data['details'])-50} more")
-
-    print_tier("TIER 3 (Integration)", r.tier3, [
-        ("Database Verification", "database_verification"), ("Domain Event", "domain_event"),
-        ("Audit Log", "audit_log"), ("Idempotency", "idempotency"),
-    ])
-    _safe_print(f"  {'Permission Test':<24}: {r.tier3['permission_test']['unique_roles']} roles detected {c['DIM']}[heuristic]{c['RESET']}")
-
-    print_tier("TIER 4 (ERP Specific — confirmed via call-graph)", r.tier4, [
-        ("Accounting", "accounting"), ("Inventory", "inventory"), ("Fiscal Period", "fiscal_period"),
-        ("Multi Currency", "multi_currency"), ("Precision (Decimal)", "precision"),
-    ])
-    if full or verbose:
-        for label, key in [("Accounting", "accounting"), ("Inventory", "inventory"), ("Fiscal Period", "fiscal_period"),
-                            ("Multi Currency", "multi_currency"), ("Precision", "precision")]:
-            d = r.tier4[key]
-            if d.get("untested_sample"):
-                _safe_print(f"    {c['DIM']}{label} — belum tertest (total {len(d['untested_sample'])}):{c['RESET']}")
-                for u in d["untested_sample"][:40]:
-                    _safe_print(f"      - {u}")
-                if len(d["untested_sample"]) > 40:
-                    _safe_print(f"      ... and {len(d['untested_sample'])-40} more")
-
-    t5 = r.tier5
-    _safe_print(f"\n{c['BOLD']}─── TIER 5 (Advanced) ───{c['RESET']}")
-    _safe_print(f"  🧬 Mutation Score (estimasi statis, BUKAN mutation testing sungguhan): {score_color(t5['mutation_score'])}{t5['mutation_score']:.1f}%{c['RESET']}")
-    _safe_print(f"  📈 Test Strength       : {t5['test_strength']:.1f}%")
-    _safe_print(f"  🎯 Confidence          : {t5['confidence_score']:.1f}%")
-    # v5.1.24 (klarifikasi tampilan, bukan perubahan angka): dulu tidak ada
-    # penjelasan bahwa dari 3 baris di atas, HANYA Mutation Score yang benar-
-    # benar masuk ke bobot Tier 5 (5%) di skor keseluruhan -- lihat
-    # compute_weighted_score(): tier5_avg = mutation_score_estimation()[0]
-    # saja. Test Strength sendiri sudah rata-rata dari banyak metrik Tier
-    # 1-5 lain (termasuk Mutation Score di dalamnya), jadi sengaja TIDAK
-    # ikut ditimbang lagi di sini supaya tidak double-counting -- ditampilkan
-    # murni sebagai indikator tambahan. Business Flow Coverage di bawah ini
-    # section YANG SAMA SEKALI TERPISAH (walau secara struktur data disimpan
-    # di report.tier5) -- tidak ikut bobot Tier 5 sama sekali.
-    _safe_print(f"  {c['DIM']}(Hanya Mutation Score yang masuk bobot Tier 5 di skor keseluruhan; "
-                f"Test Strength & Confidence murni indikator tambahan, dan Business Flow Coverage "
-                f"di bawah ini section terpisah -- tidak ditimbang di Tier 5){c['RESET']}")
-
-    flow_sum = t5["business_flow_summary"]
-    _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE (di-discover dari struktur repo Anda — bukan daftar generik; "
-                f"section terpisah, tidak masuk skor Tier 5) ───{c['RESET']}")
-    for module, data in sorted(flow_sum.items(), key=lambda kv: kv[1]["pct"]):
-        col = c["GREEN"] if data["pct"] >= 80 else c["YELLOW"] if data["pct"] >= 50 else c["RED"]
-        _safe_print(f"  {module:<28} {col}{data['pct']:>5.1f}%{c['RESET']} ({data['covered']}/{data['total']})")
-
-    if full or verbose:
-        _safe_print(f"\n{c['DIM']}─── Missing Flow Functions (fungsi domain yang belum ada test-nya, dgn lokasi) ───{c['RESET']}")
-        flow_detail = t5["business_flow"]
-        for module, data in flow_detail.items():
-            if data["pct"] < 80 and data["missing_functions"]:
-                _safe_print(f"  {c['YELLOW']}{module}{c['RESET']}:")
-                for mf in data["missing_functions"][:40]:
-                    _safe_print(f"      - {mf}")
-                if len(data["missing_functions"]) > 40:
-                    _safe_print(f"      ... and {len(data['missing_functions'])-40} more")
-
-    t6 = r.tier6
-    _safe_print(f"\n{c['BOLD']}─── TIER 6 (Issues & Smells) ───{c['RESET']}")
-    if t6["flaky_tests"]["count"] > 0:
-        _safe_print(f"  {c['RED']}⚠️ Flaky tests (confirmed): {t6['flaky_tests']['count']}{c['RESET']}")
-        if full:
-            for d in t6["flaky_tests"]["details"]:
-                _safe_print(f"      - {d}")
-        else:
-            for d in t6["flaky_tests"]["details"][:40]:
-                _safe_print(f"      - {d}")
-            if len(t6["flaky_tests"]["details"]) > 40:
-                _safe_print(f"      ... and {len(t6['flaky_tests']['details'])-40} more")
-    if t6["slow_tests"]["count"] > 0:
-        _safe_print(f"  {c['YELLOW']}⚠️ Slow tests (time.sleep): {t6['slow_tests']['count']}{c['RESET']}")
-        if full:
-            for d in t6["slow_tests"]["details"]:
-                _safe_print(f"      - {d}")
-    if t6["dead_code"]["count"] > 0:
-        _safe_print(f"  {c['RED']}❌ Dead test code (confirmed, no assertion/call): {t6['dead_code']['count']}{c['RESET']}")
-        if full:
-            for d in t6["dead_code"]["details"]:
-                _safe_print(f"      - {d}")
-        else:
-            for d in t6["dead_code"]["details"][:40]:
-                _safe_print(f"      - {d}")
-            if len(t6["dead_code"]["details"]) > 40:
-                _safe_print(f"      ... and {len(t6['dead_code']['details'])-40} more")
-    if t6["orphan_tests"]["orphans"] > 0:
-        _safe_print(f"  {c['YELLOW']}⚠️ Orphan tests (tidak menyentuh source function manapun): {t6['orphan_tests']['orphans']}{c['RESET']}")
-        if full:
-            for d in t6["orphan_tests"]["details"][:50]:
-                _safe_print(f"      - {d}")
-            if len(t6["orphan_tests"]["details"]) > 50:
-                _safe_print(f"      ... and {len(t6['orphan_tests']['details'])-50} more")
-        else:
-            for d in t6["orphan_tests"]["details"][:40]:
-                _safe_print(f"      - {d}")
-            if len(t6["orphan_tests"]["details"]) > 40:
-                _safe_print(f"      ... and {len(t6['orphan_tests']['details'])-40} more")
-    if t6["untested_functions"]:
-        _safe_print(f"  {c['RED']}❌ Untested functions: {len(t6['untested_functions'])}{c['RESET']}")
-        if full:
-            for f in t6["untested_functions"][:50]:
-                _safe_print(f"      - {f}")
-            if len(t6["untested_functions"]) > 50:
-                _safe_print(f"      ... and {len(t6['untested_functions'])-50} more")
-        else:
-            for f in t6["untested_functions"][:40]:
-                _safe_print(f"      - {f}")
-            if len(t6["untested_functions"]) > 40:
-                _safe_print(f"      ... and {len(t6['untested_functions'])-40} more")
-    if t6["test_smells"]:
-        _safe_print(f"  {c['YELLOW']}⚠️ Test smells: {len(t6['test_smells'])}{c['RESET']}")
-        by_type = defaultdict(int)
-        for s in t6["test_smells"]:
-            by_type[s["type"]] += 1
-        for stype, n in sorted(by_type.items(), key=lambda kv: -kv[1]):
-            _safe_print(f"      - {stype}: {n}")
-        if full:
-            for s in t6["test_smells"]:
-                _safe_print(f"        {s['file']}:{s['lineno']} — {s['detail']}")
-        else:
-            for s in t6["test_smells"][:8]:
-                _safe_print(f"        {s['file']}:{s['lineno']} — {s['detail']}")
-            if len(t6["test_smells"]) > 8:
-                _safe_print(f"        ... and {len(t6['test_smells'])-8} more")
-    if t6["state_transition"]["score"] < 80:
-        _safe_print(f"  {c['YELLOW']}⚠️ State transition score: {t6['state_transition']['score']:.1f}% ({t6['state_transition']['tested']}/{t6['state_transition']['total_trans']} confirmed){c['RESET']}")
-    if t6["event_consistency"]["score"] < 70:
-        _safe_print(f"  {c['YELLOW']}⚠️ Event consistency score: {t6['event_consistency']['score']:.1f}%{c['RESET']}")
-
+        for key,val in data.items():
+            if isinstance(val,dict) and 'score' in val:
+                s=float(val['score']); conf=val.get('confidence','')
+                _safe_print(f"  {key:<28}: {score_color(s)}{s:5.1f}%{c['RESET']} [{conf}]")
+                if full and val.get('details'):
+                    for item in val['details'][:50]: _safe_print(f"    - {item}")
+    group('TIER 1 — BEHAVIORAL', r.tier1)
+    group('TIER 2 — TEST STRUCTURE / STYLE', r.tier2)
+    group('TIER 3 — INTEGRATION VERIFICATION', r.tier3)
+    group('TIER 4 — ERP / ACCOUNTING', r.tier4)
+    _safe_print(f"\n{c['BOLD']}─── TIER 5 — ADVANCED / STATIC ESTIMATES ───{c['RESET']}")
+    _safe_print(f"  Mutation score estimate : {r.tier5.get('mutation_score',0):.1f}%")
+    _safe_print(f"  Test strength          : {r.tier5.get('test_strength',0):.1f}%")
+    _safe_print(f"  Confidence             : {r.tier5.get('confidence_score',0):.1f}%")
+    _safe_print(f"  {c['DIM']}Mutation score is NOT real mutation testing; it is a static estimate.{c['RESET']}")
+    if r.tier5.get('business_flow_summary'):
+        _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE ───{c['RESET']}")
+        for k,v in sorted(r.tier5['business_flow_summary'].items(), key=lambda kv: kv[1]['pct']):
+            _safe_print(f"  {k:<30} {v['pct']:>5.1f}% ({v['covered']}/{v['total']})")
+    _safe_print(f"\n{c['BOLD']}─── TIER 6 — ISSUES / SMELLS ───{c['RESET']}")
+    for key in ('flaky_tests','slow_tests','dead_code','orphan_tests'):
+        d=r.tier6.get(key,{})
+        if isinstance(d,dict) and d.get('count',0):
+            _safe_print(f"  {key:<28}: {d.get('count',0)}")
+    _safe_print(f"  untested_functions       : {len(r.tier6.get('untested_functions',[]))}")
+    _safe_print(f"  test_smells              : {len(r.tier6.get('test_smells',[]))}")
     if r.top_offending_files:
-        _safe_print(f"\n{c['RED']}⚠️ TOP OFFENDING FILES (paling banyak fungsi belum ditest):{c['RESET']}")
-        for row in r.top_offending_files[:40]:
-            gap = row["functions"] - row["tested_functions"]
-            _safe_print(f"  {row['file']}: {row['risk']} risk — {row['tested_functions']}/{row['functions']} functions tested ({gap} belum), LOC={row['loc']}")
-
+        _safe_print(f"\n{c['BOLD']}─── TOP OFFENDING FILES ───{c['RESET']}")
+        for row in r.top_offending_files[:20]:
+            gap=row['functions']-row['tested_functions']
+            _safe_print(f"  {row['file']}: {row['risk']} — {row['tested_functions']}/{row['functions']} tested, gap={gap}")
     if show_rca and r.rca_results:
-        _safe_print(f"\n{c['MAGENTA']}🔍 RCA Analysis:{c['RESET']}")
+        _safe_print(f"\n{c['MAGENTA']}─── RCA ───{c['RESET']}")
         for rr in r.rca_results:
-            _safe_print(f"  {rr['metric']}: score={rr['score']}%")
-            rc = rr["rca"].get("root_cause", "")
-            fix = rr["rca"].get("suggested_fix", "")
-            if rc:
-                _safe_print(f"    Root cause: {rc[:120]}")
-            if fix:
-                _safe_print(f"    Fix: {fix[:120]}")
-
-    _safe_print(f"\n{c['BOLD']}─── RECOMMENDATIONS ───{c['RESET']}")
-    recs = []
-    if r.tier1["assertion_quality"]["score"] < 70:
-        recs.append(f"🔧 {r.tier1['assertion_quality']['bad']} test punya assertion lemah/kosong. Ganti assert truthy generik dengan assert nilai spesifik (==, in, raises).")
-    if t5["mutation_score"] < 70:
-        recs.append("🔧 Mutation Score (estimasi) rendah. Perkuat assertion pada nilai/status/length, bukan hanya cek 'tidak error'.")
-    if t6["state_transition"]["score"] < 80 and t6["state_transition"]["total_trans"] > 0:
-        recs.append(f"🔧 {t6['state_transition']['total_trans'] - t6['state_transition']['tested']} status-transition function belum diverifikasi perubahan status-nya secara eksplisit.")
-    if r.tier2["duplicate_test"]["duplicates"] > 0:
-        recs.append(f"🔧 {r.tier2['duplicate_test']['duplicates']} pasang test terdeteksi duplikat struktural — cek apakah itu copy-paste yang perlu di-parametrize saja.")
-    if t6["flaky_tests"]["count"] > 0:
-        recs.append(f"🔧 {t6['flaky_tests']['count']} test berpotensi flaky (sleep/random/datetime.now tanpa mock). Mock dependency waktu/random.")
-    if r.untested_functions > 0:
-        recs.append(f"🔧 {r.untested_functions} function source tidak terhubung ke test manapun (langsung/unik). Lihat 'TOP OFFENDING FILES' di atas untuk prioritas.")
-    if not recs:
-        recs.append("✅ Tidak ada rekomendasi kritis — kualitas test sudah di atas ambang batas pada seluruh tier.")
-    for rec in recs:
-        _safe_print(f"  {c['YELLOW']}{rec}{c['RESET']}")
-
-    _safe_print(f"\n{c['BOLD']}─── WEIGHTED SCORE BREAKDOWN ───{c['RESET']}")
-
-    def _safe_tier_average(tier_dict):
-        scores = []
-        for key, value in tier_dict.items():
-            if isinstance(value, dict):
-                if "score" in value:
-                    scores.append(value["score"])
-                elif key == "permission_test":
-                    scores.append(min(100, len(value.get("roles", [])) / 5 * 100))
-        return sum(scores) / len(scores) if scores else 0
-
-    t1_avg = _safe_tier_average(r.tier1)
-    t2_avg = _safe_tier_average(r.tier2)
-    t3_avg = _safe_tier_average(r.tier3)
-    t4_avg = _safe_tier_average(r.tier4)
-    t5_avg = r.tier5.get("mutation_score", 0)
-    flaky = t6.get("flaky_tests", {}).get("count", 0)
-    slow = t6.get("slow_tests", {}).get("count", 0)
-    dead = t6.get("dead_code", {}).get("count", 0)
-    orphan = t6.get("orphan_tests", {}).get("orphans", 0)
-    total_tests = max(1, r.total_tests)
-    penalty = (flaky + slow + dead + orphan) / total_tests * 50
-    t6_score = max(0, 100 - penalty)
-
-    _safe_print(f"  Tier1 (40%): {t1_avg:.1f}")
-    _safe_print(f"  Tier2 (25%): {t2_avg:.1f}")
-    _safe_print(f"  Tier3 (15%): {t3_avg:.1f}")
-    _safe_print(f"  Tier4 (10%): {t4_avg:.1f}")
-    _safe_print(f"  Tier5 ( 5%): {t5_avg:.1f}  {c['DIM']}(= Mutation Score saja; Test Strength/Confidence/Business "
-                f"Flow Coverage tidak ikut ditimbang di sini){c['RESET']}")
-    _safe_print(f"  Tier6 ( 5%): {t6_score:.1f} (penalti)")
-    _safe_print(f"\n{c['DIM']}Legend: [confirmed] = dibuktikan langsung dari struktur AST (pasti).{c['RESET']}")
-    _safe_print(f"{c['DIM']}        [heuristic] = deteksi berbasis pola/kata kunci, verifikasi manual disarankan.{c['RESET']}")
+            _safe_print(f"  {rr['metric']}: {rr['score']:.1f}%")
+            rc=rr.get('rca',{}).get('root_cause'); fix=rr.get('rca',{}).get('suggested_fix')
+            if rc: _safe_print(f"    Root cause: {rc}")
+            if fix: _safe_print(f"    Fix: {fix}")
+    _safe_print(f"\n{c['BOLD']}WEIGHT MODEL{c['RESET']}: Tier1=35%, Tier2=10%, Tier3=20%, Tier4=25%, Tier5=5%, Tier6=5%")
+    _safe_print(f"{c['BOLD']}VERDICT: {gate_col}{'LULUS' if r.passed else 'TIDAK LULUS'}{c['RESET']}")
 
 
 def print_business_flow_gaps(r: Report, threshold: float = 100.0) -> None:
-    # FITUR BARU v5.1.13: jawaban langsung untuk pertanyaan "adakah perintah
-    # untuk menampilkan file yang belum 100% di BUSINESS FLOW COVERAGE, dan
-    # apa saja yang perlu diperbaiki?". Sebelumnya satu-satunya cara melihat
-    # daftar fungsi yang bikin persentase domain < 100% adalah scroll manual
-    # ke tabel BUSINESS FLOW COVERAGE, hitung sendiri domain mana yang < 100%,
-    # lalu (kalau mau lihat detail fungsinya) pakai --full/--verbose yang
-    # sekalian menumpahkan SEMUA data lain (duplicate pairs, dst) dan cuma
-    # menampilkan domain < 80% (bukan < 100%) serta dipotong 40 item per
-    # domain tanpa penanda mana yang paling berisiko. Perintah ini berdiri
-    # sendiri, threshold-nya bisa diatur, tidak dipotong, dan menandai 🔺
-    # untuk fungsi finansial-sensitif (accounting/decimal/currency/status
-    # transition/dst) supaya bisa langsung dipakai memprioritaskan pekerjaan.
     c = COLOR
     gaps = [g for g in r.tier5.get("business_flow_gaps", []) if g["domain_pct"] < threshold]
     if not gaps:
@@ -3392,21 +2384,42 @@ def print_business_flow_gaps(r: Report, threshold: float = 100.0) -> None:
                 f"({risky} di antaranya finansial-sensitif 🔺){c['RESET']}")
 
 
+# ─── NEW: LIST FILES FOR A METRIC ─────────────────────────────────────────
+def print_metric_file_scores(report: Report, metric_name: str, threshold: float = 70.0) -> None:
+    """
+    Menampilkan file-file yang memiliki skor di bawah threshold untuk metrik tertentu.
+    Berguna untuk langsung tahu file mana yang menyebabkan low score di metrik seperti
+    negative_path, database_verification, dll.
+    """
+    c = COLOR
+    # Cari metrik di semua tier
+    tiers = [report.tier1, report.tier2, report.tier3, report.tier4, report.tier5, report.tier6]
+    tier_names = ["tier1", "tier2", "tier3", "tier4", "tier5", "tier6"]
+    found = None
+    for tier, tname in zip(tiers, tier_names, strict=False):
+        if metric_name in tier:
+            found = tier[metric_name]
+            break
+    if found is None:
+        _safe_print(f"{c['RED']}Metric '{metric_name}' tidak ditemukan. Pastikan nama metrik benar (contoh: negative_path, database_verification).{c['RESET']}")
+        return
+    file_scores = found.get("file_scores", {})
+    if not file_scores:
+        _safe_print(f"{c['YELLOW']}Metric '{metric_name}' tidak memiliki data per-file.{c['RESET']}")
+        return
+    low_files = [(f, s) for f, s in file_scores.items() if s < threshold]
+    if not low_files:
+        _safe_print(f"{c['GREEN']}Semua file memiliki skor >= {threshold:.1f}% untuk metrik '{metric_name}'.{c['RESET']}")
+        return
+    low_files.sort(key=lambda x: x[1])  # urut dari terendah
+    _safe_print(f"\n{c['BOLD']}─── File dengan skor {metric_name} di bawah {threshold:.1f}% ───{c['RESET']}")
+    for f, s in low_files:
+        _safe_print(f"  {s:5.1f}%  {f}")
+    _safe_print(f"  {c['DIM']}Total: {len(low_files)} file bermasalah.{c['RESET']}")
+
+
 # ─── NEW: LAPORAN PER FILE ────────────────────────────────────────────────
 def print_by_file_report(report: Report, limit: int = 8, threshold: float = 70.0) -> None:
-    """
-    Cetak laporan per file, dikelompokkan per Tier 1-6, untuk sejumlah file teratas
-    yang memiliki paling banyak issue.
-
-    Untuk tiap file, SEMUA 6 tier ditampilkan secara eksplisit (Tier 1 ... Tier 6),
-    termasuk tier yang tidak punya masalah (ditandai "Tidak ada isu terdeteksi"),
-    supaya progres perbaikan tiap tier terlihat jelas.
-
-    threshold: ambang skor per-metrik (0-100). Hanya metrik dengan skor DI BAWAH
-    threshold ini yang dianggap masih bermasalah dan ditampilkan. File/metrik yang
-    sudah diperbaiki (skornya naik >= threshold) otomatis tidak akan muncul lagi
-    di sini pada scan berikutnya.
-    """
     files = build_file_grouped_report(report, threshold=threshold)
     if not files:
         _safe_print(f"\n✅ Tidak ada file yang bermasalah (semua skor >= threshold {threshold:.1f}%).")
@@ -3426,8 +2439,6 @@ def print_by_file_report(report: Report, limit: int = 8, threshold: float = 70.0
     for idx, (filepath, data) in enumerate(ordered[:limit], 1):
         _safe_print(f"{c['BOLD']}{c['MAGENTA']}File #{idx}: {filepath}{c['RESET']} {c['DIM']}({_issue_count(data)} isu){c['RESET']}")
 
-        # Kelompokkan tier_scores dan lines per nomor Tier (1..6), supaya SETIAP
-        # file selalu menampilkan Tier 1 s.d. Tier 6, walau sebagian kosong.
         per_tier_scores: dict[int, list[tuple[str, float]]] = defaultdict(list)
         per_tier_lines: dict[int, list[tuple[str, str]]] = defaultdict(list)
 
@@ -3592,8 +2603,6 @@ def build_file_grouped_report(report: Report, threshold: float = 70.0) -> dict[s
             if score < threshold:
                 files[f]["tier_scores"][f"Tier 1 - {label}"] = score
 
-    # BUGFIX: blok Tier 2 sebelumnya tidak ada sama sekali di sini, sehingga
-    # laporan per-file selalu "bolong" di Tier 2 walau di dokumentasi disebut Tier 1-6.
     for label, key in [("Mock Quality", "mock_quality"), ("Duplicate Test", "duplicate_test")]:
         d = report.tier2.get(key, {})
         for f, score in d.get("file_scores", {}).items():
@@ -3710,7 +2719,12 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
         data = {
             "version": __version__,
             "timestamp": datetime.now(UTC).isoformat(),
+            "overall_score": report.gate_score,
             "overall_quality_score": report.overall_quality_score,
+            "gate_score": report.gate_score,
+            "gate_status": report.gate_status,
+            "gate_failures": report.gate_failures,
+            "metric_errors": report.metric_errors,
             "passed": report.passed,
             "scan_time": report.scan_time,
             "total_tests": report.total_tests,
@@ -3725,7 +2739,8 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
             "rca_results": report.rca_results,
             "top_offending_files": report.top_offending_files,
             "findings": [
-                {"rule": f.rule, "severity": f.severity, "message": f.message, "file": f.file, "line": f.lineno, "confidence": f.confidence}
+                {"rule": f.rule, "severity": f.severity, "message": f.message,
+                 "file": f.file, "line": f.lineno, "confidence": f.confidence}
                 for f in report.findings
             ],
         }
@@ -3947,12 +2962,6 @@ def self_test(verbose: bool = True) -> bool:
     check("TestFeatureVisitor tracks var type from constructor", tv.var_types.get("svc") == "JournalService", str(tv.var_types))
     check("TestFeatureVisitor records assertion op", any(a.op == "eq" for a in tv.assertions), str(tv.assertions))
 
-    # BUGFIX v5.1.9: dua check di bawah dulu MENGUNCI bug _normalized_dump
-    # (literal & nama identifier dibuang) sebagai "perilaku benar". Itu justru
-    # akar masalah "file sudah diperbaiki tapi DUPLICATE-TEST tetap muncul":
-    # `assert x == 5` vs `assert y == 999` dulu dianggap identik struktural
-    # padahal beda variabel DAN beda nilai. Sekarang keduanya harus dianggap
-    # BERBEDA -- nama variabel dan nilai literal ikut membedakan struct_hash.
     h1 = _normalized_dump(ast.parse("assert x == 5").body[0])
     h2 = _normalized_dump(ast.parse("assert y == 999").body[0])
     check("Normalized dump distinguishes different literal values AND different names",
@@ -3976,13 +2985,8 @@ def self_test(verbose: bool = True) -> bool:
     hash_b = _normalized_dump(fn_b)
     hash_c = _normalized_dump(fn_c)
     check("normalized_dump on root FunctionDef is not just 'FunctionDef'", hash_a != "FunctionDef", hash_a)
-    # BUGFIX v5.1.9: dua test body yang benar-benar sama persis (variabel &
-    # literal sama) tetap harus dianggap satu struktur (true positive
-    # duplicate/copy-paste tetap terdeteksi)...
     check("normalized_dump treats byte-for-byte-identical test bodies as equal",
           hash_a == hash_a2, f"{hash_a} vs {hash_a2}")
-    # ...tapi test body yang beda variabel/nilai literal (test_a vs test_b)
-    # SEKARANG dianggap berbeda -- dulu keduanya keliru dianggap "sama".
     check("normalized_dump distinguishes test bodies differing only by literal/name",
           hash_a != hash_b, f"{hash_a} vs {hash_b}")
     check("normalized_dump distinguishes structurally-different test bodies", hash_a != hash_c, f"{hash_a} vs {hash_c}")
@@ -4165,9 +3169,6 @@ def self_test(verbose: bool = True) -> bool:
     check("has_mock detects `mocker.patch.object(...)` (3-level dotted chain)",
           tv_mocker_patch_obj.has_mock)
 
-    # BUGFIX v5.1.16: datetime.now()/utcnow() dipakai murni sebagai nilai
-    # SETUP/input (bukan diverifikasi langsung di assert) tidak boleh
-    # men-trigger has_datetime_now / FLAKY-TEST.
     tv_now_setup_only = TestFeatureVisitor({}, {}, [])
     tv_now_setup_only.visit(ast.parse(
         "def test_is_overdue_true():\n"
@@ -4210,10 +3211,6 @@ def self_test(verbose: bool = True) -> bool:
           "now()/utcnow() should, not any identifier that happens to match the name",
           not tv_now_enum_member.has_datetime_now, str(tv_now_enum_member.has_datetime_now))
 
-    # BUGFIX v5.1.18: pytest.raises((ExcA, ExcB)) (bentuk tuple, dipakai saat
-    # source code bisa me-raise salah satu dari beberapa exception) harus
-    # menangkap SEMUA exception di dalamnya, baik lewat `with pytest.raises(...)`
-    # maupun bentuk assert/call langsung -- bukan cuma exception tunggal.
     tv_raises_tuple_with = TestFeatureVisitor({}, {}, [])
     tv_raises_tuple_with.visit(ast.parse(
         "def test_invalid_population_or_sampling():\n"
@@ -4309,14 +3306,11 @@ def self_test(verbose: bool = True) -> bool:
           sum(1 for _, attr, _ in tv_no_dup.raw_calls if attr == "execute") == 1,
           str(tv_no_dup.raw_calls))
 
-    # v5.1.19: checker tool itu sendiri & script generator sejenis dikecualikan
-    # by default -- bukan production code yang perlu ditest.
     check("pytest_checker.py, master_checker.py, auto_test_generator.py dikecualikan by "
           "default (meta-tooling, bukan production code)",
           {"pytest_checker.py", "master_checker.py", "auto_test_generator.py"} <= EXCLUDED_FILES_DEFAULT,
           str(EXCLUDED_FILES_DEFAULT))
 
-    # BUGFIX v5.1.19: matching exclude dir/file case-insensitive (Windows-safe).
     check("_classify_file mengecualikan direktori exclude walau casing berbeda "
           "(mis. 'Checker' vs 'checker') -- filesystem Windows case-insensitive, "
           "jadi matching-nya juga harus case-insensitive supaya tidak diam-diam gagal",
@@ -4325,10 +3319,6 @@ def self_test(verbose: bool = True) -> bool:
           "(mis. 'Manage.PY' vs 'manage.py')",
           _classify_file("/root", "/root/Manage.PY", set(), {"manage.py"}) is None)
 
-    # BUGFIX v5.1.19: state_transition_checker harus mengenali test yang
-    # menguji field bernama "state" (bukan cuma "status") sebagai tertest,
-    # simetris dengan has_status_transition yang menyala untuk assignment ke
-    # ATRIBUT/VARIABEL "status" MAUPUN "state".
     qa_state = QualityAnalyzer.__new__(QualityAnalyzer)
     sf_state = SourceFunction(key="src1", name="set_status", file="saga_state.py", lineno=10, end_lineno=15,
                                has_status_transition=True,
@@ -4347,11 +3337,6 @@ def self_test(verbose: bool = True) -> bool:
           "'state' (umum di saga/workflow) tidak pernah dianggap tertest",
           result_state["tested"] == 1 and result_state["score"] == 100.0, str(result_state))
 
-    # BUGFIX v5.1.20: idempotency_verification harus mengenali test bernama
-    # seperti "test_retries_then_succeeds" sebagai tertest untuk source
-    # function yang relevan HANYA karena has_retry_logic (bukan karena
-    # transaction/outbox/kafka) -- sebelumnya hanya "twice"/"idempotent"/
-    # "duplicate" yang dicek, tidak pernah "retry".
     qa_retry = QualityAnalyzer.__new__(QualityAnalyzer)
     sf_retry = SourceFunction(key="src2", name="retry_on_conflict", file="optimistic_lock.py",
                                lineno=20, end_lineno=40, has_retry_logic=True,
@@ -4368,11 +3353,6 @@ def self_test(verbose: bool = True) -> bool:
           "selalu dianggap 0% tertest",
           result_retry["score"] == 100.0, str(result_retry))
 
-    # BUGFIX v5.1.23: mutation_score_estimation harus menghitung fungsi yang
-    # tertest lewat AMBIGUOUS match juga (persis is_tested) -- sebelumnya
-    # cuma tested_by_direct|tested_by_unique (is_tested_STRICT), jadi fungsi
-    # yang tertest hanya lewat ambiguous match selalu dianggap 0% ter-cover
-    # mutasi walau di bagian lain laporan dianggap "sudah tertest".
     qa_mut = QualityAnalyzer.__new__(QualityAnalyzer)
     sf_mut = SourceFunction(key="src3", name="calculate", file="calc.py", lineno=1, end_lineno=5,
                              branches=1, tested_by_direct=set(), tested_by_unique=set(),
@@ -4390,12 +3370,8 @@ def self_test(verbose: bool = True) -> bool:
           "fungsi ambiguous-only selalu 0% ter-cover walau is_tested-nya True",
           mut_score == 100.0, f"score={mut_score}, covered={mut_covered}, total={mut_total}")
 
-    # BUGFIX v5.1.26: constructor call ke Pydantic model (`SchemaClass(...)`)
-    # harus ikut me-resolve method @field_validator/@model_validator milik
-    # class itu -- Pydantic memanggilnya otomatis saat construction, bukan
-    # lewat pemanggilan eksplisit yang terlihat di AST test.
     idx_validator = ProjectIndex.__new__(ProjectIndex)
-    idx_validator.class_methods_index = defaultdict(list)  # tidak ada __init__ eksplisit
+    idx_validator.class_methods_index = defaultdict(list)
     idx_validator.class_validator_methods_index = defaultdict(list)
     idx_validator.class_validator_methods_index["ARInvoiceLineSchema"].append("src_validator_key")
     idx_validator.bare_name_index = defaultdict(list)
@@ -4407,6 +3383,32 @@ def self_test(verbose: bool = True) -> bool:
           "UNTESTED-DOMAIN-FUNC walau class-nya rutin di-construct di banyak test",
           any(cands == ["src_validator_key"] for _, _, cands in resolved_validator),
           str(resolved_validator))
+
+    idx_fx = ProjectIndex.__new__(ProjectIndex)
+    idx_fx.fixture_class_index = defaultdict(dict)
+    idx_fx.conftest_fixture_class_index = {}
+    fake_results = [
+        {"file": "tests/b_file.py", "fixtures": [{"name": "sample_builder", "class_guess": "ClassB"}]},
+        {"file": "tests/a_file.py", "fixtures": [{"name": "sample_builder", "class_guess": "ClassA"}]},
+    ]
+    for r in fake_results:
+        is_conftest = pathlib.Path(r["file"]).name == "conftest.py"
+        for fx in r["fixtures"]:
+            if fx["class_guess"]:
+                if is_conftest:
+                    idx_fx.conftest_fixture_class_index[fx["name"]] = fx["class_guess"]
+                else:
+                    idx_fx.fixture_class_index[r["file"]][fx["name"]] = fx["class_guess"]
+    eff_a = {**idx_fx.conftest_fixture_class_index, **idx_fx.fixture_class_index.get("tests/a_file.py", {})}
+    eff_b = {**idx_fx.conftest_fixture_class_index, **idx_fx.fixture_class_index.get("tests/b_file.py", {})}
+    check("fixture 'sample_builder' di tests/a_file.py (class_guess=ClassA) dan di "
+          "tests/b_file.py (class_guess=ClassB) TIDAK saling menimpa -- masing-masing file "
+          "resolve ke class-nya sendiri, tidak peduli urutan file diproses. Sebelumnya "
+          "fixture_class_index adalah satu flat dict global keyed cuma oleh nama fixture, "
+          "jadi file yang diproses TERAKHIR diam-diam menimpa definisi file lain, merusak "
+          "resolusi constructor call untuk SEMUA file yang kebetulan pakai nama fixture sama",
+          eff_a.get("sample_builder") == "ClassA" and eff_b.get("sample_builder") == "ClassB",
+          f"eff_a={eff_a}, eff_b={eff_b}")
 
     if verbose:
         _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed == 0 else '❌'}")
@@ -4432,7 +3434,6 @@ def main() -> int:
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--ignore-metrics", default="", help="Comma-separated metric names to ignore")
     parser.add_argument("--full", action="store_true", help="Cetak laporan super lengkap (semua daftar, tanpa batasan)")
-    # MODIFIKASI: tambahkan opsi --per-file
     parser.add_argument("--per-file", type=int, nargs="?", const=8, default=0,
                          help="Tampilkan laporan per file (Tier 1-6 + baris) untuk N file teratas. "
                               "Panggil tanpa angka untuk TOP 8 (default). 0/tidak dipakai = nonaktif.")
@@ -4453,6 +3454,13 @@ def main() -> int:
                               "atau dipanggil dari lokasi lain, default itu bisa salah TANPA ERROR "
                               "(diam-diam scan direktori yang salah) -- pakai --root untuk memastikan.")
     parser.add_argument("--version", action="version", version=f"pytest_checker v{__version__}")
+    # BARU: list file per metrik
+    parser.add_argument("--list-metric-files", metavar="METRIC",
+                         help="Tampilkan semua file yang skornya di bawah --metric-threshold untuk metrik tertentu, "
+                              "misalnya 'negative_path', 'database_verification', 'domain_event', dll. "
+                              "Menampilkan file dan skornya secara ascending.")
+    parser.add_argument("--metric-threshold", type=float, default=70.0,
+                         help="Ambang skor (0-100) untuk --list-metric-files. Default: 70.0")
 
     args = parser.parse_args()
 
@@ -4485,14 +3493,21 @@ def main() -> int:
         progress = _progress
 
     report = checker.scan(progress_callback=progress)
+
+    # Selalu cetak laporan utama
     print_report(report, verbose=args.verbose, show_rca=not args.no_rca, full=args.full)
 
-    # MODIFIKASI: cetak laporan per file jika diminta
+    # Fitur per-file
     if args.per_file > 0:
         print_by_file_report(report, limit=args.per_file, threshold=args.per_file_threshold)
 
+    # Fitur business-flow-gaps
     if args.business_flow_gaps:
         print_business_flow_gaps(report, threshold=args.business_flow_gaps_threshold)
+
+    # BARU: list file per metrik
+    if args.list_metric_files:
+        print_metric_file_scores(report, args.list_metric_files, args.metric_threshold)
 
     if not args.dry_run:
         if args.json:

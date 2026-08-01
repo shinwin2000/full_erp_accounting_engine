@@ -96,26 +96,26 @@ class TestWebhookProcessingStatus:
 
 class TestWebhookPayload:
     def test_construction_success(self):
-        kwargs = dict(
-            event_type="faktur_status",
-            event_id="test-event-id",
-            timestamp=datetime.now(UTC),
-            data={"status": "approved"},
-            signature="test-signature",
-            source="coretax",
-        )
+        kwargs = {
+            "event_type": "faktur_status",
+            "event_id": "test-event-id",
+            "timestamp": datetime.now(UTC),
+            "data": {"status": "approved"},
+            "signature": "test-signature",
+            "source": "coretax",
+        }
         instance = WebhookPayload(**kwargs)
         assert isinstance(instance, WebhookPayload)
         assert instance.event_type == kwargs['event_type']
         assert instance.event_id == kwargs['event_id']
 
     def test_construction_optional_fields(self):
-        kwargs = dict(
-            event_type="spt_status",
-            event_id="test-id",
-            timestamp=datetime.now(UTC),
-            data={},
-        )
+        kwargs = {
+            "event_type": "spt_status",
+            "event_id": "test-id",
+            "timestamp": datetime.now(UTC),
+            "data": {},
+        }
         instance = WebhookPayload(**kwargs)
         assert instance.signature is None
         assert instance.source is None
@@ -123,14 +123,14 @@ class TestWebhookPayload:
 
 class TestWebhookResponse:
     def test_construction_success(self):
-        kwargs = dict(
-            status="success",
-            webhook_id="test-webhook-id",
-            event_id="test-event-id",
-            processed_at=datetime.now(UTC),
-            result={"message": "ok"},
-            error=None,
-        )
+        kwargs = {
+            "status": "success",
+            "webhook_id": "test-webhook-id",
+            "event_id": "test-event-id",
+            "processed_at": datetime.now(UTC),
+            "result": {"message": "ok"},
+            "error": None,
+        }
         instance = WebhookResponse(**kwargs)
         assert isinstance(instance, WebhookResponse)
         assert instance.status == kwargs['status']
@@ -138,20 +138,20 @@ class TestWebhookResponse:
 
 class TestWebhookLog:
     def test_construction_success(self):
-        kwargs = dict(
-            webhook_id="test-webhook-id",
-            event_id="test-event-id",
-            event_type="faktur_status",
-            status=WebhookProcessingStatus.RECEIVED,
-            received_at=datetime.now(UTC),
-            processed_at=datetime.now(UTC),
-            payload={"key": "value"},
-            response={"result": "ok"},
-            error=None,
-            retry_count=0,
-            source_ip="127.0.0.1",
-            signature_valid=True,
-        )
+        kwargs = {
+            "webhook_id": "test-webhook-id",
+            "event_id": "test-event-id",
+            "event_type": "faktur_status",
+            "status": WebhookProcessingStatus.RECEIVED,
+            "received_at": datetime.now(UTC),
+            "processed_at": datetime.now(UTC),
+            "payload": {"key": "value"},
+            "response": {"result": "ok"},
+            "error": None,
+            "retry_count": 0,
+            "source_ip": "127.0.0.1",
+            "signature_valid": True,
+        }
         instance = WebhookLog(**kwargs)
         assert isinstance(instance, WebhookLog)
         assert instance.webhook_id == kwargs['webhook_id']

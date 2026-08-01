@@ -37,7 +37,7 @@ class TestJaegerExporterConfig:
         """Smoke test for JaegerExporterConfig.get_agent_config using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_agent_config()
+            instance.get_agent_config()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_agent_config needs specific domain fixtures/data: {e}")
             return
@@ -48,7 +48,7 @@ class TestJaegerExporterConfig:
         """Smoke test for JaegerExporterConfig.get_collector_config using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_collector_config()
+            instance.get_collector_config()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_collector_config needs specific domain fixtures/data: {e}")
             return
@@ -59,7 +59,7 @@ class TestJaegerExporterConfig:
         """Smoke test for JaegerExporterConfig.is_agent_mode using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_agent_mode()
+            instance.is_agent_mode()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_agent_mode needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestJaegerExporterConfig:
         """Smoke test for JaegerExporterConfig.get_service_name using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_service_name()
+            instance.get_service_name()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_service_name needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestJaegerExporterFactory:
         """Smoke test for JaegerExporterFactory.create_exporter using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_exporter()
+            instance.create_exporter()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_exporter needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestJaegerExporterFactory:
 def test_get_jaeger_exporter_factory_smoke():
     """Smoke test for module-level function get_jaeger_exporter_factory."""
     try:
-        result = get_jaeger_exporter_factory()
+        get_jaeger_exporter_factory()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_jaeger_exporter_factory needs specific input data: {e}")
         return
@@ -118,7 +118,7 @@ def test_get_jaeger_exporter_factory_smoke():
 def test_create_jaeger_exporter_smoke():
     """Smoke test for module-level function create_jaeger_exporter."""
     try:
-        result = create_jaeger_exporter()
+        create_jaeger_exporter()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_jaeger_exporter needs specific input data: {e}")
         return

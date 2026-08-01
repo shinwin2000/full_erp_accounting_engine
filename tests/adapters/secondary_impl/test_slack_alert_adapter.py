@@ -31,7 +31,7 @@ class TestSlackAlertAdapter:
         """Smoke test for SlackAlertAdapter.send_message using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_message(channel="test_value", message="test_value", blocks=[{}])
+            await instance.send_message(channel="test_value", message="test_value", blocks=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_message needs specific domain fixtures/data: {e}")
             return

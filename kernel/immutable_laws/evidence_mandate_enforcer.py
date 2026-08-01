@@ -119,13 +119,13 @@ class _FallbackEvidenceRepository:
         legal_entity_id: UUID,
         detached_by: str,
     ) -> bool:
-        if journal_id in self._journal_links:
-            if evidence_id in self._journal_links[journal_id]:
-                self._journal_links[journal_id].remove(evidence_id)
-                logger.info(
-                    f"Evidence {evidence_id} detached from journal {journal_id} by {detached_by}"
-                )
-                return True
+        # Gabungkan nested if menjadi satu (SIM102)
+        if journal_id in self._journal_links and evidence_id in self._journal_links[journal_id]:
+            self._journal_links[journal_id].remove(evidence_id)
+            logger.info(
+                f"Evidence {evidence_id} detached from journal {journal_id} by {detached_by}"
+            )
+            return True
         return False
 
     async def add_evidence(
@@ -881,9 +881,14 @@ class EvidenceMandateEnforcer(BaseEvidenceMandateEnforcer):
             return True, None
 
         effective_mandatory = requirement.is_mandatory
-        if not effective_mandatory and requirement.amount_threshold and amount:
-            if amount >= requirement.amount_threshold:
-                effective_mandatory = True
+        # Gabungkan nested if menjadi satu (SIM102)
+        if (
+            not effective_mandatory
+            and requirement.amount_threshold
+            and amount
+            and amount >= requirement.amount_threshold
+        ):
+            effective_mandatory = True
 
         if not effective_mandatory:
             return True, None

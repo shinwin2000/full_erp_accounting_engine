@@ -529,9 +529,9 @@ class TestWhistleblowerCaseTracker:
     def test_generate_summary(self, tracker):
         # Add cases with different characteristics
         reporter = uuid4()
-        c1 = tracker.report_case("Case1", WhistleblowerCategory.FRAUD, reporter)
+        tracker.report_case("Case1", WhistleblowerCategory.FRAUD, reporter)
         c2 = tracker.report_case("Case2", WhistleblowerCategory.FRAUD, None)  # anonymous
-        c3 = tracker.report_case("Case3", WhistleblowerCategory.CORRUPTION, reporter)
+        tracker.report_case("Case3", WhistleblowerCategory.CORRUPTION, reporter)
         c4 = tracker.report_case("Case4", WhistleblowerCategory.HARASSMENT, reporter)
         tracker.update_case_status(c4, WhistleblowerCaseStatus.UNDER_INVESTIGATION, uuid4(), "Start")
         c5 = tracker.report_case("Case5", WhistleblowerCategory.CORRUPTION, reporter)

@@ -31,7 +31,7 @@ class TestAuthorityMatrix:
         """Smoke test for AuthorityMatrix.has_permission using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.has_permission(role_name="test_value", permission="test_value")
+            instance.has_permission(role_name="test_value", permission="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"has_permission needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestAuthorityMatrix:
         """Smoke test for AuthorityMatrix.get_permissions_for_role using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_permissions_for_role(role_name="test_value")
+            instance.get_permissions_for_role(role_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_permissions_for_role needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestAuthorityMatrix:
         """Smoke test for AuthorityMatrix.add_permission_to_role using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_permission_to_role(role_name="test_value", permission="test_value")
+            instance.add_permission_to_role(role_name="test_value", permission="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_permission_to_role needs specific domain fixtures/data: {e}")
             return

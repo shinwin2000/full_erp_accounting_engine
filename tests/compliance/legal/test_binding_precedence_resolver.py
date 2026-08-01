@@ -68,7 +68,7 @@ class TestPrecedenceResolution:
         """Smoke test for PrecedenceResolution.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -95,7 +95,7 @@ class TestBindingPrecedenceResolver:
         """Smoke test for BindingPrecedenceResolver.set_rule_order using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_rule_order(rules=[PrecedenceRule.HIERARCHY])
+            instance.set_rule_order(rules=[PrecedenceRule.HIERARCHY])
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_rule_order needs specific domain fixtures/data: {e}")
             return
@@ -106,7 +106,7 @@ class TestBindingPrecedenceResolver:
         """Smoke test for BindingPrecedenceResolver.resolve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.resolve(source_a=MagicMock(), source_b=MagicMock(), resolver_id="test_value")
+            instance.resolve(source_a=MagicMock(), source_b=MagicMock(), resolver_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve needs specific domain fixtures/data: {e}")
             return
@@ -117,7 +117,7 @@ class TestBindingPrecedenceResolver:
         """Smoke test for BindingPrecedenceResolver.resolve_conflict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.resolve_conflict(sources=[MagicMock()], resolver_id="test_value")
+            instance.resolve_conflict(sources=[MagicMock()], resolver_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve_conflict needs specific domain fixtures/data: {e}")
             return
@@ -128,7 +128,7 @@ class TestBindingPrecedenceResolver:
         """Smoke test for BindingPrecedenceResolver.get_resolution_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_resolution_history(limit=1)
+            instance.get_resolution_history(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_resolution_history needs specific domain fixtures/data: {e}")
             return

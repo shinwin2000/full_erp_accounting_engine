@@ -241,7 +241,7 @@ class TestCircuitBreaker:
     def test_allow_request_half_open(self):
         cb = CircuitBreaker("test", failure_threshold=1, recovery_timeout=0.1)
         cb.record_failure()
-        with patch.object(cb, '_update_state') as mock_update:
+        with patch.object(cb, '_update_state'):
             cb._state = CircuitState.HALF_OPEN
             cb._half_open_calls = 0
             assert cb.allow_request() is True

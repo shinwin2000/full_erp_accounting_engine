@@ -27,8 +27,8 @@ class TestEventStatusTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = EventStatusTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -56,7 +56,7 @@ class TestSQLAlchemyEventStatusAdapter:
         """Smoke test for SQLAlchemyEventStatusAdapter.get_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_status(event_id="test_value")
+            await instance.get_status(event_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_status needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyEventStatusAdapter:
         """Smoke test for SQLAlchemyEventStatusAdapter.set_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set_status(event_id="test_value", status="test_value", message="test_value")
+            await instance.set_status(event_id="test_value", status="test_value", message="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_status needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestSQLAlchemyEventStatusAdapter:
         """Smoke test for SQLAlchemyEventStatusAdapter.delete_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_status(event_id="test_value")
+            await instance.delete_status(event_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_status needs specific domain fixtures/data: {e}")
             return

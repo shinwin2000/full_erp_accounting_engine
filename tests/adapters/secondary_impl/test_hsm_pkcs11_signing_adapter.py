@@ -31,7 +31,7 @@ class TestHSMSigner:
         """Smoke test for HSMSigner.sign using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.sign(data=b"test")
+            instance.sign(data=b"test")
         except (Exception, SystemExit) as e:
             pytest.skip(f"sign needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestHSMSigner:
         """Smoke test for HSMSigner.get_certificate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_certificate()
+            instance.get_certificate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_certificate needs specific domain fixtures/data: {e}")
             return

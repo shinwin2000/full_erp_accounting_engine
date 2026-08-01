@@ -23,8 +23,8 @@ class TestARDebitNoteTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ARDebitNoteTable(**kwargs)
         except (Exception, SystemExit) as e:

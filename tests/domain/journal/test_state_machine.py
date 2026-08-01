@@ -18,17 +18,17 @@ class TestStateTransitionRule:
     """Tests for the StateTransitionRule value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            from_status=MagicMock(),
-            to_status=MagicMock(),
-            requires_approval=True,
-            requires_dual_control=True,
-            required_role="test_value",
-            check_balance=True,
-            check_period_open=True,
-            requires_reason=True,
-            allowed_user_roles=["test_value"],
-        )
+        return {
+            "from_status": MagicMock(),
+            "to_status": MagicMock(),
+            "requires_approval": True,
+            "requires_dual_control": True,
+            "required_role": "test_value",
+            "check_balance": True,
+            "check_period_open": True,
+            "requires_reason": True,
+            "allowed_user_roles": ["test_value"],
+        }
 
     def test_construction_success(self):
         """StateTransitionRule can be constructed with valid field values."""
@@ -60,8 +60,8 @@ class TestJournalStateMachine:
     def test_can_transition_smoke(self):
         """Smoke test for JournalStateMachine.can_transition using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = JournalStateMachine.can_transition(from_status=MagicMock(), to_status=MagicMock())
+            self._build_instance()
+            JournalStateMachine.can_transition(from_status=MagicMock(), to_status=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"can_transition needs specific domain fixtures/data: {e}")
             return
@@ -71,8 +71,8 @@ class TestJournalStateMachine:
     def test_get_allowed_transitions_smoke(self):
         """Smoke test for JournalStateMachine.get_allowed_transitions using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = JournalStateMachine.get_allowed_transitions(current_status=MagicMock())
+            self._build_instance()
+            JournalStateMachine.get_allowed_transitions(current_status=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_allowed_transitions needs specific domain fixtures/data: {e}")
             return
@@ -82,8 +82,8 @@ class TestJournalStateMachine:
     def test_get_transition_rule_smoke(self):
         """Smoke test for JournalStateMachine.get_transition_rule using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = JournalStateMachine.get_transition_rule(from_status=MagicMock(), to_status=MagicMock())
+            self._build_instance()
+            JournalStateMachine.get_transition_rule(from_status=MagicMock(), to_status=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_transition_rule needs specific domain fixtures/data: {e}")
             return
@@ -93,8 +93,8 @@ class TestJournalStateMachine:
     def test_validate_transition_smoke(self):
         """Smoke test for JournalStateMachine.validate_transition using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = JournalStateMachine.validate_transition(from_status=MagicMock(), to_status=MagicMock(), user_role="test_value", is_balanced=True, period_is_open=True, amount=Decimal("100.00"), reason="test_value")
+            self._build_instance()
+            JournalStateMachine.validate_transition(from_status=MagicMock(), to_status=MagicMock(), user_role="test_value", is_balanced=True, period_is_open=True, amount=Decimal("100.00"), reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_transition needs specific domain fixtures/data: {e}")
             return

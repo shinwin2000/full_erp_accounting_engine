@@ -92,31 +92,31 @@ class TestSystemSetting:
     """Tests for the SystemSetting value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            key="test_value",
-            value=MagicMock(),
-            value_type=SettingValueType.STRING,
-            scope=SettingScope.GLOBAL,
-            legal_entity_id=uuid4(),
-            category=SettingCategory.GENERAL,
-            description="test_value",
-            is_editable=True,
-            is_visible=True,
-            sensitivity=SettingSensitivity.PUBLIC,
-            default_value=MagicMock(),
-            validation_regex="test_value",
-            min_value=1,
-            max_value=1,
-            allowed_values=[MagicMock()],
-            depends_on=["test_value"],
-            version=1,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            deleted_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'key': "test_value",
+            'value': MagicMock(),
+            'value_type': SettingValueType.STRING,
+            'scope': SettingScope.GLOBAL,
+            'legal_entity_id': uuid4(),
+            'category': SettingCategory.GENERAL,
+            'description': "test_value",
+            'is_editable': True,
+            'is_visible': True,
+            'sensitivity': SettingSensitivity.PUBLIC,
+            'default_value': MagicMock(),
+            'validation_regex': "test_value",
+            'min_value': 1,
+            'max_value': 1,
+            'allowed_values': [MagicMock()],
+            'depends_on': ["test_value"],
+            'version': 1,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'deleted_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """SystemSetting can be constructed with valid field values."""
@@ -149,7 +149,7 @@ class TestSystemSettingRepositoryPort:
         """Smoke test for SystemSettingRepositoryPort.register_validation_hook using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_validation_hook(key="test_value", hook=(lambda *a, **kw: None))
+            instance.register_validation_hook(key="test_value", hook=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_validation_hook needs specific domain fixtures/data: {e}")
             return
@@ -160,7 +160,7 @@ class TestSystemSettingRepositoryPort:
         """Smoke test for SystemSettingRepositoryPort.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(setting=MagicMock())
+            await instance.add(setting=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -171,7 +171,7 @@ class TestSystemSettingRepositoryPort:
         """Smoke test for SystemSettingRepositoryPort.get_by_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_key(key="test_value", legal_entity_id=uuid4())
+            await instance.get_by_key(key="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_key needs specific domain fixtures/data: {e}")
             return
@@ -182,7 +182,7 @@ class TestSystemSettingRepositoryPort:
         """Smoke test for SystemSettingRepositoryPort.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(setting_id=uuid4())
+            await instance.get_by_id(setting_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return

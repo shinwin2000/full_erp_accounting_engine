@@ -23,8 +23,6 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
 from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTError
 
@@ -123,24 +121,21 @@ class JWTValidator:
         try:
             return load_yaml_config(config_path)
         except Exception as e:
-            logger.warning("Security config load failed: %s", type(e).__name__)
+            logger.warning(f"Security config load failed: {type(e).__name__}")
             return {}
 
     def _load_public_key(self):
-        """Load RSA public key from file."""
+        """Load RSA public key (raw PEM bytes) from file."""
         key_path = self.config.get("jwt", {}).get("public_key_path", "/secrets/jwt_public.pem")
 
         try:
             with open(key_path, "rb") as f:
                 key_data = f.read()
-
-            public_key = serialization.load_pem_public_key(key_data, backend=default_backend())
             logger.info("Verification material loaded")
-            return public_key
-        except Exception as e:
-            logger.error("Failed to load verification material: %s", type(e).__name__)
-            # In production, this should not happen
-            raise JWTValidatorError("Public key not found") from e
+            return key_data
+        except Exception:
+            logger.warning("Verification material unavailable")
+            return None
 
     async def _get_revocation_list(self) -> JWTRevocationList:
         if self._revocation_list is None:
@@ -265,7 +260,7 @@ class JWTValidator:
             raise
 
         except Exception as e:
-            logger.error("Unexpected validation error: %s", type(e).__name__)
+            logger.error(f"Unexpected validation error: {type(e).__name__}")
             raise JWTValidatorError("Validation failed") from e
 
     async def extract_payload(self, token: str, verify: bool = True) -> dict[str, Any]:
@@ -279,7 +274,7 @@ class JWTValidator:
                 payload = jwt.get_unverified_claims(token)
                 return payload
         except Exception as e:
-            logger.error("Failed to extract payload: %s", type(e).__name__)
+            logger.error(f"Failed to extract payload: {type(e).__name__}")
             raise InvalidTokenError("Failed to extract payload") from e
 
     async def get_token_expiry(self, token: str) -> datetime | None:

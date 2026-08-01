@@ -47,16 +47,16 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.SETTING_CHANGED,
-            aggregate_id=uuid4(),
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.SETTING_CHANGED,
+            'aggregate_id': uuid4(),
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -74,8 +74,8 @@ class TestSettingChangedEvent:
     """Tests for the SettingChangedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingChangedEvent can be constructed with valid field values."""
@@ -92,8 +92,8 @@ class TestSettingResetEvent:
     """Tests for the SettingResetEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingResetEvent can be constructed with valid field values."""
@@ -110,8 +110,8 @@ class TestSettingAddedEvent:
     """Tests for the SettingAddedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingAddedEvent can be constructed with valid field values."""
@@ -128,8 +128,8 @@ class TestSettingRemovedEvent:
     """Tests for the SettingRemovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingRemovedEvent can be constructed with valid field values."""
@@ -146,8 +146,8 @@ class TestSettingsLockedEvent:
     """Tests for the SettingsLockedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingsLockedEvent can be constructed with valid field values."""
@@ -164,8 +164,8 @@ class TestSettingsUnlockedEvent:
     """Tests for the SettingsUnlockedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingsUnlockedEvent can be constructed with valid field values."""
@@ -182,8 +182,8 @@ class TestSettingsBulkUpdatedEvent:
     """Tests for the SettingsBulkUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SettingsBulkUpdatedEvent can be constructed with valid field values."""
@@ -215,7 +215,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock())
+            await instance.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -226,7 +226,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_many(events=[MagicMock()])
+            await instance.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return

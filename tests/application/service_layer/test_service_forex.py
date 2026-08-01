@@ -29,20 +29,20 @@ class TestForexRevaluationResult:
     """Tests for the ForexRevaluationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            account_code="test_value",
-            currency="test_value",
-            balance_fcy=Decimal("100.00"),
-            old_rate=Decimal("100.00"),
-            new_rate=Decimal("100.00"),
-            old_idr=Decimal("100.00"),
-            new_idr=Decimal("100.00"),
-            difference=Decimal("100.00"),
-            description="test_value",
-            revaluation_date=date.today(),
-            journal_id=uuid4(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "account_code": "test_value",
+            "currency": "test_value",
+            "balance_fcy": Decimal("100.00"),
+            "old_rate": Decimal("100.00"),
+            "new_rate": Decimal("100.00"),
+            "old_idr": Decimal("100.00"),
+            "new_idr": Decimal("100.00"),
+            "difference": Decimal("100.00"),
+            "description": "test_value",
+            "revaluation_date": date.today(),
+            "journal_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """ForexRevaluationResult can be constructed with valid field values."""
@@ -60,16 +60,16 @@ class TestExchangeRateEntry:
     """Tests for the ExchangeRateEntry value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            from_currency="test_value",
-            to_currency="test_value",
-            rate=Decimal("100.00"),
-            rate_date=date.today(),
-            source="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            "id": uuid4(),
+            "from_currency": "test_value",
+            "to_currency": "test_value",
+            "rate": Decimal("100.00"),
+            "rate_date": date.today(),
+            "source": "test_value",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """ExchangeRateEntry can be constructed with valid field values."""
@@ -150,7 +150,7 @@ class TestForexService:
         """Smoke test for ForexService.get_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rate(from_currency="test_value", to_currency="test_value", rate_date=date.today())
+            await instance.get_rate(from_currency="test_value", to_currency="test_value", rate_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rate needs specific domain fixtures/data: {e}")
             return
@@ -161,7 +161,7 @@ class TestForexService:
         """Smoke test for ForexService.set_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set_rate(from_currency="test_value", to_currency="test_value", rate=Decimal("100.00"), rate_date=date.today(), source="test_value", created_by=uuid4(), correlation_id="test_value")
+            await instance.set_rate(from_currency="test_value", to_currency="test_value", rate=Decimal("100.00"), rate_date=date.today(), source="test_value", created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_rate needs specific domain fixtures/data: {e}")
             return
@@ -172,7 +172,7 @@ class TestForexService:
         """Smoke test for ForexService.convert_money using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.convert_money(money=MagicMock(), target_currency="test_value", rate_date=date.today())
+            await instance.convert_money(money=MagicMock(), target_currency="test_value", rate_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"convert_money needs specific domain fixtures/data: {e}")
             return
@@ -183,7 +183,7 @@ class TestForexService:
         """Smoke test for ForexService.revalue_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.revalue_balance(legal_entity_id=uuid4(), currency="test_value", balance_in_fcy=Decimal("100.00"), account_code="test_value", as_of_date=date.today(), description="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.revalue_balance(legal_entity_id=uuid4(), currency="test_value", balance_in_fcy=Decimal("100.00"), account_code="test_value", as_of_date=date.today(), description="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revalue_balance needs specific domain fixtures/data: {e}")
             return
@@ -194,7 +194,7 @@ class TestForexService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -204,7 +204,7 @@ def test_audit_smoke():
 async def test_create_forex_service_smoke():
     """Smoke test for module-level function create_forex_service."""
     try:
-        result = await create_forex_service(forex_repo=MagicMock(), uow=MagicMock(), cache=MagicMock(), event_publisher=MagicMock())
+        await create_forex_service(forex_repo=MagicMock(), uow=MagicMock(), cache=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_forex_service needs specific input data: {e}")
         return

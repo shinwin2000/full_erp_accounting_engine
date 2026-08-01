@@ -30,8 +30,8 @@ class TestSalesOrderTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = SalesOrderTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -59,7 +59,7 @@ class TestSQLAlchemySalesOrderRepository:
         """Smoke test for SQLAlchemySalesOrderRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(so=MagicMock())
+            await instance.save(so=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestSQLAlchemySalesOrderRepository:
         """Smoke test for SQLAlchemySalesOrderRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(so_id=uuid4())
+            await instance.get_by_id(so_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestSQLAlchemySalesOrderRepository:
         """Smoke test for SQLAlchemySalesOrderRepository.get_by_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_number(so_number="test_value")
+            await instance.get_by_number(so_number="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_number needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestSQLAlchemySalesOrderRepository:
         """Smoke test for SQLAlchemySalesOrderRepository.list_by_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_by_customer(customer_id=uuid4(), legal_entity_id=uuid4(), limit=1, offset=1)
+            await instance.list_by_customer(customer_id=uuid4(), legal_entity_id=uuid4(), limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_by_customer needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestSQLAlchemySalesRepository:
         """Smoke test for SQLAlchemySalesRepository.get_by_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_number(so_number="test_value", legal_entity_id=uuid4())
+            await instance.get_by_number(so_number="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_number needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestSQLAlchemySalesRepository:
         """Smoke test for SQLAlchemySalesRepository.save_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_transaction(transaction=MagicMock())
+            await instance.save_transaction(transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_transaction needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestSQLAlchemySalesRepository:
         """Smoke test for SQLAlchemySalesRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(transaction_id=uuid4())
+            await instance.get_by_id(transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -152,7 +152,7 @@ class TestSQLAlchemySalesRepository:
         """Smoke test for SQLAlchemySalesRepository.list_by_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_by_period(legal_entity_id=uuid4(), from_date=date.today(), to_date=date.today(), status="test_value")
+            await instance.list_by_period(legal_entity_id=uuid4(), from_date=date.today(), to_date=date.today(), status="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_by_period needs specific domain fixtures/data: {e}")
             return

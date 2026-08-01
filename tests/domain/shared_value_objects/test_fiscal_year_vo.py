@@ -195,7 +195,7 @@ class TestFiscalYearVO:
         assert past.is_future is False
         future = FiscalYearVO.from_calendar(2100)
         assert future.is_future is True
-        current = FiscalYearVO.from_calendar(2024)
+        FiscalYearVO.from_calendar(2024)
         # If today is in 2024, it might be current not future. We'll just not test current.
 
     def test_is_past(self):

@@ -28,19 +28,19 @@ class TestExecutionContext:
     """Tests for the ExecutionContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            user_id="user-123",
-            legal_entity_id=uuid4(),
-            correlation_id="corr-456",
-            command_id=uuid4(),
-            causation_id=uuid4(),
-            tenant_id="tenant-789",
-            roles=["admin", "user"],
-            permissions=["read", "write"],
-            ip_address="192.168.1.1",
-            user_agent="Mozilla/5.0",
-            started_at=datetime.now(UTC),
-        )
+        return {
+            "user_id": "user-123",
+            "legal_entity_id": uuid4(),
+            "correlation_id": "corr-456",
+            "command_id": uuid4(),
+            "causation_id": uuid4(),
+            "tenant_id": "tenant-789",
+            "roles": ["admin", "user"],
+            "permissions": ["read", "write"],
+            "ip_address": "192.168.1.1",
+            "user_agent": "Mozilla/5.0",
+            "started_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ExecutionContext can be constructed with valid field values."""
@@ -398,7 +398,7 @@ class TestContextHolder:
         ctx2 = ExecutionContext(user_id="user-2", legal_entity_id=uuid4())
         holder.set_context(ctx1)
         holder.push_context(ctx2)
-        popped = holder.pop_context()
+        holder.pop_context()
         # pop_context returns the restored context (ctx1), not the popped one
         assert holder.get_context() == ctx1
 

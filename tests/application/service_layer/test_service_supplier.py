@@ -57,28 +57,28 @@ class TestSupplier:
     """Tests for the Supplier value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            supplier_code="test_value",
-            name="test_value",
-            npwp="test_value",
-            address="test_value",
-            city="test_value",
-            country="test_value",
-            phone="test_value",
-            email="test_value",
-            contact_person="test_value",
-            payment_terms_days=1,
-            credit_limit=Decimal("0"),
-            withholding_category="test_value",
-            is_active=True,
-            status=SupplierStatus.ACTIVE,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'supplier_code': "test_value",
+            'name': "test_value",
+            'npwp': "test_value",
+            'address': "test_value",
+            'city': "test_value",
+            'country': "test_value",
+            'phone': "test_value",
+            'email': "test_value",
+            'contact_person': "test_value",
+            'payment_terms_days': 1,
+            'credit_limit': Decimal("0"),
+            'withholding_category': "test_value",
+            'is_active': True,
+            'status': SupplierStatus.ACTIVE,
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """Supplier can be constructed with valid field values."""
@@ -143,7 +143,7 @@ class TestSupplierService:
         """Smoke test for SupplierService.create_supplier using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_supplier(legal_entity_id=uuid4(), supplier_code="test_value", name="test_value", npwp="test_value", address="test_value", city="test_value", country="test_value", phone="test_value", email="test_value", contact_person="test_value", payment_terms_days=1, credit_limit=Decimal("0"), withholding_category="test_value", created_by=uuid4(), correlation_id="test_value")
+            await instance.create_supplier(legal_entity_id=uuid4(), supplier_code="test_value", name="test_value", npwp="test_value", address="test_value", city="test_value", country="test_value", phone="test_value", email="test_value", contact_person="test_value", payment_terms_days=1, credit_limit=Decimal("0"), withholding_category="test_value", created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_supplier needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestSupplierService:
         """Smoke test for SupplierService.get_supplier using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_supplier(supplier_id=uuid4())
+            await instance.get_supplier(supplier_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_supplier needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestSupplierService:
         """Smoke test for SupplierService.list_suppliers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_suppliers(legal_entity_id=uuid4(), is_active=True, status="test_value")
+            await instance.list_suppliers(legal_entity_id=uuid4(), is_active=True, status="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_suppliers needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestSupplierService:
         """Smoke test for SupplierService.update_supplier using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_supplier(supplier_id=uuid4(), name="test_value", address="test_value", city="test_value", phone="test_value", email="test_value", contact_person="test_value", payment_terms_days=1, credit_limit=Decimal("0"), is_active=True, status="test_value", updated_by=uuid4(), correlation_id="test_value")
+            await instance.update_supplier(supplier_id=uuid4(), name="test_value", address="test_value", city="test_value", phone="test_value", email="test_value", contact_person="test_value", payment_terms_days=1, credit_limit=Decimal("0"), is_active=True, status="test_value", updated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_supplier needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestSupplierService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -197,7 +197,7 @@ def test_audit_smoke():
 async def test_create_supplier_service_smoke():
     """Smoke test for module-level function create_supplier_service."""
     try:
-        result = await create_supplier_service(event_publisher=MagicMock())
+        await create_supplier_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_supplier_service needs specific input data: {e}")
         return

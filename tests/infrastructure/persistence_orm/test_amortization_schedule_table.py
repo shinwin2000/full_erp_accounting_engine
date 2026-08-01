@@ -43,19 +43,19 @@ class TestAmortizationScheduleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            asset_id=MagicMock(),
-            period_date=date.today(),
-            fiscal_year=1,
-            fiscal_period=1,
-            planned_amount=Decimal("100.00"),
-            actual_amount=Decimal("100.00"),
-            remaining_carrying_value=Decimal("100.00"),
-            status=AmortizationStatus.PENDING,
-            journal_id=MagicMock(),
-            journal_entry_number="test_value",
-            adjustment_reason="test_value",
-        )
+        kwargs = {
+            'asset_id': MagicMock(),
+            'period_date': date.today(),
+            'fiscal_year': 1,
+            'fiscal_period': 1,
+            'planned_amount': Decimal("100.00"),
+            'actual_amount': Decimal("100.00"),
+            'remaining_carrying_value': Decimal("100.00"),
+            'status': AmortizationStatus.PENDING,
+            'journal_id': MagicMock(),
+            'journal_entry_number': "test_value",
+            'adjustment_reason': "test_value",
+        }
         try:
             instance = AmortizationScheduleTable(**kwargs)
         except (Exception, SystemExit) as e:

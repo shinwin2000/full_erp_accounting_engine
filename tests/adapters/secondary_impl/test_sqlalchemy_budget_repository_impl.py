@@ -32,7 +32,7 @@ class TestSQLAlchemyBudgetRepository:
         """Smoke test for SQLAlchemyBudgetRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(budget=MagicMock())
+            await instance.save(budget=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSQLAlchemyBudgetRepository:
         """Smoke test for SQLAlchemyBudgetRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(budget_id=MagicMock())
+            await instance.get_by_id(budget_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSQLAlchemyBudgetRepository:
         """Smoke test for SQLAlchemyBudgetRepository.list_by_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_by_legal_entity(legal_entity_id=MagicMock(), fiscal_year=1)
+            await instance.list_by_legal_entity(legal_entity_id=MagicMock(), fiscal_year=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_by_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSQLAlchemyBudgetRepository:
         """Smoke test for SQLAlchemyBudgetRepository.get_by_name_and_year using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_name_and_year(legal_entity_id=MagicMock(), budget_name="test_value", fiscal_year=1)
+            await instance.get_by_name_and_year(legal_entity_id=MagicMock(), budget_name="test_value", fiscal_year=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_name_and_year needs specific domain fixtures/data: {e}")
             return

@@ -25,21 +25,21 @@ class TestBillOfMaterialsTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            bom_code="test_value",
-            bom_name="test_value",
-            product_id=MagicMock(),
-            product_name="test_value",
-            version=1,
-            effective_date=date.today(),
-            expiry_date=date.today(),
-            status="test_value",
-            is_default=True,
-            notes="test_value",
-            created_by=MagicMock(),
-            lines=[MagicMock()],
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'bom_code': "test_value",
+            'bom_name': "test_value",
+            'product_id': MagicMock(),
+            'product_name': "test_value",
+            'version': 1,
+            'effective_date': date.today(),
+            'expiry_date': date.today(),
+            'status': "test_value",
+            'is_default': True,
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'lines': [MagicMock()],
+        }
         try:
             instance = BillOfMaterialsTable(**kwargs)
         except (Exception, SystemExit) as e:

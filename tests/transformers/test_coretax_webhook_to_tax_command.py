@@ -4,6 +4,7 @@ Comprehensive unit tests for transformers/coretax_webhook_to_tax_command.py.
 Covers all classes, methods, edge cases, negative paths, and exceptions.
 """
 
+import contextlib
 import hashlib
 import hmac
 import os
@@ -694,10 +695,8 @@ class TestCoretaxWebhookToTaxCommandTransformer:
                 await transformer.transform(mock_envelope)
             # Should also trigger alert
             with patch("transformers.coretax_webhook_to_tax_command.trigger_alert") as mock_alert:
-                try:
+                with contextlib.suppress(InvalidSignatureError):
                     await transformer.transform(mock_envelope)
-                except InvalidSignatureError:
-                    pass
                 mock_alert.assert_called_once()
 
     @pytest.mark.asyncio

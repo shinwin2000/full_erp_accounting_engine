@@ -31,7 +31,7 @@ class TestRedisCacheAdapter:
         """Smoke test for RedisCacheAdapter.connect using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.connect()
+            await instance.connect()
         except (Exception, SystemExit) as e:
             pytest.skip(f"connect needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestRedisCacheAdapter:
         """Smoke test for RedisCacheAdapter.disconnect using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.disconnect()
+            await instance.disconnect()
         except (Exception, SystemExit) as e:
             pytest.skip(f"disconnect needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestRedisCacheAdapter:
         """Smoke test for RedisCacheAdapter.ping using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.ping()
+            await instance.ping()
         except (Exception, SystemExit) as e:
             pytest.skip(f"ping needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestRedisCacheAdapter:
         """Smoke test for RedisCacheAdapter.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get(key="test_value")
+            await instance.get(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return

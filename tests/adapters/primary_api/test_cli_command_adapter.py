@@ -73,8 +73,8 @@ class TestIdempotencyManager:
 def test_init_buses():
     with patch("adapters.primary_api.cli_command_adapter.CommandBusUnified") as mock_cmd_bus:
         with patch("adapters.primary_api.cli_command_adapter.QueryBusUnified") as mock_query_bus:
-            with patch("adapters.primary_api.cli_command_adapter.APIKeyValidator") as mock_api:
-                with patch("adapters.primary_api.cli_command_adapter.JWTValidator") as mock_jwt:
+            with patch("adapters.primary_api.cli_command_adapter.APIKeyValidator"):
+                with patch("adapters.primary_api.cli_command_adapter.JWTValidator"):
                     # Ensure global variables are reset
                     import adapters.primary_api.cli_command_adapter as module
                     module.command_bus = None
@@ -107,16 +107,12 @@ def test_get_user_id_from_token_valid():
             async def run_async(coro):
                 return await coro
             with patch("adapters.primary_api.cli_command_adapter._run_async", side_effect=run_async):
-                from adapters.primary_api.cli_command_adapter import jwt_validator
-                jwt_validator = mock_jwt
                 user_id = get_user_id_from_token(token)
                 assert user_id == UUID("12345678-1234-5678-1234-567812345678")
 
 def test_get_user_id_from_token_invalid():
     with patch("adapters.primary_api.cli_command_adapter.jwt_validator") as mock_jwt:
         mock_jwt.validate = AsyncMock(side_effect=Exception("invalid"))
-        from adapters.primary_api.cli_command_adapter import jwt_validator
-        jwt_validator = mock_jwt
         user_id = get_user_id_from_token("bad")
         assert user_id is None
 
@@ -547,7 +543,7 @@ class TestExecuteCommand:
 
 class TestPeriodCloseDirect:
     def test_period_close_success(self):
-        with patch("adapters.primary_api.cli_command_adapter.init_buses") as mock_init:
+        with patch("adapters.primary_api.cli_command_adapter.init_buses"):
             with patch("adapters.primary_api.cli_command_adapter.get_user_id_from_env_or_input") as mock_user:
                 mock_user.return_value = UUID("12345678-1234-5678-1234-567812345678")
                 with patch("adapters.primary_api.cli_command_adapter._execute_command") as mock_exec:
@@ -631,7 +627,7 @@ class TestCheckIntegrityDirect:
                     with patch("adapters.primary_api.cli_command_adapter.typer.prompt") as mock_prompt:
                         mock_prompt.return_value = "12345678-1234-5678-1234-567812345679"
                         with patch("adapters.primary_api.cli_command_adapter.set_request_id_for_task"):
-                            with patch("adapters.primary_api.cli_command_adapter.console.print") as mock_print:
+                            with patch("adapters.primary_api.cli_command_adapter.console.print"):
                                 check_integrity(None, None, "idem123")
                                 mock_exec.assert_called_once_with(
                                     command_type="audit.verify_integrity",

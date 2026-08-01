@@ -25,14 +25,14 @@ class TestMachineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            code="test_value",
-            name="test_value",
-            description="test_value",
-            hourly_rate=1.5,
-            steps=[MagicMock()],
-        )
+        kwargs = {
+            'id': uuid4(),
+            'code': "test_value",
+            'name': "test_value",
+            'description': "test_value",
+            'hourly_rate': 1.5,
+            'steps': [MagicMock()],
+        }
         try:
             instance = MachineTable(**kwargs)
         except (Exception, SystemExit) as e:

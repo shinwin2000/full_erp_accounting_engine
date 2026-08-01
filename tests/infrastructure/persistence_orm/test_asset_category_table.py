@@ -25,17 +25,17 @@ class TestAssetCategoryTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            code="test_value",
-            name="test_value",
-            description="test_value",
-            default_useful_life=1,
-            default_depreciation_method="test_value",
-            is_active=True,
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'code': "test_value",
+            'name': "test_value",
+            'description': "test_value",
+            'default_useful_life': 1,
+            'default_depreciation_method': "test_value",
+            'is_active': True,
+            'created_by': MagicMock(),
+        }
         try:
             instance = AssetCategoryTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -37,13 +37,13 @@ class TestTrialBalanceRequest:
     """Tests for the TrialBalanceRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            include_zero_balance=True,
-            account_type_filter=["test_value"],
-            currency_code="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "include_zero_balance": True,
+            "account_type_filter": ["test_value"],
+            "currency_code": "test_value",
+        }
 
     def test_construction_success(self):
         """TrialBalanceRequest can be constructed with valid field values."""
@@ -61,17 +61,17 @@ class TestTrialBalanceRow:
     """Tests for the TrialBalanceRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            account_type="test_value",
-            opening_debit=Decimal("100.00"),
-            opening_credit=Decimal("0"),
-            movement_debit=Decimal("100.00"),
-            movement_credit=Decimal("0"),
-            closing_debit=Decimal("100.00"),
-            closing_credit=Decimal("0"),
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "account_type": "test_value",
+            "opening_debit": Decimal("100.00"),
+            "opening_credit": Decimal("0"),
+            "movement_debit": Decimal("100.00"),
+            "movement_credit": Decimal("0"),
+            "closing_debit": Decimal("100.00"),
+            "closing_credit": Decimal("0"),
+        }
 
     def test_construction_success(self):
         """TrialBalanceRow can be constructed with valid field values."""
@@ -89,18 +89,18 @@ class TestTrialBalanceResponse:
     """Tests for the TrialBalanceResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            rows=[MagicMock()],
-            total_opening_debit=Decimal("100.00"),
-            total_opening_credit=Decimal("0"),
-            total_movement_debit=Decimal("100.00"),
-            total_movement_credit=Decimal("0"),
-            total_closing_debit=Decimal("100.00"),
-            total_closing_credit=Decimal("0"),
-            is_balanced=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "rows": [MagicMock()],
+            "total_opening_debit": Decimal("100.00"),
+            "total_opening_credit": Decimal("0"),
+            "total_movement_debit": Decimal("100.00"),
+            "total_movement_credit": Decimal("0"),
+            "total_closing_debit": Decimal("100.00"),
+            "total_closing_credit": Decimal("0"),
+            "is_balanced": True,
+        }
 
     def test_construction_success(self):
         """TrialBalanceResponse can be constructed with valid field values."""
@@ -118,14 +118,14 @@ class TestIncomeStatementRequest:
     """Tests for the IncomeStatementRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            compare_with_previous=True,
-            show_percent_of_revenue=True,
-            currency_code="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "compare_with_previous": True,
+            "show_percent_of_revenue": True,
+            "currency_code": "test_value",
+        }
 
     def test_construction_success(self):
         """IncomeStatementRequest can be constructed with valid field values."""
@@ -143,13 +143,13 @@ class TestIncomeStatementRow:
     """Tests for the IncomeStatementRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            current_period_amount=Decimal("100.00"),
-            previous_period_amount=Decimal("100.00"),
-            percent_of_revenue=Decimal("100.00"),
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "current_period_amount": Decimal("100.00"),
+            "previous_period_amount": Decimal("100.00"),
+            "percent_of_revenue": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """IncomeStatementRow can be constructed with valid field values."""
@@ -167,17 +167,17 @@ class TestIncomeStatementResponse:
     """Tests for the IncomeStatementResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            revenue_rows=[MagicMock()],
-            expense_rows=[MagicMock()],
-            total_revenue=Decimal("100.00"),
-            total_expense=Decimal("100.00"),
-            net_income=Decimal("100.00"),
-            previous_period_net_income=Decimal("100.00"),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "revenue_rows": [MagicMock()],
+            "expense_rows": [MagicMock()],
+            "total_revenue": Decimal("100.00"),
+            "total_expense": Decimal("100.00"),
+            "net_income": Decimal("100.00"),
+            "previous_period_net_income": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """IncomeStatementResponse can be constructed with valid field values."""
@@ -195,12 +195,12 @@ class TestBalanceSheetRequest:
     """Tests for the BalanceSheetRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            comparative_date=date.today(),
-            currency_code="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "comparative_date": date.today(),
+            "currency_code": "test_value",
+        }
 
     def test_construction_success(self):
         """BalanceSheetRequest can be constructed with valid field values."""
@@ -218,12 +218,12 @@ class TestBalanceSheetRow:
     """Tests for the BalanceSheetRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            current_amount=Decimal("100.00"),
-            comparative_amount=Decimal("100.00"),
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "current_amount": Decimal("100.00"),
+            "comparative_amount": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """BalanceSheetRow can be constructed with valid field values."""
@@ -241,18 +241,18 @@ class TestBalanceSheetResponse:
     """Tests for the BalanceSheetResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            comparative_date=date.today(),
-            asset_rows=[MagicMock()],
-            liability_rows=[MagicMock()],
-            equity_rows=[MagicMock()],
-            total_assets=Decimal("100.00"),
-            total_liabilities=Decimal("100.00"),
-            total_equity=Decimal("100.00"),
-            is_balanced=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "comparative_date": date.today(),
+            "asset_rows": [MagicMock()],
+            "liability_rows": [MagicMock()],
+            "equity_rows": [MagicMock()],
+            "total_assets": Decimal("100.00"),
+            "total_liabilities": Decimal("100.00"),
+            "total_equity": Decimal("100.00"),
+            "is_balanced": True,
+        }
 
     def test_construction_success(self):
         """BalanceSheetResponse can be constructed with valid field values."""
@@ -270,13 +270,13 @@ class TestCashFlowRequest:
     """Tests for the CashFlowRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            method="test_value",
-            currency_code="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "method": "test_value",
+            "currency_code": "test_value",
+        }
 
     def test_construction_success(self):
         """CashFlowRequest can be constructed with valid field values."""
@@ -294,11 +294,11 @@ class TestCashFlowRow:
     """Tests for the CashFlowRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            category="test_value",
-            amount=Decimal("100.00"),
-            description="test_value",
-        )
+        return {
+            "category": "test_value",
+            "amount": Decimal("100.00"),
+            "description": "test_value",
+        }
 
     def test_construction_success(self):
         """CashFlowRow can be constructed with valid field values."""
@@ -316,21 +316,21 @@ class TestCashFlowResponse:
     """Tests for the CashFlowResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            method="test_value",
-            operating_cash_flows=[MagicMock()],
-            investing_cash_flows=[MagicMock()],
-            financing_cash_flows=[MagicMock()],
-            net_operating_cash_flow=Decimal("100.00"),
-            net_investing_cash_flow=Decimal("100.00"),
-            net_financing_cash_flow=Decimal("100.00"),
-            net_cash_flow=Decimal("100.00"),
-            beginning_cash_balance=Decimal("100.00"),
-            ending_cash_balance=Decimal("100.00"),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "method": "test_value",
+            "operating_cash_flows": [MagicMock()],
+            "investing_cash_flows": [MagicMock()],
+            "financing_cash_flows": [MagicMock()],
+            "net_operating_cash_flow": Decimal("100.00"),
+            "net_investing_cash_flow": Decimal("100.00"),
+            "net_financing_cash_flow": Decimal("100.00"),
+            "net_cash_flow": Decimal("100.00"),
+            "beginning_cash_balance": Decimal("100.00"),
+            "ending_cash_balance": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """CashFlowResponse can be constructed with valid field values."""
@@ -395,7 +395,7 @@ class TestReportService:
         """Smoke test for ReportService.get_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance(request=MagicMock())
+            await instance.get_trial_balance(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance needs specific domain fixtures/data: {e}")
             return
@@ -406,7 +406,7 @@ class TestReportService:
         """Smoke test for ReportService.get_income_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_income_statement(request=MagicMock())
+            await instance.get_income_statement(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_income_statement needs specific domain fixtures/data: {e}")
             return
@@ -417,7 +417,7 @@ class TestReportService:
         """Smoke test for ReportService.get_balance_sheet using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balance_sheet(request=MagicMock())
+            await instance.get_balance_sheet(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balance_sheet needs specific domain fixtures/data: {e}")
             return
@@ -428,7 +428,7 @@ class TestReportService:
         """Smoke test for ReportService.get_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_cash_flow(request=MagicMock())
+            await instance.get_cash_flow(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cash_flow needs specific domain fixtures/data: {e}")
             return
@@ -439,7 +439,7 @@ class TestReportService:
 async def test_create_report_service_smoke():
     """Smoke test for module-level function create_report_service."""
     try:
-        result = await create_report_service()
+        await create_report_service()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_report_service needs specific input data: {e}")
         return

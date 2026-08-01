@@ -27,28 +27,28 @@ class TestLedgerEntryTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            journal_id=uuid4(),
-            account_id=uuid4(),
-            account_code="test_value",
-            line_number=1,
-            debit_amount=Decimal("100.00"),
-            credit_amount=Decimal("0"),
-            currency="test_value",
-            posting_date=date.today(),
-            cost_center="test_value",
-            department="test_value",
-            reference_number="test_value",
-            description="test_value",
-            fiscal_year=1,
-            period_month=1,
-            legal_entity_id=uuid4(),
-            created_by=MagicMock(),
-            audit_metadata={},
-            journal=MagicMock(),
-            account=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'journal_id': uuid4(),
+            'account_id': uuid4(),
+            'account_code': "test_value",
+            'line_number': 1,
+            'debit_amount': Decimal("100.00"),
+            'credit_amount': Decimal("0"),
+            'currency': "test_value",
+            'posting_date': date.today(),
+            'cost_center': "test_value",
+            'department': "test_value",
+            'reference_number': "test_value",
+            'description': "test_value",
+            'fiscal_year': 1,
+            'period_month': 1,
+            'legal_entity_id': uuid4(),
+            'created_by': MagicMock(),
+            'audit_metadata': {},
+            'journal': MagicMock(),
+            'account': MagicMock(),
+        }
         try:
             instance = LedgerEntryTable(**kwargs)
         except (Exception, SystemExit) as e:

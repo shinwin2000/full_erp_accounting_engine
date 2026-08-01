@@ -31,7 +31,7 @@ class TestPostgresReadReplicaRouter:
         """Smoke test for PostgresReadReplicaRouter.get_read_connection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_read_connection()
+            instance.get_read_connection()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_read_connection needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestPostgresReadReplicaRouter:
         """Smoke test for PostgresReadReplicaRouter.get_write_connection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_write_connection()
+            instance.get_write_connection()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_write_connection needs specific domain fixtures/data: {e}")
             return

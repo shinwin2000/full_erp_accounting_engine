@@ -265,7 +265,7 @@ class TestTaxInvariants:
 
     def test_validate_tax_amount_valid_with_rounding(self):
         dpp = Decimal("1000000.50")
-        expected = dpp * Decimal("0.11")  # 110000.055 -> rounded in calculation
+        dpp * Decimal("0.11")  # 110000.055 -> rounded in calculation
         # In code, expected_ppn is computed as dpp * (rate / 100) exactly, not rounded.
         # So expected_ppn = 110000.055, but ppn can be 110000.06, difference 0.005 <= 0.01 => valid.
         ppn = Decimal("110000.06")

@@ -242,9 +242,12 @@ class ContextHolder(BaseContextHolder):
         self._current_context: contextvars.ContextVar[ExecutionContext | None] = (
             contextvars.ContextVar("execution_context", default=None)
         )
-        self._context_stack: contextvars.ContextVar[list[ContextSnapshot]] = contextvars.ContextVar(
-            "context_stack", default=[]
+        # Fix B039: Use default=None instead of mutable default []
+        self._context_stack: contextvars.ContextVar[list[ContextSnapshot]] = (
+            contextvars.ContextVar("context_stack", default=None)
         )
+        # Initialize stack for current context
+        self._context_stack.set([])
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
         self._version = 1
@@ -282,7 +285,8 @@ class ContextHolder(BaseContextHolder):
         return ctx.permissions if ctx else []
 
     def push_context(self, context: ExecutionContext) -> None:
-        stack = list(self._context_stack.get([]))
+        stack = self._context_stack.get() or []
+        stack = list(stack)  # Ensure we have a fresh list copy
         current = self.get_context()
         if current:
             stack.append(ContextSnapshot(context=current, timestamp=datetime.now(UTC)))
@@ -290,8 +294,9 @@ class ContextHolder(BaseContextHolder):
         self.set_context(context)
 
     def pop_context(self) -> ExecutionContext | None:
-        stack = list(self._context_stack.get([]))
+        stack = self._context_stack.get() or []
         if stack:
+            stack = list(stack)
             snapshot = stack.pop()
             self._context_stack.set(stack)
             self.set_context(snapshot.context)
@@ -374,10 +379,11 @@ class ContextHolder(BaseContextHolder):
 
     def to_dict(self) -> dict[str, Any]:
         ctx = self.get_context()
+        stack = self._context_stack.get() or []
         return {
             "has_context": ctx is not None,
             "context": ctx.to_dict() if ctx else None,
-            "stack_depth": len(self._context_stack.get([])),
+            "stack_depth": len(stack),
             "version": self._version,
         }
 
@@ -399,10 +405,11 @@ class ContextHolder(BaseContextHolder):
         return new_instance
 
     def snapshot(self) -> dict[str, Any]:
+        stack = self._context_stack.get() or []
         return {
             "version": self._version,
             "has_context": self.get_context() is not None,
-            "stack_depth": len(self._context_stack.get([])),
+            "stack_depth": len(stack),
             "timestamp": datetime.now(UTC).isoformat(),
         }
 

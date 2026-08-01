@@ -70,7 +70,7 @@ class TestAsyncpgConnectionPool:
         """Smoke test for AsyncpgConnectionPool.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestAsyncpgConnectionPool:
         """Smoke test for AsyncpgConnectionPool.close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.close()
+            await instance.close()
         except (Exception, SystemExit) as e:
             pytest.skip(f"close needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestAsyncpgConnectionPool:
         """Smoke test for AsyncpgConnectionPool.get_connection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_connection()
+            await instance.get_connection()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_connection needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestAsyncpgConnectionPool:
         """Smoke test for AsyncpgConnectionPool.return_connection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.return_connection(conn=MagicMock())
+            await instance.return_connection(conn=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"return_connection needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestAsyncpgConnectionPool:
 async def test_get_asyncpg_pool_smoke():
     """Smoke test for module-level function get_asyncpg_pool."""
     try:
-        result = await get_asyncpg_pool()
+        await get_asyncpg_pool()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_asyncpg_pool needs specific input data: {e}")
         return
@@ -124,7 +124,7 @@ async def test_get_asyncpg_pool_smoke():
 async def test_close_asyncpg_pool_smoke():
     """Smoke test for module-level function close_asyncpg_pool."""
     try:
-        result = await close_asyncpg_pool()
+        await close_asyncpg_pool()
     except (Exception, SystemExit) as e:
         pytest.skip(f"close_asyncpg_pool needs specific input data: {e}")
         return

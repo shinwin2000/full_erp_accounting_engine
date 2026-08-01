@@ -116,7 +116,7 @@ class TestConflictOfInterestDeclaration:
         """Smoke test for ConflictOfInterestDeclaration.update_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_status(new_status=ConflictStatus.ACTIVE, updated_by=uuid4(), notes="test_value")
+            instance.update_status(new_status=ConflictStatus.ACTIVE, updated_by=uuid4(), notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_status needs specific domain fixtures/data: {e}")
             return
@@ -127,7 +127,7 @@ class TestConflictOfInterestDeclaration:
         """Smoke test for ConflictOfInterestDeclaration.resolve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.resolve(resolution_notes="test_value", resolved_by=uuid4())
+            instance.resolve(resolution_notes="test_value", resolved_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve needs specific domain fixtures/data: {e}")
             return
@@ -138,7 +138,7 @@ class TestConflictOfInterestDeclaration:
         """Smoke test for ConflictOfInterestDeclaration.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestConflictOfInterestDeclarationStore:
         """Smoke test for ConflictOfInterestDeclarationStore.add_declaration using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_declaration(declarant_id=uuid4(), declarant_name="test_value", declarant_role="test_value", relationship_type=RelationshipType.PERSONAL, related_party="test_value", nature_of_conflict="test_value", financial_impact="test_value", severity=ConflictSeverity.LOW)
+            instance.add_declaration(declarant_id=uuid4(), declarant_name="test_value", declarant_role="test_value", relationship_type=RelationshipType.PERSONAL, related_party="test_value", nature_of_conflict="test_value", financial_impact="test_value", severity=ConflictSeverity.LOW)
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_declaration needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestConflictOfInterestDeclarationStore:
         """Smoke test for ConflictOfInterestDeclarationStore.get_declaration using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_declaration(declaration_id=uuid4())
+            instance.get_declaration(declaration_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_declaration needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestConflictOfInterestDeclarationStore:
         """Smoke test for ConflictOfInterestDeclarationStore.get_declarations_by_declarant using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_declarations_by_declarant(declarant_id=uuid4())
+            instance.get_declarations_by_declarant(declarant_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_declarations_by_declarant needs specific domain fixtures/data: {e}")
             return
@@ -198,7 +198,7 @@ class TestConflictOfInterestDeclarationStore:
         """Smoke test for ConflictOfInterestDeclarationStore.get_active_declarations using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_active_declarations(declarant_id=uuid4())
+            instance.get_active_declarations(declarant_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_active_declarations needs specific domain fixtures/data: {e}")
             return

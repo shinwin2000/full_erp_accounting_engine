@@ -743,7 +743,7 @@ class TestAnomalyLoginDetectorAnalysis:
         assert len(detector._attempts) >= 1
 
     def test_analyze_attempt_without_record(self, detector, sample_login_attempt):
-        alerts = detector.analyze_attempt(sample_login_attempt, record=False)
+        detector.analyze_attempt(sample_login_attempt, record=False)
         # Should not record
         assert len(detector._attempts) == 0
 
@@ -1062,14 +1062,14 @@ class TestAnomalyLoginDetectorEntity:
 class TestIntegration:
     def test_full_login_flow(self, detector):
         # Simulate multiple failed logins leading to brute force alert
-        for i in range(3):
-            alerts = detector.post_login_check("alice", "192.168.1.1", "Mozilla", False)
+        for _i in range(3):
+            detector.post_login_check("alice", "192.168.1.1", "Mozilla", False)
         # Should have a brute force alert
         brute_alerts = [a for a in detector._alerts if a.anomaly_type == AnomalyType.BRUTE_FORCE]
         assert len(brute_alerts) == 1
 
         # Then a successful login from unusual location (US)
-        alerts2 = detector.post_login_check("alice", "8.8.8.8", "Mozilla", True)
+        detector.post_login_check("alice", "8.8.8.8", "Mozilla", True)
         # Should have unusual location alert (US not allowed)
         loc_alerts = [a for a in detector._alerts if a.anomaly_type == AnomalyType.UNUSUAL_LOCATION]
         assert len(loc_alerts) >= 1

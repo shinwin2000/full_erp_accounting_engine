@@ -535,7 +535,7 @@ class TestIntentCaptureService:
 
     def test_get_statistics(self, capture_service, intent_type):
         assert capture_service.get_statistics() == {"total_intents": 0, "by_status": {}}
-        intent1 = capture_service.capture(intent_type, {}, "user")
+        capture_service.capture(intent_type, {}, "user")
         intent2 = capture_service.capture(intent_type, {}, "user")
         capture_service.submit_for_approval(intent2.intent_id)
         stats = capture_service.get_statistics()

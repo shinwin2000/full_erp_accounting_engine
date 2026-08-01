@@ -54,15 +54,15 @@ class TestTimestampRequest:
     """Tests for the TimestampRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            data_hash="test_value",
-            algorithm=TimestampAlgorithm.SHA256,
-            cert_id="test_value",
-            requested_at=datetime.now(UTC),
-            requested_by=uuid4(),
-            requester_info="test_value",
-        )
+        return {
+            'id': uuid4(),
+            'data_hash': "test_value",
+            'algorithm': TimestampAlgorithm.SHA256,
+            'cert_id': "test_value",
+            'requested_at': datetime.now(UTC),
+            'requested_by': uuid4(),
+            'requester_info': "test_value",
+        }
 
     def test_construction_success(self):
         """TimestampRequest can be constructed with valid field values."""
@@ -80,24 +80,24 @@ class TestTimestampToken:
     """Tests for the TimestampToken value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            request_id=uuid4(),
-            serial_number="test_value",
-            timestamp=datetime.now(UTC),
-            hash_algorithm=TimestampAlgorithm.SHA256,
-            data_hash="test_value",
-            time_hash="test_value",
-            token="test_value",
-            status=TimestampStatus.VALID,
-            tsa_name="test_value",
-            tsa_cert_serial="test_value",
-            signature="test_value",
-            expires_at=datetime.now(UTC),
-            revoked_at=datetime.now(UTC),
-            revocation_reason="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'request_id': uuid4(),
+            'serial_number': "test_value",
+            'timestamp': datetime.now(UTC),
+            'hash_algorithm': TimestampAlgorithm.SHA256,
+            'data_hash': "test_value",
+            'time_hash': "test_value",
+            'token': "test_value",
+            'status': TimestampStatus.VALID,
+            'tsa_name': "test_value",
+            'tsa_cert_serial': "test_value",
+            'signature': "test_value",
+            'expires_at': datetime.now(UTC),
+            'revoked_at': datetime.now(UTC),
+            'revocation_reason': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """TimestampToken can be constructed with valid field values."""
@@ -115,22 +115,22 @@ class TestTimestampCertificate:
     """Tests for the TimestampCertificate value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            serial_number="test_value",
-            common_name="test_value",
-            organization="test_value",
-            country="test_value",
-            valid_from=datetime.now(UTC),
-            valid_to=datetime.now(UTC),
-            is_ca=True,
-            public_key_pem="test_value",
-            private_key_pem="test_value",
-            is_active=True,
-            revoked_at=datetime.now(UTC),
-            revocation_reason="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'serial_number': "test_value",
+            'common_name': "test_value",
+            'organization': "test_value",
+            'country': "test_value",
+            'valid_from': datetime.now(UTC),
+            'valid_to': datetime.now(UTC),
+            'is_ca': True,
+            'public_key_pem': "test_value",
+            'private_key_pem': "test_value",
+            'is_active': True,
+            'revoked_at': datetime.now(UTC),
+            'revocation_reason': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """TimestampCertificate can be constructed with valid field values."""
@@ -163,7 +163,7 @@ class TestTimestampNotaryPort:
         """Smoke test for TimestampNotaryPort.timestamp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.timestamp(data_hash="test_value", cert_id="test_value", algorithm=TimestampAlgorithm.SHA256, requester_info="test_value", requested_by=uuid4())
+            await instance.timestamp(data_hash="test_value", cert_id="test_value", algorithm=TimestampAlgorithm.SHA256, requester_info="test_value", requested_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"timestamp needs specific domain fixtures/data: {e}")
             return
@@ -174,7 +174,7 @@ class TestTimestampNotaryPort:
         """Smoke test for TimestampNotaryPort.timestamp_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.timestamp_batch(data_hashes=["test_value"], cert_id="test_value", algorithm=TimestampAlgorithm.SHA256, requested_by=uuid4())
+            await instance.timestamp_batch(data_hashes=["test_value"], cert_id="test_value", algorithm=TimestampAlgorithm.SHA256, requested_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"timestamp_batch needs specific domain fixtures/data: {e}")
             return
@@ -185,7 +185,7 @@ class TestTimestampNotaryPort:
         """Smoke test for TimestampNotaryPort.verify_timestamp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_timestamp(timestamp_token="test_value", data_hash="test_value")
+            await instance.verify_timestamp(timestamp_token="test_value", data_hash="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_timestamp needs specific domain fixtures/data: {e}")
             return
@@ -196,7 +196,7 @@ class TestTimestampNotaryPort:
         """Smoke test for TimestampNotaryPort.get_timestamp_info using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_timestamp_info(timestamp_token="test_value")
+            await instance.get_timestamp_info(timestamp_token="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_timestamp_info needs specific domain fixtures/data: {e}")
             return

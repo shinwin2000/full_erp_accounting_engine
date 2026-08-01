@@ -25,19 +25,19 @@ class TestManufacturingCostCardTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            cost_card_id=uuid4(),
-            product_id=uuid4(),
-            product_code="test_value",
-            period="test_value",
-            material_cost=Decimal("100.00"),
-            labor_cost=Decimal("100.00"),
-            overhead_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            quantity_produced=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'cost_card_id': uuid4(),
+            'product_id': uuid4(),
+            'product_code': "test_value",
+            'period': "test_value",
+            'material_cost': Decimal("100.00"),
+            'labor_cost': Decimal("100.00"),
+            'overhead_cost': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'quantity_produced': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+        }
         try:
             instance = ManufacturingCostCardTable(**kwargs)
         except (Exception, SystemExit) as e:

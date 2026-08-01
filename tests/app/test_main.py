@@ -150,6 +150,8 @@ sys.modules["prometheus_client"] = prometheus_mock
 # ============================================================
 # IMPORT APP.MAIN (dengan try/finally agar cleanup tetap jalan)
 # ============================================================
+import contextlib
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -375,10 +377,8 @@ async def test_get_db_session_rollback_on_exception():
         gen2 = get_db_session()
         async for _ in gen2:
             pass
-        try:
+        with contextlib.suppress(ZeroDivisionError):
             await gen2.aclose()
-        except ZeroDivisionError:
-            pass
 
 def test_get_redis_success():
     """Test get_redis berhasil."""

@@ -137,7 +137,7 @@ class TestJWTValidator:
         """Smoke test for JWTValidator.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate(token="test_value", expected_token_type="test_value")
+            await instance.validate(token="test_value", expected_token_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestJWTValidator:
         """Smoke test for JWTValidator.extract_payload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.extract_payload(token="test_value", verify=True)
+            await instance.extract_payload(token="test_value", verify=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"extract_payload needs specific domain fixtures/data: {e}")
             return
@@ -159,7 +159,7 @@ class TestJWTValidator:
         """Smoke test for JWTValidator.get_token_expiry using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_token_expiry(token="test_value")
+            await instance.get_token_expiry(token="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_token_expiry needs specific domain fixtures/data: {e}")
             return
@@ -170,7 +170,7 @@ class TestJWTValidator:
         """Smoke test for JWTValidator.is_token_expired using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_token_expired(token="test_value")
+            await instance.is_token_expired(token="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_token_expired needs specific domain fixtures/data: {e}")
             return
@@ -181,7 +181,7 @@ class TestJWTValidator:
 async def test_get_jwt_validator_smoke():
     """Smoke test for module-level function get_jwt_validator."""
     try:
-        result = await get_jwt_validator()
+        await get_jwt_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_jwt_validator needs specific input data: {e}")
         return
@@ -191,7 +191,7 @@ async def test_get_jwt_validator_smoke():
 async def test_get_token_validator_smoke():
     """Smoke test for module-level function get_token_validator."""
     try:
-        result = await get_token_validator()
+        await get_token_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_token_validator needs specific input data: {e}")
         return

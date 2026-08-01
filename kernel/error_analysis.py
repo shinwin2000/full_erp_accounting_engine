@@ -76,20 +76,20 @@ class RCAResult:
 
 
 # ─── Wrapper ──────────────────────────────────────────────────────────────────
-_RCA_ENGINE = None
+_RCA_ANALYZE_FUNC = None
 _RCA_AVAILABLE = False
 
 
 def _import_rca() -> bool:
     """Import RCA engine secara lazy dan cache hasilnya."""
-    global _RCA_ENGINE, _RCA_AVAILABLE
+    global _RCA_ANALYZE_FUNC, _RCA_AVAILABLE
     if _RCA_AVAILABLE:
         return True
 
     try:
         # Coba dari checker.core.rca (lokasi default)
-        from checker.core.rca import Severity, analyze_exception, get_engine
-        _RCA_ENGINE = get_engine()
+        from checker.core.rca import analyze_exception
+        _RCA_ANALYZE_FUNC = analyze_exception
         _RCA_AVAILABLE = True
         logger.debug("RCA engine loaded from checker.core.rca")
         return True
@@ -101,7 +101,7 @@ def _import_rca() -> bool:
     # Fallback: try local rca module
     try:
         import rca
-        _RCA_ENGINE = rca.get_engine()
+        _RCA_ANALYZE_FUNC = rca.analyze_exception
         _RCA_AVAILABLE = True
         logger.debug("RCA engine loaded from local rca module")
         return True
@@ -144,10 +144,8 @@ def analyze_error(
         )
 
     try:
-        from checker.core.rca import analyze_exception as _rca_analyze
-
-        ctx = context or {}
-        result = _rca_analyze(exception, ctx)
+        # Gunakan fungsi yang sudah di-cache
+        result = _RCA_ANALYZE_FUNC(exception, context or {})
 
         # Konversi ke RCAResult kita
         return RCAResult(

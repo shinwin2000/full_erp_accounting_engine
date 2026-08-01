@@ -67,17 +67,17 @@ class TestHedgeDesignationRequest:
     """Tests for the HedgeDesignationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            hedge_instrument_id=uuid4(),
-            hedged_item_id=uuid4(),
-            designation_date=date.today(),
-            description="test_value",
-            hedge_type="test_value",
-            risk_components=["test_value"],
-            effectiveness_threshold_lower=Decimal("100.00"),
-            effectiveness_threshold_upper=Decimal("100.00"),
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'hedge_instrument_id': uuid4(),
+            'hedged_item_id': uuid4(),
+            'designation_date': date.today(),
+            'description': "test_value",
+            'hedge_type': "test_value",
+            'risk_components': ["test_value"],
+            'effectiveness_threshold_lower': Decimal("100.00"),
+            'effectiveness_threshold_upper': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """HedgeDesignationRequest can be constructed with valid field values."""
@@ -95,16 +95,16 @@ class TestHedgeDesignationResponse:
     """Tests for the HedgeDesignationResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            hedge_id=uuid4(),
-            hedge_number="test_value",
-            legal_entity_id=uuid4(),
-            hedge_type="test_value",
-            designation_date=date.today(),
-            description="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'hedge_id': uuid4(),
+            'hedge_number': "test_value",
+            'legal_entity_id': uuid4(),
+            'hedge_type': "test_value",
+            'designation_date': date.today(),
+            'description': "test_value",
+            'status': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """HedgeDesignationResponse can be constructed with valid field values."""
@@ -122,12 +122,12 @@ class TestEffectivenessTestRequest:
     """Tests for the EffectivenessTestRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            hedge_id=uuid4(),
-            test_date=date.today(),
-            data_points=[()],
-            prospective=True,
-        )
+        return {
+            'hedge_id': uuid4(),
+            'test_date': date.today(),
+            'data_points': [()],
+            'prospective': True,
+        }
 
     def test_construction_success(self):
         """EffectivenessTestRequest can be constructed with valid field values."""
@@ -145,15 +145,15 @@ class TestEffectivenessTestResponse:
     """Tests for the EffectivenessTestResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            hedge_id=uuid4(),
-            test_date=date.today(),
-            is_effective=True,
-            ratio=Decimal("100.00"),
-            variance=Decimal("100.00"),
-            message="test_value",
-            test_type="test_value",
-        )
+        return {
+            'hedge_id': uuid4(),
+            'test_date': date.today(),
+            'is_effective': True,
+            'ratio': Decimal("100.00"),
+            'variance': Decimal("100.00"),
+            'message': "test_value",
+            'test_type': "test_value",
+        }
 
     def test_construction_success(self):
         """EffectivenessTestResponse can be constructed with valid field values."""
@@ -171,14 +171,14 @@ class TestHedgeJournalRequest:
     """Tests for the HedgeJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            hedge_id=uuid4(),
-            period_end_date=date.today(),
-            description="test_value",
-            fair_value_change_hedge=Decimal("100.00"),
-            fair_value_change_hedged=Decimal("100.00"),
-            user_id=uuid4(),
-        )
+        return {
+            'hedge_id': uuid4(),
+            'period_end_date': date.today(),
+            'description': "test_value",
+            'fair_value_change_hedge': Decimal("100.00"),
+            'fair_value_change_hedged': Decimal("100.00"),
+            'user_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """HedgeJournalRequest can be constructed with valid field values."""
@@ -196,15 +196,15 @@ class TestHedgeJournalResponse:
     """Tests for the HedgeJournalResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            hedge_id=uuid4(),
-            period_end_date=date.today(),
-            debit_account="test_value",
-            credit_account="test_value",
-            amount=Decimal("100.00"),
-            description="test_value",
-        )
+        return {
+            'journal_id': uuid4(),
+            'hedge_id': uuid4(),
+            'period_end_date': date.today(),
+            'debit_account': "test_value",
+            'credit_account': "test_value",
+            'amount': Decimal("100.00"),
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """HedgeJournalResponse can be constructed with valid field values."""
@@ -222,13 +222,13 @@ class TestReclassificationRequest:
     """Tests for the ReclassificationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            hedge_id=uuid4(),
-            reclassification_date=date.today(),
-            amount=Decimal("100.00"),
-            description="test_value",
-            user_id=uuid4(),
-        )
+        return {
+            'hedge_id': uuid4(),
+            'reclassification_date': date.today(),
+            'amount': Decimal("100.00"),
+            'description': "test_value",
+            'user_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """ReclassificationRequest can be constructed with valid field values."""
@@ -341,7 +341,7 @@ class TestHedgeService:
         """Smoke test for HedgeService.designate_hedge using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.designate_hedge(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.designate_hedge(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"designate_hedge needs specific domain fixtures/data: {e}")
             return
@@ -352,7 +352,7 @@ class TestHedgeService:
         """Smoke test for HedgeService.test_effectiveness using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.test_effectiveness(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.test_effectiveness(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"test_effectiveness needs specific domain fixtures/data: {e}")
             return
@@ -363,7 +363,7 @@ class TestHedgeService:
         """Smoke test for HedgeService.record_fair_value_change using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_fair_value_change(request=MagicMock(), correlation_id="test_value")
+            await instance.record_fair_value_change(request=MagicMock(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_fair_value_change needs specific domain fixtures/data: {e}")
             return
@@ -374,7 +374,7 @@ class TestHedgeService:
         """Smoke test for HedgeService.discontinue_hedge using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.discontinue_hedge(hedge_id=uuid4(), discontinuation_date=date.today(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.discontinue_hedge(hedge_id=uuid4(), discontinuation_date=date.today(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"discontinue_hedge needs specific domain fixtures/data: {e}")
             return
@@ -385,7 +385,7 @@ class TestHedgeService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -395,7 +395,7 @@ def test_audit_smoke():
 async def test_create_hedge_service_smoke():
     """Smoke test for module-level function create_hedge_service."""
     try:
-        result = await create_hedge_service(hedge_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_hedge_service(hedge_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_hedge_service needs specific input data: {e}")
         return

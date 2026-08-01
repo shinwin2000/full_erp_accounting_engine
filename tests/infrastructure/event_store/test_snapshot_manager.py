@@ -32,7 +32,7 @@ class TestSnapshotManager:
         """Smoke test for SnapshotManager.create_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_snapshot(aggregate_id="test_value", aggregate_type="test_value", version=1, state={}, metadata={})
+            await instance.create_snapshot(aggregate_id="test_value", aggregate_type="test_value", version=1, state={}, metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSnapshotManager:
         """Smoke test for SnapshotManager.get_latest_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_latest_snapshot(aggregate_id="test_value", aggregate_type="test_value", max_version=1)
+            await instance.get_latest_snapshot(aggregate_id="test_value", aggregate_type="test_value", max_version=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_latest_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSnapshotManager:
         """Smoke test for SnapshotManager.delete_old_snapshots using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_old_snapshots(aggregate_type="test_value", keep_count=1)
+            await instance.delete_old_snapshots(aggregate_type="test_value", keep_count=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_old_snapshots needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSnapshotManager:
         """Smoke test for SnapshotManager.create_table_if_not_exists using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_table_if_not_exists()
+            await instance.create_table_if_not_exists()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_table_if_not_exists needs specific domain fixtures/data: {e}")
             return

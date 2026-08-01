@@ -31,7 +31,7 @@ class TestGlacierColdStorageAdapter:
         """Smoke test for GlacierColdStorageAdapter.archive using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.archive(data=b"test", archive_name="test_value")
+            await instance.archive(data=b"test", archive_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"archive needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestGlacierColdStorageAdapter:
         """Smoke test for GlacierColdStorageAdapter.retrieve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.retrieve(archive_id="test_value")
+            await instance.retrieve(archive_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"retrieve needs specific domain fixtures/data: {e}")
             return

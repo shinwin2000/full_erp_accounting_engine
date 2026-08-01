@@ -91,24 +91,24 @@ class TestNotification:
     """Tests for the Notification value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            channel=NotificationChannel.EMAIL,
-            recipient="test_value",
-            subject="test_value",
-            body="test_value",
-            priority=NotificationPriority.LOW,
-            status=NotificationStatus.PENDING,
-            retry_count=1,
-            scheduled_at=datetime.now(UTC),
-            sent_at=datetime.now(UTC),
-            delivered_at=datetime.now(UTC),
-            error_message="test_value",
-            metadata={},
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'channel': NotificationChannel.EMAIL,
+            'recipient': "test_value",
+            'subject': "test_value",
+            'body': "test_value",
+            'priority': NotificationPriority.LOW,
+            'status': NotificationStatus.PENDING,
+            'retry_count': 1,
+            'scheduled_at': datetime.now(UTC),
+            'sent_at': datetime.now(UTC),
+            'delivered_at': datetime.now(UTC),
+            'error_message': "test_value",
+            'metadata': {},
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """Notification can be constructed with valid field values."""
@@ -126,17 +126,17 @@ class TestNotificationTemplate:
     """Tests for the NotificationTemplate value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            template_type=NotificationTemplateType.JOURNAL_POSTED,
-            channel=NotificationChannel.EMAIL,
-            subject_template="test_value",
-            body_template="test_value",
-            variables=["test_value"],
-            is_active=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'template_type': NotificationTemplateType.JOURNAL_POSTED,
+            'channel': NotificationChannel.EMAIL,
+            'subject_template': "test_value",
+            'body_template': "test_value",
+            'variables': ["test_value"],
+            'is_active': True,
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """NotificationTemplate can be constructed with valid field values."""
@@ -154,11 +154,11 @@ class TestNotificationConfig:
     """Tests for the NotificationConfig value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            channel=NotificationChannel.EMAIL,
-            enabled=True,
-            config={},
-        )
+        return {
+            'channel': NotificationChannel.EMAIL,
+            'enabled': True,
+            'config': {},
+        }
 
     def test_construction_success(self):
         """NotificationConfig can be constructed with valid field values."""
@@ -191,7 +191,7 @@ class TestNotificationPort:
         """Smoke test for NotificationPort.start_worker using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_worker(concurrency=1)
+            await instance.start_worker(concurrency=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_worker needs specific domain fixtures/data: {e}")
             return
@@ -202,7 +202,7 @@ class TestNotificationPort:
         """Smoke test for NotificationPort.stop_worker using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_worker()
+            await instance.stop_worker()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_worker needs specific domain fixtures/data: {e}")
             return
@@ -213,7 +213,7 @@ class TestNotificationPort:
         """Smoke test for NotificationPort.send_email using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_email(to=["test_value"], subject="test_value", body="test_value", priority=NotificationPriority.LOW, metadata={}, created_by=uuid4())
+            await instance.send_email(to=["test_value"], subject="test_value", body="test_value", priority=NotificationPriority.LOW, metadata={}, created_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_email needs specific domain fixtures/data: {e}")
             return
@@ -224,7 +224,7 @@ class TestNotificationPort:
         """Smoke test for NotificationPort.send_whatsapp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_whatsapp(to="test_value", message="test_value", priority=NotificationPriority.LOW, metadata={}, created_by=uuid4())
+            await instance.send_whatsapp(to="test_value", message="test_value", priority=NotificationPriority.LOW, metadata={}, created_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_whatsapp needs specific domain fixtures/data: {e}")
             return

@@ -44,7 +44,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.get_by_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_transaction(transaction_id=uuid4(), legal_entity_id=uuid4())
+            instance.get_by_transaction(transaction_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_transaction needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.get_by_transaction_and_approver using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_transaction_and_approver(transaction_id=uuid4(), approver_id="test_value", legal_entity_id=uuid4())
+            instance.get_by_transaction_and_approver(transaction_id=uuid4(), approver_id="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_transaction_and_approver needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.add_approval using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_approval(transaction_id=uuid4(), legal_entity_id=uuid4(), approver_id="test_value", approval_level=1, notes="test_value", approved_at=datetime.now(UTC))
+            instance.add_approval(transaction_id=uuid4(), legal_entity_id=uuid4(), approver_id="test_value", approval_level=1, notes="test_value", approved_at=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_approval needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackApprovalRepository:
         """Smoke test for _FallbackApprovalRepository.clear using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.clear()
+            instance.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_id(journal_id=uuid4(), legal_entity_id=uuid4())
+            instance.get_by_id(journal_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.add_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_journal(journal_id=uuid4(), legal_entity_id=uuid4(), journal_type="test_value", amount=Decimal("100.00"))
+            instance.add_journal(journal_id=uuid4(), legal_entity_id=uuid4(), journal_type="test_value", amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_journal needs specific domain fixtures/data: {e}")
             return
@@ -169,17 +169,17 @@ class TestApprovalRecord:
     """Tests for the ApprovalRecord value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            approval_id=uuid4(),
-            transaction_id=uuid4(),
-            legal_entity_id=uuid4(),
-            approver_id="test_value",
-            approval_level=1,
-            status=ApprovalStatus.PENDING,
-            notes="test_value",
-            approved_at=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "approval_id": uuid4(),
+            "transaction_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "approver_id": "test_value",
+            "approval_level": 1,
+            "status": ApprovalStatus.PENDING,
+            "notes": "test_value",
+            "approved_at": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """ApprovalRecord can be constructed with valid field values."""
@@ -212,7 +212,7 @@ class TestDualApprovalEnforcer:
         """Smoke test for DualApprovalEnforcer.enable using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.enable(enabled=True)
+            instance.enable(enabled=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"enable needs specific domain fixtures/data: {e}")
             return
@@ -223,7 +223,7 @@ class TestDualApprovalEnforcer:
         """Smoke test for DualApprovalEnforcer.set_threshold using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_threshold(transaction_type="test_value", threshold=Decimal("100.00"))
+            instance.set_threshold(transaction_type="test_value", threshold=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_threshold needs specific domain fixtures/data: {e}")
             return
@@ -234,7 +234,7 @@ class TestDualApprovalEnforcer:
         """Smoke test for DualApprovalEnforcer.requires_dual_approval using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.requires_dual_approval(transaction_type="test_value", amount=Decimal("100.00"))
+            instance.requires_dual_approval(transaction_type="test_value", amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"requires_dual_approval needs specific domain fixtures/data: {e}")
             return
@@ -245,7 +245,7 @@ class TestDualApprovalEnforcer:
         """Smoke test for DualApprovalEnforcer.check_approval_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check_approval_status(transaction_id=uuid4(), transaction_type="test_value", legal_entity_id=uuid4())
+            instance.check_approval_status(transaction_id=uuid4(), transaction_type="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_approval_status needs specific domain fixtures/data: {e}")
             return
@@ -256,7 +256,7 @@ class TestDualApprovalEnforcer:
 def test_get_dual_approval_enforcer_smoke():
     """Smoke test for module-level function get_dual_approval_enforcer."""
     try:
-        result = get_dual_approval_enforcer()
+        get_dual_approval_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_dual_approval_enforcer needs specific input data: {e}")
         return

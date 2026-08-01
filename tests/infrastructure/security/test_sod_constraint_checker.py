@@ -70,7 +70,7 @@ class TestSODConstraintChecker:
         """Smoke test for SODConstraintChecker.check_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_user(user_id=uuid4(), legal_entity_id=uuid4())
+            await instance.check_user(user_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_user needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestSODConstraintChecker:
         """Smoke test for SODConstraintChecker.enforce using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce(user_id=uuid4(), legal_entity_id=uuid4())
+            await instance.enforce(user_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestSODConstraintChecker:
         """Smoke test for SODConstraintChecker.check_users_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_users_batch(user_ids=[uuid4()], legal_entity_id=uuid4())
+            await instance.check_users_batch(user_ids=[uuid4()], legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_users_batch needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestSODConstraintChecker:
         """Smoke test for SODConstraintChecker.check_permission_combination using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_permission_combination(permissions=["test_value"])
+            await instance.check_permission_combination(permissions=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_permission_combination needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestSODConstraintChecker:
 async def test_get_sod_checker_smoke():
     """Smoke test for module-level function get_sod_checker."""
     try:
-        result = await get_sod_checker()
+        await get_sod_checker()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_sod_checker needs specific input data: {e}")
         return
@@ -124,7 +124,7 @@ async def test_get_sod_checker_smoke():
 def test_enforce_sod_smoke():
     """Smoke test for module-level function enforce_sod."""
     try:
-        result = enforce_sod()
+        enforce_sod()
     except (Exception, SystemExit) as e:
         pytest.skip(f"enforce_sod needs specific input data: {e}")
         return

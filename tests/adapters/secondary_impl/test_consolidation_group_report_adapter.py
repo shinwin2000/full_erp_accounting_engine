@@ -36,7 +36,7 @@ class TestConsolidationGroupReportAdapter:
         """Smoke test for ConsolidationGroupReportAdapter.set_service using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_service(service=MagicMock())
+            instance.set_service(service=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_service needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestConsolidationGroupReportAdapter:
         """Smoke test for ConsolidationGroupReportAdapter.generate_report using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_report(group_id=uuid4(), period_start=date.today(), period_end=date.today(), include_intercompany=True, include_nci=True)
+            await instance.generate_report(group_id=uuid4(), period_start=date.today(), period_end=date.today(), include_intercompany=True, include_nci=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_report needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestConsolidationGroupReportAdapter:
         """Smoke test for ConsolidationGroupReportAdapter.get_intercompany_balances using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_intercompany_balances(group_id=uuid4(), as_of_date=date.today())
+            await instance.get_intercompany_balances(group_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_intercompany_balances needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestConsolidationGroupReportAdapter:
         """Smoke test for ConsolidationGroupReportAdapter.get_consolidated_balance_sheet using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_consolidated_balance_sheet(group_id=uuid4(), as_of_date=date.today(), include_nci=True)
+            await instance.get_consolidated_balance_sheet(group_id=uuid4(), as_of_date=date.today(), include_nci=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_consolidated_balance_sheet needs specific domain fixtures/data: {e}")
             return

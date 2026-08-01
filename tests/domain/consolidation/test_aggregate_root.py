@@ -176,7 +176,7 @@ class TestConsolidationGroup:
 
     def test_nci(self, consolidation_group, subsidiary):
         nci = consolidation_group.nci
-        expected = (Decimal("20") / Decimal("100")) * Decimal("500000000")  # 20% of 500M
+        (Decimal("20") / Decimal("100")) * Decimal("500000000")  # 20% of 500M
         assert nci == Decimal("100000000.00")
 
     # ---- Entity Dasar Methods ----

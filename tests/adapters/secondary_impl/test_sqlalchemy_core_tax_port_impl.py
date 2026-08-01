@@ -27,8 +27,8 @@ class TestCoreTaxSubmissionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CoreTaxSubmissionTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -56,7 +56,7 @@ class TestSQLAlchemyCoreTaxAdapter:
         """Smoke test for SQLAlchemyCoreTaxAdapter.submit_tax using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.submit_tax(data={})
+            await instance.submit_tax(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"submit_tax needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyCoreTaxAdapter:
         """Smoke test for SQLAlchemyCoreTaxAdapter.get_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_status(submission_id="test_value")
+            await instance.get_status(submission_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_status needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestSQLAlchemyCoreTaxAdapter:
         """Smoke test for SQLAlchemyCoreTaxAdapter.calculate_tax using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.calculate_tax(data={})
+            await instance.calculate_tax(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_tax needs specific domain fixtures/data: {e}")
             return
@@ -89,7 +89,7 @@ class TestSQLAlchemyCoreTaxAdapter:
         """Smoke test for SQLAlchemyCoreTaxAdapter.validate_tax_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate_tax_id(tax_id="test_value")
+            await instance.validate_tax_id(tax_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_tax_id needs specific domain fixtures/data: {e}")
             return

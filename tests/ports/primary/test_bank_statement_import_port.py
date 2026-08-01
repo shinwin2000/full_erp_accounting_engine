@@ -58,20 +58,20 @@ class TestStatementTransaction:
     """Tests for the StatementTransaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            transaction_date=date.today(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            description="test_value",
-            reference_number="test_value",
-            counterparty_name="test_value",
-            counterparty_account="test_value",
-            transaction_type="test_value",
-            statement_balance=Decimal("100.00"),
-            unique_id="test_value",
-            original_data={},
-        )
+        return {
+            'id': uuid4(),
+            'transaction_date': date.today(),
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'description': "test_value",
+            'reference_number': "test_value",
+            'counterparty_name': "test_value",
+            'counterparty_account': "test_value",
+            'transaction_type': "test_value",
+            'statement_balance': Decimal("100.00"),
+            'unique_id': "test_value",
+            'original_data': {},
+        }
 
     def test_construction_success(self):
         """StatementTransaction can be constructed with valid field values."""
@@ -89,25 +89,25 @@ class TestBankStatementImport:
     """Tests for the BankStatementImport value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            bank_account_id=uuid4(),
-            file_name="test_value",
-            file_hash="test_value",
-            statement_date=date.today(),
-            statement_balance=Decimal("100.00"),
-            statement_balance_date=date.today(),
-            format=StatementFormat.MT940,
-            status=ImportStatus.PENDING,
-            total_transactions=1,
-            imported_transactions=1,
-            duplicate_transactions=1,
-            failed_transactions=1,
-            errors=["test_value"],
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            completed_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'bank_account_id': uuid4(),
+            'file_name': "test_value",
+            'file_hash': "test_value",
+            'statement_date': date.today(),
+            'statement_balance': Decimal("100.00"),
+            'statement_balance_date': date.today(),
+            'format': StatementFormat.MT940,
+            'status': ImportStatus.PENDING,
+            'total_transactions': 1,
+            'imported_transactions': 1,
+            'duplicate_transactions': 1,
+            'failed_transactions': 1,
+            'errors': ["test_value"],
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'completed_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """BankStatementImport can be constructed with valid field values."""
@@ -140,7 +140,7 @@ class TestBankStatementImportPort:
         """Smoke test for BankStatementImportPort.parse_mt940 using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.parse_mt940(file_content="test_value")
+            await instance.parse_mt940(file_content="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"parse_mt940 needs specific domain fixtures/data: {e}")
             return
@@ -151,7 +151,7 @@ class TestBankStatementImportPort:
         """Smoke test for BankStatementImportPort.parse_camt using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.parse_camt(file_content="test_value")
+            await instance.parse_camt(file_content="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"parse_camt needs specific domain fixtures/data: {e}")
             return
@@ -162,7 +162,7 @@ class TestBankStatementImportPort:
         """Smoke test for BankStatementImportPort.parse_csv using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.parse_csv(file_content="test_value", bank_format="test_value")
+            await instance.parse_csv(file_content="test_value", bank_format="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"parse_csv needs specific domain fixtures/data: {e}")
             return
@@ -173,7 +173,7 @@ class TestBankStatementImportPort:
         """Smoke test for BankStatementImportPort.parse_and_import using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.parse_and_import(file_content="test_value", file_name="test_value", bank_account_id=uuid4(), user_id=uuid4(), statement_date=date.today(), override_format=StatementFormat.MT940)
+            await instance.parse_and_import(file_content="test_value", file_name="test_value", bank_account_id=uuid4(), user_id=uuid4(), statement_date=date.today(), override_format=StatementFormat.MT940)
         except (Exception, SystemExit) as e:
             pytest.skip(f"parse_and_import needs specific domain fixtures/data: {e}")
             return

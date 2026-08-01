@@ -286,11 +286,15 @@ class CircuitBreaker(BaseCircuitBreaker):
                 self._failure_timestamps.clear()
 
     def _update_state(self) -> None:
-        if self._state == CircuitState.OPEN and self._open_time:
-            if time.time() - self._open_time >= self.config.timeout_seconds:
-                self._transition_to(CircuitState.HALF_OPEN)
-                self._success_count = 0
-                self._half_open_calls = 0
+        # Gabungkan dua kondisi sesuai saran SIM102
+        if (
+            self._state == CircuitState.OPEN
+            and self._open_time is not None
+            and (time.time() - self._open_time) >= self.config.timeout_seconds
+        ):
+            self._transition_to(CircuitState.HALF_OPEN)
+            self._success_count = 0
+            self._half_open_calls = 0
 
     def _transition_to(self, new_state: CircuitState) -> None:
         old_state = self._state

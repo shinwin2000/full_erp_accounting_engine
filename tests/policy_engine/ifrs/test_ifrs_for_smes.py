@@ -90,12 +90,12 @@ class TestIFRSForSMESOption:
     """Tests for the IFRSForSMESOption value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            section=IFRSForSMESSection.SCOPE,
-            option_description="test_value",
-            is_elected=True,
-            election_date=datetime.now(UTC),
-        )
+        return {
+            'section': IFRSForSMESSection.SCOPE,
+            'option_description': "test_value",
+            'is_elected': True,
+            'election_date': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """IFRSForSMESOption can be constructed with valid field values."""
@@ -113,16 +113,16 @@ class TestIFRSForSMESEntityStatus:
     """Tests for the IFRSForSMESEntityStatus value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            entity_id=uuid4(),
-            entity_name="test_value",
-            is_publicly_accountable=True,
-            is_sme=True,
-            adoption_date=datetime.now(UTC),
-            applied_sections=[IFRSForSMESSection.SCOPE],
-            elected_options=[MagicMock()],
-            exemptions_taken=[IFRSForSMESExemption.DEFERRED_TAX],
-        )
+        return {
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'is_publicly_accountable': True,
+            'is_sme': True,
+            'adoption_date': datetime.now(UTC),
+            'applied_sections': [IFRSForSMESSection.SCOPE],
+            'elected_options': [MagicMock()],
+            'exemptions_taken': [IFRSForSMESExemption.DEFERRED_TAX],
+        }
 
     def test_construction_success(self):
         """IFRSForSMESEntityStatus can be constructed with valid field values."""
@@ -154,8 +154,8 @@ class TestIFRSForSMESService:
     def test_is_eligible_smoke(self):
         """Smoke test for IFRSForSMESService.is_eligible using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRSForSMESService.is_eligible(is_publicly_accountable=True, is_sme_by_local_definition=True)
+            self._build_instance()
+            IFRSForSMESService.is_eligible(is_publicly_accountable=True, is_sme_by_local_definition=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_eligible needs specific domain fixtures/data: {e}")
             return
@@ -165,8 +165,8 @@ class TestIFRSForSMESService:
     def test_measure_inventory_simplified_smoke(self):
         """Smoke test for IFRSForSMESService.measure_inventory_simplified using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRSForSMESService.measure_inventory_simplified(cost=MagicMock(), nrv=MagicMock())
+            self._build_instance()
+            IFRSForSMESService.measure_inventory_simplified(cost=MagicMock(), nrv=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"measure_inventory_simplified needs specific domain fixtures/data: {e}")
             return
@@ -176,8 +176,8 @@ class TestIFRSForSMESService:
     def test_amortize_intangible_smoke(self):
         """Smoke test for IFRSForSMESService.amortize_intangible using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRSForSMESService.amortize_intangible(cost=MagicMock(), useful_life_years=1, residual=MagicMock())
+            self._build_instance()
+            IFRSForSMESService.amortize_intangible(cost=MagicMock(), useful_life_years=1, residual=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"amortize_intangible needs specific domain fixtures/data: {e}")
             return
@@ -187,8 +187,8 @@ class TestIFRSForSMESService:
     def test_recognize_financial_instruments_simplified_smoke(self):
         """Smoke test for IFRSForSMESService.recognize_financial_instruments_simplified using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRSForSMESService.recognize_financial_instruments_simplified(cost=MagicMock(), is_trading=True)
+            self._build_instance()
+            IFRSForSMESService.recognize_financial_instruments_simplified(cost=MagicMock(), is_trading=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"recognize_financial_instruments_simplified needs specific domain fixtures/data: {e}")
             return
@@ -200,11 +200,11 @@ class TestIFRSForSMESValidationResult:
     """Tests for the IFRSForSMESValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IFRSForSMESValidationResult can be constructed with valid field values."""
@@ -236,8 +236,8 @@ class TestIFRSForSMESRules:
     def test_validate_goodwill_amortization_smoke(self):
         """Smoke test for IFRSForSMESRules.validate_goodwill_amortization using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRSForSMESRules.validate_goodwill_amortization(goodwill_amount=MagicMock(), useful_life_years=1)
+            self._build_instance()
+            IFRSForSMESRules.validate_goodwill_amortization(goodwill_amount=MagicMock(), useful_life_years=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_goodwill_amortization needs specific domain fixtures/data: {e}")
             return
@@ -264,7 +264,7 @@ class TestIFRSForSMESValidator:
         """Smoke test for IFRSForSMESValidator.validate_entity_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_entity_status(status=MagicMock())
+            instance.validate_entity_status(status=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_entity_status needs specific domain fixtures/data: {e}")
             return
@@ -275,7 +275,7 @@ class TestIFRSForSMESValidator:
         """Smoke test for IFRSForSMESValidator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -286,7 +286,7 @@ class TestIFRSForSMESValidator:
 def test_get_ifrs_for_smes_validator_smoke():
     """Smoke test for module-level function get_ifrs_for_smes_validator."""
     try:
-        result = get_ifrs_for_smes_validator()
+        get_ifrs_for_smes_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ifrs_for_smes_validator needs specific input data: {e}")
         return

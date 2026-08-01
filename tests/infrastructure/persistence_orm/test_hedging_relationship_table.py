@@ -26,31 +26,31 @@ class TestHedgingRelationshipTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            hedge_type="test_value",
-            hedge_status="test_value",
-            designation_date=date.today(),
-            effective_start_date=date.today(),
-            effective_end_date=date.today(),
-            hedged_item_type="test_value",
-            hedged_item_id=uuid4(),
-            hedged_item_description="test_value",
-            hedging_instrument_type="test_value",
-            hedging_instrument_id=uuid4(),
-            notional_amount=Decimal("100.00"),
-            currency_code="test_value",
-            hedge_ratio=Decimal("100.00"),
-            ineffectiveness_amount=Decimal("100.00"),
-            ineffectiveness_reason="test_value",
-            documentation_path="test_value",
-            version=1,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'hedge_type': "test_value",
+            'hedge_status': "test_value",
+            'designation_date': date.today(),
+            'effective_start_date': date.today(),
+            'effective_end_date': date.today(),
+            'hedged_item_type': "test_value",
+            'hedged_item_id': uuid4(),
+            'hedged_item_description': "test_value",
+            'hedging_instrument_type': "test_value",
+            'hedging_instrument_id': uuid4(),
+            'notional_amount': Decimal("100.00"),
+            'currency_code': "test_value",
+            'hedge_ratio': Decimal("100.00"),
+            'ineffectiveness_amount': Decimal("100.00"),
+            'ineffectiveness_reason': "test_value",
+            'documentation_path': "test_value",
+            'version': 1,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+        }
         try:
             instance = HedgingRelationshipTable(**kwargs)
         except (Exception, SystemExit) as e:

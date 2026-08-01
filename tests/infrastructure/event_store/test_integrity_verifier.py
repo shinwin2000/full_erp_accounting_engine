@@ -32,7 +32,7 @@ class TestIntegrityVerifier:
         """Smoke test for IntegrityVerifier.verify_stream_integrity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_stream_integrity(stream_name="test_value")
+            await instance.verify_stream_integrity(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_stream_integrity needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestIntegrityVerifier:
         """Smoke test for IntegrityVerifier.verify_all_streams using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_all_streams(max_concurrent=1, on_progress=(lambda *a, **kw: None))
+            await instance.verify_all_streams(max_concurrent=1, on_progress=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_all_streams needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestIntegrityVerifier:
         """Smoke test for IntegrityVerifier.verify_hash_chain using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_hash_chain(stream_name="test_value")
+            await instance.verify_hash_chain(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_hash_chain needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestIntegrityVerifier:
         """Smoke test for IntegrityVerifier.verify_no_missing_events using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_no_missing_events(stream_name="test_value")
+            await instance.verify_no_missing_events(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_no_missing_events needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestIntegrityVerifier:
 async def test_get_integrity_verifier_smoke():
     """Smoke test for module-level function get_integrity_verifier."""
     try:
-        result = await get_integrity_verifier()
+        await get_integrity_verifier()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_integrity_verifier needs specific input data: {e}")
         return

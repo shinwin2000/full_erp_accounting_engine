@@ -120,7 +120,7 @@ class TestSQLAlchemyARRepository:
         """Smoke test for SQLAlchemyARRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(invoice=MagicMock())
+            await instance.add(invoice=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestSQLAlchemyARRepository:
         """Smoke test for SQLAlchemyARRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(invoice_id=uuid4())
+            await instance.get_by_id(invoice_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -142,7 +142,7 @@ class TestSQLAlchemyARRepository:
         """Smoke test for SQLAlchemyARRepository.get_by_invoice_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_invoice_number(invoice_number="test_value", legal_entity_id=uuid4())
+            await instance.get_by_invoice_number(invoice_number="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_invoice_number needs specific domain fixtures/data: {e}")
             return
@@ -153,7 +153,7 @@ class TestSQLAlchemyARRepository:
         """Smoke test for SQLAlchemyARRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(invoice=MagicMock())
+            await instance.update(invoice=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return

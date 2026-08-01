@@ -52,7 +52,7 @@ class TestIFRS16Validator:
         """Smoke test for IFRS16Validator.create_lease using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_lease(lease_number="test_value", asset_id=uuid4(), asset_name="test_value", lessor_name="test_value", commencement_date=datetime.now(UTC), lease_term_years=1, annual_payment=Decimal("100.00"), discount_rate=Decimal("100.00"), currency="test_value", payment_timing=MagicMock())
+            instance.create_lease(lease_number="test_value", asset_id=uuid4(), asset_name="test_value", lessor_name="test_value", commencement_date=datetime.now(UTC), lease_term_years=1, annual_payment=Decimal("100.00"), discount_rate=Decimal("100.00"), currency="test_value", payment_timing=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_lease needs specific domain fixtures/data: {e}")
             return
@@ -63,7 +63,7 @@ class TestIFRS16Validator:
         """Smoke test for IFRS16Validator.calculate_right_of_use_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_right_of_use_asset(lease=MagicMock(), initial_direct_costs=Decimal("100.00"), lease_incentives=Decimal("100.00"))
+            instance.calculate_right_of_use_asset(lease=MagicMock(), initial_direct_costs=Decimal("100.00"), lease_incentives=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_right_of_use_asset needs specific domain fixtures/data: {e}")
             return
@@ -74,7 +74,7 @@ class TestIFRS16Validator:
         """Smoke test for IFRS16Validator.calculate_lease_liability using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_lease_liability(lease=MagicMock())
+            instance.calculate_lease_liability(lease=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_lease_liability needs specific domain fixtures/data: {e}")
             return
@@ -85,7 +85,7 @@ class TestIFRS16Validator:
         """Smoke test for IFRS16Validator.record_lease_payment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_lease_payment(liability=MagicMock(), payment_amount=Decimal("100.00"))
+            instance.record_lease_payment(liability=MagicMock(), payment_amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_lease_payment needs specific domain fixtures/data: {e}")
             return
@@ -111,8 +111,8 @@ class TestIFRS16:
     def test_calculate_right_of_use_asset_smoke(self):
         """Smoke test for IFRS16.calculate_right_of_use_asset using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS16.calculate_right_of_use_asset(lease_payments=[Decimal("100.00")], discount_rate=Decimal("100.00"), initial_direct_costs=Decimal("100.00"))
+            self._build_instance()
+            IFRS16.calculate_right_of_use_asset(lease_payments=[Decimal("100.00")], discount_rate=Decimal("100.00"), initial_direct_costs=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_right_of_use_asset needs specific domain fixtures/data: {e}")
             return
@@ -122,8 +122,8 @@ class TestIFRS16:
     def test_reassess_lease_term_smoke(self):
         """Smoke test for IFRS16.reassess_lease_term using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IFRS16.reassess_lease_term(original_term=1, renewal_option_reasonably_certain=True)
+            self._build_instance()
+            IFRS16.reassess_lease_term(original_term=1, renewal_option_reasonably_certain=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"reassess_lease_term needs specific domain fixtures/data: {e}")
             return
@@ -134,7 +134,7 @@ class TestIFRS16:
 def test_get_ifrs16_validator_smoke():
     """Smoke test for module-level function get_ifrs16_validator."""
     try:
-        result = get_ifrs16_validator()
+        get_ifrs16_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ifrs16_validator needs specific input data: {e}")
         return

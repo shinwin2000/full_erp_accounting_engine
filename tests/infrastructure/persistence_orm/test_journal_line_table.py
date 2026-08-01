@@ -26,22 +26,22 @@ class TestJournalLineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            journal_id=uuid4(),
-            account_code="test_value",
-            line_number=1,
-            description="test_value",
-            debit_amount=Decimal("100.00"),
-            credit_amount=Decimal("0"),
-            currency="test_value",
-            cost_center="test_value",
-            department="test_value",
-            account_name="test_value",
-            audit_metadata={},
-            journal=MagicMock(),
-            account=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'journal_id': uuid4(),
+            'account_code': "test_value",
+            'line_number': 1,
+            'description': "test_value",
+            'debit_amount': Decimal("100.00"),
+            'credit_amount': Decimal("0"),
+            'currency': "test_value",
+            'cost_center': "test_value",
+            'department': "test_value",
+            'account_name': "test_value",
+            'audit_metadata': {},
+            'journal': MagicMock(),
+            'account': MagicMock(),
+        }
         try:
             instance = JournalLineTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -31,7 +31,7 @@ class TestBankMT940ParserAdapter:
         """Smoke test for BankMT940ParserAdapter.parse using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.parse(content="test_value")
+            instance.parse(content="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"parse needs specific domain fixtures/data: {e}")
             return

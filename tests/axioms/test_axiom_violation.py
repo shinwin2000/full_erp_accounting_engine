@@ -122,7 +122,7 @@ class TestAxiomViolationRecord:
 
 class TestAxiomViolationError:
     def test_construction(self):
-        now = datetime.now(UTC)
+        datetime.now(UTC)
         instance = AxiomViolationError(
             message="Test error",
             axiom_type=AxiomType.CONSERVATION_OF_VALUE,

@@ -180,10 +180,10 @@ class TestPSAK71CashFlow:
     """Tests for the PSAK71CashFlow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            amount=Decimal("100.00"),
-            date=date.today(),
-        )
+        return {
+            'amount': Decimal("100.00"),
+            'date': date.today(),
+        }
 
     def test_construction_success(self):
         """PSAK71CashFlow can be constructed with valid field values."""
@@ -201,16 +201,16 @@ class TestPSAK71HedgeRelationship:
     """Tests for the PSAK71HedgeRelationship value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            hedge_id=uuid4(),
-            hedge_type=PSAK71HedgeType.FAIR_VALUE_HEDGE,
-            hedged_item_id=uuid4(),
-            hedging_instrument_id=uuid4(),
-            designation_date=datetime.now(UTC),
-            effectiveness_ratio=Decimal("100.00"),
-            status=PSAK71HedgeEffectivenessStatus.EFFECTIVE,
-            ineffectiveness_recognized=Decimal("100.00"),
-        )
+        return {
+            'hedge_id': uuid4(),
+            'hedge_type': PSAK71HedgeType.FAIR_VALUE_HEDGE,
+            'hedged_item_id': uuid4(),
+            'hedging_instrument_id': uuid4(),
+            'designation_date': datetime.now(UTC),
+            'effectiveness_ratio': Decimal("100.00"),
+            'status': PSAK71HedgeEffectivenessStatus.EFFECTIVE,
+            'ineffectiveness_recognized': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """PSAK71HedgeRelationship can be constructed with valid field values."""
@@ -228,22 +228,22 @@ class TestPSAK71FinancialAsset:
     """Tests for the PSAK71FinancialAsset value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            asset_name="test_value",
-            principal=Decimal("100.00"),
-            interest_rate=Decimal("100.00"),
-            effective_interest_rate=Decimal("100.00"),
-            acquisition_date=datetime.now(UTC),
-            maturity_date=datetime.now(UTC),
-            category=PSAK71FinancialAssetCategory.AMORTIZED_COST,
-            business_model=PSAK71BusinessModel.HOLD_TO_COLLECT,
-            amortized_cost=Decimal("100.00"),
-            fair_value=Decimal("100.00"),
-            accumulated_impairment=Decimal("100.00"),
-            ecl_stage=PSAK71ECLStage.STAGE_1,
-            modification_gain_loss=Decimal("100.00"),
-        )
+        return {
+            'asset_id': uuid4(),
+            'asset_name': "test_value",
+            'principal': Decimal("100.00"),
+            'interest_rate': Decimal("100.00"),
+            'effective_interest_rate': Decimal("100.00"),
+            'acquisition_date': datetime.now(UTC),
+            'maturity_date': datetime.now(UTC),
+            'category': PSAK71FinancialAssetCategory.AMORTIZED_COST,
+            'business_model': PSAK71BusinessModel.HOLD_TO_COLLECT,
+            'amortized_cost': Decimal("100.00"),
+            'fair_value': Decimal("100.00"),
+            'accumulated_impairment': Decimal("100.00"),
+            'ecl_stage': PSAK71ECLStage.STAGE_1,
+            'modification_gain_loss': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """PSAK71FinancialAsset can be constructed with valid field values."""
@@ -261,15 +261,15 @@ class TestPSAK71ExpectedCreditLoss:
     """Tests for the PSAK71ExpectedCreditLoss value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            ecl_id=uuid4(),
-            asset_id=uuid4(),
-            stage=PSAK71ECLStage.STAGE_1,
-            exposure_at_default=Decimal("100.00"),
-            probability_default=Decimal("100.00"),
-            loss_given_default=Decimal("100.00"),
-            ecl_amount=Decimal("100.00"),
-        )
+        return {
+            'ecl_id': uuid4(),
+            'asset_id': uuid4(),
+            'stage': PSAK71ECLStage.STAGE_1,
+            'exposure_at_default': Decimal("100.00"),
+            'probability_default': Decimal("100.00"),
+            'loss_given_default': Decimal("100.00"),
+            'ecl_amount': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """PSAK71ExpectedCreditLoss can be constructed with valid field values."""
@@ -287,13 +287,13 @@ class TestPSAK71ValidationResult:
     """Tests for the PSAK71ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK71ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK71ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK71ValidationResult can be constructed with valid field values."""
@@ -325,8 +325,8 @@ class TestPSAK71FinancialInstrumentService:
     def test_perform_sppi_test_smoke(self):
         """Smoke test for PSAK71FinancialInstrumentService.perform_sppi_test using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK71FinancialInstrumentService.perform_sppi_test(contractual_cash_flows=[MagicMock()], principal=Decimal("100.00"), interest_rate=Decimal("100.00"), is_variable_rate=True)
+            self._build_instance()
+            PSAK71FinancialInstrumentService.perform_sppi_test(contractual_cash_flows=[MagicMock()], principal=Decimal("100.00"), interest_rate=Decimal("100.00"), is_variable_rate=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"perform_sppi_test needs specific domain fixtures/data: {e}")
             return
@@ -336,8 +336,8 @@ class TestPSAK71FinancialInstrumentService:
     def test_classify_financial_asset_smoke(self):
         """Smoke test for PSAK71FinancialInstrumentService.classify_financial_asset using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK71FinancialInstrumentService.classify_financial_asset(business_model=PSAK71BusinessModel.HOLD_TO_COLLECT, sppi_result=PSAK71SPPITestResult.PASS, fair_value_option_elected=True)
+            self._build_instance()
+            PSAK71FinancialInstrumentService.classify_financial_asset(business_model=PSAK71BusinessModel.HOLD_TO_COLLECT, sppi_result=PSAK71SPPITestResult.PASS, fair_value_option_elected=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"classify_financial_asset needs specific domain fixtures/data: {e}")
             return
@@ -347,8 +347,8 @@ class TestPSAK71FinancialInstrumentService:
     def test_determine_ecl_stage_smoke(self):
         """Smoke test for PSAK71FinancialInstrumentService.determine_ecl_stage using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK71FinancialInstrumentService.determine_ecl_stage(days_past_due=1, significant_increase_in_credit_risk=True, credit_impaired=True)
+            self._build_instance()
+            PSAK71FinancialInstrumentService.determine_ecl_stage(days_past_due=1, significant_increase_in_credit_risk=True, credit_impaired=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_ecl_stage needs specific domain fixtures/data: {e}")
             return
@@ -358,8 +358,8 @@ class TestPSAK71FinancialInstrumentService:
     def test_calculate_ecl_smoke(self):
         """Smoke test for PSAK71FinancialInstrumentService.calculate_ecl using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK71FinancialInstrumentService.calculate_ecl(ead=Decimal("100.00"), pd=Decimal("100.00"), lgd=Decimal("100.00"), stage=PSAK71ECLStage.STAGE_1, lifetime_pd=Decimal("100.00"))
+            self._build_instance()
+            PSAK71FinancialInstrumentService.calculate_ecl(ead=Decimal("100.00"), pd=Decimal("100.00"), lgd=Decimal("100.00"), stage=PSAK71ECLStage.STAGE_1, lifetime_pd=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_ecl needs specific domain fixtures/data: {e}")
             return
@@ -385,8 +385,8 @@ class TestPSAK71Rules:
     def test_validate_asset_smoke(self):
         """Smoke test for PSAK71Rules.validate_asset using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK71Rules.validate_asset(asset=MagicMock())
+            self._build_instance()
+            PSAK71Rules.validate_asset(asset=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_asset needs specific domain fixtures/data: {e}")
             return
@@ -396,8 +396,8 @@ class TestPSAK71Rules:
     def test_validate_ecl_stage_transition_smoke(self):
         """Smoke test for PSAK71Rules.validate_ecl_stage_transition using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK71Rules.validate_ecl_stage_transition(old_stage=PSAK71ECLStage.STAGE_1, new_stage=PSAK71ECLStage.STAGE_1)
+            self._build_instance()
+            PSAK71Rules.validate_ecl_stage_transition(old_stage=PSAK71ECLStage.STAGE_1, new_stage=PSAK71ECLStage.STAGE_1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_ecl_stage_transition needs specific domain fixtures/data: {e}")
             return
@@ -424,7 +424,7 @@ class TestPSAK71Validator:
         """Smoke test for PSAK71Validator.create_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_asset(asset_name="test_value", principal=Decimal("100.00"), interest_rate=Decimal("100.00"), acquisition_date=datetime.now(UTC), maturity_date=datetime.now(UTC), business_model=PSAK71BusinessModel.HOLD_TO_COLLECT, fair_value_option_elected=True, contractual_cash_flows=[MagicMock()])
+            instance.create_asset(asset_name="test_value", principal=Decimal("100.00"), interest_rate=Decimal("100.00"), acquisition_date=datetime.now(UTC), maturity_date=datetime.now(UTC), business_model=PSAK71BusinessModel.HOLD_TO_COLLECT, fair_value_option_elected=True, contractual_cash_flows=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_asset needs specific domain fixtures/data: {e}")
             return
@@ -435,7 +435,7 @@ class TestPSAK71Validator:
         """Smoke test for PSAK71Validator.calculate_amortized_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_amortized_cost(asset=MagicMock(), period_end=datetime.now(UTC))
+            instance.calculate_amortized_cost(asset=MagicMock(), period_end=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_amortized_cost needs specific domain fixtures/data: {e}")
             return
@@ -446,7 +446,7 @@ class TestPSAK71Validator:
         """Smoke test for PSAK71Validator.update_ecl_stage using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_ecl_stage(asset=MagicMock(), days_past_due=1, significant_increase_in_credit_risk=True, credit_impaired=True, pd_12m=Decimal("100.00"), pd_lifetime=Decimal("100.00"), lgd=Decimal("100.00"), ead=Decimal("100.00"))
+            instance.update_ecl_stage(asset=MagicMock(), days_past_due=1, significant_increase_in_credit_risk=True, credit_impaired=True, pd_12m=Decimal("100.00"), pd_lifetime=Decimal("100.00"), lgd=Decimal("100.00"), ead=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_ecl_stage needs specific domain fixtures/data: {e}")
             return
@@ -457,7 +457,7 @@ class TestPSAK71Validator:
         """Smoke test for PSAK71Validator.hedge_effectiveness_test using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.hedge_effectiveness_test(change_hedged_item=Decimal("100.00"), change_hedging_instrument=Decimal("100.00"), hedge_type=PSAK71HedgeType.FAIR_VALUE_HEDGE)
+            instance.hedge_effectiveness_test(change_hedged_item=Decimal("100.00"), change_hedging_instrument=Decimal("100.00"), hedge_type=PSAK71HedgeType.FAIR_VALUE_HEDGE)
         except (Exception, SystemExit) as e:
             pytest.skip(f"hedge_effectiveness_test needs specific domain fixtures/data: {e}")
             return
@@ -480,7 +480,7 @@ class TestPSAK71FinancialLiabilityCategory:
 def test_get_psak71_validator_smoke():
     """Smoke test for module-level function get_psak71_validator."""
     try:
-        result = get_psak71_validator()
+        get_psak71_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak71_validator needs specific input data: {e}")
         return

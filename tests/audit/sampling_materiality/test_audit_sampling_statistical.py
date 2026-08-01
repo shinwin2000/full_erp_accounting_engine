@@ -275,7 +275,6 @@ class TestAuditStatisticalSampling:
     def test_systematic_sampling(self, sampling_engine, sample_population):
         sample = sampling_engine.systematic_sampling(sample_population, 10, start_index=2)
         assert len(sample) == 10
-        interval = 10
         expected_indices = [2, 12, 22, 32, 42, 52, 62, 72, 82, 92]
         for idx, expected_idx in enumerate(expected_indices):
             assert sample[idx] == sample_population[expected_idx]
@@ -283,7 +282,6 @@ class TestAuditStatisticalSampling:
     def test_systematic_sampling_random_start(self, sampling_engine, sample_population):
         with patch("random.randint", return_value=5):
             sample = sampling_engine.systematic_sampling(sample_population, 10, start_index=None)
-            interval = 10
             expected_indices = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95]
             for idx, expected_idx in enumerate(expected_indices):
                 assert sample[idx] == sample_population[expected_idx]

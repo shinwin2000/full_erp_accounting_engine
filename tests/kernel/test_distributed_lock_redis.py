@@ -4,6 +4,7 @@ Comprehensive unit tests for distributed lock functionality with Redis fallback.
 """
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -257,10 +258,8 @@ class TestDistributedLock:
         manager = DistributedLock()
         yield manager
         # Safely reset to cancel renewal tasks, ignore RuntimeError if loop closed
-        try:
+        with contextlib.suppress(RuntimeError):
             manager.reset()
-        except RuntimeError:
-            pass
 
     def test_construction(self, lock_manager):
         """DistributedLock can be instantiated."""
@@ -545,10 +544,8 @@ class TestLockContextManager:
         """Create a fresh DistributedLock instance and clean up safely."""
         manager = DistributedLock()
         yield manager
-        try:
+        with contextlib.suppress(RuntimeError):
             manager.reset()
-        except RuntimeError:
-            pass
 
     @pytest.mark.asyncio
     async def test_lock_context_success(self, lock_manager):
@@ -643,10 +640,8 @@ class TestIntegration:
         """Create a fresh DistributedLock instance and clean up safely."""
         manager = DistributedLock()
         yield manager
-        try:
+        with contextlib.suppress(RuntimeError):
             manager.reset()
-        except RuntimeError:
-            pass
 
     @pytest.mark.asyncio
     async def test_full_lifecycle(self, lock_manager):

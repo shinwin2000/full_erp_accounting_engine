@@ -38,7 +38,7 @@ class TestScopedContext:
         """Smoke test for ScopedContext.container using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.container()
+            instance.container()
         except (Exception, SystemExit) as e:
             pytest.skip(f"container needs specific domain fixtures/data: {e}")
             return
@@ -49,7 +49,7 @@ class TestScopedContext:
         """Smoke test for ScopedContext.resolve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.resolve(interface=MagicMock())
+            await instance.resolve(interface=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve needs specific domain fixtures/data: {e}")
             return
@@ -60,7 +60,7 @@ class TestScopedContext:
         """Smoke test for ScopedContext.close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.close()
+            instance.close()
         except (Exception, SystemExit) as e:
             pytest.skip(f"close needs specific domain fixtures/data: {e}")
             return
@@ -71,7 +71,7 @@ class TestScopedContext:
         """Smoke test for ScopedContext.is_closed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_closed()
+            instance.is_closed()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_closed needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestScopedContextMiddleware:
         """Smoke test for ScopedContextMiddleware.dispatch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.dispatch(request=MagicMock(), call_next=MagicMock())
+            await instance.dispatch(request=MagicMock(), call_next=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"dispatch needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestScopedContextMiddleware:
 async def test_scoped_context_smoke():
     """Smoke test for module-level function scoped_context."""
     try:
-        result = await scoped_context()
+        await scoped_context()
     except (Exception, SystemExit) as e:
         pytest.skip(f"scoped_context needs specific input data: {e}")
         return
@@ -119,7 +119,7 @@ async def test_scoped_context_smoke():
 def test_current_scope_smoke():
     """Smoke test for module-level function current_scope."""
     try:
-        result = current_scope()
+        current_scope()
     except (Exception, SystemExit) as e:
         pytest.skip(f"current_scope needs specific input data: {e}")
         return
@@ -129,7 +129,7 @@ def test_current_scope_smoke():
 def test_scoped_smoke():
     """Smoke test for module-level function scoped."""
     try:
-        result = scoped(func=MagicMock())
+        scoped(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"scoped needs specific input data: {e}")
         return

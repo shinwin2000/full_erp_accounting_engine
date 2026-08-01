@@ -60,16 +60,16 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.PROJECT_CREATED,
-            aggregate_id=uuid4(),
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.PROJECT_CREATED,
+            'aggregate_id': uuid4(),
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -87,8 +87,8 @@ class TestProjectCreatedEvent:
     """Tests for the ProjectCreatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ProjectCreatedEvent can be constructed with valid field values."""
@@ -105,8 +105,8 @@ class TestProjectActivatedEvent:
     """Tests for the ProjectActivatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ProjectActivatedEvent can be constructed with valid field values."""
@@ -123,8 +123,8 @@ class TestProjectCompletedEvent:
     """Tests for the ProjectCompletedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ProjectCompletedEvent can be constructed with valid field values."""
@@ -141,8 +141,8 @@ class TestRevenueRecognizedEvent:
     """Tests for the RevenueRecognizedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RevenueRecognizedEvent can be constructed with valid field values."""
@@ -159,8 +159,8 @@ class TestProjectBillingGeneratedEvent:
     """Tests for the ProjectBillingGeneratedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ProjectBillingGeneratedEvent can be constructed with valid field values."""
@@ -177,8 +177,8 @@ class TestMilestoneReadyEvent:
     """Tests for the MilestoneReadyEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """MilestoneReadyEvent can be constructed with valid field values."""
@@ -195,8 +195,8 @@ class TestMilestoneBilledEvent:
     """Tests for the MilestoneBilledEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """MilestoneBilledEvent can be constructed with valid field values."""
@@ -213,8 +213,8 @@ class TestTimeEntrySubmittedEvent:
     """Tests for the TimeEntrySubmittedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """TimeEntrySubmittedEvent can be constructed with valid field values."""
@@ -231,8 +231,8 @@ class TestTimeEntryApprovedEvent:
     """Tests for the TimeEntryApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """TimeEntryApprovedEvent can be constructed with valid field values."""
@@ -249,8 +249,8 @@ class TestRetainerContractActivatedEvent:
     """Tests for the RetainerContractActivatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """RetainerContractActivatedEvent can be constructed with valid field values."""
@@ -282,7 +282,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock())
+            await instance.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -293,7 +293,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_many(events=[MagicMock()])
+            await instance.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return

@@ -59,21 +59,21 @@ class TestHierarchyNode:
     """Tests for the HierarchyNode value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            parent_id=uuid4(),
-            name="test_value",
-            code="test_value",
-            hierarchy_type=HierarchyType.ORGANIZATION,
-            level=1,
-            description="test_value",
-            is_active=True,
-            metadata={},
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'parent_id': uuid4(),
+            'name': "test_value",
+            'code': "test_value",
+            'hierarchy_type': HierarchyType.ORGANIZATION,
+            'level': 1,
+            'description': "test_value",
+            'is_active': True,
+            'metadata': {},
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """HierarchyNode can be constructed with valid field values."""
@@ -154,7 +154,7 @@ class TestHierarchyService:
         """Smoke test for HierarchyService.create_node using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_node(name="test_value", code="test_value", hierarchy_type="test_value", parent_id=uuid4(), description="test_value", metadata={}, created_by=uuid4(), correlation_id="test_value")
+            await instance.create_node(name="test_value", code="test_value", hierarchy_type="test_value", parent_id=uuid4(), description="test_value", metadata={}, created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_node needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestHierarchyService:
         """Smoke test for HierarchyService.update_node using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_node(node_id=uuid4(), name="test_value", description="test_value", metadata={}, is_active=True, updated_by=uuid4(), correlation_id="test_value")
+            await instance.update_node(node_id=uuid4(), name="test_value", description="test_value", metadata={}, is_active=True, updated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_node needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestHierarchyService:
         """Smoke test for HierarchyService.move_node using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.move_node(node_id=uuid4(), new_parent_id=uuid4(), moved_by=uuid4(), correlation_id="test_value")
+            await instance.move_node(node_id=uuid4(), new_parent_id=uuid4(), moved_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"move_node needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestHierarchyService:
         """Smoke test for HierarchyService.delete_node using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_node(node_id=uuid4(), deleted_by=uuid4(), correlation_id="test_value")
+            await instance.delete_node(node_id=uuid4(), deleted_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_node needs specific domain fixtures/data: {e}")
             return
@@ -198,7 +198,7 @@ class TestHierarchyService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -208,7 +208,7 @@ def test_audit_smoke():
 async def test_create_hierarchy_service_smoke():
     """Smoke test for module-level function create_hierarchy_service."""
     try:
-        result = await create_hierarchy_service(event_publisher=MagicMock())
+        await create_hierarchy_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_hierarchy_service needs specific input data: {e}")
         return

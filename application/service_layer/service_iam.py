@@ -1,17 +1,10 @@
-# =============================================================================
-# service_iam.py
-# =============================================================================
-
-# service_iam.py - Final fixed version (no duplicate user_id parameters)
-# v5.9.6 - Added login() method for API router compatibility
-
 #!/usr/bin/env python3
-
 """
 Module: service_iam.py
 Layer: Application / Service Layer
 Responsibility: IAM service (identity and access management).
-Mempublikasikan semua domain events yang sesuai.
+               Memperbaiki: set_context(), login(), authenticate(),
+               dan konversi UserAggregate -> UserEntity.
 """
 
 from __future__ import annotations
@@ -22,7 +15,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
-# Import domain events
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from application.events import (
     AccountCreatedEvent,
     AccountDeactivatedEvent,
@@ -55,7 +49,8 @@ from application.events import (
 from domain.iam.password_hashed_vo import PasswordHashedVO
 from domain.iam.permission_vo import PermissionVO
 from domain.iam.role_entity import RoleEntity
-from domain.iam.user_entity import UserEntity, UserStatus
+from domain.iam.user_entity import UserEntity, UserStatus, UserProfile, UserAudit
+from domain.iam.aggregate_root import UserAggregate, IAM, IAMStatus
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.iam_repository_port import IAMRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
@@ -85,52 +80,20 @@ class TokenIssuerPort(Protocol):
     async def verify_token(self, token: str, token_type: str = "access") -> dict[str, Any]: ...
 
 
-# ============================================================================
-# DUMMY AUDIT DECORATOR FOR STATIC CHECKER COMPLIANCE
-# ============================================================================
-
-def audit(func):
-    """Dummy decorator to mark methods as audited for accounting_posting_checker."""
-    return func
-
-
-# ============================================================================
-# CACHE PORT WITH DUMMY AUTHORITY CHECK (to satisfy static analyzer)
-# ============================================================================
-
 class CachePort:
-    """
-    Cache port - now a concrete class to allow adding audit decorator and authority check stub.
-    Real implementations should override these methods.
-    """
-
-    @audit
     async def get(self, key: str) -> str | None:
         raise NotImplementedError
-
-    @audit
     async def setex(self, key: str, ttl: int, value: str) -> None:
         raise NotImplementedError
-
-    @audit
     async def exists(self, key: str) -> bool:
         raise NotImplementedError
-
-    @audit
     async def delete(self, key: str) -> None:
-        # Dummy authority check to satisfy static analyzer (ACC-051)
-        self._check_authority("delete")
         raise NotImplementedError
-
-    def _check_authority(self, permission: str) -> None:
-        """Dummy authority check for static analyzer."""
-        pass
 
 
 # ============================================================================
 # DTOs
 # ============================================================================
-
 
 @dataclass(kw_only=True)
 class CreateUserRequest:
@@ -258,13 +221,31 @@ class IAMService:
 
         logger.info("IAM service initialized")
 
+    # ========================================================================
+    # REQUEST CONTEXT (session & legal_entity_id)
+    # ========================================================================
+
+    def set_context(self, session: AsyncSession, legal_entity_id: UUID) -> None:
+        """
+        Set session and legal_entity_id for the current request.
+        Must be called before any repository operation.
+        """
+        if hasattr(self._iam_repo, "set_session"):
+            self._iam_repo.set_session(session)
+        else:
+            logger.warning("Repository does not support set_session")
+
+        if hasattr(self._iam_repo, "set_legal_entity_id"):
+            self._iam_repo.set_legal_entity_id(legal_entity_id)
+        else:
+            logger.warning("Repository does not support set_legal_entity_id")
+
     # ==================== AUTHORITY CHECK (SOD) ====================
 
     def _check_authority(self, user_id: UUID | None, permission: str) -> None:
         if user_id is None:
             logger.debug(f"System action for permission '{permission}' (no user_id)")
             return
-        # In production: check authority matrix
         logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
 
     # ==================== AUDIT TRAIL ====================
@@ -280,17 +261,58 @@ class IAMService:
         logger.info(f"AUDIT: {action} - {details}")
 
     # ========================================================================
+    # Helper: convert UserAggregate -> UserEntity
+    # ========================================================================
+
+    def _to_user_entity(self, agg: UserAggregate) -> UserEntity:
+        """Convert UserAggregate to proper UserEntity with profile and audit."""
+        profile = UserProfile(
+            full_name=agg.full_name,
+            email=agg.email,
+            phone=None,
+            mobile=None,
+            department=None,
+            position=None,
+            avatar_url=None,
+            timezone="Asia/Jakarta",
+            language="id",
+            metadata={},
+        )
+        audit = UserAudit(
+            last_login_at=agg.last_login_at,
+            last_login_ip=agg.last_login_ip,
+            last_password_change_at=agg.password_changed_at,
+            last_password_change_by=agg.created_by,
+            created_at=agg.created_at,
+            created_by=agg.created_by or "system",
+            updated_at=agg.updated_at,
+            updated_by=agg.created_by or "system",
+            deleted_at=None,
+            deleted_by=None,
+            version=agg.version,
+        )
+        return UserEntity(
+            user_id=agg.id,
+            username=agg.username,
+            email=agg.email,
+            password_hash=PasswordHashedVO(agg.hashed_password),
+            status=agg.status,
+            profile=profile,
+            legal_entity_id=agg.legal_entity_ids[0] if agg.legal_entity_ids else None,
+            role_ids=agg.role_ids,
+            failed_login_attempts=agg.failed_login_count,
+            locked_until=agg.locked_until,
+            mfa_enabled=False,
+            mfa_secret=None,
+            audit=audit,
+        )
+
+    # ========================================================================
     # User Management
     # ========================================================================
 
-    @audit
-    async def create_user(
-        self,
-        request: CreateUserRequest,
-        correlation_id: str | None = None,
-    ) -> UserEntity:
+    async def create_user(self, request: CreateUserRequest, correlation_id: str | None = None) -> UserEntity:
         self._check_authority(request.created_by, "create_user")
-
         iam = await self._iam_repo.get()
         for existing in iam.users.values():
             if existing.username == request.username:
@@ -299,49 +321,72 @@ class IAMService:
                 raise IAMServiceError(f"Email '{request.email}' already exists")
 
         password_hash = PasswordHashedVO.from_plain(request.password)
-        user = UserEntity(
+        # Buat UserEntity langsung (untuk ditambahkan ke IAM)
+        user_entity = UserEntity(
             user_id=uuid4(),
             username=request.username,
             email=request.email,
             password_hash=password_hash,
             status=UserStatus.ACTIVE,
-            full_name=request.full_name,
+            profile=UserProfile(full_name=request.full_name, email=request.email),
             legal_entity_id=request.legal_entity_id,
             role_ids=request.role_ids,
-            is_locked=False,
-            created_by=str(request.created_by) if request.created_by else None,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
+            failed_login_attempts=0,
+            locked_until=None,
+            mfa_enabled=False,
+            mfa_secret=None,
+            audit=UserAudit(
+                created_at=datetime.now(UTC),
+                created_by=str(request.created_by) if request.created_by else "system",
+                updated_at=datetime.now(UTC),
+                updated_by=str(request.created_by) if request.created_by else "system",
+                version=1,
+            ),
         )
 
-        iam.add_user(user)
-        await self._iam_repo.save(iam)
+        # Convert ke UserAggregate untuk repository
+        user_agg = UserAggregate(
+            id=user_entity.user_id,
+            username=user_entity.username,
+            email=user_entity.email,
+            full_name=user_entity.profile.full_name,
+            hashed_password=user_entity.password_hash.hash,
+            status=user_entity.status,
+            is_superuser=False,
+            is_active=True,
+            created_at=user_entity.audit.created_at,
+            updated_at=user_entity.audit.updated_at,
+            created_by=user_entity.audit.created_by,
+            version=user_entity.audit.version,
+            legal_entity_ids=[user_entity.legal_entity_id],
+            role_ids=user_entity.role_ids,
+        )
+        await self._iam_repo.add(user_agg)
         await self._uow.commit()
 
         self._stats["users_created"] += 1
 
         if self._event_publisher:
             event_user = UserCreatedEvent(
-                aggregate_id=user.user_id,
-                aggregate_version=user.version,
+                aggregate_id=user_entity.user_id,
+                aggregate_version=user_entity.audit.version,
                 user_id=str(request.created_by) if request.created_by else None,
-                username=user.username,
-                email=user.email,
-                full_name=user.full_name,
-                legal_entity_id=user.legal_entity_id,
+                username=user_entity.username,
+                email=user_entity.email,
+                full_name=user_entity.profile.full_name,
+                legal_entity_id=user_entity.legal_entity_id,
                 created_by=str(request.created_by) if request.created_by else None,
                 correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event_user)
 
             event_account = AccountCreatedEvent(
-                aggregate_id=user.user_id,
-                aggregate_version=user.version,
-                account_id=user.user_id,
-                account_name=user.username,
+                aggregate_id=user_entity.user_id,
+                aggregate_version=user_entity.audit.version,
+                account_id=user_entity.user_id,
+                account_name=user_entity.username,
                 account_type="user",
-                legal_entity_id=user.legal_entity_id,
+                legal_entity_id=user_entity.legal_entity_id,
                 created_by=str(request.created_by) if request.created_by else None,
                 user_id=str(request.created_by) if request.created_by else None,
                 correlation_id=correlation_id,
@@ -349,76 +394,79 @@ class IAMService:
             await self._event_publisher.publish(event_account)
 
         self._record_audit("create_user", {
-            "user_id": str(user.user_id),
-            "username": user.username,
+            "user_id": str(user_entity.user_id),
+            "username": user_entity.username,
             "created_by": str(request.created_by) if request.created_by else None,
         })
 
         logger.info("User record added")
-        return user
+        return user_entity
 
     async def get_user(self, user_id: UUID) -> UserEntity | None:
         iam = await self._iam_repo.get()
         return iam.users.get(user_id)
 
-    @audit
-    async def update_user(
-        self,
-        user_id: UUID,
-        updated_by: UUID,
-        full_name: str | None = None,
-        email: str | None = None,
-        correlation_id: str | None = None,
-    ) -> UserEntity:
+    async def update_user(self, user_id: UUID, updated_by: UUID, full_name: str | None = None,
+                         email: str | None = None, correlation_id: str | None = None) -> UserEntity:
         self._check_authority(updated_by, "update_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        new_full_name = full_name or user.full_name
-        new_email = email or user.email
+        # Ambil data dari user entity
+        current_full_name = user.profile.full_name
+        current_email = user.email
+        new_full_name = full_name or current_full_name
+        new_email = email or current_email
         changes = {}
 
-        if new_full_name != user.full_name:
-            changes["full_name"] = {"old": user.full_name, "new": new_full_name}
-        if new_email != user.email:
-            if new_email != user.email:
-                for existing in iam.users.values():
-                    if existing.user_id != user_id and existing.email == new_email:
-                        raise IAMServiceError(f"Email '{new_email}' already used")
-                changes["email"] = {"old": user.email, "new": new_email}
+        if new_full_name != current_full_name:
+            changes["full_name"] = {"old": current_full_name, "new": new_full_name}
+        if new_email != current_email:
+            for existing in iam.users.values():
+                if existing.user_id != user_id and existing.email == new_email:
+                    raise IAMServiceError(f"Email '{new_email}' already used")
+            changes["email"] = {"old": current_email, "new": new_email}
 
         if not changes:
             return user
 
-        updated_user = UserEntity(
-            user_id=user.user_id,
+        # Update UserAggregate
+        agg = UserAggregate(
+            id=user.user_id,
             username=user.username,
             email=new_email,
-            password_hash=user.password_hash,
-            status=user.status,
             full_name=new_full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=user.is_locked,
-            created_at=user.created_at,
+            hashed_password=user.password_hash.hash,
+            status=user.status,
+            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_active=user.is_active if hasattr(user, 'is_active') else True,
+            last_login_at=user.audit.last_login_at,
+            last_login_ip=user.audit.last_login_ip,
+            failed_login_count=user.failed_login_attempts,
+            locked_until=user.locked_until,
+            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            password_changed_at=user.audit.last_password_change_at,
+            created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
+            created_by=user.audit.created_by,
+            version=user.audit.version + 1,
+            legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+            role_ids=user.role_ids,
         )
-
-        iam.update_user(updated_user)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.update(agg)
         await self._uow.commit()
 
         self._stats["users_updated"] += 1
 
+        # Konversi kembali ke UserEntity untuk return
+        updated_user_entity = self._to_user_entity(agg)
+
         if self._event_publisher:
             event_user = UserUpdatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=updated_user.version,
+                aggregate_version=agg.version,
                 user_id=str(updated_by),
                 changes=changes,
                 updated_by=str(updated_by),
@@ -428,7 +476,7 @@ class IAMService:
 
             event_account = AccountUpdatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=updated_user.version,
+                aggregate_version=agg.version,
                 account_id=user_id,
                 changes=changes,
                 updated_by=str(updated_by),
@@ -444,43 +492,40 @@ class IAMService:
         })
 
         logger.info("User record updated")
-        return updated_user
+        return updated_user_entity
 
-    @audit
-    async def activate_user(
-        self,
-        user_id: UUID,
-        activated_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def activate_user(self, user_id: UUID, activated_by: UUID, correlation_id: str | None = None) -> None:
         self._check_authority(activated_by, "activate_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
-
         if user.status == UserStatus.ACTIVE:
             return
 
-        activated_user = UserEntity(
-            user_id=user.user_id,
+        agg = UserAggregate(
+            id=user.user_id,
             username=user.username,
             email=user.email,
-            password_hash=user.password_hash,
+            full_name=user.profile.full_name,
+            hashed_password=user.password_hash.hash,
             status=UserStatus.ACTIVE,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=user.is_locked,
-            created_at=user.created_at,
+            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_active=True,
+            last_login_at=user.audit.last_login_at,
+            last_login_ip=user.audit.last_login_ip,
+            failed_login_count=user.failed_login_attempts,
+            locked_until=user.locked_until,
+            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            password_changed_at=user.audit.last_password_change_at,
+            created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
+            created_by=user.audit.created_by,
+            version=user.audit.version + 1,
+            legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+            role_ids=user.role_ids,
         )
-
-        iam.update_user(activated_user)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.update(agg)
         await self._uow.commit()
 
         self._stats["users_activated"] += 1
@@ -488,7 +533,7 @@ class IAMService:
         if self._event_publisher:
             event_user = UserActivatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=activated_user.version,
+                aggregate_version=agg.version,
                 user_id=str(activated_by),
                 username=user.username,
                 activated_by=str(activated_by),
@@ -498,7 +543,7 @@ class IAMService:
 
             event_account = AccountReactivatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=activated_user.version,
+                aggregate_version=agg.version,
                 account_id=user_id,
                 account_name=user.username,
                 reactivated_by=str(activated_by),
@@ -514,42 +559,39 @@ class IAMService:
 
         logger.info("User record activated")
 
-    @audit
-    async def deactivate_user(
-        self,
-        user_id: UUID,
-        deactivated_by: UUID,
-        reason: str | None = None,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def deactivate_user(self, user_id: UUID, deactivated_by: UUID, reason: str | None = None,
+                              correlation_id: str | None = None) -> None:
         self._check_authority(deactivated_by, "deactivate_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
-
         if user.status == UserStatus.INACTIVE:
             return
 
-        deactivated_user = UserEntity(
-            user_id=user.user_id,
+        agg = UserAggregate(
+            id=user.user_id,
             username=user.username,
             email=user.email,
-            password_hash=user.password_hash,
+            full_name=user.profile.full_name,
+            hashed_password=user.password_hash.hash,
             status=UserStatus.INACTIVE,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=user.is_locked,
-            created_at=user.created_at,
+            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_active=False,
+            last_login_at=user.audit.last_login_at,
+            last_login_ip=user.audit.last_login_ip,
+            failed_login_count=user.failed_login_attempts,
+            locked_until=user.locked_until,
+            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            password_changed_at=user.audit.last_password_change_at,
+            created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
+            created_by=user.audit.created_by,
+            version=user.audit.version + 1,
+            legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+            role_ids=user.role_ids,
         )
-
-        iam.update_user(deactivated_user)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.update(agg)
         await self._uow.commit()
 
         self._stats["users_deactivated"] += 1
@@ -557,7 +599,7 @@ class IAMService:
         if self._event_publisher:
             event_user = UserDeactivatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=deactivated_user.version,
+                aggregate_version=agg.version,
                 user_id=str(deactivated_by),
                 reason=reason,
                 deactivated_by=str(deactivated_by),
@@ -567,7 +609,7 @@ class IAMService:
 
             event_account = AccountDeactivatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=deactivated_user.version,
+                aggregate_version=agg.version,
                 account_id=user_id,
                 reason=reason,
                 deactivated_by=str(deactivated_by),
@@ -584,42 +626,18 @@ class IAMService:
 
         logger.info("User record deactivated")
 
-    @audit
-    async def lock_user(
-        self,
-        user_id: UUID,
-        locked_by: UUID,
-        reason: str | None = None,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def lock_user(self, user_id: UUID, locked_by: UUID, reason: str | None = None,
+                        correlation_id: str | None = None) -> None:
         self._check_authority(locked_by, "lock_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
-
-        if user.is_locked:
+        if user.locked_until and user.locked_until > datetime.now(UTC):
             return
 
-        locked_user = UserEntity(
-            user_id=user.user_id,
-            username=user.username,
-            email=user.email,
-            password_hash=user.password_hash,
-            status=user.status,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=True,
-            created_at=user.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
-        )
-
-        iam.update_user(locked_user)
-        await self._iam_repo.save(iam)
+        # Lock via repository method
+        await self._iam_repo.lock_user(user_id, locked_by, reason)
         await self._uow.commit()
 
         self._stats["users_locked"] += 1
@@ -627,7 +645,7 @@ class IAMService:
         if self._event_publisher:
             event_account = AccountLockedEvent(
                 aggregate_id=user_id,
-                aggregate_version=locked_user.version,
+                aggregate_version=user.audit.version + 1,
                 account_id=user_id,
                 reason=reason,
                 locked_by=str(locked_by),
@@ -644,41 +662,16 @@ class IAMService:
 
         logger.info("User account locked")
 
-    @audit
-    async def unlock_user(
-        self,
-        user_id: UUID,
-        unlocked_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def unlock_user(self, user_id: UUID, unlocked_by: UUID, correlation_id: str | None = None) -> None:
         self._check_authority(unlocked_by, "unlock_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
-
-        if not user.is_locked:
+        if not (user.locked_until and user.locked_until > datetime.now(UTC)):
             return
 
-        unlocked_user = UserEntity(
-            user_id=user.user_id,
-            username=user.username,
-            email=user.email,
-            password_hash=user.password_hash,
-            status=user.status,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=False,
-            created_at=user.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
-        )
-
-        iam.update_user(unlocked_user)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.unlock_user(user_id, unlocked_by)
         await self._uow.commit()
 
         self._stats["users_unlocked"] += 1
@@ -686,7 +679,7 @@ class IAMService:
         if self._event_publisher:
             event_account = AccountUnlockedEvent(
                 aggregate_id=user_id,
-                aggregate_version=unlocked_user.version,
+                aggregate_version=user.audit.version + 1,
                 account_id=user_id,
                 unlocked_by=str(unlocked_by),
                 user_id=str(unlocked_by),
@@ -696,7 +689,7 @@ class IAMService:
 
             event_user = UserUnlockedEvent(
                 aggregate_id=user_id,
-                aggregate_version=unlocked_user.version,
+                aggregate_version=user.audit.version + 1,
                 user_id=str(unlocked_by),
                 username=user.username,
                 unlocked_by=str(unlocked_by),
@@ -711,42 +704,39 @@ class IAMService:
 
         logger.info("User account unlocked")
 
-    @audit
-    async def suspend_user(
-        self,
-        user_id: UUID,
-        suspended_by: UUID,
-        reason: str | None = None,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def suspend_user(self, user_id: UUID, suspended_by: UUID, reason: str | None = None,
+                           correlation_id: str | None = None) -> None:
         self._check_authority(suspended_by, "suspend_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
-
         if user.status == UserStatus.SUSPENDED:
             return
 
-        suspended_user = UserEntity(
-            user_id=user.user_id,
+        agg = UserAggregate(
+            id=user.user_id,
             username=user.username,
             email=user.email,
-            password_hash=user.password_hash,
+            full_name=user.profile.full_name,
+            hashed_password=user.password_hash.hash,
             status=UserStatus.SUSPENDED,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=user.is_locked,
-            created_at=user.created_at,
+            is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
+            is_active=False,
+            last_login_at=user.audit.last_login_at,
+            last_login_ip=user.audit.last_login_ip,
+            failed_login_count=user.failed_login_attempts,
+            locked_until=user.locked_until,
+            must_change_password=user.must_change_password if hasattr(user, 'must_change_password') else False,
+            password_changed_at=user.audit.last_password_change_at,
+            created_at=user.audit.created_at,
             updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
+            created_by=user.audit.created_by,
+            version=user.audit.version + 1,
+            legal_entity_ids=[user.legal_entity_id] if user.legal_entity_id else [],
+            role_ids=user.role_ids,
         )
-
-        iam.update_user(suspended_user)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.update(agg)
         await self._uow.commit()
 
         self._stats["users_suspended"] += 1
@@ -754,7 +744,7 @@ class IAMService:
         if self._event_publisher:
             event = UserSuspendedEvent(
                 aggregate_id=user_id,
-                aggregate_version=suspended_user.version,
+                aggregate_version=agg.version,
                 user_id=str(suspended_by),
                 username=user.username,
                 reason=reason,
@@ -771,22 +761,14 @@ class IAMService:
 
         logger.info("User account suspended")
 
-    @audit
-    async def delete_user(
-        self,
-        user_id: UUID,
-        deleted_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def delete_user(self, user_id: UUID, deleted_by: UUID, correlation_id: str | None = None) -> None:
         self._check_authority(deleted_by, "delete_user")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        iam.remove_user(user_id)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.delete(user_id, deleted_by, permanent=False)
         await self._uow.commit()
 
         self._stats["users_deleted"] += 1
@@ -794,7 +776,7 @@ class IAMService:
         if self._event_publisher:
             event_user = UserDeletedEvent(
                 aggregate_id=user_id,
-                aggregate_version=user.version + 1,
+                aggregate_version=user.audit.version + 1,
                 user_id=str(deleted_by),
                 username=user.username,
                 deleted_by=str(deleted_by),
@@ -804,7 +786,7 @@ class IAMService:
 
             event_account = AccountDeactivatedEvent(
                 aggregate_id=user_id,
-                aggregate_version=user.version + 1,
+                aggregate_version=user.audit.version + 1,
                 account_id=user_id,
                 reason="User deleted",
                 deactivated_by=str(deleted_by),
@@ -824,14 +806,8 @@ class IAMService:
     # Role Management
     # ========================================================================
 
-    @audit
-    async def create_role(
-        self,
-        request: CreateRoleRequest,
-        correlation_id: str | None = None,
-    ) -> RoleEntity:
+    async def create_role(self, request: CreateRoleRequest, correlation_id: str | None = None) -> RoleEntity:
         self._check_authority(request.created_by, "create_role")
-
         iam = await self._iam_repo.get()
 
         for existing in iam.roles.values():
@@ -853,8 +829,23 @@ class IAMService:
             version=1,
         )
 
-        iam.add_role(role)
-        await self._iam_repo.save(iam)
+        # Convert to domain Role for repository
+        from domain.iam.role_entity import Role as DomainRole
+        domain_role = DomainRole(
+            id=role.role_id,
+            name=role.role_name,
+            description=role.description,
+            permissions=[PermissionVO(name=p) for p in request.permissions],
+            created_at=role.created_at,
+            created_by=request.created_by,
+        )
+        await self._iam_repo.create_role(
+            role_code=role.role_name,
+            role_name=role.role_name,
+            permissions=[PermissionVO(name=p) for p in request.permissions],
+            created_by=request.created_by or UUID(int=0),
+            description=role.description,
+        )
         await self._uow.commit()
 
         self._stats["roles_created"] += 1
@@ -905,39 +896,26 @@ class IAMService:
         iam = await self._iam_repo.get()
         return list(iam.roles.values())
 
-    @audit
-    async def update_role(
-        self,
-        role_id: UUID,
-        request: UpdateRoleRequest,
-        updated_by: UUID,
-        correlation_id: str | None = None,
-    ) -> RoleEntity:
+    async def update_role(self, role_id: UUID, request: UpdateRoleRequest, updated_by: UUID,
+                          correlation_id: str | None = None) -> RoleEntity:
         self._check_authority(updated_by, "update_role")
-
         iam = await self._iam_repo.get()
         role = iam.roles.get(role_id)
         if not role:
             raise RoleNotFoundError(f"Role {role_id} not found")
-
         if role.is_system:
             raise IAMServiceError("Cannot update system role")
 
         changes = {}
-        new_permissions = role.permissions
-
         if request.role_name is not None and request.role_name != role.role_name:
             changes["role_name"] = {"old": role.role_name, "new": request.role_name}
             role.role_name = request.role_name
-
         if request.description is not None and request.description != role.description:
             changes["description"] = {"old": role.description, "new": request.description}
             role.description = request.description
-
         if request.is_default is not None and request.is_default != role.is_default:
             changes["is_default"] = {"old": role.is_default, "new": request.is_default}
             role.is_default = request.is_default
-
         if request.parent_role_id != role.parent_role_id:
             changes["parent_role_id"] = {"old": role.parent_role_id, "new": request.parent_role_id}
             role.parent_role_id = request.parent_role_id
@@ -976,11 +954,13 @@ class IAMService:
         if not changes:
             return role
 
-        role.version += 1
-        role.updated_at = datetime.now(UTC)
-
-        iam.update_role(role)
-        await self._iam_repo.save(iam)
+        # Update via repository
+        await self._iam_repo.update_role(
+            role_id=role_id,
+            new_name=request.role_name or role.role_name,
+            new_permissions=role.permissions,
+            updated_by=updated_by,
+        )
         await self._uow.commit()
 
         self._stats["roles_updated"] += 1
@@ -988,7 +968,7 @@ class IAMService:
         if self._event_publisher:
             event = RoleUpdatedEvent(
                 aggregate_id=role.role_id,
-                aggregate_version=role.version,
+                aggregate_version=role.version + 1,
                 role_id=role.role_id,
                 role_name=role.role_name,
                 changes=changes,
@@ -1007,29 +987,19 @@ class IAMService:
         logger.info("Role record updated")
         return role
 
-    @audit
-    async def delete_role(
-        self,
-        role_id: UUID,
-        deleted_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def delete_role(self, role_id: UUID, deleted_by: UUID, correlation_id: str | None = None) -> None:
         self._check_authority(deleted_by, "delete_role")
-
         iam = await self._iam_repo.get()
         role = iam.roles.get(role_id)
         if not role:
             raise RoleNotFoundError(f"Role {role_id} not found")
-
         if role.is_system:
             raise IAMServiceError("Cannot delete system role")
-
         for user in iam.users.values():
             if role_id in user.role_ids:
                 raise IAMServiceError(f"Role {role.role_name} is assigned to users")
 
-        iam.remove_role(role_id)
-        await self._iam_repo.save(iam)
+        await self._iam_repo.delete_role(role_id, deleted_by)
         await self._uow.commit()
 
         self._stats["roles_deleted"] += 1
@@ -1054,36 +1024,24 @@ class IAMService:
 
         logger.info("Role record deleted")
 
-    @audit
-    async def assign_role_to_user(
-        self,
-        user_id: UUID,
-        role_id: UUID,
-        assigned_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def assign_role_to_user(self, user_id: UUID, role_id: UUID, assigned_by: UUID,
+                                  correlation_id: str | None = None) -> None:
         self._check_authority(assigned_by, "assign_role_to_user")
-
         iam = await self._iam_repo.get()
         if role_id not in iam.roles:
             raise RoleNotFoundError(f"Role {role_id} not found")
-
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        if role_id in user.role_ids:
-            return
-
-        iam.assign_role_to_user(user_id, role_id)
-        await self._iam_repo.save(iam)
+        role = iam.roles.get(role_id)
+        await self._iam_repo.assign_role(user_id, role.role_name, assigned_by)
         await self._uow.commit()
 
         if self._event_publisher:
-            role = iam.roles.get(role_id)
             event = RoleAssignedEvent(
                 aggregate_id=user_id,
-                aggregate_version=user.version + 1,
+                aggregate_version=user.audit.version + 1,
                 user_id=str(assigned_by),
                 role_id=role_id,
                 role_name=role.role_name if role else "unknown",
@@ -1100,36 +1058,24 @@ class IAMService:
 
         logger.info("Role assignment completed")
 
-    @audit
-    async def revoke_role_from_user(
-        self,
-        user_id: UUID,
-        role_id: UUID,
-        revoked_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def revoke_role_from_user(self, user_id: UUID, role_id: UUID, revoked_by: UUID,
+                                    correlation_id: str | None = None) -> None:
         self._check_authority(revoked_by, "revoke_role_from_user")
-
         iam = await self._iam_repo.get()
         if role_id not in iam.roles:
             raise RoleNotFoundError(f"Role {role_id} not found")
-
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        if role_id not in user.role_ids:
-            return
-
-        iam.remove_role_from_user(user_id, role_id)
-        await self._iam_repo.save(iam)
+        role = iam.roles.get(role_id)
+        await self._iam_repo.revoke_role(user_id, role.role_name, revoked_by)
         await self._uow.commit()
 
         if self._event_publisher:
-            role = iam.roles.get(role_id)
             event = RoleRevokedEvent(
                 aggregate_id=user_id,
-                aggregate_version=user.version + 1,
+                aggregate_version=user.audit.version + 1,
                 user_id=str(revoked_by),
                 role_id=role_id,
                 role_name=role.role_name if role else "unknown",
@@ -1150,19 +1096,48 @@ class IAMService:
     # Authentication & Authorization
     # ========================================================================
 
+    async def login(
+        self,
+        username: str,
+        password: str,
+        mfa_code: str | None = None,
+        legal_entity_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        correlation_id: str | None = None,
+    ) -> LoginResponse:
+        if legal_entity_id is None:
+            raise AuthenticationError("Legal entity context is required for login")
+        return await self.authenticate(
+            username=username,
+            password=password,
+            legal_entity_id=legal_entity_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            correlation_id=correlation_id,
+        )
+
     async def authenticate(
         self,
         username: str,
         password: str,
+        legal_entity_id: UUID,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
         correlation_id: str | None = None,
     ) -> LoginResponse:
         if self._token_issuer is None:
             raise AuthenticationError("Token issuer not configured")
 
-        iam = await self._iam_repo.get()
-        user = iam.authenticate(username, password)
+        # Repository authenticate mengembalikan UserAggregate
+        user_agg = await self._iam_repo.authenticate(
+            username=username,
+            password=password,
+            ip_address=ip_address or "0.0.0.0",
+            legal_entity_id=legal_entity_id,
+        )
 
-        if not user:
+        if not user_agg:
             self._stats["login_failures"] += 1
             if self._event_publisher:
                 event = LoginFailureEvent(
@@ -1175,12 +1150,15 @@ class IAMService:
                 await self._event_publisher.publish(event)
             raise AuthenticationError("Invalid username or password")
 
+        # Konversi UserAggregate ke UserEntity
+        user = self._to_user_entity(user_agg)
+
         if user.status != UserStatus.ACTIVE:
             self._stats["login_failures"] += 1
             if self._event_publisher:
                 event = LoginFailureEvent(
                     aggregate_id=user.user_id,
-                    aggregate_version=user.version,
+                    aggregate_version=user.audit.version,
                     username=username,
                     reason=f"account_{user.status.value}",
                     timestamp=datetime.now(UTC),
@@ -1188,12 +1166,12 @@ class IAMService:
                 await self._event_publisher.publish(event)
             raise AuthenticationError(f"User account is {user.status.value}")
 
-        if user.is_locked:
+        if user.locked_until and user.locked_until > datetime.now(UTC):
             self._stats["login_failures"] += 1
             if self._event_publisher:
                 event = LoginFailureEvent(
                     aggregate_id=user.user_id,
-                    aggregate_version=user.version,
+                    aggregate_version=user.audit.version,
                     username=username,
                     reason="account_locked",
                     timestamp=datetime.now(UTC),
@@ -1201,6 +1179,8 @@ class IAMService:
                 await self._event_publisher.publish(event)
             raise AuthenticationError("User account is locked")
 
+        # Dapatkan permissions dari IAM aggregate
+        iam = await self._iam_repo.get()
         all_perms = iam.get_user_permissions(user.user_id)
         role_names = []
         for rid in user.role_ids:
@@ -1228,7 +1208,7 @@ class IAMService:
         if self._event_publisher:
             event_success = LoginSuccessEvent(
                 aggregate_id=user.user_id,
-                aggregate_version=user.version,
+                aggregate_version=user.audit.version,
                 user_id=user.user_id,
                 username=user.username,
                 timestamp=datetime.now(UTC),
@@ -1238,12 +1218,12 @@ class IAMService:
             session_id = uuid4()
             event_session = SessionCreatedEvent(
                 aggregate_id=user.user_id,
-                aggregate_version=user.version,
+                aggregate_version=user.audit.version,
                 session_id=session_id,
                 user_id=user.user_id,
                 username=user.username,
-                ip_address=None,
-                user_agent=None,
+                ip_address=ip_address,
+                user_agent=user_agent,
                 timestamp=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_session)
@@ -1261,33 +1241,8 @@ class IAMService:
             expires_in=3600,
             user=user,
         )
-    # --------------------------------------------------------------------------
-    # NEW: login() method for API router compatibility
-    # --------------------------------------------------------------------------
-    async def login(
-        self,
-        username: str,
-        password: str,
-        mfa_code: str | None = None,
-        legal_entity_id: UUID | None = None,
-        ip_address: str | None = None,
-        user_agent: str | None = None,
-        correlation_id: str | None = None,
-    ) -> LoginResponse:
-        """
-        Authenticate user and return tokens.
-        This is the main login method used by the API router.
-        It delegates to authenticate() and currently does not use mfa_code,
-        legal_entity_id, ip_address, user_agent (can be extended later).
-        """
-        # For now, we simply call authenticate with username/password
-        return await self.authenticate(username, password, correlation_id)
 
-    async def refresh_access_token(
-        self,
-        refresh_token: str,
-        correlation_id: str | None = None,
-    ) -> str:
+    async def refresh_access_token(self, refresh_token: str, correlation_id: str | None = None) -> str:
         if self._token_issuer is None:
             raise AuthenticationError("Token issuer not configured")
 
@@ -1295,9 +1250,7 @@ class IAMService:
             payload = await self._token_issuer.verify_token(refresh_token, token_type="refresh")
             user_id = UUID(payload["sub"])
             username = payload["username"]
-            legal_entity_id = (
-                UUID(payload["legal_entity_id"]) if payload.get("legal_entity_id") else None
-            )
+            legal_entity_id = UUID(payload["legal_entity_id"]) if payload.get("legal_entity_id") else None
             roles = payload.get("roles", [])
             permissions = payload.get("permissions", [])
 
@@ -1326,12 +1279,7 @@ class IAMService:
         except Exception as e:
             raise AuthenticationError(f"Invalid refresh request: {type(e).__name__}")
 
-    async def logout(
-        self,
-        user_id: UUID,
-        jti: str,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def logout(self, user_id: UUID, jti: str, correlation_id: str | None = None) -> None:
         if self._cache is None:
             logger.warning("Cache not configured, revocation disabled")
             return
@@ -1353,14 +1301,8 @@ class IAMService:
 
         logger.info("Access revoked")
 
-    async def report_session_compromised(
-        self,
-        user_id: UUID,
-        session_id: str,
-        reason: str,
-        reported_by: UUID | None = None,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def report_session_compromised(self, user_id: UUID, session_id: str, reason: str,
+                                         reported_by: UUID | None = None, correlation_id: str | None = None) -> None:
         if self._event_publisher:
             try:
                 event = SessionCompromisedEvent(
@@ -1380,50 +1322,31 @@ class IAMService:
     # Password Management
     # ========================================================================
 
-    @audit
-    async def change_password(
-        self,
-        user_id: UUID,
-        old_password: str,
-        new_password: str,
-        changed_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def change_password(self, user_id: UUID, old_password: str, new_password: str,
+                              changed_by: UUID, correlation_id: str | None = None) -> None:
         self._check_authority(changed_by, "change_password")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
+        # Verify password via repository or aggregate
         if not user.password_hash.verify(old_password):
             raise AuthenticationError("Old password is incorrect")
 
-        new_hash = PasswordHashedVO.from_plain(new_password)
-        updated_user = UserEntity(
-            user_id=user.user_id,
-            username=user.username,
-            email=user.email,
-            password_hash=new_hash,
-            status=user.status,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=user.is_locked,
-            created_at=user.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
+        # Update password via repository
+        await self._iam_repo.change_password(
+            user_id=user_id,
+            old_password=old_password,
+            new_password=new_password,
+            actor_id=changed_by,
         )
-
-        iam.update_user(updated_user)
-        await self._iam_repo.save(iam)
         await self._uow.commit()
 
         if self._event_publisher:
             event = UserPasswordChangedEvent(
                 aggregate_id=user_id,
-                aggregate_version=updated_user.version,
+                aggregate_version=user.audit.version + 1,
                 user_id=str(changed_by),
                 username=user.username,
                 changed_by=str(changed_by),
@@ -1438,46 +1361,27 @@ class IAMService:
 
         logger.info("Security record updated")
 
-    @audit
-    async def reset_password(
-        self,
-        user_id: UUID,
-        new_password: str,
-        reset_by: UUID,
-        correlation_id: str | None = None,
-    ) -> None:
+    async def reset_password(self, user_id: UUID, new_password: str, reset_by: UUID,
+                             correlation_id: str | None = None) -> None:
         self._check_authority(reset_by, "reset_password")
-
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        new_hash = PasswordHashedVO.from_plain(new_password)
-        updated_user = UserEntity(
-            user_id=user.user_id,
-            username=user.username,
-            email=user.email,
-            password_hash=new_hash,
-            status=user.status,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
-            role_ids=user.role_ids,
-            is_locked=user.is_locked,
-            created_at=user.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
+        # Use repository's change_password with force mode (old_password empty)
+        await self._iam_repo.change_password(
+            user_id=user_id,
+            old_password="",
+            new_password=new_password,
+            actor_id=reset_by,
         )
-
-        iam.update_user(updated_user)
-        await self._iam_repo.save(iam)
         await self._uow.commit()
 
         if self._event_publisher:
             event = UserPasswordChangedEvent(
                 aggregate_id=user_id,
-                aggregate_version=updated_user.version,
+                aggregate_version=user.audit.version + 1,
                 user_id=str(reset_by),
                 username=user.username,
                 reset_by=str(reset_by),
@@ -1508,23 +1412,16 @@ class IAMService:
     # Queries
     # ========================================================================
 
-    async def list_users(
-        self,
-        legal_entity_id: UUID | None = None,
-        status: UserStatus | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[UserEntity]:
+    async def list_users(self, legal_entity_id: UUID | None = None, status: UserStatus | None = None,
+                         limit: int = 100, offset: int = 0) -> list[UserEntity]:
         iam = await self._iam_repo.get()
         users = list(iam.users.values())
-
         if legal_entity_id:
             users = [u for u in users if u.legal_entity_id == legal_entity_id]
         if status:
             users = [u for u in users if u.status == status]
-
-        users.sort(key=lambda u: u.created_at, reverse=True)
-        return users[offset : offset + limit]
+        users.sort(key=lambda u: u.audit.created_at, reverse=True)
+        return users[offset:offset+limit]
 
     async def get_user_by_username(self, username: str) -> UserEntity | None:
         iam = await self._iam_repo.get()

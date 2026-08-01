@@ -52,7 +52,7 @@ class TestForensicReportGeneratorPDF:
         """Smoke test for ForensicReportGeneratorPDF.collect_report_data using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_report_data(stream_names=["test_value"], time_range_days=1)
+            await instance.collect_report_data(stream_names=["test_value"], time_range_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_report_data needs specific domain fixtures/data: {e}")
             return
@@ -63,7 +63,7 @@ class TestForensicReportGeneratorPDF:
         """Smoke test for ForensicReportGeneratorPDF.generate_pdf_report using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_pdf_report(report_data={}, output_filename="test_value")
+            await instance.generate_pdf_report(report_data={}, output_filename="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_pdf_report needs specific domain fixtures/data: {e}")
             return
@@ -74,7 +74,7 @@ class TestForensicReportGeneratorPDF:
         """Smoke test for ForensicReportGeneratorPDF.generate_report using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_report(stream_names=["test_value"], time_range_days=1, output_filename="test_value")
+            await instance.generate_report(stream_names=["test_value"], time_range_days=1, output_filename="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_report needs specific domain fixtures/data: {e}")
             return
@@ -85,7 +85,7 @@ class TestForensicReportGeneratorPDF:
         """Smoke test for ForensicReportGeneratorPDF.get_report_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_report_status()
+            await instance.get_report_status()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_report_status needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestForensicReportGeneratorPDF:
 async def test_get_forensic_report_generator_smoke():
     """Smoke test for module-level function get_forensic_report_generator."""
     try:
-        result = await get_forensic_report_generator()
+        await get_forensic_report_generator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_forensic_report_generator needs specific input data: {e}")
         return
@@ -106,7 +106,7 @@ async def test_get_forensic_report_generator_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return

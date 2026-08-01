@@ -1,0 +1,40 @@
+================================================================================
+  SovereignImportValidator v3.0.0
+  Audit Standard : ISO/IEC 25010 | SOC 2 Type II | ISAE 3402
+  Scan ID        : 110F8E43
+  Timestamp (UTC): 2026-07-30T03:13:22.801517Z
+  Host           : DESKTOP-6EKENHE
+  Python         : 3.11.9
+  Platform       : Windows-10-10.0.26200-SP0
+  Git Commit     : unknown (master)
+  Project Root   : E:\full_erp_accounting_engine
+================================================================================
+
+── RINGKASAN ──────────────────────────────────────────────────────────────────
+  Total Modul    : 1086
+  Berhasil       : 1084
+  Gagal          : 2
+  Warning        : 0
+  Durasi         : 9363.16 detik
+  Pass Rate      : 99.8%
+  Status         : ❌ GAGAL
+
+── RINGKASAN PER LAYER ─────────────────────────────────────────────────────────
+  ✅ Core Domain                     314/314 (100.0%)
+  ✅ Port Interface                  62/62 (100.0%)
+  ✅ Application Service             251/251 (100.0%)
+  ❌ Infrastructure                  429/431 (99.5%)
+  ✅ Composition Root                28/28 (100.0%)
+
+── ❌ MODUL GAGAL (2) ───────────────────────────────────────────────
+  [CRITICAL] infrastructure/security/jwt_issuer
+         Module : infrastructure.security.jwt_issuer
+         Error  : SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         RCA     : Unhandled SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         💡 Fix   : Tambahkan rule analisis spesifik atau periksa logika program.
+
+  [CRITICAL] infrastructure/security/jwt_validator
+         Module : infrastructure.security.jwt_validator
+         Error  : SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         RCA     : Unhandled SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         💡 Fix   : Tambahkan rule analisis spesifik atau periksa logika program.

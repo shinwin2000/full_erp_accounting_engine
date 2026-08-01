@@ -44,7 +44,7 @@ class Test_FallbackFiscalPeriodRepository:
         """Smoke test for _FallbackFiscalPeriodRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(period_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(period_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackFiscalPeriodRepository:
         """Smoke test for _FallbackFiscalPeriodRepository.get_by_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_legal_entity(legal_entity_id=uuid4())
+            await instance.get_by_legal_entity(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackFiscalPeriodRepository:
         """Smoke test for _FallbackFiscalPeriodRepository.get_by_fiscal_year using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_fiscal_year(fiscal_year=1, legal_entity_id=uuid4())
+            await instance.get_by_fiscal_year(fiscal_year=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_fiscal_year needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackFiscalPeriodRepository:
         """Smoke test for _FallbackFiscalPeriodRepository.get_current_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_current_period(legal_entity_id=uuid4(), as_of=datetime.now(UTC))
+            await instance.get_current_period(legal_entity_id=uuid4(), as_of=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_period needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(journal_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(journal_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_pending_by_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_pending_by_period(period_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_pending_by_period(period_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_pending_by_period needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_posted_by_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_posted_by_period(period_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_posted_by_period(period_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_posted_by_period needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.add_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_journal(journal_id=uuid4(), legal_entity_id=uuid4(), period_id=uuid4(), status="test_value")
+            instance.add_journal(journal_id=uuid4(), legal_entity_id=uuid4(), period_id=uuid4(), status="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_journal needs specific domain fixtures/data: {e}")
             return
@@ -179,28 +179,28 @@ class TestFiscalPeriod:
     """Tests for the FiscalPeriod value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_id=uuid4(),
-            legal_entity_id=uuid4(),
-            fiscal_year=1,
-            period_number=1,
-            period_name="test_value",
-            start_date=datetime.now(UTC),
-            end_date=datetime.now(UTC),
-            status=PeriodStatus.FUTURE,
-            previous_period_id=uuid4(),
-            next_period_id=uuid4(),
-            closed_at=datetime.now(UTC),
-            closed_by="test_value",
-            locked_at=datetime.now(UTC),
-            locked_by="test_value",
-            reopened_at=datetime.now(UTC),
-            reopened_by="test_value",
-            reopen_reason="test_value",
-            adjustment_journal_id=uuid4(),
-            created_at=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "period_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "fiscal_year": 1,
+            "period_number": 1,
+            "period_name": "test_value",
+            "start_date": datetime.now(UTC),
+            "end_date": datetime.now(UTC),
+            "status": PeriodStatus.FUTURE,
+            "previous_period_id": uuid4(),
+            "next_period_id": uuid4(),
+            "closed_at": datetime.now(UTC),
+            "closed_by": "test_value",
+            "locked_at": datetime.now(UTC),
+            "locked_by": "test_value",
+            "reopened_at": datetime.now(UTC),
+            "reopened_by": "test_value",
+            "reopen_reason": "test_value",
+            "adjustment_journal_id": uuid4(),
+            "created_at": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """FiscalPeriod can be constructed with valid field values."""
@@ -218,21 +218,21 @@ class TestPeriodClosureCheckResult:
     """Tests for the PeriodClosureCheckResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            check_id=uuid4(),
-            period_id=uuid4(),
-            period_name="test_value",
-            legal_entity_id=uuid4(),
-            period_status=PeriodStatus.FUTURE,
-            transaction_date=datetime.now(UTC),
-            is_allowed=True,
-            severity=PeriodClosureSeverity.CRITICAL,
-            message="test_value",
-            requires_approval=True,
-            approved_by=["test_value"],
-            timestamp=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "check_id": uuid4(),
+            "period_id": uuid4(),
+            "period_name": "test_value",
+            "legal_entity_id": uuid4(),
+            "period_status": PeriodStatus.FUTURE,
+            "transaction_date": datetime.now(UTC),
+            "is_allowed": True,
+            "severity": PeriodClosureSeverity.CRITICAL,
+            "message": "test_value",
+            "requires_approval": True,
+            "approved_by": ["test_value"],
+            "timestamp": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """PeriodClosureCheckResult can be constructed with valid field values."""
@@ -273,7 +273,7 @@ class TestPeriodClosureEnforcer:
         """Smoke test for PeriodClosureEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -284,7 +284,7 @@ class TestPeriodClosureEnforcer:
         """Smoke test for PeriodClosureEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -295,7 +295,7 @@ class TestPeriodClosureEnforcer:
         """Smoke test for PeriodClosureEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -305,8 +305,8 @@ class TestPeriodClosureEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for PeriodClosureEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PeriodClosureEnforcer.from_dict(data={})
+            self._build_instance()
+            PeriodClosureEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -317,7 +317,7 @@ class TestPeriodClosureEnforcer:
 def test_get_period_closure_enforcer_smoke():
     """Smoke test for module-level function get_period_closure_enforcer."""
     try:
-        result = get_period_closure_enforcer()
+        get_period_closure_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_period_closure_enforcer needs specific input data: {e}")
         return

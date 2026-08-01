@@ -51,7 +51,7 @@ class TestTamperAlertTrigger:
         """Smoke test for TamperAlertTrigger.check_stream_integrity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_stream_integrity(stream_name="test_value")
+            await instance.check_stream_integrity(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_stream_integrity needs specific domain fixtures/data: {e}")
             return
@@ -62,7 +62,7 @@ class TestTamperAlertTrigger:
         """Smoke test for TamperAlertTrigger.check_all_streams using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_all_streams()
+            await instance.check_all_streams()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_all_streams needs specific domain fixtures/data: {e}")
             return
@@ -73,7 +73,7 @@ class TestTamperAlertTrigger:
         """Smoke test for TamperAlertTrigger.start_periodic_monitoring using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_monitoring()
+            await instance.start_periodic_monitoring()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_monitoring needs specific domain fixtures/data: {e}")
             return
@@ -84,7 +84,7 @@ class TestTamperAlertTrigger:
         """Smoke test for TamperAlertTrigger.stop_periodic_monitoring using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_periodic_monitoring()
+            await instance.stop_periodic_monitoring()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_periodic_monitoring needs specific domain fixtures/data: {e}")
             return
@@ -95,7 +95,7 @@ class TestTamperAlertTrigger:
 async def test_get_tamper_alert_trigger_smoke():
     """Smoke test for module-level function get_tamper_alert_trigger."""
     try:
-        result = await get_tamper_alert_trigger()
+        await get_tamper_alert_trigger()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_tamper_alert_trigger needs specific input data: {e}")
         return

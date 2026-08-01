@@ -19,13 +19,13 @@ from domain.subledger_ar.invoice_entity import InvoiceEntity, InvoiceStatus, Inv
 
 
 def _draft_invoice(**overrides) -> InvoiceEntity:
-    defaults = dict(
-        invoice_id=uuid4(), invoice_number="INV-TEST-0001", invoice_type=InvoiceType.STANDARD,
-        customer_id=uuid4(), customer_name="PT Pelanggan Test", issue_date=date.today(),
-        due_date=date.today() + timedelta(days=30), amount=Decimal("1000000"), currency="IDR",
-        paid_amount=Decimal("0"), outstanding_amount=Decimal("1000000"),
-        status=InvoiceStatus.DRAFT, description="invoice test",
-    )
+    defaults = {
+        "invoice_id": uuid4(), "invoice_number": "INV-TEST-0001", "invoice_type": InvoiceType.STANDARD,
+        "customer_id": uuid4(), "customer_name": "PT Pelanggan Test", "issue_date": date.today(),
+        "due_date": date.today() + timedelta(days=30), "amount": Decimal("1000000"), "currency": "IDR",
+        "paid_amount": Decimal("0"), "outstanding_amount": Decimal("1000000"),
+        "status": InvoiceStatus.DRAFT, "description": "invoice test",
+    }
     defaults.update(overrides)
     return InvoiceEntity(**defaults)
 

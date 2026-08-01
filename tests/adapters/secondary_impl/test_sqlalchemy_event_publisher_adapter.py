@@ -30,8 +30,8 @@ class TestOutboxEventTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = OutboxEventTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -51,8 +51,8 @@ class TestDeadLetterTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = DeadLetterTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -80,7 +80,7 @@ class TestSQLAlchemyEventPublisherAdapter:
         """Smoke test for SQLAlchemyEventPublisherAdapter.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock(), event_type="test_value", aggregate_id=uuid4(), aggregate_type="test_value", metadata={}, priority=MagicMock(), scheduled_at=datetime.now(UTC), idempotency_key="test_value", partition_key="test_value", event_version=1)
+            await instance.publish(event=MagicMock(), event_type="test_value", aggregate_id=uuid4(), aggregate_type="test_value", metadata={}, priority=MagicMock(), scheduled_at=datetime.now(UTC), idempotency_key="test_value", partition_key="test_value", event_version=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestSQLAlchemyEventPublisherAdapter:
         """Smoke test for SQLAlchemyEventPublisherAdapter.publish_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_batch(events=[{}])
+            await instance.publish_batch(events=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_batch needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestSQLAlchemyEventPublisherAdapter:
         """Smoke test for SQLAlchemyEventPublisherAdapter.subscribe using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.subscribe(event_type="test_value", handler=(lambda *a, **kw: None), name="test_value", timeout_seconds=1, retry_on_failure=True)
+            instance.subscribe(event_type="test_value", handler=(lambda *a, **kw: None), name="test_value", timeout_seconds=1, retry_on_failure=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"subscribe needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestSQLAlchemyEventPublisherAdapter:
         """Smoke test for SQLAlchemyEventPublisherAdapter.unsubscribe using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.unsubscribe(event_type="test_value", name="test_value")
+            instance.unsubscribe(event_type="test_value", name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"unsubscribe needs specific domain fixtures/data: {e}")
             return

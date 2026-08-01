@@ -164,7 +164,7 @@ class TestIoCContainerRegistration:
         instance2 = container.resolve(set)
         assert instance1 is instance2
         # Create new scope, should get new instance
-        scope = container.create_scope()
+        container.create_scope()
         # But register_scoped is on parent; scope uses parent's definition but scoped lifetime
         # Actually we need to ensure parent's scoped instances are stored in the scope.
         # The container's resolve_async checks scoped_instances on self, not parent.

@@ -27,8 +27,8 @@ class TestNotificationLogTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = NotificationLogTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -56,7 +56,7 @@ class TestSQLAlchemyNotificationChannelAdapter:
         """Smoke test for SQLAlchemyNotificationChannelAdapter.send using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send(channel="test_value", message={})
+            await instance.send(channel="test_value", message={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyNotificationChannelAdapter:
         """Smoke test for SQLAlchemyNotificationChannelAdapter.get_logs using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_logs(channel="test_value", limit=1)
+            await instance.get_logs(channel="test_value", limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_logs needs specific domain fixtures/data: {e}")
             return

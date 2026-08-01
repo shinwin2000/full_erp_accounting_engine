@@ -39,7 +39,7 @@ class TestOpenTelemetrySetup:
         """Smoke test for OpenTelemetrySetup.setup_tracing using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.setup_tracing()
+            instance.setup_tracing()
         except (Exception, SystemExit) as e:
             pytest.skip(f"setup_tracing needs specific domain fixtures/data: {e}")
             return
@@ -50,7 +50,7 @@ class TestOpenTelemetrySetup:
         """Smoke test for OpenTelemetrySetup.setup_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.setup_metrics()
+            instance.setup_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"setup_metrics needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class TestOpenTelemetrySetup:
         """Smoke test for OpenTelemetrySetup.setup_logging using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.setup_logging()
+            instance.setup_logging()
         except (Exception, SystemExit) as e:
             pytest.skip(f"setup_logging needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestOpenTelemetrySetup:
         """Smoke test for OpenTelemetrySetup.setup_instrumentation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.setup_instrumentation(app=MagicMock(), db_engine=MagicMock(), redis_client=MagicMock())
+            instance.setup_instrumentation(app=MagicMock(), db_engine=MagicMock(), redis_client=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"setup_instrumentation needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestOpenTelemetrySetup:
 def test_get_opentelemetry_setup_smoke():
     """Smoke test for module-level function get_opentelemetry_setup."""
     try:
-        result = get_opentelemetry_setup()
+        get_opentelemetry_setup()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_opentelemetry_setup needs specific input data: {e}")
         return
@@ -93,7 +93,7 @@ def test_get_opentelemetry_setup_smoke():
 def test_get_tracer_smoke():
     """Smoke test for module-level function get_tracer."""
     try:
-        result = get_tracer(name="test_value")
+        get_tracer(name="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_tracer needs specific input data: {e}")
         return
@@ -103,7 +103,7 @@ def test_get_tracer_smoke():
 def test_get_trace_id_smoke():
     """Smoke test for module-level function get_trace_id."""
     try:
-        result = get_trace_id(span=MagicMock())
+        get_trace_id(span=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_trace_id needs specific input data: {e}")
         return
@@ -113,7 +113,7 @@ def test_get_trace_id_smoke():
 def test_setup_opentelemetry_smoke():
     """Smoke test for module-level function setup_opentelemetry."""
     try:
-        result = setup_opentelemetry(service_name="test_value", endpoint="test_value", exporter_type="test_value", sampling_ratio=1.5)
+        setup_opentelemetry(service_name="test_value", endpoint="test_value", exporter_type="test_value", sampling_ratio=1.5)
     except (Exception, SystemExit) as e:
         pytest.skip(f"setup_opentelemetry needs specific input data: {e}")
         return
@@ -123,7 +123,7 @@ def test_setup_opentelemetry_smoke():
 def test_traced_smoke():
     """Smoke test for module-level function traced."""
     try:
-        result = traced(span_name="test_value", attributes={})
+        traced(span_name="test_value", attributes={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"traced needs specific input data: {e}")
         return

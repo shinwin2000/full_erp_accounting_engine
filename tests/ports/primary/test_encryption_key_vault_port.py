@@ -51,19 +51,19 @@ class TestKeyMetadata:
     """Tests for the KeyMetadata value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            key_id="test_value",
-            version="test_value",
-            algorithm=KeyAlgorithm.AES_128_GCM,
-            status=KeyStatus.ACTIVE,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            last_rotated_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC),
-            used_count=1,
-            last_used_at=datetime.now(UTC),
-            tags={},
-        )
+        return {
+            'key_id': "test_value",
+            'version': "test_value",
+            'algorithm': KeyAlgorithm.AES_128_GCM,
+            'status': KeyStatus.ACTIVE,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'last_rotated_at': datetime.now(UTC),
+            'expires_at': datetime.now(UTC),
+            'used_count': 1,
+            'last_used_at': datetime.now(UTC),
+            'tags': {},
+        }
 
     def test_construction_success(self):
         """KeyMetadata can be constructed with valid field values."""
@@ -96,7 +96,7 @@ class TestEncryptionKeyVaultPort:
         """Smoke test for EncryptionKeyVaultPort.create_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_key(key_id="test_value", algorithm=KeyAlgorithm.AES_128_GCM, key_size=1, created_by=uuid4(), rotation_days=1, tags={})
+            await instance.create_key(key_id="test_value", algorithm=KeyAlgorithm.AES_128_GCM, key_size=1, created_by=uuid4(), rotation_days=1, tags={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_key needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestEncryptionKeyVaultPort:
         """Smoke test for EncryptionKeyVaultPort.get_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_key(key_id="test_value", version="test_value")
+            await instance.get_key(key_id="test_value", version="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_key needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestEncryptionKeyVaultPort:
         """Smoke test for EncryptionKeyVaultPort.rotate_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rotate_key(key_id="test_value", created_by=uuid4(), new_algorithm=KeyAlgorithm.AES_128_GCM)
+            await instance.rotate_key(key_id="test_value", created_by=uuid4(), new_algorithm=KeyAlgorithm.AES_128_GCM)
         except (Exception, SystemExit) as e:
             pytest.skip(f"rotate_key needs specific domain fixtures/data: {e}")
             return
@@ -129,7 +129,7 @@ class TestEncryptionKeyVaultPort:
         """Smoke test for EncryptionKeyVaultPort.delete_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_key(key_id="test_value", version="test_value")
+            await instance.delete_key(key_id="test_value", version="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_key needs specific domain fixtures/data: {e}")
             return

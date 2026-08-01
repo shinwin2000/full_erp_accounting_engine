@@ -88,7 +88,7 @@ class TestFactoryProvider:
         """Smoke test for FactoryProvider.register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register(name="test_value", factory=(lambda *a, **kw: None))
+            instance.register(name="test_value", factory=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"register needs specific domain fixtures/data: {e}")
             return
@@ -99,7 +99,7 @@ class TestFactoryProvider:
         """Smoke test for FactoryProvider.register_for_type using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_for_type(type_=MagicMock(), factory=(lambda *a, **kw: None))
+            instance.register_for_type(type_=MagicMock(), factory=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_for_type needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class TestFactoryProvider:
         """Smoke test for FactoryProvider.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get(name="test_value")
+            instance.get(name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestFactoryProvider:
         """Smoke test for FactoryProvider.get_for_type using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_for_type(type_=MagicMock())
+            instance.get_for_type(type_=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_for_type needs specific domain fixtures/data: {e}")
             return
@@ -147,8 +147,8 @@ class TestDefaultFactories:
     async def test_create_uow_smoke(self):
         """Smoke test for DefaultFactories.create_uow using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DefaultFactories.create_uow()
+            self._build_instance()
+            await DefaultFactories.create_uow()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_uow needs specific domain fixtures/data: {e}")
             return
@@ -158,8 +158,8 @@ class TestDefaultFactories:
     async def test_create_command_bus_smoke(self):
         """Smoke test for DefaultFactories.create_command_bus using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DefaultFactories.create_command_bus()
+            self._build_instance()
+            await DefaultFactories.create_command_bus()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_command_bus needs specific domain fixtures/data: {e}")
             return
@@ -169,8 +169,8 @@ class TestDefaultFactories:
     async def test_create_query_bus_smoke(self):
         """Smoke test for DefaultFactories.create_query_bus using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DefaultFactories.create_query_bus()
+            self._build_instance()
+            await DefaultFactories.create_query_bus()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_query_bus needs specific domain fixtures/data: {e}")
             return
@@ -181,7 +181,7 @@ class TestDefaultFactories:
 def test_get_factory_provider_smoke():
     """Smoke test for module-level function get_factory_provider."""
     try:
-        result = get_factory_provider()
+        get_factory_provider()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_factory_provider needs specific input data: {e}")
         return
@@ -191,7 +191,7 @@ def test_get_factory_provider_smoke():
 def test_factory_smoke():
     """Smoke test for module-level function factory."""
     try:
-        result = factory(name="test_value")
+        factory(name="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"factory needs specific input data: {e}")
         return

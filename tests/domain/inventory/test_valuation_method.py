@@ -212,13 +212,13 @@ class TestFIFOLayer:
         ],
     )
     def test_invalid_construction_raises(self, overrides: dict[str, Any], match: str) -> None:
-        base_kwargs = dict(
-            item_id=uuid4(),
-            quantity=Decimal("10"),
-            remaining_quantity=Decimal("10"),
-            unit_cost=Decimal("100"),
-            purchase_date=date.today(),
-        )
+        base_kwargs = {
+            "item_id": uuid4(),
+            "quantity": Decimal("10"),
+            "remaining_quantity": Decimal("10"),
+            "unit_cost": Decimal("100"),
+            "purchase_date": date.today(),
+        }
         base_kwargs.update(overrides)
         with pytest.raises(ValueError, match=match):
             FIFOLayer(**base_kwargs)

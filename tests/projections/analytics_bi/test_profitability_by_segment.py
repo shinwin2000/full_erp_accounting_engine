@@ -54,7 +54,7 @@ class TestProfitabilityBySegment:
         """Smoke test for ProfitabilityBySegment.analyze_by_product using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_by_product(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.analyze_by_product(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_by_product needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestProfitabilityBySegment:
         """Smoke test for ProfitabilityBySegment.analyze_by_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_by_customer(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.analyze_by_customer(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_by_customer needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestProfitabilityBySegment:
         """Smoke test for ProfitabilityBySegment.analyze_by_region using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_by_region(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.analyze_by_region(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_by_region needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestProfitabilityBySegment:
         """Smoke test for ProfitabilityBySegment.analyze_by_branch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_by_branch(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.analyze_by_branch(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_by_branch needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestProfitabilitySnapshotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ProfitabilitySnapshotTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestProfitabilitySnapshotTable:
 async def test_get_profitability_analyzer_smoke():
     """Smoke test for module-level function get_profitability_analyzer."""
     try:
-        result = await get_profitability_analyzer()
+        await get_profitability_analyzer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_profitability_analyzer needs specific input data: {e}")
         return

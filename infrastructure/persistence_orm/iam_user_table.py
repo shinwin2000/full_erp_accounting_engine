@@ -156,7 +156,7 @@ iam_session_table = Table(
     extend_existing=True,
 )
 
-# Junction tables (tanpa iam_user_legal_entity)
+# Junction tables 
 iam_user_role = Table(
     "iam_user_role",
     Base.metadata,
@@ -176,9 +176,19 @@ iam_role_permission = Table(
     extend_existing=True,
 )
 
-# Alias untuk kompatibilitas
+iam_user_legal_entity = Table(
+    "iam_user_legal_entity",
+    Base.metadata,
+    Column("user_id", PGUUID(as_uuid=True), ForeignKey("iam_user.id"), primary_key=True),
+    Column("legal_entity_id", PGUUID(as_uuid=True), ForeignKey("legal_entity.id"), primary_key=True),
+    Column("assigned_at", DateTime(timezone=True), server_default="now()"),
+    Column("assigned_by", PGUUID(as_uuid=True), nullable=True),
+    extend_existing=True,
+)
+
 iam_user_role_table = iam_user_role
 iam_role_permission_table = iam_role_permission
+iam_user_legal_entity_table = iam_user_legal_entity
 
 
 # ============================================================================
@@ -361,4 +371,6 @@ __all__ = [
     "iam_role_permission_table",
     "iam_user_role",
     "iam_user_role_table",
+    "iam_user_legal_entity",
+    "iam_user_legal_entity_table",
 ]

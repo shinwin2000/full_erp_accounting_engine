@@ -55,7 +55,7 @@ class TestTaxFilingSubmissionCommand:
         """Smoke test for TaxFilingSubmissionCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestTaxFilingSubmissionUseCase:
         """Smoke test for TaxFilingSubmissionUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestTaxFilingSubmissionUseCase:
         """Smoke test for TaxFilingSubmissionUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestTaxFilingSubmissionUseCase:
         """Smoke test for TaxFilingSubmissionUseCase.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestTaxFilingSubmissionUseCase:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ def test_audit_smoke():
 async def test_tax_filing_submission_handler_smoke():
     """Smoke test for module-level function tax_filing_submission_handler."""
     try:
-        result = await tax_filing_submission_handler(command=MagicMock(), use_case=MagicMock())
+        await tax_filing_submission_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"tax_filing_submission_handler needs specific input data: {e}")
         return

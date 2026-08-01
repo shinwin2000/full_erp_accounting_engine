@@ -105,7 +105,7 @@ class TestEvidenceDocumentUploader:
         """Smoke test for EvidenceDocumentUploader.upload_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload_evidence(file_content=b"test", file_name="test_value", transaction_type="test_value", transaction_id=uuid4(), uploaded_by=uuid4(), legal_entity_id=uuid4(), description="test_value", metadata={})
+            await instance.upload_evidence(file_content=b"test", file_name="test_value", transaction_type="test_value", transaction_id=uuid4(), uploaded_by=uuid4(), legal_entity_id=uuid4(), description="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload_evidence needs specific domain fixtures/data: {e}")
             return
@@ -116,7 +116,7 @@ class TestEvidenceDocumentUploader:
         """Smoke test for EvidenceDocumentUploader.download_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download_evidence(evidence_uri="test_value", verify_hash=True)
+            await instance.download_evidence(evidence_uri="test_value", verify_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"download_evidence needs specific domain fixtures/data: {e}")
             return
@@ -127,7 +127,7 @@ class TestEvidenceDocumentUploader:
         """Smoke test for EvidenceDocumentUploader.delete_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_evidence(evidence_uri="test_value", deleted_by=uuid4())
+            await instance.delete_evidence(evidence_uri="test_value", deleted_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_evidence needs specific domain fixtures/data: {e}")
             return
@@ -138,7 +138,7 @@ class TestEvidenceDocumentUploader:
         """Smoke test for EvidenceDocumentUploader.get_evidence_info using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_evidence_info(evidence_uri="test_value")
+            await instance.get_evidence_info(evidence_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_evidence_info needs specific domain fixtures/data: {e}")
             return
@@ -149,7 +149,7 @@ class TestEvidenceDocumentUploader:
 async def test_get_evidence_uploader_smoke():
     """Smoke test for module-level function get_evidence_uploader."""
     try:
-        result = await get_evidence_uploader()
+        await get_evidence_uploader()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_evidence_uploader needs specific input data: {e}")
         return
@@ -159,7 +159,7 @@ async def test_get_evidence_uploader_smoke():
 async def test_get_evidence_uploader_dep_smoke():
     """Smoke test for module-level function get_evidence_uploader_dep."""
     try:
-        result = await get_evidence_uploader_dep()
+        await get_evidence_uploader_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_evidence_uploader_dep needs specific input data: {e}")
         return

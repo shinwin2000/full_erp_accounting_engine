@@ -73,18 +73,18 @@ class TestProducedMessage:
     """Tests for the ProducedMessage value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            message_id="test_value",
-            topic="test_value",
-            partition=1,
-            offset=1,
-            timestamp=1,
-            key="test_value",
-            value=MagicMock(),
-            sent_at=1.5,
-            success=True,
-            error="test_value",
-        )
+        return {
+            "message_id": "test_value",
+            "topic": "test_value",
+            "partition": 1,
+            "offset": 1,
+            "timestamp": 1,
+            "key": "test_value",
+            "value": MagicMock(),
+            "sent_at": 1.5,
+            "success": True,
+            "error": "test_value",
+        }
 
     def test_construction_success(self):
         """ProducedMessage can be constructed with valid field values."""
@@ -117,7 +117,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -128,7 +128,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -139,7 +139,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.send using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send(topic="test_value", value=MagicMock(), key="test_value", partition=1, headers=[MagicMock()], callback=(lambda *a, **kw: None), retry=1)
+            await instance.send(topic="test_value", value=MagicMock(), key="test_value", partition=1, headers=[MagicMock()], callback=(lambda *a, **kw: None), retry=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return
@@ -150,7 +150,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.send_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_batch(messages=[{}], topic="test_value", callback=(lambda *a, **kw: None))
+            await instance.send_batch(messages=[{}], topic="test_value", callback=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_batch needs specific domain fixtures/data: {e}")
             return
@@ -161,7 +161,7 @@ class TestKafkaProducerWrapper:
 async def test_get_kafka_producer_smoke():
     """Smoke test for module-level function get_kafka_producer."""
     try:
-        result = await get_kafka_producer()
+        await get_kafka_producer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_kafka_producer needs specific input data: {e}")
         return
@@ -171,7 +171,7 @@ async def test_get_kafka_producer_smoke():
 async def test_close_kafka_producer_smoke():
     """Smoke test for module-level function close_kafka_producer."""
     try:
-        result = await close_kafka_producer()
+        await close_kafka_producer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"close_kafka_producer needs specific input data: {e}")
         return

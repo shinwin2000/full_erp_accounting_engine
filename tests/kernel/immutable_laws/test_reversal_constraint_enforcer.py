@@ -44,7 +44,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(journal_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(journal_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_by_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_number(journal_number="test_value", legal_entity_id=uuid4())
+            await instance.get_by_number(journal_number="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_number needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.get_reversals_of using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_reversals_of(original_journal_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_reversals_of(original_journal_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_reversals_of needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackJournalRepository:
         """Smoke test for _FallbackJournalRepository.mark_as_reversed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.mark_as_reversed(journal_id=uuid4(), legal_entity_id=uuid4(), reversal_journal_id=uuid4(), reversed_by="test_value", reversed_at=datetime.now(UTC))
+            await instance.mark_as_reversed(journal_id=uuid4(), legal_entity_id=uuid4(), reversal_journal_id=uuid4(), reversed_by="test_value", reversed_at=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"mark_as_reversed needs specific domain fixtures/data: {e}")
             return
@@ -118,20 +118,20 @@ class TestReversalRecord:
     """Tests for the ReversalRecord value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            reversal_id=uuid4(),
-            original_journal_id=uuid4(),
-            reversal_journal_id=uuid4(),
-            legal_entity_id=uuid4(),
-            reason=ReversalReason.ERROR_CORRECTION,
-            reason_description="test_value",
-            approved_by=["test_value"],
-            created_by="test_value",
-            created_at=datetime.now(UTC),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "reversal_id": uuid4(),
+            "original_journal_id": uuid4(),
+            "reversal_journal_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "reason": ReversalReason.ERROR_CORRECTION,
+            "reason_description": "test_value",
+            "approved_by": ["test_value"],
+            "created_by": "test_value",
+            "created_at": datetime.now(UTC),
+            "amount": Decimal("100.00"),
+            "currency": "test_value",
+            "cryptographic_hash": "",  # ← empty, will be auto-computed
+        }
 
     def test_construction_success(self):
         """ReversalRecord can be constructed with valid field values."""
@@ -149,19 +149,19 @@ class TestReversalCheckResult:
     """Tests for the ReversalCheckResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            check_id=uuid4(),
-            original_journal_id=uuid4(),
-            reversal_journal_id=uuid4(),
-            legal_entity_id=uuid4(),
-            is_allowed=True,
-            severity=ReversalSeverity.CRITICAL,
-            message="test_value",
-            requires_approval=True,
-            requires_reason=True,
-            timestamp=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "check_id": uuid4(),
+            "original_journal_id": uuid4(),
+            "reversal_journal_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "is_allowed": True,
+            "severity": ReversalSeverity.CRITICAL,
+            "message": "test_value",
+            "requires_approval": True,
+            "requires_reason": True,
+            "timestamp": datetime.now(UTC),
+            "cryptographic_hash": "",  # ← empty, will be auto-computed
+        }
 
     def test_construction_success(self):
         """ReversalCheckResult can be constructed with valid field values."""
@@ -202,7 +202,7 @@ class TestReversalConstraintEnforcer:
         """Smoke test for ReversalConstraintEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -213,7 +213,7 @@ class TestReversalConstraintEnforcer:
         """Smoke test for ReversalConstraintEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -224,7 +224,7 @@ class TestReversalConstraintEnforcer:
         """Smoke test for ReversalConstraintEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -234,8 +234,8 @@ class TestReversalConstraintEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for ReversalConstraintEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ReversalConstraintEnforcer.from_dict(data={})
+            self._build_instance()
+            ReversalConstraintEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -246,7 +246,7 @@ class TestReversalConstraintEnforcer:
 def test_get_reversal_constraint_enforcer_smoke():
     """Smoke test for module-level function get_reversal_constraint_enforcer."""
     try:
-        result = get_reversal_constraint_enforcer()
+        get_reversal_constraint_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_reversal_constraint_enforcer needs specific input data: {e}")
         return

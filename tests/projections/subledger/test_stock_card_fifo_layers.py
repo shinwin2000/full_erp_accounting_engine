@@ -53,7 +53,7 @@ class TestStockCardFIFOLayers:
         """Smoke test for StockCardFIFOLayers.rebuild_fifo_layers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_fifo_layers(item_id=uuid4(), legal_entity_id=uuid4())
+            await instance.rebuild_fifo_layers(item_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_fifo_layers needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestStockCardFIFOLayers:
         """Smoke test for StockCardFIFOLayers.rebuild_all_items using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_all_items(legal_entity_id=uuid4())
+            await instance.rebuild_all_items(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_all_items needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestStockCardFIFOLayers:
         """Smoke test for StockCardFIFOLayers.get_stock_card using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_stock_card(item_id=uuid4(), warehouse_id=uuid4(), start_date=date.today(), end_date=date.today(), limit=1)
+            await instance.get_stock_card(item_id=uuid4(), warehouse_id=uuid4(), start_date=date.today(), end_date=date.today(), limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stock_card needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestStockCardFIFOLayers:
         """Smoke test for StockCardFIFOLayers.get_fifo_layers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_fifo_layers(item_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_fifo_layers(item_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_fifo_layers needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestStockCardFIFOLayers:
 async def test_get_stock_card_fifo_smoke():
     """Smoke test for module-level function get_stock_card_fifo."""
     try:
-        result = await get_stock_card_fifo()
+        await get_stock_card_fifo()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_stock_card_fifo needs specific input data: {e}")
         return

@@ -214,7 +214,7 @@ class TestVaultKeyManager:
         with patch("security_hardening.key_management_vault_auto_rotate.HAS_HVAC", True):
             with patch.object(VaultKeyManager, "_ensure_key_exists"):
                 with patch.object(VaultKeyManager, "_start_rotation_monitor") as mock_start:
-                    manager = VaultKeyManager(
+                    VaultKeyManager(
                         vault_addr="https://vault:8200",
                         token="token",
                         auto_rotate_enabled=True,
@@ -568,7 +568,7 @@ class TestVaultKeyManager:
         # Call monitor once (we'll simulate one iteration)
         with patch.object(vault_key_manager, "_running", True):
             try:
-                metadata = vault_key_manager.get_key_metadata()
+                vault_key_manager.get_key_metadata()
                 # This will raise, but should be caught in the actual monitor
             except Exception:
                 pass

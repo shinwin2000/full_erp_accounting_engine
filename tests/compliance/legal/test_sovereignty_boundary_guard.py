@@ -71,7 +71,7 @@ class TestTransferRecord:
         """Smoke test for TransferRecord.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestSovereigntyBoundaryGuard:
         """Smoke test for SovereigntyBoundaryGuard.check_data_residency using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check_data_residency(data_source_jurisdiction="test_value", data_processing_jurisdiction="test_value", data_classification=DataClassification.PUBLIC)
+            instance.check_data_residency(data_source_jurisdiction="test_value", data_processing_jurisdiction="test_value", data_classification=DataClassification.PUBLIC)
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_data_residency needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestSovereigntyBoundaryGuard:
         """Smoke test for SovereigntyBoundaryGuard.check_user_access using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check_user_access(user_jurisdiction="test_value", resource_jurisdiction="test_value", user_role="test_value", data_classification=DataClassification.PUBLIC)
+            instance.check_user_access(user_jurisdiction="test_value", resource_jurisdiction="test_value", user_role="test_value", data_classification=DataClassification.PUBLIC)
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_user_access needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestSovereigntyBoundaryGuard:
         """Smoke test for SovereigntyBoundaryGuard.record_transfer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_transfer(data_type=DataClassification.PUBLIC, source_jurisdiction="test_value", target_jurisdiction="test_value", transfer_basis=TransferBasis.CONSENT, amount_of_records=1, approved_by=uuid4(), justification="test_value")
+            instance.record_transfer(data_type=DataClassification.PUBLIC, source_jurisdiction="test_value", target_jurisdiction="test_value", transfer_basis=TransferBasis.CONSENT, amount_of_records=1, approved_by=uuid4(), justification="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_transfer needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestSovereigntyBoundaryGuard:
         """Smoke test for SovereigntyBoundaryGuard.enforce_data_residency using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.enforce_data_residency(data_source_jurisdiction="test_value", data_processing_jurisdiction="test_value", data_classification=DataClassification.PUBLIC)
+            instance.enforce_data_residency(data_source_jurisdiction="test_value", data_processing_jurisdiction="test_value", data_classification=DataClassification.PUBLIC)
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce_data_residency needs specific domain fixtures/data: {e}")
             return

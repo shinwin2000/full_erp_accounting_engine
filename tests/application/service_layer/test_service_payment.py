@@ -62,25 +62,25 @@ class TestPayment:
     """Tests for the Payment value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            payment_number="test_value",
-            payment_type=PaymentType.AP,
-            counterparty_id=uuid4(),
-            invoice_id=uuid4(),
-            amount=Decimal("100.00"),
-            payment_date=date.today(),
-            reference_number="test_value",
-            description="test_value",
-            status=PaymentStatus.DRAFT,
-            is_allocated=True,
-            is_applied=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'payment_number': "test_value",
+            'payment_type': PaymentType.AP,
+            'counterparty_id': uuid4(),
+            'invoice_id': uuid4(),
+            'amount': Decimal("100.00"),
+            'payment_date': date.today(),
+            'reference_number': "test_value",
+            'description': "test_value",
+            'status': PaymentStatus.DRAFT,
+            'is_allocated': True,
+            'is_applied': True,
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """Payment can be constructed with valid field values."""
@@ -145,7 +145,7 @@ class TestPaymentService:
         """Smoke test for PaymentService.create_payment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_payment(legal_entity_id=uuid4(), payment_number="test_value", payment_type="test_value", counterparty_id=uuid4(), amount=Decimal("100.00"), payment_date=date.today(), invoice_id=uuid4(), reference_number="test_value", description="test_value", created_by=uuid4(), correlation_id="test_value")
+            await instance.create_payment(legal_entity_id=uuid4(), payment_number="test_value", payment_type="test_value", counterparty_id=uuid4(), amount=Decimal("100.00"), payment_date=date.today(), invoice_id=uuid4(), reference_number="test_value", description="test_value", created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_payment needs specific domain fixtures/data: {e}")
             return
@@ -156,7 +156,7 @@ class TestPaymentService:
         """Smoke test for PaymentService.get_payment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_payment(payment_id=uuid4())
+            await instance.get_payment(payment_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_payment needs specific domain fixtures/data: {e}")
             return
@@ -167,7 +167,7 @@ class TestPaymentService:
         """Smoke test for PaymentService.list_payments using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_payments(legal_entity_id=uuid4(), payment_type="test_value", status="test_value")
+            await instance.list_payments(legal_entity_id=uuid4(), payment_type="test_value", status="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_payments needs specific domain fixtures/data: {e}")
             return
@@ -178,7 +178,7 @@ class TestPaymentService:
         """Smoke test for PaymentService.approve_payment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.approve_payment(payment_id=uuid4(), approved_by=uuid4(), correlation_id="test_value")
+            await instance.approve_payment(payment_id=uuid4(), approved_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_payment needs specific domain fixtures/data: {e}")
             return
@@ -189,7 +189,7 @@ class TestPaymentService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -199,7 +199,7 @@ def test_audit_smoke():
 async def test_create_payment_service_smoke():
     """Smoke test for module-level function create_payment_service."""
     try:
-        result = await create_payment_service(event_publisher=MagicMock())
+        await create_payment_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_payment_service needs specific input data: {e}")
         return

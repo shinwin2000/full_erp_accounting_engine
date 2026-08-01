@@ -1139,13 +1139,15 @@ class SovereigntyDeclaration:
                 raise SovereigntyDeclarationError(
                     f"Changing to {new_status.name} requires at least 2 approvers"
                 )
-            if new_status == SovereigntyStatus.EMERGENCY_LOCKDOWN:
-                if initiated_by != "system" and not any(
-                    a == "emergency_admin" for a in approved_by
-                ):
-                    raise SovereigntyDeclarationError(
-                        "EMERGENCY_LOCKDOWN requires emergency_admin approval"
-                    )
+            # Perbaikan SIM102: gabungkan kondisi
+            if (
+                new_status == SovereigntyStatus.EMERGENCY_LOCKDOWN
+                and initiated_by != "system"
+                and not any(a == "emergency_admin" for a in approved_by)
+            ):
+                raise SovereigntyDeclarationError(
+                    "EMERGENCY_LOCKDOWN requires emergency_admin approval"
+                )
             previous = self.current_status
             event = SovereigntyEvent(
                 event_id=uuid4(),
@@ -1210,12 +1212,18 @@ class SovereigntyDeclaration:
                 return False, "EMERGENCY_LOCKDOWN: only READ operations allowed"
             if domain not in [SovereigntyDomain.AUDIT_TRAIL, SovereigntyDomain.GENERAL_LEDGER]:
                 return False, f"EMERGENCY_LOCKDOWN: domain {domain.name} not accessible"
-        if status == SovereigntyStatus.MAINTENANCE_MODE:
-            if source not in ["internal_api", "cli_authorized"]:
-                return False, "MAINTENANCE_MODE: source not allowed"
-        if status == SovereigntyStatus.OBSERVATION:
-            if operation not in ["READ", "EXPORT_READONLY"]:
-                return False, "OBSERVATION: write operation not allowed"
+        # Perbaikan SIM102: gabungkan kondisi
+        if status == SovereigntyStatus.MAINTENANCE_MODE and source not in [
+            "internal_api",
+            "cli_authorized",
+        ]:
+            return False, "MAINTENANCE_MODE: source not allowed"
+        # Perbaikan SIM102: gabungkan kondisi
+        if status == SovereigntyStatus.OBSERVATION and operation not in [
+            "READ",
+            "EXPORT_READONLY",
+        ]:
+            return False, "OBSERVATION: write operation not allowed"
         if status == SovereigntyStatus.RECOVERY_MODE:
             if source not in ["internal_api", "recovery_tool"]:
                 return False, "RECOVERY_MODE: source not allowed"

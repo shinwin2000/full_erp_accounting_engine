@@ -66,20 +66,21 @@ class TestHandlerDefinition:
 
     def _build_kwargs(self, handler=None):
         if handler is None:
-            handler = lambda *a, **kw: None
-        return dict(
-            command_type="TestCommand",
-            handler=handler,
-            handler_type=HandlerType.COMMAND,
-            version="1.0.0",
-            description="Test description",
-            dependencies=["dep1", "dep2"],
-            timeout_seconds=60,
-            retry_count=5,
-            requires_approval=True,
-            approval_roles=["admin", "manager"],
-            is_async=False,
-        )
+            def handler(*a, **kw):
+                return None
+        return {
+            "command_type": "TestCommand",
+            "handler": handler,
+            "handler_type": HandlerType.COMMAND,
+            "version": "1.0.0",
+            "description": "Test description",
+            "dependencies": ["dep1", "dep2"],
+            "timeout_seconds": 60,
+            "retry_count": 5,
+            "requires_approval": True,
+            "approval_roles": ["admin", "manager"],
+            "is_async": False,
+        }
 
     def test_construction_with_all_fields(self):
         """HandlerDefinition can be constructed with all field values."""
@@ -99,7 +100,8 @@ class TestHandlerDefinition:
 
     def test_default_values(self):
         """HandlerDefinition uses correct default values."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         instance = HandlerDefinition(command_type="Test", handler=handler, handler_type=HandlerType.COMMAND)
         assert instance.version == "1.0.0"
         assert instance.description == ""
@@ -129,7 +131,8 @@ class TestHandlerDefinition:
     def test_handler_stored_as_weakref_proxy(self):
         """Handler is stored as a weakref proxy in registry."""
         # This is tested indirectly through registry behavior
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         instance = HandlerDefinition(command_type="Test", handler=handler, handler_type=HandlerType.COMMAND)
         # The handler should be callable
         assert callable(instance.handler)
@@ -256,7 +259,8 @@ class TestCommandHandlerRegistry:
     # -------------------------------------------------------------------------
     def test_register_command_handler(self, registry):
         """Can register a command handler."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register(command_type="TestCommand", handler=handler, handler_type=HandlerType.COMMAND)
         assert registry.has_handler("TestCommand")
 
@@ -267,32 +271,40 @@ class TestCommandHandlerRegistry:
 
     def test_register_command_duplicate_raises(self, registry):
         """Registering duplicate command handler raises HandlerAlreadyExistsError."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register(command_type="DupCommand", handler=handler1, handler_type=HandlerType.COMMAND)
         with pytest.raises(HandlerAlreadyExistsError):
             registry.register(command_type="DupCommand", handler=handler2, handler_type=HandlerType.COMMAND)
 
     def test_register_query_duplicate_raises(self, registry):
         """Registering duplicate query handler raises HandlerAlreadyExistsError."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register(command_type="DupQuery", handler=handler1, handler_type=HandlerType.QUERY)
         with pytest.raises(HandlerAlreadyExistsError):
             registry.register(command_type="DupQuery", handler=handler2, handler_type=HandlerType.QUERY)
 
     def test_register_saga_duplicate_raises(self, registry):
         """Registering duplicate saga handler raises HandlerAlreadyExistsError."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register(command_type="DupSaga", handler=handler1, handler_type=HandlerType.SAGA)
         with pytest.raises(HandlerAlreadyExistsError):
             registry.register(command_type="DupSaga", handler=handler2, handler_type=HandlerType.SAGA)
 
     def test_register_event_allows_multiple(self, registry):
         """Event handlers allow multiple registrations for same event type."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register(command_type="MultiEvent", handler=handler1, handler_type=HandlerType.EVENT)
         registry.register(command_type="MultiEvent", handler=handler2, handler_type=HandlerType.EVENT)
         handlers = registry.get_event_handlers("MultiEvent")
@@ -300,7 +312,8 @@ class TestCommandHandlerRegistry:
 
     def test_register_records_history(self, registry):
         """Registration is recorded in history."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register(command_type="HistoryCommand", handler=handler, handler_type=HandlerType.COMMAND)
         history = registry.get_registration_history()
         assert len(history) == 1
@@ -312,26 +325,30 @@ class TestCommandHandlerRegistry:
     # -------------------------------------------------------------------------
     def test_register_command_handler_convenience(self, registry):
         """register_command_handler convenience method works."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_command_handler(command_type="ConvenienceCmd", handler=handler)
         assert registry.has_handler("ConvenienceCmd")
 
     def test_register_query_handler_convenience(self, registry):
         """register_query_handler convenience method works."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_query_handler(query_type="ConvenienceQuery", handler=handler)
         assert registry.has_query_handler("ConvenienceQuery")
 
     def test_register_event_handler_convenience(self, registry):
         """register_event_handler convenience method works."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_event_handler(event_type="ConvenienceEvent", handler=handler)
         handlers = registry.get_event_handlers("ConvenienceEvent")
         assert len(handlers) == 1
 
     def test_register_saga_handler_convenience(self, registry):
         """register_saga_handler convenience method works."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_saga_handler(saga_type="ConvenienceSaga", handler=handler)
         assert registry.has_saga_handler("ConvenienceSaga")
 
@@ -340,7 +357,8 @@ class TestCommandHandlerRegistry:
     # -------------------------------------------------------------------------
     def test_get_handler_returns_handler(self, registry):
         """get_handler returns the registered handler."""
-        handler = lambda *a, **kw: "result"
+        def handler(*a, **kw):
+            return "result"
         registry.register_command_handler(command_type="GetCmd", handler=handler)
         retrieved = registry.get_handler("GetCmd")
         assert retrieved is not None
@@ -352,7 +370,8 @@ class TestCommandHandlerRegistry:
 
     def test_get_handler_definition(self, registry):
         """get_handler_definition returns HandlerDefinition."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_command_handler(
             command_type="DefCmd", handler=handler, version="2.0.0", description="Test desc"
         )
@@ -363,7 +382,8 @@ class TestCommandHandlerRegistry:
 
     def test_get_query_handler(self, registry):
         """get_query_handler returns query handler."""
-        handler = lambda *a, **kw: "query_result"
+        def handler(*a, **kw):
+            return "query_result"
         registry.register_query_handler(query_type="GetQuery", handler=handler)
         retrieved = registry.get_query_handler("GetQuery")
         assert retrieved is not None
@@ -375,8 +395,10 @@ class TestCommandHandlerRegistry:
 
     def test_get_event_handlers(self, registry):
         """get_event_handlers returns list of handlers."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register_event_handler(event_type="MultiEvent", handler=handler1)
         registry.register_event_handler(event_type="MultiEvent", handler=handler2)
         handlers = registry.get_event_handlers("MultiEvent")
@@ -389,7 +411,8 @@ class TestCommandHandlerRegistry:
 
     def test_get_saga_handler(self, registry):
         """get_saga_handler returns saga handler."""
-        handler = lambda *a, **kw: "saga_result"
+        def handler(*a, **kw):
+            return "saga_result"
         registry.register_saga_handler(saga_type="GetSaga", handler=handler)
         retrieved = registry.get_saga_handler("GetSaga")
         assert retrieved is not None
@@ -404,7 +427,8 @@ class TestCommandHandlerRegistry:
     # -------------------------------------------------------------------------
     def test_has_handler_true(self, registry):
         """has_handler returns True for registered handler."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_command_handler(command_type="HasCmd", handler=handler)
         assert registry.has_handler("HasCmd") is True
 
@@ -414,14 +438,16 @@ class TestCommandHandlerRegistry:
 
     def test_has_query_handler(self, registry):
         """has_query_handler works correctly."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_query_handler(query_type="HasQuery", handler=handler)
         assert registry.has_query_handler("HasQuery") is True
         assert registry.has_query_handler("NotRegistered") is False
 
     def test_has_saga_handler(self, registry):
         """has_saga_handler works correctly."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_saga_handler(saga_type="HasSaga", handler=handler)
         assert registry.has_saga_handler("HasSaga") is True
         assert registry.has_saga_handler("NotRegistered") is False
@@ -431,10 +457,14 @@ class TestCommandHandlerRegistry:
     # -------------------------------------------------------------------------
     def test_list_handlers_all_types(self, registry):
         """list_handlers returns all registered handlers."""
-        cmd_handler = lambda *a, **kw: None
-        query_handler_fn = lambda *a, **kw: None
-        event_handler_fn = lambda *a, **kw: None
-        saga_handler_fn = lambda *a, **kw: None
+        def cmd_handler(*a, **kw):
+            return None
+        def query_handler_fn(*a, **kw):
+            return None
+        def event_handler_fn(*a, **kw):
+            return None
+        def saga_handler_fn(*a, **kw):
+            return None
 
         registry.register_command_handler(command_type="ListCmd", handler=cmd_handler)
         registry.register_query_handler(query_type="ListQuery", handler=query_handler_fn)
@@ -446,8 +476,10 @@ class TestCommandHandlerRegistry:
 
     def test_list_handlers_filtered_by_type(self, registry):
         """list_handlers can filter by handler type."""
-        cmd_handler = lambda *a, **kw: None
-        query_handler_fn = lambda *a, **kw: None
+        def cmd_handler(*a, **kw):
+            return None
+        def query_handler_fn(*a, **kw):
+            return None
 
         registry.register_command_handler(command_type="FilterCmd", handler=cmd_handler)
         registry.register_query_handler(query_type="FilterQuery", handler=query_handler_fn)
@@ -470,7 +502,8 @@ class TestCommandHandlerRegistry:
     # -------------------------------------------------------------------------
     def test_unregister_command_handler(self, registry):
         """unregister removes command handler."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_command_handler(command_type="UnregCmd", handler=handler)
         assert registry.has_handler("UnregCmd") is True
 
@@ -480,7 +513,8 @@ class TestCommandHandlerRegistry:
 
     def test_unregister_query_handler(self, registry):
         """unregister removes query handler."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_query_handler(query_type="UnregQuery", handler=handler)
 
         result = registry.unregister("UnregQuery", handler_type=HandlerType.QUERY)
@@ -489,7 +523,8 @@ class TestCommandHandlerRegistry:
 
     def test_unregister_saga_handler(self, registry):
         """unregister removes saga handler."""
-        handler = lambda *a, **kw: None
+        def handler(*a, **kw):
+            return None
         registry.register_saga_handler(saga_type="UnregSaga", handler=handler)
 
         result = registry.unregister("UnregSaga", handler_type=HandlerType.SAGA)
@@ -498,8 +533,10 @@ class TestCommandHandlerRegistry:
 
     def test_unregister_event_handlers(self, registry):
         """unregister removes all event handlers for event type."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register_event_handler(event_type="UnregEvent", handler=handler1)
         registry.register_event_handler(event_type="UnregEvent", handler=handler2)
 
@@ -514,8 +551,10 @@ class TestCommandHandlerRegistry:
 
     def test_unregister_event_handler_specific(self, registry):
         """unregister_event_handler removes specific handler."""
-        handler1 = lambda *a, **kw: None
-        handler2 = lambda *a, **kw: None
+        def handler1(*a, **kw):
+            return None
+        def handler2(*a, **kw):
+            return None
         registry.register_event_handler(event_type="SpecificEvent", handler=handler1)
         registry.register_event_handler(event_type="SpecificEvent", handler=handler2)
 

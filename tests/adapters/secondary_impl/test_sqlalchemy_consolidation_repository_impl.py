@@ -34,8 +34,8 @@ class TestConsolidationGroupTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ConsolidationGroupTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -55,8 +55,8 @@ class TestConsolidationEntityTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ConsolidationEntityTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -76,8 +76,8 @@ class TestIntercompanyTransactionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = IntercompanyTransactionTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -97,8 +97,8 @@ class TestOwnershipTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = OwnershipTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -118,8 +118,8 @@ class TestConsolidationResultTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ConsolidationResultTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -147,7 +147,7 @@ class TestSQLAlchemyConsolidationRepository:
         """Smoke test for SQLAlchemyConsolidationRepository.get_intercompany_transactions using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_intercompany_transactions(entity_ids=[uuid4()], as_of_date=date.today())
+            await instance.get_intercompany_transactions(entity_ids=[uuid4()], as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_intercompany_transactions needs specific domain fixtures/data: {e}")
             return
@@ -158,7 +158,7 @@ class TestSQLAlchemyConsolidationRepository:
         """Smoke test for SQLAlchemyConsolidationRepository.get_intercompany_balances using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_intercompany_balances(entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_intercompany_balances(entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_intercompany_balances needs specific domain fixtures/data: {e}")
             return
@@ -169,7 +169,7 @@ class TestSQLAlchemyConsolidationRepository:
         """Smoke test for SQLAlchemyConsolidationRepository.save_consolidation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_consolidation(id=uuid4(), group_entity_id=uuid4(), period_end_date=date.today(), currency="test_value", rows=[MagicMock()], eliminations=[MagicMock()], nci_total=Decimal("100.00"), created_at=datetime.now(UTC))
+            await instance.save_consolidation(id=uuid4(), group_entity_id=uuid4(), period_end_date=date.today(), currency="test_value", rows=[MagicMock()], eliminations=[MagicMock()], nci_total=Decimal("100.00"), created_at=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_consolidation needs specific domain fixtures/data: {e}")
             return
@@ -180,7 +180,7 @@ class TestSQLAlchemyConsolidationRepository:
         """Smoke test for SQLAlchemyConsolidationRepository.get_consolidation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_consolidation(consolidation_id=uuid4())
+            await instance.get_consolidation(consolidation_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_consolidation needs specific domain fixtures/data: {e}")
             return

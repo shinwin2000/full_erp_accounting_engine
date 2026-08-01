@@ -11,7 +11,6 @@ import pytest
 
 # Import the module itself for monkeypatching
 import kernel.kernel_exceptions as ke_module
-
 from kernel.kernel_exceptions import (
     AxiomViolationError,
     CircuitBreakerConfigInvalidError,
@@ -72,7 +71,7 @@ def mock_datetime_now(monkeypatch):
 @pytest.fixture(autouse=True)
 def patch_problematic_exceptions(monkeypatch):
     """
-    Patch constructors of exceptions that have duplicate 'component' or 'details' 
+    Patch constructors of exceptions that have duplicate 'component' or 'details'
     issue so that tests can run without TypeError and AssertionError.
     """
     # Patch InvariantViolationError

@@ -53,7 +53,7 @@ class TestFiscalIncomeStatement:
         """Smoke test for FiscalIncomeStatement.compute_fiscal_year_income using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_fiscal_year_income(legal_entity_id=uuid4(), fiscal_year=1)
+            await instance.compute_fiscal_year_income(legal_entity_id=uuid4(), fiscal_year=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_fiscal_year_income needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestFiscalIncomeStatement:
         """Smoke test for FiscalIncomeStatement.save_fiscal_income using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_fiscal_income(income_data={})
+            await instance.save_fiscal_income(income_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_fiscal_income needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestFiscalIncomeStatement:
         """Smoke test for FiscalIncomeStatement.rebuild_for_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_for_legal_entity(legal_entity_id=uuid4())
+            await instance.rebuild_for_legal_entity(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_for_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestFiscalIncomeStatement:
         """Smoke test for FiscalIncomeStatement.rebuild_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_all()
+            await instance.rebuild_all()
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_all needs specific domain fixtures/data: {e}")
             return
@@ -105,8 +105,8 @@ class TestFiscalIncomeStatementTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = FiscalIncomeStatementTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -118,7 +118,7 @@ class TestFiscalIncomeStatementTable:
 async def test_get_fiscal_income_projection_smoke():
     """Smoke test for module-level function get_fiscal_income_projection."""
     try:
-        result = await get_fiscal_income_projection()
+        await get_fiscal_income_projection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_fiscal_income_projection needs specific input data: {e}")
         return

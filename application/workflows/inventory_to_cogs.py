@@ -324,7 +324,7 @@ class InventoryToCOGSWorkflow:
             self._record_audit("inventory_to_cogs_execute", {
                 "period_start": command.period_start.isoformat(),
                 "period_end": command.period_end.isoformat(),
-                "total_cogs": str(total_cogs) if 'total_cogs' in locals() else "0",
+                "total_cogs": str(result.total_cogs),
                 "user_id": str(command.user_id) if command.user_id else None,
             })
 
@@ -415,7 +415,6 @@ class InventoryToCOGSWorkflow:
 # ============================================================================
 # Factory function
 # ============================================================================
-
 
 def create_inventory_to_cogs_workflow(
     inventory_service: InventoryService,

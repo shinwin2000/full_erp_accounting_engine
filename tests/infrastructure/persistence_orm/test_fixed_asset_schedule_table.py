@@ -25,18 +25,18 @@ class TestFixedAssetScheduleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            asset_id=MagicMock(),
-            period="test_value",
-            depreciation_amount=Decimal("100.00"),
-            accumulated_depreciation=Decimal("100.00"),
-            net_book_value=Decimal("100.00"),
-            posted_to_gl="test_value",
-            journal_id=MagicMock(),
-            notes="test_value",
-            asset=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'asset_id': MagicMock(),
+            'period': "test_value",
+            'depreciation_amount': Decimal("100.00"),
+            'accumulated_depreciation': Decimal("100.00"),
+            'net_book_value': Decimal("100.00"),
+            'posted_to_gl': "test_value",
+            'journal_id': MagicMock(),
+            'notes': "test_value",
+            'asset': MagicMock(),
+        }
         try:
             instance = FixedAssetScheduleTable(**kwargs)
         except (Exception, SystemExit) as e:

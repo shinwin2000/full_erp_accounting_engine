@@ -34,7 +34,7 @@ class TestSQLAlchemyAMLRepository:
         """Smoke test for SQLAlchemyAMLRepository.save_screening_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_screening_result(record=MagicMock())
+            await instance.save_screening_result(record=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_screening_result needs specific domain fixtures/data: {e}")
             return
@@ -45,7 +45,7 @@ class TestSQLAlchemyAMLRepository:
         """Smoke test for SQLAlchemyAMLRepository.get_screening_result using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_screening_result(transaction_id=uuid4())
+            await instance.get_screening_result(transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_screening_result needs specific domain fixtures/data: {e}")
             return
@@ -56,7 +56,7 @@ class TestSQLAlchemyAMLRepository:
         """Smoke test for SQLAlchemyAMLRepository.list_screened_transactions using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_screened_transactions(legal_entity_id=uuid4(), from_date=date.today(), to_date=date.today(), result="test_value")
+            await instance.list_screened_transactions(legal_entity_id=uuid4(), from_date=date.today(), to_date=date.today(), result="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_screened_transactions needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyAMLRepository:
         """Smoke test for SQLAlchemyAMLRepository.save_sanctions_hit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_sanctions_hit(hit=MagicMock())
+            await instance.save_sanctions_hit(hit=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_sanctions_hit needs specific domain fixtures/data: {e}")
             return

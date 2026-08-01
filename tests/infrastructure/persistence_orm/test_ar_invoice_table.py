@@ -26,32 +26,32 @@ class TestARInvoiceTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            invoice_number="test_value",
-            invoice_date=date.today(),
-            due_date=date.today(),
-            customer_id=MagicMock(),
-            total_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            discount_amount=Decimal("100.00"),
-            currency="test_value",
-            status="test_value",
-            description="test_value",
-            reference_number="test_value",
-            sales_order_id=MagicMock(),
-            tax_invoice_number="test_value",
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            customer=MagicMock(),
-            sales_order=MagicMock(),
-            lines=[MagicMock()],
-            payments=[MagicMock()],
-            credit_notes=[MagicMock()],
-            bupots=[MagicMock()],
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'invoice_number': "test_value",
+            'invoice_date': date.today(),
+            'due_date': date.today(),
+            'customer_id': MagicMock(),
+            'total_amount': Decimal("100.00"),
+            'paid_amount': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'discount_amount': Decimal("100.00"),
+            'currency': "test_value",
+            'status': "test_value",
+            'description': "test_value",
+            'reference_number': "test_value",
+            'sales_order_id': MagicMock(),
+            'tax_invoice_number': "test_value",
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'customer': MagicMock(),
+            'sales_order': MagicMock(),
+            'lines': [MagicMock()],
+            'payments': [MagicMock()],
+            'credit_notes': [MagicMock()],
+            'bupots': [MagicMock()],
+        }
         try:
             instance = ARInvoiceTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -1925,7 +1925,7 @@ class TestFakturKeluaranGeneratorAdditional:
             "bulan": 5,
         }
         with caplog.at_level("WARNING"):
-            dummy = generator.generate(data)
+            generator.generate(data)
             assert "PPN tidak sesuai tarif 11%" in caplog.text
 
     def test_submit_dummy_invalid(self):

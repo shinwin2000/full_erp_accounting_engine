@@ -617,7 +617,7 @@ class TestFinancialObligationService:
             description="Overdue",
         )
         # Create non-overdue
-        not_overdue = service.create_obligation(
+        service.create_obligation(
             obligation_type=ObligationType.ACCOUNTS_PAYABLE,
             source_event_id=uuid4(),
             legal_entity_id=le_id,
@@ -719,7 +719,7 @@ class TestFinancialObligationService:
     def test_get_statistics(self, service):
         le_id = uuid4()
         # Create obligations with different statuses
-        ob1 = service.create_obligation(
+        service.create_obligation(
             obligation_type=ObligationType.ACCOUNTS_PAYABLE,
             source_event_id=uuid4(),
             legal_entity_id=le_id,

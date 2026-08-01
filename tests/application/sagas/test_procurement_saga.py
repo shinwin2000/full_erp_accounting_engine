@@ -64,20 +64,20 @@ class TestProcurementSagaState:
     """Tests for the ProcurementSagaState value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            po_id=uuid4(),
-            legal_entity_id=uuid4(),
-            initiated_by="test_value",
-            po_number="test_value",
-            grn_id=uuid4(),
-            invoice_id=uuid4(),
-            payment_id=uuid4(),
-            is_invoice_verified=True,
-            is_invoice_approved=True,
-            is_payment_processed=True,
-            error_message="test_value",
-            metadata={},
-        )
+        return {
+            'po_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'initiated_by': "test_value",
+            'po_number': "test_value",
+            'grn_id': uuid4(),
+            'invoice_id': uuid4(),
+            'payment_id': uuid4(),
+            'is_invoice_verified': True,
+            'is_invoice_approved': True,
+            'is_payment_processed': True,
+            'error_message': "test_value",
+            'metadata': {},
+        }
 
     def test_construction_success(self):
         """ProcurementSagaState can be constructed with valid field values."""
@@ -161,13 +161,13 @@ class TestProcurementSagaContext:
     """Tests for ProcurementSagaContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            po_number="test_value",
-            grn_number="test_value",
-            invoice_number="test_value",
-            payment_number="test_value",
-        )
+        return {
+            'saga_id': uuid4(),
+            'po_number': "test_value",
+            'grn_number': "test_value",
+            'invoice_number': "test_value",
+            'payment_number': "test_value",
+        }
 
     def test_construction_success(self):
         """ProcurementSagaContext can be constructed with valid field values."""
@@ -240,7 +240,7 @@ class TestProcurementSagaOrchestrator:
         # but we can call it and expect it to return None or raise in sync context.
         # We'll just call it and catch expected errors.
         try:
-            result = instance.get_state("non_existent")
+            instance.get_state("non_existent")
         except RuntimeError:
             # In an event loop running, it raises, but in sync test it's fine.
             pass

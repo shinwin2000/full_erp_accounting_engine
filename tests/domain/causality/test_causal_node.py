@@ -188,7 +188,7 @@ class TestCausalNode:
             )
 
     def test_hash_mismatch_raises(self, fixed_now):
-        node = CausalNode(
+        CausalNode(
             node_id=uuid4(),
             node_type=CausalNodeType.INTENT,
             entity_id=uuid4(),
@@ -747,7 +747,7 @@ class TestCausalNodeService:
     def test_validate_chain_integrity_invalid(self, service, sample_chain):
         # Break a link
         node1 = sample_chain[0]
-        node2 = sample_chain[1]
+        sample_chain[1]
         # Manually break
         broken = CausalNode(
             node_id=node1.node_id,
@@ -834,7 +834,7 @@ class TestCausalNodeService:
         svc2 = CausalNodeService()
         svc2.reset()
         node1 = svc2.create_node(CausalNodeType.INTENT, uuid4(), "journal", "tester")
-        node2 = svc2.create_node(CausalNodeType.JOURNAL_ENTRY, uuid4(), "journal_entry", "tester", previous_node_id=node1.node_id)
+        svc2.create_node(CausalNodeType.JOURNAL_ENTRY, uuid4(), "journal_entry", "tester", previous_node_id=node1.node_id)
         export_str = svc2.export_chain(node1.node_id)
         # Import into service
         ids = service.import_chain(export_str, overwrite=False)

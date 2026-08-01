@@ -304,7 +304,7 @@ async def test_CommandHandlerRegistry_get_handler_with_specific(registry: Comman
     registry.register_handler("TestCmd", sample_handler)
     h = registry.get_handler("TestCmd")
     assert h is not None
-    result = await h({})
+    await h({})
     sample_handler.assert_awaited_once()
 
 

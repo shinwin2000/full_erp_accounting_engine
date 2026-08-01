@@ -230,7 +230,7 @@ class TestUpdateDelete:
     def test_update_relationship_strength(self, tracker):
         src = uuid4()
         tgt = uuid4()
-        rel = tracker.add_relationship(src, tgt, RelationshipType.DIRECT, "system", 0.5)
+        tracker.add_relationship(src, tgt, RelationshipType.DIRECT, "system", 0.5)
         updated = tracker.update_relationship_strength(src, tgt, 0.9, "updater")
         assert updated is not None
         assert updated.strength == 0.9

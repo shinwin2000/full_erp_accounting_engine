@@ -27,30 +27,30 @@ class TestInventoryStockCardTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            movement_id=uuid4(),
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            uom="test_value",
-            warehouse_id=MagicMock(),
-            warehouse_code="test_value",
-            movement_date=date.today(),
-            movement_type="test_value",
-            reference_document_type="test_value",
-            reference_document_number="test_value",
-            in_quantity=Decimal("100.00"),
-            out_quantity=Decimal("100.00"),
-            balance_quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            in_value=Decimal("100.00"),
-            out_value=Decimal("100.00"),
-            balance_value=Decimal("100.00"),
-            batch_number="test_value",
-            notes="test_value",
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'movement_id': uuid4(),
+            'item_id': uuid4(),
+            'item_code': "test_value",
+            'item_name': "test_value",
+            'uom': "test_value",
+            'warehouse_id': MagicMock(),
+            'warehouse_code': "test_value",
+            'movement_date': date.today(),
+            'movement_type': "test_value",
+            'reference_document_type': "test_value",
+            'reference_document_number': "test_value",
+            'in_quantity': Decimal("100.00"),
+            'out_quantity': Decimal("100.00"),
+            'balance_quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'in_value': Decimal("100.00"),
+            'out_value': Decimal("100.00"),
+            'balance_value': Decimal("100.00"),
+            'batch_number': "test_value",
+            'notes': "test_value",
+            'created_by': MagicMock(),
+        }
         try:
             instance = InventoryStockCardTable(**kwargs)
         except (Exception, SystemExit) as e:

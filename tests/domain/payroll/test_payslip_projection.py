@@ -307,7 +307,7 @@ class TestPayslipProjectionComputed:
             is_taxable=True,
         )
         # We'll create a payslip with both allowances
-        allowances = valid_payslip.allowances + [new_allowance]
+        allowances = [*valid_payslip.allowances, new_allowance]
         payslip2 = PayslipProjection(
             payslip_id=uuid4(),
             employee_id=valid_payslip.employee_id,
@@ -337,7 +337,7 @@ class TestPayslipProjectionComputed:
             currency="IDR",
             is_taxable=False,
         )
-        deductions = valid_payslip.deductions + [new_deduction]
+        deductions = [*valid_payslip.deductions, new_deduction]
         payslip2 = PayslipProjection(
             payslip_id=uuid4(),
             employee_id=valid_payslip.employee_id,

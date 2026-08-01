@@ -150,7 +150,8 @@ class Test_FallbackIocContainer:
         """Can register a factory function."""
         container = _FallbackIocContainer()
         interface = MagicMock
-        factory = lambda: MagicMock()
+        def factory():
+            return MagicMock()
 
         container.register_factory(interface, factory, ServiceLifetime.SINGLETON)
 
@@ -516,7 +517,8 @@ class TestDependencyInjector:
         """Can register factory."""
         injector = DependencyInjector()
         interface = MagicMock
-        factory = lambda: MagicMock()
+        def factory():
+            return MagicMock()
 
         injector.register_factory(interface, factory, "singleton")
 
@@ -526,7 +528,8 @@ class TestDependencyInjector:
         """Can register singleton."""
         injector = DependencyInjector()
         interface = MagicMock
-        factory = lambda: MagicMock()
+        def factory():
+            return MagicMock()
 
         injector.register_singleton(interface, factory)
 
@@ -536,7 +539,8 @@ class TestDependencyInjector:
         """Can register transient."""
         injector = DependencyInjector()
         interface = MagicMock
-        factory = lambda: MagicMock()
+        def factory():
+            return MagicMock()
 
         injector.register_transient(interface, factory)
 
@@ -546,7 +550,8 @@ class TestDependencyInjector:
         """Can register scoped."""
         injector = DependencyInjector()
         interface = MagicMock
-        factory = lambda: MagicMock()
+        def factory():
+            return MagicMock()
 
         injector.register_scoped(interface, factory)
 
@@ -679,7 +684,7 @@ class TestDependencyInjector:
 
     def test_from_dict(self):
         """from_dict creates instance from dict."""
-        injector = DependencyInjector()
+        DependencyInjector()
         data = {"version": 5, "registered_types": ["Test"]}
 
         new_injector = DependencyInjector.from_dict(data)
@@ -770,7 +775,8 @@ class TestDependencyInjector:
     def test__register_lazy(self):
         """_register_lazy stores factory in _lazy_factories."""
         injector = DependencyInjector()
-        factory = lambda: "test"
+        def factory():
+            return 'test'
         injector._register_lazy("test_factory", factory)
         assert injector._lazy_factories["test_factory"] is factory
 
@@ -780,7 +786,7 @@ class TestDependencyInjector:
         # We can simulate import errors by patching the imported symbols.
         # But since they are already imported at module level, we can test
         # that the method doesn't crash.
-        injector = DependencyInjector()
+        DependencyInjector()
         # The method already ran without error.
         assert True
 
@@ -1004,7 +1010,7 @@ class TestAutowiredDecorator:
         """autowired gracefully handles injection error and leaves param unchanged."""
         # No registration for dep_class
         @autowired
-        def my_func(dep: MagicMock = None):
+        def my_func(dep: MagicMock | None = None):
             return dep
 
         result = my_func()

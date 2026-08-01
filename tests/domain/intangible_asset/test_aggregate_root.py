@@ -5,6 +5,7 @@ Covers all public methods with strong assertions using mocks where needed.
 All tests PASS.
 """
 
+import contextlib
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
@@ -304,7 +305,7 @@ class TestEntityDasarMethods:
         assert clone.version == 1
         assert len(clone.assets) == 1
         # Asset code should be preserved
-        assert list(clone.assets.values())[0].asset_code == list(sample_aggregate.assets.values())[0].asset_code
+        assert next(iter(clone.assets.values())).asset_code == next(iter(sample_aggregate.assets.values())).asset_code
         trail = clone._audit_trail
         assert any(entry["action"] == "CLONE" for entry in trail)
 
@@ -1029,25 +1030,17 @@ def _trigger_all_aggregate_methods():
     _ = agg.reconstruct([])  # no-op
 
     # Calls that may raise; wrap with try-except to prevent import failure
-    try:
+    with contextlib.suppress(ValueError):
         agg.remove_asset(uuid4(), "admin")
-    except ValueError:
-        pass
 
-    try:
+    with contextlib.suppress(ValueError):
         agg.post_amortization(uuid4(), "2024-01", Decimal("100"), "admin")
-    except ValueError:
-        pass
 
-    try:
+    with contextlib.suppress(ValueError):
         agg.get_monthly_amortization(uuid4())
-    except ValueError:
-        pass
 
-    try:
+    with contextlib.suppress(ValueError):
         agg.impair_asset(uuid4(), Decimal("100"), "admin")
-    except ValueError:
-        pass
 
 
 _trigger_all_aggregate_methods()

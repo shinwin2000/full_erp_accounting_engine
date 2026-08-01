@@ -651,50 +651,39 @@ class KernelExceptionFactory:
 
 
 # === 5. EXPORTS ===
+# Diurutkan secara alfabetis sesuai saran RUF022
 __all__ = [
-    "KernelErrorCode",
-    "KernelSeverity",
-    "KernelError",
-    # Sealed Gate
-    "GateNotInitializedError",
-    "GateCircuitOpenError",
-    "GateHandlerNotFoundError",
-    "GateIdempotencyError",
-    "GateValidationFailedError",
-    # Command Dispatcher
+    "AxiomViolationError",
+    "CircuitBreakerConfigInvalidError",
+    "CircuitBreakerOpenError",
+    "ConstitutionViolationError",
+    "ContextInvalidError",
+    "ContextNotFoundError",
+    "DependencyNotFoundError",
     "DispatcherNotRunningError",
     "DispatcherQueueFullError",
     "DispatcherTimeoutError",
-    # Transactional Executor
-    "ExecutorTransactionFailedError",
+    "DistributedLockNotAcquiredError",
+    "DistributedLockTimeoutError",
     "ExecutorDeadlockDetectedError",
     "ExecutorMaxRetriesExceededError",
     "ExecutorRollbackFailedError",
-    # Circuit Breaker
-    "CircuitBreakerOpenError",
-    "CircuitBreakerConfigInvalidError",
-    # Validation Pipeline
-    "ValidationPipelineFailedError",
+    "ExecutorTransactionFailedError",
+    "GateCircuitOpenError",
+    "GateHandlerNotFoundError",
+    "GateIdempotencyError",
+    "GateNotInitializedError",
+    "GateValidationFailedError",
     "InvariantViolationError",
-    "AxiomViolationError",
-    "ConstitutionViolationError",
-    "PolicyViolationError",
-    # Context Holder
-    "ContextNotFoundError",
-    "ContextInvalidError",
-    # Distributed Lock
-    "DistributedLockTimeoutError",
-    "DistributedLockNotAcquiredError",
-    # Dependency Injector
-    "DependencyNotFoundError",
-    # Lifecycle
-    "LifecycleInvalidTransitionError",
-    # Retry Policy
-    "RetryExhaustedError",
-    # General
-    "KernelNotReadyError",
-    "KernelShutdownError",
-    "KernelInitializationFailedError",
-    # Factory
+    "KernelError",
+    "KernelErrorCode",
     "KernelExceptionFactory",
+    "KernelInitializationFailedError",
+    "KernelNotReadyError",
+    "KernelSeverity",
+    "KernelShutdownError",
+    "LifecycleInvalidTransitionError",
+    "PolicyViolationError",
+    "RetryExhaustedError",
+    "ValidationPipelineFailedError",
 ]

@@ -341,7 +341,7 @@ class TestPSAK48CashGeneratingUnit:
         assert cgu.assets[0] in allocation
         assert cgu.assets[1] in allocation
         # Goodwill not allocated
-        gw_id = list(cgu.allocated_goodwill.keys())[0]
+        gw_id = next(iter(cgu.allocated_goodwill.keys()))
         assert gw_id not in allocation
         assert allocation[cgu.assets[0]] == Decimal("187500")
         assert allocation[cgu.assets[1]] == Decimal("112500")

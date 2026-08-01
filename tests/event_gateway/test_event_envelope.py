@@ -49,25 +49,25 @@ class TestEventEnvelope:
     """Tests for the EventEnvelope value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            event_type="test_value",
-            aggregate_type="test_value",
-            occurred_at=datetime.now(UTC),
-            payload={},
-            metadata={},
-            correlation_id="test_value",
-            causation_id="test_value",
-            previous_hash="test_value",
-            event_version=1,
-            aggregate_id=uuid4(),
-            hash="test_value",
-            status=EventStatus.RECEIVED,
-            priority=EventPriority.LOW,
-            _audit_trail=[{}],
-            _snapshots=[{}],
-            _version=1,
-        )
+        return {
+            'id': uuid4(),
+            'event_type': "test_value",
+            'aggregate_type': "test_value",
+            'occurred_at': datetime.now(UTC),
+            'payload': {},
+            'metadata': {},
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+            'previous_hash': "test_value",
+            'event_version': 1,
+            'aggregate_id': uuid4(),
+            'hash': "test_value",
+            'status': EventStatus.RECEIVED,
+            'priority': EventPriority.LOW,
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+            '_version': 1,
+        }
 
     def test_construction_success(self):
         """EventEnvelope can be constructed with valid field values."""

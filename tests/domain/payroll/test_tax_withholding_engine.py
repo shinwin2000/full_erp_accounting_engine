@@ -93,7 +93,7 @@ class TestGetPtkpAmount:
 
     def test_unknown_status_fallback(self, engine):
         # Create a status that doesn't map (should fallback to TK/0 amount)
-        status = EmployeePTKPStatusVO(
+        EmployeePTKPStatusVO(
             marital_status=MaritalStatus.SINGLE,
             dependents=5,  # invalid, but we bypass validation? Actually validation prevents >3.
             spouse_income_combined=False,

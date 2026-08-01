@@ -56,17 +56,17 @@ class TestMatchResult:
     """Tests for the MatchResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            status=MatchStatus.MATCHED,
-            severity=MatchSeverity.CRITICAL,
-            po_amount=Decimal("100.00"),
-            grn_amount=Decimal("100.00"),
-            invoice_amount=Decimal("100.00"),
-            differences={},
-            message="test_value",
-            requires_approval=True,
-            tolerance_percentage=Decimal("100.00"),
-        )
+        return {
+            'status': MatchStatus.MATCHED,
+            'severity': MatchSeverity.CRITICAL,
+            'po_amount': Decimal("100.00"),
+            'grn_amount': Decimal("100.00"),
+            'invoice_amount': Decimal("100.00"),
+            'differences': {},
+            'message': "test_value",
+            'requires_approval': True,
+            'tolerance_percentage': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """MatchResult can be constructed with valid field values."""
@@ -99,7 +99,7 @@ class TestThreeWayMatchEngine:
         """Smoke test for ThreeWayMatchEngine.match using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.match(invoice=MagicMock(), purchase_order=MagicMock(), goods_receipt=MagicMock())
+            instance.match(invoice=MagicMock(), purchase_order=MagicMock(), goods_receipt=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"match needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class TestThreeWayMatchEngine:
         """Smoke test for ThreeWayMatchEngine.match_with_line_items using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.match_with_line_items(invoice_lines=[{}], po_lines=[{}], grn_lines=[{}])
+            instance.match_with_line_items(invoice_lines=[{}], po_lines=[{}], grn_lines=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"match_with_line_items needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestThreeWayMatchEngine:
         """Smoke test for ThreeWayMatchEngine.get_recommendation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_recommendation(match_result=MagicMock())
+            instance.get_recommendation(match_result=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_recommendation needs specific domain fixtures/data: {e}")
             return

@@ -86,7 +86,7 @@ class TestImmutableLawViolationError:
         """Smoke test for ImmutableLawViolationError.original_message using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.original_message()
+            instance.original_message()
         except (Exception, SystemExit) as e:
             pytest.skip(f"original_message needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestImmutableLawViolationError:
         """Smoke test for ImmutableLawViolationError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestImmutableLawViolationError:
         """Smoke test for ImmutableLawViolationError.is_catastrophic using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_catastrophic()
+            instance.is_catastrophic()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_catastrophic needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestImmutableLawViolationError:
         """Smoke test for ImmutableLawViolationError.is_critical using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_critical()
+            instance.is_critical()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_critical needs specific domain fixtures/data: {e}")
             return
@@ -337,8 +337,8 @@ class TestLawViolationExceptionFactory:
     def test_immutability_violation_smoke(self):
         """Smoke test for LawViolationExceptionFactory.immutability_violation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LawViolationExceptionFactory.immutability_violation(message="test_value", operation="test_value", target_id="test_value")
+            self._build_instance()
+            LawViolationExceptionFactory.immutability_violation(message="test_value", operation="test_value", target_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"immutability_violation needs specific domain fixtures/data: {e}")
             return
@@ -348,8 +348,8 @@ class TestLawViolationExceptionFactory:
     def test_evidence_mandate_violation_smoke(self):
         """Smoke test for LawViolationExceptionFactory.evidence_mandate_violation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LawViolationExceptionFactory.evidence_mandate_violation(message="test_value", journal_id="test_value", journal_type="test_value")
+            self._build_instance()
+            LawViolationExceptionFactory.evidence_mandate_violation(message="test_value", journal_id="test_value", journal_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"evidence_mandate_violation needs specific domain fixtures/data: {e}")
             return
@@ -359,8 +359,8 @@ class TestLawViolationExceptionFactory:
     def test_dual_approval_violation_smoke(self):
         """Smoke test for LawViolationExceptionFactory.dual_approval_violation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LawViolationExceptionFactory.dual_approval_violation(message="test_value", tx_id="test_value", amount="test_value", required=1)
+            self._build_instance()
+            LawViolationExceptionFactory.dual_approval_violation(message="test_value", tx_id="test_value", amount="test_value", required=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"dual_approval_violation needs specific domain fixtures/data: {e}")
             return
@@ -370,8 +370,8 @@ class TestLawViolationExceptionFactory:
     def test_period_closure_violation_smoke(self):
         """Smoke test for LawViolationExceptionFactory.period_closure_violation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LawViolationExceptionFactory.period_closure_violation(message="test_value", period_id="test_value", period_name="test_value")
+            self._build_instance()
+            LawViolationExceptionFactory.period_closure_violation(message="test_value", period_id="test_value", period_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"period_closure_violation needs specific domain fixtures/data: {e}")
             return

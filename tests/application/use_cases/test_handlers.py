@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from application.use_cases import handlers
-from application.use_cases.handlers import BaseCommandHandler, BaseQueryHandler, audit
+from application.use_cases.handlers import (
+    BaseCommandHandler,
+    BaseQueryHandler,
+    audit,
+)
 
 
 class TestBaseCommandHandler:
@@ -89,7 +93,7 @@ def test_audit_decorated_function_calls_original():
 
 def test_getattr_lazy_loading_hpp():
     """Test __getattr__ for HppManufacturingCloseUseCase."""
-    # Access the lazy-loaded attribute
+    # Access the lazy-loaded attribute (now it exists statically)
     use_case = handlers.HppManufacturingCloseUseCase
     # It should be a class (or callable)
     assert callable(use_case)
@@ -101,8 +105,8 @@ def test_getattr_lazy_loading_hpp():
 def test_getattr_lazy_loading_hpp_use_case_alias():
     """Test __getattr__ for HppManufacturingCloseUseCase via alias."""
     # Already tested above but we can be explicit
-    from application.use_cases.handlers import HppManufacturingCloseUseCase
-    assert HppManufacturingCloseUseCase is not None
+    from application.use_cases.handlers import HppManufacturingCloseUseCase as HppAlias
+    assert HppAlias is not None
 
 
 def test_getattr_raises_attribute_error_for_unknown():

@@ -36,7 +36,7 @@ class TestJournalPostingLatencyMetrics:
         """Smoke test for JournalPostingLatencyMetrics.start_posting using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.start_posting(journal_id=uuid4(), legal_entity_id=uuid4())
+            instance.start_posting(journal_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_posting needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestJournalPostingLatencyMetrics:
         """Smoke test for JournalPostingLatencyMetrics.record_stage using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_stage(tracking_id="test_value", stage="test_value")
+            instance.record_stage(tracking_id="test_value", stage="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_stage needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestJournalPostingLatencyMetrics:
         """Smoke test for JournalPostingLatencyMetrics.complete_posting using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.complete_posting(tracking_id="test_value", success=True, error_type="test_value")
+            instance.complete_posting(tracking_id="test_value", success=True, error_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"complete_posting needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestJournalPostingLatencyMetrics:
         """Smoke test for JournalPostingLatencyMetrics.update_queue_size using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_queue_size(legal_entity_id=uuid4(), size=1)
+            instance.update_queue_size(legal_entity_id=uuid4(), size=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_queue_size needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestPostingLatencyContext:
         """Smoke test for PostingLatencyContext.record_stage using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_stage(stage="test_value")
+            await instance.record_stage(stage="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_stage needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestPostingLatencyContext:
 def test_get_journal_posting_metrics_smoke():
     """Smoke test for module-level function get_journal_posting_metrics."""
     try:
-        result = get_journal_posting_metrics()
+        get_journal_posting_metrics()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_journal_posting_metrics needs specific input data: {e}")
         return

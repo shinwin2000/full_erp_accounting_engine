@@ -44,7 +44,7 @@ class Test_FallbackPolicyRepository:
         """Smoke test for _FallbackPolicyRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(policy_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(policy_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackPolicyRepository:
         """Smoke test for _FallbackPolicyRepository.get_by_name using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_name(policy_name="test_value", legal_entity_id=uuid4())
+            await instance.get_by_name(policy_name="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_name needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackPolicyRepository:
         """Smoke test for _FallbackPolicyRepository.get_active_policies using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_active_policies(legal_entity_id=uuid4(), as_of=datetime.now(UTC))
+            await instance.get_active_policies(legal_entity_id=uuid4(), as_of=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_active_policies needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackPolicyRepository:
         """Smoke test for _FallbackPolicyRepository.get_all_policies using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_all_policies(legal_entity_id=uuid4())
+            await instance.get_all_policies(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all_policies needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class Test_FallbackPeriodRepository:
         """Smoke test for _FallbackPeriodRepository.get_current_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_current_period(legal_entity_id=uuid4())
+            await instance.get_current_period(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_period needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class Test_FallbackPeriodRepository:
         """Smoke test for _FallbackPeriodRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(period_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(period_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class Test_FallbackPeriodRepository:
         """Smoke test for _FallbackPeriodRepository.get_by_fiscal_year using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_fiscal_year(fiscal_year=1, legal_entity_id=uuid4())
+            await instance.get_by_fiscal_year(fiscal_year=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_fiscal_year needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class Test_FallbackPeriodRepository:
         """Smoke test for _FallbackPeriodRepository.get_period_start_date using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_period_start_date(legal_entity_id=uuid4())
+            await instance.get_period_start_date(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_period_start_date needs specific domain fixtures/data: {e}")
             return
@@ -181,19 +181,19 @@ class TestAccountingPolicy:
     """Tests for the AccountingPolicy value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            policy_id=uuid4(),
-            legal_entity_id=uuid4(),
-            policy_name="test_value",
-            policy_type=PolicyType.REVENUE_RECOGNITION,
-            effective_date=datetime.now(UTC),
-            created_by="test_value",
-            created_at=datetime.now(UTC),
-            approved_by=["test_value"],
-            is_active=True,
-            description="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "policy_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "policy_name": "test_value",
+            "policy_type": PolicyType.REVENUE_RECOGNITION,
+            "effective_date": datetime.now(UTC),
+            "created_by": "test_value",
+            "created_at": datetime.now(UTC),
+            "approved_by": ["test_value"],
+            "is_active": True,
+            "description": "test_value",
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """AccountingPolicy can be constructed with valid field values."""
@@ -211,18 +211,18 @@ class TestRetroactiveApplicationRecord:
     """Tests for the RetroactiveApplicationRecord value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            record_id=uuid4(),
-            policy_id=uuid4(),
-            legal_entity_id=uuid4(),
-            effective_date=datetime.now(UTC),
-            approved_by=["test_value"],
-            reason="test_value",
-            applied_at=datetime.now(UTC),
-            applied_by="test_value",
-            justification_document="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "record_id": uuid4(),
+            "policy_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "effective_date": datetime.now(UTC),
+            "approved_by": ["test_value"],
+            "reason": "test_value",
+            "applied_at": datetime.now(UTC),
+            "applied_by": "test_value",
+            "justification_document": "test_value",
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """RetroactiveApplicationRecord can be constructed with valid field values."""
@@ -263,7 +263,7 @@ class TestNoRetroactivePolicyEnforcer:
         """Smoke test for NoRetroactivePolicyEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -274,7 +274,7 @@ class TestNoRetroactivePolicyEnforcer:
         """Smoke test for NoRetroactivePolicyEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -285,7 +285,7 @@ class TestNoRetroactivePolicyEnforcer:
         """Smoke test for NoRetroactivePolicyEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -295,8 +295,8 @@ class TestNoRetroactivePolicyEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for NoRetroactivePolicyEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = NoRetroactivePolicyEnforcer.from_dict(data={})
+            self._build_instance()
+            NoRetroactivePolicyEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -307,7 +307,7 @@ class TestNoRetroactivePolicyEnforcer:
 def test_get_no_retroactive_policy_enforcer_smoke():
     """Smoke test for module-level function get_no_retroactive_policy_enforcer."""
     try:
-        result = get_no_retroactive_policy_enforcer()
+        get_no_retroactive_policy_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_no_retroactive_policy_enforcer needs specific input data: {e}")
         return

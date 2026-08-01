@@ -17,11 +17,11 @@ from domain.subledger_ar.payment_entity import PaymentEntity, PaymentMethod, Pay
 
 
 def _pending_payment(**overrides) -> PaymentEntity:
-    defaults = dict(
-        payment_id=uuid4(), payment_number="PMT-TEST-0001", customer_id=uuid4(),
-        customer_name="PT Pelanggan Test", payment_date=date.today(), amount=Decimal("500000"),
-        currency="IDR", payment_method=PaymentMethod.BANK_TRANSFER, status=PaymentStatus.PENDING,
-    )
+    defaults = {
+        "payment_id": uuid4(), "payment_number": "PMT-TEST-0001", "customer_id": uuid4(),
+        "customer_name": "PT Pelanggan Test", "payment_date": date.today(), "amount": Decimal("500000"),
+        "currency": "IDR", "payment_method": PaymentMethod.BANK_TRANSFER, "status": PaymentStatus.PENDING,
+    }
     defaults.update(overrides)
     return PaymentEntity(**defaults)
 

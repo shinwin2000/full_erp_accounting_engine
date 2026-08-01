@@ -86,7 +86,7 @@ class TestSQLAlchemyOutboxRepository:
         """Smoke test for SQLAlchemyOutboxRepository.set_session_factory using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_session_factory(session_factory=MagicMock())
+            instance.set_session_factory(session_factory=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_session_factory needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestSQLAlchemyOutboxRepository:
         """Smoke test for SQLAlchemyOutboxRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestSQLAlchemyOutboxRepository:
         """Smoke test for SQLAlchemyOutboxRepository.set_session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_session(session=MagicMock())
+            instance.set_session(session=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_session needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestSQLAlchemyOutboxRepository:
         """Smoke test for SQLAlchemyOutboxRepository.close_kafka_producer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.close_kafka_producer()
+            await instance.close_kafka_producer()
         except (Exception, SystemExit) as e:
             pytest.skip(f"close_kafka_producer needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestSQLAlchemyOutboxRepository:
 async def test_create_outbox_repository_smoke():
     """Smoke test for module-level function create_outbox_repository."""
     try:
-        result = await create_outbox_repository()
+        await create_outbox_repository()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_outbox_repository needs specific input data: {e}")
         return

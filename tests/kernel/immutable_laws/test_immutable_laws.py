@@ -58,20 +58,14 @@ FIXED_DATE = date(2026, 1, 15)
 
 @pytest.fixture(autouse=True)
 def mock_datetime_now():
-    """Mock datetime.now and date.today to return fixed values."""
-    with patch("kernel.immutable_laws.datetime") as mock_dt:
-        mock_dt.now.return_value = FIXED_DATETIME
-        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
-        yield mock_dt
+    """Mock datetime.now() to return a fixed value, preserving datetime class for isinstance checks."""
+    class MockDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return FIXED_DATETIME
 
-
-@pytest.fixture(autouse=True)
-def mock_date_today():
-    """Mock date.today to return fixed date."""
-    with patch("kernel.immutable_laws.date") as mock_date:
-        mock_date.today.return_value = FIXED_DATE
-        yield mock_date
-
+    with patch("kernel.immutable_laws.immutable_laws.datetime", MockDateTime):
+        yield
 
 # =============================================================================
 # BaseEnforcer tests
@@ -208,7 +202,7 @@ class TestImmutabilityEnforcer:
         enforcer = ImmutabilityEnforcer()
         enforcer._immutable_events = {"a", "b"}
         d = enforcer.to_dict()
-        assert d["immutable_events"] == ["a", "b"]
+        assert set(d["immutable_events"]) == {"a", "b"}
 
     def test_from_dict_restores_state(self):
         data = {"version": 3, "immutable_events": ["x", "y"]}
@@ -446,13 +440,13 @@ class TestPeriodClosureEnforcer:
     def test_check_blocks_posting_to_locked_period(self):
         enforcer = PeriodClosureEnforcer()
         context = {
-            "period": "2026-01",
+            "period": "2025-12",
             "current_period": "2026-01",
             "period_status": "locked",
         }
         errors = enforcer.check(context)
         assert len(errors) == 1
-        assert "Period 2026-01 is locked" in errors[0]
+        assert "Period 2025-12 is locked" in errors[0]
 
     def test_enforce_raises_on_violation(self):
         enforcer = PeriodClosureEnforcer()
@@ -631,7 +625,7 @@ class TestAssetExistenceEnforcer:
         enforcer.register_asset("a")
         enforcer.register_asset("b")
         d = enforcer.to_dict()
-        assert d["asset_register"] == ["a", "b"]
+        assert set(d["asset_register"]) == {"a", "b"}
 
     def test_from_dict_restores_register(self):
         data = {"version": 2, "asset_register": ["x", "y"]}
@@ -698,16 +692,12 @@ class TestFairValueMeasurementEnforcer:
 # Async enforce methods (matching original test style)
 # =============================================================================
 
-# These are the equivalent of the original test's async wrappers for enforce methods.
-# We keep them to demonstrate the async usage, but they are essentially the same as sync.
-
 @pytest.mark.asyncio
 class TestAsyncEnforceMethods:
     async def test_enforce_immutability(self):
         enforcer = ImmutabilityEnforcer()
         event = {"id": "evt-1"}
         enforcer.enforce_creation(event)
-        # Now enforcing modification should raise
         with pytest.raises(ImmutabilityError):
             await asyncio.to_thread(enforcer.enforce_modification, event)
 

@@ -27,14 +27,14 @@ class TestOutboxEventPayload:
     """Tests for the OutboxEventPayload value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_type="test_value",
-            aggregate_id="test_value",
-            aggregate_type="test_value",
-            data={},
-            metadata={},
-            idempotency_key="test_value",
-        )
+        return {
+            "event_type": "test_value",
+            "aggregate_id": "test_value",
+            "aggregate_type": "test_value",
+            "data": {},
+            "metadata": {},
+            "idempotency_key": "test_value",
+        }
 
     def test_construction_success(self):
         """OutboxEventPayload can be constructed with valid field values."""
@@ -118,21 +118,21 @@ class TestOutboxPollerConfig:
     """Tests for the OutboxPollerConfig value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            poll_interval_seconds=1.5,
-            use_advisory_lock=True,
-            lock_timeout_seconds=1,
-            lock_name="test_value",
-            batch_size=1,
-            max_concurrent_batches=1,
-            health_check_interval_seconds=1.5,
-            max_retry_count=1,
-            retry_delay_seconds=[1],
-            event_timeout_seconds=1.5,
-            rate_limit_per_second=1,
-            circuit_breaker_failure_threshold=1,
-            circuit_breaker_timeout_seconds=1,
-        )
+        return {
+            "poll_interval_seconds": 1.5,
+            "use_advisory_lock": True,
+            "lock_timeout_seconds": 1,
+            "lock_name": "test_value",
+            "batch_size": 1,
+            "max_concurrent_batches": 1,
+            "health_check_interval_seconds": 1.5,
+            "max_retry_count": 1,
+            "retry_delay_seconds": [1],
+            "event_timeout_seconds": 1.5,
+            "rate_limit_per_second": 1,
+            "circuit_breaker_failure_threshold": 1,
+            "circuit_breaker_timeout_seconds": 1,
+        }
 
     def test_construction_success(self):
         """OutboxPollerConfig can be constructed with valid field values."""

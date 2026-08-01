@@ -23,23 +23,23 @@ class TestManufacturingSagaState:
     """Tests for the ManufacturingSagaState value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            work_order_ids=[uuid4()],
-            user_id=uuid4(),
-            correlation_id="test_value",
-            material_issued=True,
-            labor_recorded=True,
-            production_completed=True,
-            journal_posted=True,
-            status="test_value",
-            errors=["test_value"],
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        return {
+            "saga_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "work_order_ids": [uuid4()],
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+            "material_issued": True,
+            "labor_recorded": True,
+            "production_completed": True,
+            "journal_posted": True,
+            "status": "test_value",
+            "errors": ["test_value"],
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ManufacturingSagaState can be constructed with valid field values."""
@@ -57,21 +57,21 @@ class TestManufacturingSagaContext:
     """Tests for the ManufacturingSagaContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-            work_order_ids=[uuid4()],
-            user_id=uuid4(),
-            correlation_id="test_value",
-            status="test_value",
-            material_issued=True,
-            labor_recorded=True,
-            production_completed=True,
-            journal_posted=True,
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "saga_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "work_order_ids": [uuid4()],
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+            "status": "test_value",
+            "material_issued": True,
+            "labor_recorded": True,
+            "production_completed": True,
+            "journal_posted": True,
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ManufacturingSagaContext can be constructed with valid field values."""
@@ -104,7 +104,7 @@ class TestManufacturingSagaOrchestrator:
         """Smoke test for ManufacturingSagaOrchestrator.start_manufacturing_cost_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_manufacturing_cost_flow(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today(), work_order_ids=[uuid4()], user_id=uuid4(), correlation_id="test_value")
+            await instance.start_manufacturing_cost_flow(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today(), work_order_ids=[uuid4()], user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_manufacturing_cost_flow needs specific domain fixtures/data: {e}")
             return

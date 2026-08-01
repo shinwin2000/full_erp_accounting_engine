@@ -26,24 +26,24 @@ class TestIntangibleRevaluationTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            asset_id=MagicMock(),
-            revaluation_date=date.today(),
-            old_acquisition_cost=Decimal("100.00"),
-            old_accumulated_amortization=Decimal("100.00"),
-            old_impairment_loss=Decimal("100.00"),
-            old_carrying_amount=Decimal("100.00"),
-            new_acquisition_cost=Decimal("100.00"),
-            new_accumulated_amortization=Decimal("100.00"),
-            new_impairment_loss=Decimal("100.00"),
-            new_carrying_amount=Decimal("100.00"),
-            surplus_deficit=Decimal("100.00"),
-            currency="test_value",
-            reason="test_value",
-            journal_id=MagicMock(),
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'asset_id': MagicMock(),
+            'revaluation_date': date.today(),
+            'old_acquisition_cost': Decimal("100.00"),
+            'old_accumulated_amortization': Decimal("100.00"),
+            'old_impairment_loss': Decimal("100.00"),
+            'old_carrying_amount': Decimal("100.00"),
+            'new_acquisition_cost': Decimal("100.00"),
+            'new_accumulated_amortization': Decimal("100.00"),
+            'new_impairment_loss': Decimal("100.00"),
+            'new_carrying_amount': Decimal("100.00"),
+            'surplus_deficit': Decimal("100.00"),
+            'currency': "test_value",
+            'reason': "test_value",
+            'journal_id': MagicMock(),
+            'created_by': MagicMock(),
+        }
         try:
             instance = IntangibleRevaluationTable(**kwargs)
         except (Exception, SystemExit) as e:

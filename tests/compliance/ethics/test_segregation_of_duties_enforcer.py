@@ -31,7 +31,7 @@ class TestSodEnforcer:
         """Smoke test for SodEnforcer.assign_role using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.assign_role(user_id="test_value", action="test_value")
+            instance.assign_role(user_id="test_value", action="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"assign_role needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestSodEnforcer:
         """Smoke test for SodEnforcer.can_perform using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.can_perform(user_id="test_value", action="test_value")
+            instance.can_perform(user_id="test_value", action="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"can_perform needs specific domain fixtures/data: {e}")
             return

@@ -87,7 +87,7 @@ class TestJurisdiction:
         """Smoke test for Jurisdiction.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestJurisdictionDefinition:
         """Smoke test for JurisdictionDefinition.add_jurisdiction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_jurisdiction(jurisdiction=MagicMock())
+            instance.add_jurisdiction(jurisdiction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_jurisdiction needs specific domain fixtures/data: {e}")
             return
@@ -125,7 +125,7 @@ class TestJurisdictionDefinition:
         """Smoke test for JurisdictionDefinition.get_jurisdiction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_jurisdiction(code="test_value")
+            instance.get_jurisdiction(code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_jurisdiction needs specific domain fixtures/data: {e}")
             return
@@ -136,7 +136,7 @@ class TestJurisdictionDefinition:
         """Smoke test for JurisdictionDefinition.get_by_name using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_by_name(name="test_value")
+            instance.get_by_name(name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_name needs specific domain fixtures/data: {e}")
             return
@@ -147,7 +147,7 @@ class TestJurisdictionDefinition:
         """Smoke test for JurisdictionDefinition.get_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_all()
+            instance.get_all()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all needs specific domain fixtures/data: {e}")
             return

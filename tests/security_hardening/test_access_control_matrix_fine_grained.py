@@ -563,7 +563,7 @@ class TestAccessControlMatrix:
         assert acm.get_user(uuid4()) is None
 
     def test_assign_role_to_user(self, acm):
-        user = list(acm._users.values())[0]
+        user = next(iter(acm._users.values()))
         role = acm.get_role_by_name("Approver")
         result = acm.assign_role_to_user(user.id, role.id)
         assert result is True
@@ -576,7 +576,7 @@ class TestAccessControlMatrix:
         assert result3 is False
 
     def test_revoke_role_from_user(self, acm):
-        user = list(acm._users.values())[0]
+        user = next(iter(acm._users.values()))
         role_id = user.roles[0]
         result = acm.revoke_role_from_user(user.id, role_id)
         assert result is True
@@ -586,7 +586,7 @@ class TestAccessControlMatrix:
         assert result2 is False
 
     def test_get_user_roles(self, acm):
-        user = list(acm._users.values())[0]
+        user = next(iter(acm._users.values()))
         roles = acm.get_user_roles(user.id)
         assert roles == user.roles
         assert acm.get_user_roles(uuid4()) == []

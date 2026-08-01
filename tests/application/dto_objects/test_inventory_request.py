@@ -28,24 +28,24 @@ class TestCreateItemRequestDTO:
     """Tests for the CreateItemRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            sku="test_value",
-            name="test_value",
-            description="test_value",
-            item_type="test_value",
-            uom="test_value",
-            category="test_value",
-            brand="test_value",
-            reorder_point=Decimal("100.00"),
-            safety_stock=Decimal("100.00"),
-            maximum_stock=Decimal("100.00"),
-            minimum_stock=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            warehouse_code="test_value",
-            is_active=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "sku": "test_value",
+            "name": "test_value",
+            "description": "test_value",
+            "item_type": "test_value",
+            "uom": "test_value",
+            "category": "test_value",
+            "brand": "test_value",
+            "reorder_point": Decimal("100.00"),
+            "safety_stock": Decimal("100.00"),
+            "maximum_stock": Decimal("100.00"),
+            "minimum_stock": Decimal("100.00"),
+            "standard_cost": Decimal("100.00"),
+            "selling_price": Decimal("100.00"),
+            "warehouse_code": "test_value",
+            "is_active": True,
+        }
 
     def test_construction_success(self):
         """CreateItemRequestDTO can be constructed with valid field values."""
@@ -63,20 +63,20 @@ class TestUpdateItemRequestDTO:
     """Tests for the UpdateItemRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            item_id=uuid4(),
-            name="test_value",
-            description="test_value",
-            category="test_value",
-            brand="test_value",
-            reorder_point=Decimal("100.00"),
-            safety_stock=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            minimum_stock=Decimal("100.00"),
-            maximum_stock=Decimal("100.00"),
-            is_active=True,
-        )
+        return {
+            "item_id": uuid4(),
+            "name": "test_value",
+            "description": "test_value",
+            "category": "test_value",
+            "brand": "test_value",
+            "reorder_point": Decimal("100.00"),
+            "safety_stock": Decimal("100.00"),
+            "standard_cost": Decimal("100.00"),
+            "selling_price": Decimal("100.00"),
+            "minimum_stock": Decimal("100.00"),
+            "maximum_stock": Decimal("100.00"),
+            "is_active": True,
+        }
 
     def test_construction_success(self):
         """UpdateItemRequestDTO can be constructed with valid field values."""
@@ -94,18 +94,18 @@ class TestStockMovementRequestDTO:
     """Tests for the StockMovementRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            item_id=uuid4(),
-            movement_type="test_value",
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            reference_document_type="test_value",
-            reference_document_number="test_value",
-            movement_date=date.today(),
-            warehouse_code="test_value",
-            notes="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "item_id": uuid4(),
+            "movement_type": "test_value",
+            "quantity": Decimal("100.00"),
+            "unit_cost": Decimal("100.00"),
+            "reference_document_type": "test_value",
+            "reference_document_number": "test_value",
+            "movement_date": date.today(),
+            "warehouse_code": "test_value",
+            "notes": "test_value",
+        }
 
     def test_construction_success(self):
         """StockMovementRequestDTO can be constructed with valid field values."""
@@ -123,14 +123,14 @@ class TestStockOpnameRequestDTO:
     """Tests for the StockOpnameRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            item_id=uuid4(),
-            physical_quantity=Decimal("100.00"),
-            opname_date=date.today(),
-            notes="test_value",
-            counted_by=uuid4(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "item_id": uuid4(),
+            "physical_quantity": Decimal("100.00"),
+            "opname_date": date.today(),
+            "notes": "test_value",
+            "counted_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """StockOpnameRequestDTO can be constructed with valid field values."""
@@ -148,16 +148,16 @@ class TestTransferRequestDTO:
     """Tests for the TransferRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            item_id=uuid4(),
-            from_warehouse="test_value",
-            to_warehouse="test_value",
-            quantity=Decimal("100.00"),
-            transfer_date=date.today(),
-            notes="test_value",
-            requested_by=uuid4(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "item_id": uuid4(),
+            "from_warehouse": "test_value",
+            "to_warehouse": "test_value",
+            "quantity": Decimal("100.00"),
+            "transfer_date": date.today(),
+            "notes": "test_value",
+            "requested_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """TransferRequestDTO can be constructed with valid field values."""
@@ -175,11 +175,11 @@ class TestCOGSCalculationRequestDTO:
     """Tests for the COGSCalculationRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "period_start": date.today(),
+            "period_end": date.today(),
+        }
 
     def test_construction_success(self):
         """COGSCalculationRequestDTO can be constructed with valid field values."""
@@ -197,12 +197,12 @@ class TestInventoryValuationRequestDTO:
     """Tests for the InventoryValuationRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            warehouse_code="test_value",
-            valuation_method="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "warehouse_code": "test_value",
+            "valuation_method": "test_value",
+        }
 
     def test_construction_success(self):
         """InventoryValuationRequestDTO can be constructed with valid field values."""
@@ -220,12 +220,12 @@ class TestLowStockAlertQueryDTO:
     """Tests for the LowStockAlertQueryDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            warehouse_code="test_value",
-            include_zero_stock=True,
-            threshold_percentage=Decimal("100.00"),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "warehouse_code": "test_value",
+            "include_zero_stock": True,
+            "threshold_percentage": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """LowStockAlertQueryDTO can be constructed with valid field values."""

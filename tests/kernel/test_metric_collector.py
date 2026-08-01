@@ -494,7 +494,7 @@ def test_record_histogram(collector):
 # -------------------- Tests for TimingContext --------------------
 class TestTimingContext:
     def test_context_manager_success(self, collector):
-        with TimingContext("op_duration", {"method": "GET"}) as ctx:
+        with TimingContext("op_duration", {"method": "GET"}):
             time.sleep(0.01)
         stats = collector.get_histogram_stats("op_duration", {"method": "GET"})
         assert stats["count"] == 1
@@ -503,9 +503,8 @@ class TestTimingContext:
         assert collector.get_counter("op_duration_errors", {"method": "GET"}) == 0
 
     def test_context_manager_exception(self, collector):
-        with pytest.raises(ValueError):
-            with TimingContext("op_duration"):
-                raise ValueError("test error")
+        with pytest.raises(ValueError), TimingContext("op_duration"):
+            raise ValueError("test error")
         stats = collector.get_histogram_stats("op_duration")
         assert stats["count"] == 1
         assert collector.get_counter("op_duration_errors") == 1

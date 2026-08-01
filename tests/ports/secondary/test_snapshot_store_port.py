@@ -51,23 +51,23 @@ class TestSnapshotMetadata:
     """Tests for the SnapshotMetadata value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            snapshot_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_id=uuid4(),
-            version=1,
-            last_event_sequence=1,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            size_bytes=1,
-            compressed_size_bytes=1,
-            compression=SnapshotCompression.NONE,
-            status=SnapshotStatus.ACTIVE,
-            ttl_days=1,
-            expires_at=datetime.now(UTC),
-            hash_sha256="test_value",
-            tags={},
-        )
+        return {
+            'snapshot_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_id': uuid4(),
+            'version': 1,
+            'last_event_sequence': 1,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'size_bytes': 1,
+            'compressed_size_bytes': 1,
+            'compression': SnapshotCompression.NONE,
+            'status': SnapshotStatus.ACTIVE,
+            'ttl_days': 1,
+            'expires_at': datetime.now(UTC),
+            'hash_sha256': "test_value",
+            'tags': {},
+        }
 
     def test_construction_success(self):
         """SnapshotMetadata can be constructed with valid field values."""
@@ -85,10 +85,10 @@ class TestSnapshot:
     """Tests for the Snapshot value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            metadata=MagicMock(),
-            data=b"test",
-        )
+        return {
+            'metadata': MagicMock(),
+            'data': b"test",
+        }
 
     def test_construction_success(self):
         """Snapshot can be constructed with valid field values."""
@@ -121,7 +121,7 @@ class TestSnapshotStorePort:
         """Smoke test for SnapshotStorePort.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(aggregate_type="test_value", aggregate_id=uuid4(), version=1, last_event_sequence=1, state=MagicMock(), created_by=uuid4(), tags={}, ttl_days=1)
+            await instance.save(aggregate_type="test_value", aggregate_id=uuid4(), version=1, last_event_sequence=1, state=MagicMock(), created_by=uuid4(), tags={}, ttl_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestSnapshotStorePort:
         """Smoke test for SnapshotStorePort.load_latest using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_latest(aggregate_type="test_value", aggregate_id=uuid4())
+            await instance.load_latest(aggregate_type="test_value", aggregate_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_latest needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestSnapshotStorePort:
         """Smoke test for SnapshotStorePort.load_by_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_by_version(aggregate_type="test_value", aggregate_id=uuid4(), version=1)
+            await instance.load_by_version(aggregate_type="test_value", aggregate_id=uuid4(), version=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_by_version needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestSnapshotStorePort:
         """Smoke test for SnapshotStorePort.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(snapshot_id=uuid4(), permanent=True)
+            await instance.delete(snapshot_id=uuid4(), permanent=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

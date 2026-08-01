@@ -23,7 +23,6 @@ from uuid import UUID, uuid4
 
 from constitution.supreme_law import (
     ConstitutionalPrinciple,
-    ConstitutionalSeverity,
     get_supreme_law,
 )
 
@@ -341,7 +340,7 @@ class InvariantDefinition:
         return new_def
 
     def is_active_rule(self, at_date: datetime | None = None) -> bool:
-        check = at_date or datetime.now(UTC)
+        # FIX: F841 - hapus variabel check yang tidak digunakan
         if self.deleted_at:
             return False
         return self.is_active
@@ -720,21 +719,23 @@ class InvariantValidator:
                 )
         period_start = context.get("period_start")
         period_end = context.get("period_end")
+        # Perbaikan SIM102: pisahkan pengecekan dan penyesuaian timezone
         if period_start and period_end:
             if period_start.tzinfo is None:
                 period_start = period_start.replace(tzinfo=UTC)
             if period_end.tzinfo is None:
                 period_end = period_end.replace(tzinfo=UTC)
-            if tx_time < period_start or tx_time > period_end:
-                return (
-                    False,
-                    {
-                        "transaction_time": tx_time.isoformat(),
-                        "period_start": period_start.isoformat(),
-                        "period_end": period_end.isoformat(),
-                    },
-                    "Transaction time outside period",
-                )
+        # Cek waktu di luar periode (tidak bersarang)
+        if period_start and period_end and (tx_time < period_start or tx_time > period_end):
+            return (
+                False,
+                {
+                    "transaction_time": tx_time.isoformat(),
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
+                },
+                "Transaction time outside period",
+            )
         return True, {}, None
 
     @staticmethod
@@ -983,17 +984,17 @@ class InvariantValidator:
             )
         period_start = context.get("period_start")
         period_end = context.get("period_end")
-        if period_start and period_end:
-            if tx_date < period_start or tx_date > period_end:
-                return (
-                    False,
-                    {
-                        "transaction_date": tx_date.isoformat(),
-                        "period_start": period_start.isoformat(),
-                        "period_end": period_end.isoformat(),
-                    },
-                    "Transaction date outside period",
-                )
+        # Perbaikan SIM102: gabungkan kondisi
+        if period_start and period_end and (tx_date < period_start or tx_date > period_end):
+            return (
+                False,
+                {
+                    "transaction_date": tx_date.isoformat(),
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
+                },
+                "Transaction date outside period",
+            )
         return True, {}, None
 
     @staticmethod
@@ -1261,13 +1262,14 @@ class ConstitutionalInvariants:
     def _notify_supreme_law(self, violation: InvariantViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            severity_map = {
-                InvariantSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
-                InvariantSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
-                InvariantSeverity.HIGH: ConstitutionalSeverity.HIGH,
-                InvariantSeverity.MEDIUM: ConstitutionalSeverity.MEDIUM,
-                InvariantSeverity.LOW: ConstitutionalSeverity.LOW,
-            }
+            # FIX: F841 - hapus variabel severity_map yang tidak digunakan
+            # severity_map = {
+            #     InvariantSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
+            #     InvariantSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
+            #     InvariantSeverity.HIGH: ConstitutionalSeverity.HIGH,
+            #     InvariantSeverity.MEDIUM: ConstitutionalSeverity.MEDIUM,
+            #     InvariantSeverity.LOW: ConstitutionalSeverity.LOW,
+            # }
             supreme_law.check_violation(
                 principle=ConstitutionalPrinciple.DOUBLE_ENTRY,
                 offending_module=violation.offending_module,

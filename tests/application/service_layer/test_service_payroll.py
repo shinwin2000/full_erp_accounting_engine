@@ -68,19 +68,19 @@ class TestEmployeeSalaryStructureDTO:
     """Tests for the EmployeeSalaryStructureDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            employee_id=uuid4(),
-            basic_salary=Decimal("100.00"),
-            position_allowance=Decimal("100.00"),
-            transport_allowance=Decimal("100.00"),
-            meal_allowance=Decimal("100.00"),
-            overtime_rate=Decimal("100.00"),
-            bpjs_kesehatan_employee=Decimal("100.00"),
-            bpjs_kesehatan_employer=Decimal("100.00"),
-            bpjs_ketenagakerjaan_employee=Decimal("100.00"),
-            bpjs_ketenagakerjaan_employer=Decimal("100.00"),
-            other_deductions={},
-        )
+        return {
+            'employee_id': uuid4(),
+            'basic_salary': Decimal("100.00"),
+            'position_allowance': Decimal("100.00"),
+            'transport_allowance': Decimal("100.00"),
+            'meal_allowance': Decimal("100.00"),
+            'overtime_rate': Decimal("100.00"),
+            'bpjs_kesehatan_employee': Decimal("100.00"),
+            'bpjs_kesehatan_employer': Decimal("100.00"),
+            'bpjs_ketenagakerjaan_employee': Decimal("100.00"),
+            'bpjs_ketenagakerjaan_employer': Decimal("100.00"),
+            'other_deductions': {},
+        }
 
     def test_construction_success(self):
         """EmployeeSalaryStructureDTO can be constructed with valid field values."""
@@ -98,14 +98,14 @@ class TestPayrollRunRequest:
     """Tests for the PayrollRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_month=1,
-            period_year=1,
-            frequency="test_value",
-            employee_ids=[uuid4()],
-            auto_post_to_gl=True,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'period_month': 1,
+            'period_year': 1,
+            'frequency': "test_value",
+            'employee_ids': [uuid4()],
+            'auto_post_to_gl': True,
+        }
 
     def test_construction_success(self):
         """PayrollRunRequest can be constructed with valid field values."""
@@ -123,18 +123,18 @@ class TestPayrollRunResponse:
     """Tests for the PayrollRunResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            payroll_run_id=uuid4(),
-            period="test_value",
-            frequency="test_value",
-            employee_count=1,
-            total_gross_pay=Decimal("100.00"),
-            total_deductions=Decimal("100.00"),
-            total_net_pay=Decimal("100.00"),
-            total_tax_withheld=Decimal("100.00"),
-            status="test_value",
-            generated_at=datetime.now(UTC),
-        )
+        return {
+            'payroll_run_id': uuid4(),
+            'period': "test_value",
+            'frequency': "test_value",
+            'employee_count': 1,
+            'total_gross_pay': Decimal("100.00"),
+            'total_deductions': Decimal("100.00"),
+            'total_net_pay': Decimal("100.00"),
+            'total_tax_withheld': Decimal("100.00"),
+            'status': "test_value",
+            'generated_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PayrollRunResponse can be constructed with valid field values."""
@@ -152,19 +152,19 @@ class TestPayslipResponse:
     """Tests for the PayslipResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            payslip_id=uuid4(),
-            employee_id=uuid4(),
-            employee_name="test_value",
-            payroll_run_id=uuid4(),
-            gross_pay=Decimal("100.00"),
-            total_deductions=Decimal("100.00"),
-            net_pay=Decimal("100.00"),
-            tax_withheld=Decimal("100.00"),
-            components=[{}],
-            generated_at=datetime.now(UTC),
-            sent_at=datetime.now(UTC),
-        )
+        return {
+            'payslip_id': uuid4(),
+            'employee_id': uuid4(),
+            'employee_name': "test_value",
+            'payroll_run_id': uuid4(),
+            'gross_pay': Decimal("100.00"),
+            'total_deductions': Decimal("100.00"),
+            'net_pay': Decimal("100.00"),
+            'tax_withheld': Decimal("100.00"),
+            'components': [{}],
+            'generated_at': datetime.now(UTC),
+            'sent_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PayslipResponse can be constructed with valid field values."""
@@ -182,12 +182,12 @@ class TestPayrollPostingResponse:
     """Tests for the PayrollPostingResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            payroll_run_id=uuid4(),
-            posted_to_gl=True,
-            journal_id=uuid4(),
-            posting_errors=["test_value"],
-        )
+        return {
+            'payroll_run_id': uuid4(),
+            'posted_to_gl': True,
+            'journal_id': uuid4(),
+            'posting_errors': ["test_value"],
+        }
 
     def test_construction_success(self):
         """PayrollPostingResponse can be constructed with valid field values."""
@@ -205,13 +205,13 @@ class TestSalaryComponentRequest:
     """Tests for the SalaryComponentRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            employee_id=uuid4(),
-            component_type="test_value",
-            amount=Decimal("100.00"),
-            description="test_value",
-            effective_date=date.today(),
-        )
+        return {
+            'employee_id': uuid4(),
+            'component_type': "test_value",
+            'amount': Decimal("100.00"),
+            'description': "test_value",
+            'effective_date': date.today(),
+        }
 
     def test_construction_success(self):
         """SalaryComponentRequest can be constructed with valid field values."""
@@ -324,7 +324,7 @@ class TestPayrollService:
         """Smoke test for PayrollService.set_employee_salary_structure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set_employee_salary_structure(employee_id=uuid4(), structure=MagicMock(), user_id=uuid4(), effective_date=date.today(), correlation_id="test_value")
+            await instance.set_employee_salary_structure(employee_id=uuid4(), structure=MagicMock(), user_id=uuid4(), effective_date=date.today(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_employee_salary_structure needs specific domain fixtures/data: {e}")
             return
@@ -335,7 +335,7 @@ class TestPayrollService:
         """Smoke test for PayrollService.get_salary_structure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_salary_structure(employee_id=uuid4(), as_of_date=date.today())
+            await instance.get_salary_structure(employee_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_salary_structure needs specific domain fixtures/data: {e}")
             return
@@ -346,7 +346,7 @@ class TestPayrollService:
         """Smoke test for PayrollService.add_salary_component using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_salary_component(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.add_salary_component(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_salary_component needs specific domain fixtures/data: {e}")
             return
@@ -357,7 +357,7 @@ class TestPayrollService:
         """Smoke test for PayrollService.create_payroll_run using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_payroll_run(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_payroll_run(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_payroll_run needs specific domain fixtures/data: {e}")
             return
@@ -368,7 +368,7 @@ class TestPayrollService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -378,7 +378,7 @@ def test_audit_smoke():
 async def test_create_payroll_service_smoke():
     """Smoke test for module-level function create_payroll_service."""
     try:
-        result = await create_payroll_service(payroll_repo=MagicMock(), employee_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_payroll_service(payroll_repo=MagicMock(), employee_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_payroll_service needs specific input data: {e}")
         return

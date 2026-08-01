@@ -103,7 +103,7 @@ class TestVaultDynamicSecretProvider:
         """Smoke test for VaultDynamicSecretProvider.get_secret using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_secret(path="test_value", key="test_value")
+            await instance.get_secret(path="test_value", key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_secret needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestVaultDynamicSecretProvider:
         """Smoke test for VaultDynamicSecretProvider.renew_lease using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.renew_lease(lease_id="test_value")
+            await instance.renew_lease(lease_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"renew_lease needs specific domain fixtures/data: {e}")
             return
@@ -125,7 +125,7 @@ class TestVaultDynamicSecretProvider:
         """Smoke test for VaultDynamicSecretProvider.revoke_lease using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.revoke_lease(lease_id="test_value")
+            await instance.revoke_lease(lease_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revoke_lease needs specific domain fixtures/data: {e}")
             return
@@ -136,7 +136,7 @@ class TestVaultDynamicSecretProvider:
         """Smoke test for VaultDynamicSecretProvider.get_database_credentials using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_database_credentials(role_name="test_value")
+            await instance.get_database_credentials(role_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_database_credentials needs specific domain fixtures/data: {e}")
             return
@@ -147,7 +147,7 @@ class TestVaultDynamicSecretProvider:
 async def test_get_vault_provider_smoke():
     """Smoke test for module-level function get_vault_provider."""
     try:
-        result = await get_vault_provider()
+        await get_vault_provider()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_vault_provider needs specific input data: {e}")
         return
@@ -157,7 +157,7 @@ async def test_get_vault_provider_smoke():
 async def test_get_vault_dep_smoke():
     """Smoke test for module-level function get_vault_dep."""
     try:
-        result = await get_vault_dep()
+        await get_vault_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_vault_dep needs specific input data: {e}")
         return

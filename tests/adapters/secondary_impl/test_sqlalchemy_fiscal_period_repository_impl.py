@@ -36,7 +36,7 @@ class TestSQLAlchemyFiscalPeriodRepository:
         """Smoke test for SQLAlchemyFiscalPeriodRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(fiscal_period=MagicMock())
+            await instance.save(fiscal_period=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestSQLAlchemyFiscalPeriodRepository:
         """Smoke test for SQLAlchemyFiscalPeriodRepository.find_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_by_id(period_id=uuid4())
+            await instance.find_by_id(period_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_by_id needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestSQLAlchemyFiscalPeriodRepository:
         """Smoke test for SQLAlchemyFiscalPeriodRepository.find_by_date using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_by_date(target_date=date.today())
+            await instance.find_by_date(target_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_by_date needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestSQLAlchemyFiscalPeriodRepository:
         """Smoke test for SQLAlchemyFiscalPeriodRepository.find_active_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_active_period()
+            await instance.find_active_period()
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_active_period needs specific domain fixtures/data: {e}")
             return

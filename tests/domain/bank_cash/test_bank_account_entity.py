@@ -819,7 +819,7 @@ class TestBankAccountEntityTransactions:
         assert updated.current_balance == Decimal("10496500")
         assert updated.today_transaction_count == 1
         assert updated.month_transaction_count == 1
-        trail = updated.audit_trail()
+        updated.audit_trail()
         # There is audit entry from deposit? deposit method doesn't record audit directly, but it uses _copy_with_balance which does not add audit. However the method might be missing audit? Actually deposit doesn't call _record_audit, but it's okay for test. We'll just check balance.
 
     def test_deposit_zero_fee(self, valid_account):

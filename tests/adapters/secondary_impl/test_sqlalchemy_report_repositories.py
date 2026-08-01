@@ -39,7 +39,7 @@ class TestSQLAlchemyTrialBalanceRepository:
         """Smoke test for SQLAlchemyTrialBalanceRepository.get_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance(legal_entity_id=MagicMock(), as_of_date=date.today(), account_type_filter=["test_value"], cost_center_id=MagicMock(), include_zero_balance=True, currency_code="test_value")
+            await instance.get_trial_balance(legal_entity_id=MagicMock(), as_of_date=date.today(), account_type_filter=["test_value"], cost_center_id=MagicMock(), include_zero_balance=True, currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestSQLAlchemyIncomeStatementRepository:
         """Smoke test for SQLAlchemyIncomeStatementRepository.get_income_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_income_statement(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), show_percent_of_revenue=True, currency_code="test_value")
+            await instance.get_income_statement(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), show_percent_of_revenue=True, currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_income_statement needs specific domain fixtures/data: {e}")
             return
@@ -93,7 +93,7 @@ class TestSQLAlchemyBalanceSheetRepository:
         """Smoke test for SQLAlchemyBalanceSheetRepository.get_balance_sheet using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balance_sheet(legal_entity_id=MagicMock(), as_of_date=date.today(), currency_code="test_value")
+            await instance.get_balance_sheet(legal_entity_id=MagicMock(), as_of_date=date.today(), currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balance_sheet needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestSQLAlchemyCashFlowRepository:
         """Smoke test for SQLAlchemyCashFlowRepository.get_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_cash_flow(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), method="test_value", currency_code="test_value")
+            await instance.get_cash_flow(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), method="test_value", currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cash_flow needs specific domain fixtures/data: {e}")
             return
@@ -147,7 +147,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance(legal_entity_id=MagicMock(), as_of_date=date.today(), account_type_filter=["test_value"], cost_center_id=MagicMock(), include_zero_balance=True, currency_code="test_value")
+            await instance.get_trial_balance(legal_entity_id=MagicMock(), as_of_date=date.today(), account_type_filter=["test_value"], cost_center_id=MagicMock(), include_zero_balance=True, currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance needs specific domain fixtures/data: {e}")
             return
@@ -158,7 +158,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_income_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_income_statement(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), show_percent_of_revenue=True, currency_code="test_value")
+            await instance.get_income_statement(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), show_percent_of_revenue=True, currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_income_statement needs specific domain fixtures/data: {e}")
             return
@@ -169,7 +169,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_balance_sheet using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balance_sheet(legal_entity_id=MagicMock(), as_of_date=date.today(), currency_code="test_value")
+            await instance.get_balance_sheet(legal_entity_id=MagicMock(), as_of_date=date.today(), currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balance_sheet needs specific domain fixtures/data: {e}")
             return
@@ -180,7 +180,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_cash_flow(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), method="test_value", currency_code="test_value")
+            await instance.get_cash_flow(legal_entity_id=MagicMock(), period_start=date.today(), period_end=date.today(), method="test_value", currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cash_flow needs specific domain fixtures/data: {e}")
             return

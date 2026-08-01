@@ -26,20 +26,20 @@ class TestInventoryFIFOLayerTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            item_id=MagicMock(),
-            quantity=Decimal("100.00"),
-            remaining_quantity=Decimal("100.00"),
-            uom="test_value",
-            unit_cost=Decimal("100.00"),
-            currency="test_value",
-            purchase_date=date.today(),
-            movement_id=MagicMock(),
-            batch_number="test_value",
-            created_by=MagicMock(),
-            inbound_movement=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'item_id': MagicMock(),
+            'quantity': Decimal("100.00"),
+            'remaining_quantity': Decimal("100.00"),
+            'uom': "test_value",
+            'unit_cost': Decimal("100.00"),
+            'currency': "test_value",
+            'purchase_date': date.today(),
+            'movement_id': MagicMock(),
+            'batch_number': "test_value",
+            'created_by': MagicMock(),
+            'inbound_movement': MagicMock(),
+        }
         try:
             instance = InventoryFIFOLayerTable(**kwargs)
         except (Exception, SystemExit) as e:

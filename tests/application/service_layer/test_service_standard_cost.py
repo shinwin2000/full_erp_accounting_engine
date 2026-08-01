@@ -26,22 +26,22 @@ class TestStandardCost:
     """Tests for the StandardCost value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            product_id=uuid4(),
-            product_code="test_value",
-            product_name="test_value",
-            material_cost=Decimal("100.00"),
-            labor_cost=Decimal("100.00"),
-            overhead_cost=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            effective_date=date.today(),
-            is_active=True,
-            created_by=uuid4(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            version=1,
-        )
+        return {
+            "id": uuid4(),
+            "product_id": uuid4(),
+            "product_code": "test_value",
+            "product_name": "test_value",
+            "material_cost": Decimal("100.00"),
+            "labor_cost": Decimal("100.00"),
+            "overhead_cost": Decimal("100.00"),
+            "total_cost": Decimal("100.00"),
+            "effective_date": date.today(),
+            "is_active": True,
+            "created_by": uuid4(),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """StandardCost can be constructed with valid field values."""
@@ -106,7 +106,7 @@ class TestStandardCostService:
         """Smoke test for StandardCostService.create_standard_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_standard_cost(product_id=uuid4(), product_code="test_value", product_name="test_value", material_cost=Decimal("100.00"), labor_cost=Decimal("100.00"), overhead_cost=Decimal("100.00"), effective_date=date.today(), created_by=uuid4(), correlation_id="test_value")
+            await instance.create_standard_cost(product_id=uuid4(), product_code="test_value", product_name="test_value", material_cost=Decimal("100.00"), labor_cost=Decimal("100.00"), overhead_cost=Decimal("100.00"), effective_date=date.today(), created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_standard_cost needs specific domain fixtures/data: {e}")
             return
@@ -117,7 +117,7 @@ class TestStandardCostService:
         """Smoke test for StandardCostService.activate_standard_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.activate_standard_cost(standard_cost_id=uuid4(), activated_by=uuid4(), correlation_id="test_value")
+            await instance.activate_standard_cost(standard_cost_id=uuid4(), activated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"activate_standard_cost needs specific domain fixtures/data: {e}")
             return
@@ -128,7 +128,7 @@ class TestStandardCostService:
         """Smoke test for StandardCostService.get_active_standard_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_active_standard_cost(product_id=uuid4())
+            await instance.get_active_standard_cost(product_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_active_standard_cost needs specific domain fixtures/data: {e}")
             return
@@ -139,7 +139,7 @@ class TestStandardCostService:
         """Smoke test for StandardCostService.get_standard_cost using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_standard_cost(standard_cost_id=uuid4())
+            await instance.get_standard_cost(standard_cost_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_standard_cost needs specific domain fixtures/data: {e}")
             return
@@ -150,7 +150,7 @@ class TestStandardCostService:
 async def test_create_standard_cost_service_smoke():
     """Smoke test for module-level function create_standard_cost_service."""
     try:
-        result = await create_standard_cost_service(event_publisher=MagicMock())
+        await create_standard_cost_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_standard_cost_service needs specific input data: {e}")
         return

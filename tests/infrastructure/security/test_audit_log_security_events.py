@@ -503,7 +503,7 @@ class TestSecurityAuditLogger:
             details={"ip": "1.1.1.1"},
         )
         assert logger._last_hash is not None
-        event_id2 = logger.log(
+        logger.log(
             event_type=SecurityEventType.LOGOUT,
             user_id=user_id,
             details={},

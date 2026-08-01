@@ -55,7 +55,7 @@ class TestARAgingBuckets:
         """Smoke test for ARAgingBuckets.compute_aging using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_aging(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.compute_aging(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_aging needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestARAgingBuckets:
         """Smoke test for ARAgingBuckets.save_aging_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_aging_snapshot(aging_data={})
+            await instance.save_aging_snapshot(aging_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_aging_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestARAgingBuckets:
         """Smoke test for ARAgingBuckets.get_aging_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_aging_snapshot(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_aging_snapshot(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_aging_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -88,7 +88,7 @@ class TestARAgingBuckets:
         """Smoke test for ARAgingBuckets.generate_all_snapshots using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_all_snapshots(legal_entity_id=uuid4())
+            await instance.generate_all_snapshots(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_all_snapshots needs specific domain fixtures/data: {e}")
             return
@@ -107,8 +107,8 @@ class TestARAgingSnapshotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ARAgingSnapshotTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -136,7 +136,7 @@ class TestArAgingProjection:
         """Smoke test for ArAgingProjection.handle using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.handle(event={})
+            instance.handle(event={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"handle needs specific domain fixtures/data: {e}")
             return
@@ -147,7 +147,7 @@ class TestArAgingProjection:
         """Smoke test for ArAgingProjection.get_aging_buckets using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_aging_buckets(as_of="test_value")
+            instance.get_aging_buckets(as_of="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_aging_buckets needs specific domain fixtures/data: {e}")
             return
@@ -158,7 +158,7 @@ class TestArAgingProjection:
 async def test_get_ar_aging_buckets_smoke():
     """Smoke test for module-level function get_ar_aging_buckets."""
     try:
-        result = await get_ar_aging_buckets()
+        await get_ar_aging_buckets()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ar_aging_buckets needs specific input data: {e}")
         return

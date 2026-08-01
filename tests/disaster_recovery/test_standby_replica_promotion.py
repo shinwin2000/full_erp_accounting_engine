@@ -33,7 +33,7 @@ def standby_hosts():
 @pytest.fixture
 def promoter(primary_host, standby_hosts):
     # Create promoter with auto_failover disabled to avoid threads
-    with patch("disaster_recovery.standby_replica_promotion.threading.Thread") as mock_thread:
+    with patch("disaster_recovery.standby_replica_promotion.threading.Thread"):
         promoter = StandbyReplicaPromoter(
             primary_host=primary_host,
             primary_port=5432,
@@ -310,7 +310,7 @@ class TestStandbyReplicaPromoter:
         assert promoter._version == 1
         assert len(promoter._snapshots) == 1
         # replicas initialized
-        assert len(promoter._replicas) == len([primary_host] + standby_hosts)
+        assert len(promoter._replicas) == len([primary_host, *standby_hosts])
         assert promoter._replicas[primary_host].role == ReplicaRole.PRIMARY
         for host in standby_hosts:
             assert promoter._replicas[host].role == ReplicaRole.STANDBY
@@ -342,7 +342,7 @@ class TestStandbyReplicaPromoter:
             mock_lag.side_effect = [0.0, 1.5, 2.3]  # primary first, then standbys
             promoter.refresh_replica_info()
             # Check that replicas updated
-            for host, info in promoter._replicas.items():
+            for _host, info in promoter._replicas.items():
                 assert info.last_heartbeat is not None
                 assert info.is_healthy is True
             # Lag for primary should be 0, standbys get 1.5 and 2.3
@@ -356,7 +356,7 @@ class TestStandbyReplicaPromoter:
     def test_refresh_replica_info_exception(self, promoter):
         with patch.object(promoter, "_get_replication_lag", side_effect=Exception("DB error")):
             promoter.refresh_replica_info()
-            for host, info in promoter._replicas.items():
+            for _host, info in promoter._replicas.items():
                 assert info.is_healthy is False
                 assert info.replication_lag_seconds == -1.0
 
@@ -687,7 +687,7 @@ class TestStandbyReplicaPromoter:
             status = promoter.get_replicas_status()
             mock_refresh.assert_called_once()
             assert len(status) == len(promoter._replicas)
-            for host, info in promoter._replicas.items():
+            for host, _info in promoter._replicas.items():
                 assert status[host]["host"] == host
 
     def test_get_failover_history(self, promoter):
@@ -806,10 +806,9 @@ class TestStandbyReplicaPromoter:
         # Add some history and change replicas
         promoter._failover_history.append(MagicMock())
         promoter._replicas["extra"] = MagicMock()
-        old_version = promoter._version
         promoter.reset()
         assert len(promoter._failover_history) == 0
-        assert len(promoter._replicas) == len([promoter.primary_host] + promoter.standby_hosts)
+        assert len(promoter._replicas) == len([promoter.primary_host, *promoter.standby_hosts])
         assert promoter._version == 1  # reset sets version to 1
         assert len(promoter._audit_trail) == 1  # only RESET entry
         assert any(entry["action"] == "RESET" for entry in promoter.audit_trail())

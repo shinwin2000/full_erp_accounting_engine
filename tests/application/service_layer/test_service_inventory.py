@@ -56,24 +56,24 @@ class TestCreateItemRequest:
     """Tests for the CreateItemRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            sku="test_value",
-            name="test_value",
-            description="test_value",
-            item_type="test_value",
-            uom="test_value",
-            category="test_value",
-            brand="test_value",
-            reorder_point=Decimal("100.00"),
-            safety_stock=Decimal("100.00"),
-            maximum_stock=Decimal("100.00"),
-            minimum_stock=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            warehouse_code="test_value",
-            is_active=True,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'sku': "test_value",
+            'name': "test_value",
+            'description': "test_value",
+            'item_type': "test_value",
+            'uom': "test_value",
+            'category': "test_value",
+            'brand': "test_value",
+            'reorder_point': Decimal("100.00"),
+            'safety_stock': Decimal("100.00"),
+            'maximum_stock': Decimal("100.00"),
+            'minimum_stock': Decimal("100.00"),
+            'standard_cost': Decimal("100.00"),
+            'selling_price': Decimal("100.00"),
+            'warehouse_code': "test_value",
+            'is_active': True,
+        }
 
     def test_construction_success(self):
         """CreateItemRequest can be constructed with valid field values."""
@@ -91,22 +91,22 @@ class TestUpdateItemRequest:
     """Tests for the UpdateItemRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            name="test_value",
-            description="test_value",
-            item_type="test_value",
-            uom="test_value",
-            category="test_value",
-            brand="test_value",
-            reorder_point=Decimal("100.00"),
-            safety_stock=Decimal("100.00"),
-            maximum_stock=Decimal("100.00"),
-            minimum_stock=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            warehouse_code="test_value",
-        )
+        return {
+            'id': uuid4(),
+            'name': "test_value",
+            'description': "test_value",
+            'item_type': "test_value",
+            'uom': "test_value",
+            'category': "test_value",
+            'brand': "test_value",
+            'reorder_point': Decimal("100.00"),
+            'safety_stock': Decimal("100.00"),
+            'maximum_stock': Decimal("100.00"),
+            'minimum_stock': Decimal("100.00"),
+            'standard_cost': Decimal("100.00"),
+            'selling_price': Decimal("100.00"),
+            'warehouse_code': "test_value",
+        }
 
     def test_construction_success(self):
         """UpdateItemRequest can be constructed with valid field values."""
@@ -124,26 +124,26 @@ class TestItemResponse:
     """Tests for the ItemResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            sku="test_value",
-            name="test_value",
-            description="test_value",
-            item_type="test_value",
-            uom="test_value",
-            current_stock=Decimal("100.00"),
-            current_stock_value=Decimal("100.00"),
-            average_cost=Decimal("100.00"),
-            last_cost=Decimal("100.00"),
-            reorder_point=Decimal("100.00"),
-            safety_stock=Decimal("100.00"),
-            standard_cost=Decimal("100.00"),
-            selling_price=Decimal("100.00"),
-            category="test_value",
-            warehouse_code="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'sku': "test_value",
+            'name': "test_value",
+            'description': "test_value",
+            'item_type': "test_value",
+            'uom': "test_value",
+            'current_stock': Decimal("100.00"),
+            'current_stock_value': Decimal("100.00"),
+            'average_cost': Decimal("100.00"),
+            'last_cost': Decimal("100.00"),
+            'reorder_point': Decimal("100.00"),
+            'safety_stock': Decimal("100.00"),
+            'standard_cost': Decimal("100.00"),
+            'selling_price': Decimal("100.00"),
+            'category': "test_value",
+            'warehouse_code': "test_value",
+            'status': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ItemResponse can be constructed with valid field values."""
@@ -161,18 +161,18 @@ class TestStockMovementRequest:
     """Tests for the StockMovementRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            item_id=uuid4(),
-            movement_type="test_value",
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            reference_document_type="test_value",
-            reference_document_number="test_value",
-            movement_date=date.today(),
-            warehouse_code="test_value",
-            notes="test_value",
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'item_id': uuid4(),
+            'movement_type': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'reference_document_type': "test_value",
+            'reference_document_number': "test_value",
+            'movement_date': date.today(),
+            'warehouse_code': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """StockMovementRequest can be constructed with valid field values."""
@@ -190,21 +190,21 @@ class TestStockMovementResponse:
     """Tests for the StockMovementResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            item_id=uuid4(),
-            sku="test_value",
-            movement_type="test_value",
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            total_value=Decimal("100.00"),
-            movement_date=date.today(),
-            reference_document_type="test_value",
-            reference_document_number="test_value",
-            warehouse_code="test_value",
-            notes="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'item_id': uuid4(),
+            'sku': "test_value",
+            'movement_type': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'total_value': Decimal("100.00"),
+            'movement_date': date.today(),
+            'reference_document_type': "test_value",
+            'reference_document_number': "test_value",
+            'warehouse_code': "test_value",
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """StockMovementResponse can be constructed with valid field values."""
@@ -222,13 +222,13 @@ class TestStockOpnameRequest:
     """Tests for the StockOpnameRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            item_id=uuid4(),
-            physical_quantity=Decimal("100.00"),
-            opname_date=date.today(),
-            notes="test_value",
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'item_id': uuid4(),
+            'physical_quantity': Decimal("100.00"),
+            'opname_date': date.today(),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """StockOpnameRequest can be constructed with valid field values."""
@@ -246,23 +246,23 @@ class TestStockOpnameResponse:
     """Tests for the StockOpnameResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            item_id=uuid4(),
-            item_name="test_value",
-            sku="test_value",
-            opname_date=date.today(),
-            system_quantity=Decimal("100.00"),
-            physical_quantity=Decimal("100.00"),
-            discrepancy=Decimal("100.00"),
-            discrepancy_value=Decimal("100.00"),
-            status="test_value",
-            notes="test_value",
-            counted_by=uuid4(),
-            counted_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            approved_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'item_id': uuid4(),
+            'item_name': "test_value",
+            'sku': "test_value",
+            'opname_date': date.today(),
+            'system_quantity': Decimal("100.00"),
+            'physical_quantity': Decimal("100.00"),
+            'discrepancy': Decimal("100.00"),
+            'discrepancy_value': Decimal("100.00"),
+            'status': "test_value",
+            'notes': "test_value",
+            'counted_by': uuid4(),
+            'counted_at': datetime.now(UTC),
+            'approved_by': uuid4(),
+            'approved_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """StockOpnameResponse can be constructed with valid field values."""
@@ -280,15 +280,15 @@ class TestTransferRequest:
     """Tests for the TransferRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            item_id=uuid4(),
-            from_warehouse="test_value",
-            to_warehouse="test_value",
-            quantity=Decimal("100.00"),
-            transfer_date=date.today(),
-            notes="test_value",
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'item_id': uuid4(),
+            'from_warehouse': "test_value",
+            'to_warehouse': "test_value",
+            'quantity': Decimal("100.00"),
+            'transfer_date': date.today(),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """TransferRequest can be constructed with valid field values."""
@@ -306,24 +306,24 @@ class TestTransferResponse:
     """Tests for the TransferResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            item_id=uuid4(),
-            item_name="test_value",
-            sku="test_value",
-            from_warehouse="test_value",
-            to_warehouse="test_value",
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            total_value=Decimal("100.00"),
-            transfer_date=date.today(),
-            status="test_value",
-            notes="test_value",
-            requested_by=uuid4(),
-            requested_at=datetime.now(UTC),
-            completed_by=uuid4(),
-            completed_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'item_id': uuid4(),
+            'item_name': "test_value",
+            'sku': "test_value",
+            'from_warehouse': "test_value",
+            'to_warehouse': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'total_value': Decimal("100.00"),
+            'transfer_date': date.today(),
+            'status': "test_value",
+            'notes': "test_value",
+            'requested_by': uuid4(),
+            'requested_at': datetime.now(UTC),
+            'completed_by': uuid4(),
+            'completed_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """TransferResponse can be constructed with valid field values."""
@@ -341,11 +341,11 @@ class TestCOGSCalculationRequest:
     """Tests for the COGSCalculationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'period_start': date.today(),
+            'period_end': date.today(),
+        }
 
     def test_construction_success(self):
         """COGSCalculationRequest can be constructed with valid field values."""
@@ -363,12 +363,12 @@ class TestCOGSCalculationResponse:
     """Tests for the COGSCalculationResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_start=date.today(),
-            period_end=date.today(),
-            total_cogs=Decimal("100.00"),
-            items=[{}],
-        )
+        return {
+            'period_start': date.today(),
+            'period_end': date.today(),
+            'total_cogs': Decimal("100.00"),
+            'items': [{}],
+        }
 
     def test_construction_success(self):
         """COGSCalculationResponse can be constructed with valid field values."""
@@ -386,11 +386,11 @@ class TestInventoryValuationRequest:
     """Tests for the InventoryValuationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            valuation_date=date.today(),
-            valuation_method="test_value",
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'valuation_date': date.today(),
+            'valuation_method': "test_value",
+        }
 
     def test_construction_success(self):
         """InventoryValuationRequest can be constructed with valid field values."""
@@ -519,7 +519,7 @@ class TestInventoryService:
         """Smoke test for InventoryService.create_item using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_item(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_item(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_item needs specific domain fixtures/data: {e}")
             return
@@ -530,7 +530,7 @@ class TestInventoryService:
         """Smoke test for InventoryService.update_item using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_item(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.update_item(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_item needs specific domain fixtures/data: {e}")
             return
@@ -541,7 +541,7 @@ class TestInventoryService:
         """Smoke test for InventoryService.deactivate_item using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.deactivate_item(item_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.deactivate_item(item_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"deactivate_item needs specific domain fixtures/data: {e}")
             return
@@ -552,7 +552,7 @@ class TestInventoryService:
         """Smoke test for InventoryService.get_item using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_item(item_id=uuid4())
+            await instance.get_item(item_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_item needs specific domain fixtures/data: {e}")
             return
@@ -563,7 +563,7 @@ class TestInventoryService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -573,7 +573,7 @@ def test_audit_smoke():
 async def test_create_inventory_service_smoke():
     """Smoke test for module-level function create_inventory_service."""
     try:
-        result = await create_inventory_service(inv_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock(), ledger_repo=MagicMock(), valuation_method="test_value")
+        await create_inventory_service(inv_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock(), ledger_repo=MagicMock(), valuation_method="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_inventory_service needs specific input data: {e}")
         return

@@ -68,7 +68,7 @@ class TestDatabaseEncryptionTDE:
         """Smoke test for DatabaseEncryptionTDE.encrypt_column_value using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.encrypt_column_value(plaintext="test_value")
+            await instance.encrypt_column_value(plaintext="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"encrypt_column_value needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestDatabaseEncryptionTDE:
         """Smoke test for DatabaseEncryptionTDE.decrypt_column_value using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.decrypt_column_value(ciphertext_b64="test_value")
+            await instance.decrypt_column_value(ciphertext_b64="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"decrypt_column_value needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestDatabaseEncryptionTDE:
         """Smoke test for DatabaseEncryptionTDE.migrate_column_to_encrypted using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.migrate_column_to_encrypted(table="test_value", column="test_value", new_column="test_value")
+            await instance.migrate_column_to_encrypted(table="test_value", column="test_value", new_column="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"migrate_column_to_encrypted needs specific domain fixtures/data: {e}")
             return
@@ -101,7 +101,7 @@ class TestDatabaseEncryptionTDE:
         """Smoke test for DatabaseEncryptionTDE.setup_encrypted_columns using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.setup_encrypted_columns()
+            await instance.setup_encrypted_columns()
         except (Exception, SystemExit) as e:
             pytest.skip(f"setup_encrypted_columns needs specific domain fixtures/data: {e}")
             return
@@ -112,7 +112,7 @@ class TestDatabaseEncryptionTDE:
 async def test_get_tde_manager_smoke():
     """Smoke test for module-level function get_tde_manager."""
     try:
-        result = await get_tde_manager()
+        await get_tde_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_tde_manager needs specific input data: {e}")
         return

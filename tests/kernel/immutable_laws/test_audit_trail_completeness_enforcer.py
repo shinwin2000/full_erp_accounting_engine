@@ -45,7 +45,7 @@ class Test_FallbackAuditRepository:
         """Smoke test for _FallbackAuditRepository.get_by_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_transaction(transaction_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_transaction(transaction_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_transaction needs specific domain fixtures/data: {e}")
             return
@@ -56,7 +56,7 @@ class Test_FallbackAuditRepository:
         """Smoke test for _FallbackAuditRepository.get_by_time_range using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_time_range(legal_entity_id=uuid4(), from_date=datetime.now(UTC), to_date=datetime.now(UTC))
+            await instance.get_by_time_range(legal_entity_id=uuid4(), from_date=datetime.now(UTC), to_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_time_range needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class Test_FallbackAuditRepository:
         """Smoke test for _FallbackAuditRepository.get_last_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_event(legal_entity_id=uuid4())
+            await instance.get_last_event(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_event needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class Test_FallbackAuditRepository:
         """Smoke test for _FallbackAuditRepository.create_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_event(transaction_id=uuid4(), legal_entity_id=uuid4(), event_type="test_value", event_data={}, user_id="test_value", sequence_number=1, previous_hash="test_value", timestamp=datetime.now(UTC))
+            await instance.create_event(transaction_id=uuid4(), legal_entity_id=uuid4(), event_type="test_value", event_data={}, user_id="test_value", sequence_number=1, previous_hash="test_value", timestamp=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_event needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class Test_FallbackEventStore:
         """Smoke test for _FallbackEventStore.append using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append(event=MagicMock())
+            await instance.append(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"append needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class Test_FallbackEventStore:
         """Smoke test for _FallbackEventStore.clear using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.clear()
+            instance.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -179,19 +179,19 @@ class TestAuditEvent:
     """Tests for the AuditEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            transaction_id=uuid4(),
-            legal_entity_id=uuid4(),
-            event_type=AuditEventType.TRANSACTION_START,
-            event_data={},
-            user_id="test_value",
-            sequence_number=1,
-            previous_hash="test_value",
-            current_hash="test_value",
-            timestamp=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "event_id": uuid4(),
+            "transaction_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "event_type": AuditEventType.TRANSACTION_START,
+            "event_data": {},
+            "user_id": "test_value",
+            "sequence_number": 1,
+            "previous_hash": "test_value",
+            "current_hash": "test_value",
+            "timestamp": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """AuditEvent can be constructed with valid field values."""
@@ -209,21 +209,21 @@ class TestAuditTrailReport:
     """Tests for the AuditTrailReport value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            from_date=datetime.now(UTC),
-            to_date=datetime.now(UTC),
-            total_events=1,
-            has_gaps=True,
-            first_sequence=1,
-            last_sequence=1,
-            missing_sequences=[1],
-            broken_hash_chain=True,
-            broken_at_sequence=1,
-            severity=AuditTrailSeverity.CATASTROPHIC,
-            message="test_value",
-            generated_at=datetime.now(UTC),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "from_date": datetime.now(UTC),
+            "to_date": datetime.now(UTC),
+            "total_events": 1,
+            "has_gaps": True,
+            "first_sequence": 1,
+            "last_sequence": 1,
+            "missing_sequences": [1],
+            "broken_hash_chain": True,
+            "broken_at_sequence": 1,
+            "severity": AuditTrailSeverity.CATASTROPHIC,
+            "message": "test_value",
+            "generated_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """AuditTrailReport can be constructed with valid field values."""
@@ -264,7 +264,7 @@ class TestAuditTrailCompletenessEnforcer:
         """Smoke test for AuditTrailCompletenessEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -275,7 +275,7 @@ class TestAuditTrailCompletenessEnforcer:
         """Smoke test for AuditTrailCompletenessEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -286,7 +286,7 @@ class TestAuditTrailCompletenessEnforcer:
         """Smoke test for AuditTrailCompletenessEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -296,8 +296,8 @@ class TestAuditTrailCompletenessEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for AuditTrailCompletenessEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = AuditTrailCompletenessEnforcer.from_dict(data={})
+            self._build_instance()
+            AuditTrailCompletenessEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -308,7 +308,7 @@ class TestAuditTrailCompletenessEnforcer:
 def test_get_audit_trail_completeness_enforcer_smoke():
     """Smoke test for module-level function get_audit_trail_completeness_enforcer."""
     try:
-        result = get_audit_trail_completeness_enforcer()
+        get_audit_trail_completeness_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_audit_trail_completeness_enforcer needs specific input data: {e}")
         return

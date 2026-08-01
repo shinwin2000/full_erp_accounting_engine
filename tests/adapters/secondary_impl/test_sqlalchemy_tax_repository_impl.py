@@ -170,7 +170,7 @@ class TestSQLAlchemyTaxRepository:
         """Smoke test for SQLAlchemyTaxRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -181,7 +181,7 @@ class TestSQLAlchemyTaxRepository:
         """Smoke test for SQLAlchemyTaxRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session(value=MagicMock())
+            instance.session(value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -192,7 +192,7 @@ class TestSQLAlchemyTaxRepository:
         """Smoke test for SQLAlchemyTaxRepository.save_faktur_keluaran using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_faktur_keluaran(faktur=MagicMock())
+            await instance.save_faktur_keluaran(faktur=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_faktur_keluaran needs specific domain fixtures/data: {e}")
             return
@@ -203,7 +203,7 @@ class TestSQLAlchemyTaxRepository:
         """Smoke test for SQLAlchemyTaxRepository.save_faktur_masukan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_faktur_masukan(faktur=MagicMock())
+            await instance.save_faktur_masukan(faktur=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_faktur_masukan needs specific domain fixtures/data: {e}")
             return

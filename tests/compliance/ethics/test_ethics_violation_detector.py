@@ -91,7 +91,7 @@ class TestViolationEvidence:
         """Smoke test for ViolationEvidence.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestEthicsViolation:
         """Smoke test for EthicsViolation.update_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_status(new_status=ViolationStatus.OPEN, updated_by=uuid4(), notes="test_value")
+            instance.update_status(new_status=ViolationStatus.OPEN, updated_by=uuid4(), notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_status needs specific domain fixtures/data: {e}")
             return
@@ -129,7 +129,7 @@ class TestEthicsViolation:
         """Smoke test for EthicsViolation.add_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_evidence(evidence=MagicMock(), added_by=uuid4())
+            instance.add_evidence(evidence=MagicMock(), added_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_evidence needs specific domain fixtures/data: {e}")
             return
@@ -140,7 +140,7 @@ class TestEthicsViolation:
         """Smoke test for EthicsViolation.resolve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.resolve(resolved_by=uuid4(), resolution_notes="test_value")
+            instance.resolve(resolved_by=uuid4(), resolution_notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"resolve needs specific domain fixtures/data: {e}")
             return
@@ -151,7 +151,7 @@ class TestEthicsViolation:
         """Smoke test for EthicsViolation.escalate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.escalate(escalated_by=uuid4(), reason="test_value")
+            instance.escalate(escalated_by=uuid4(), reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"escalate needs specific domain fixtures/data: {e}")
             return
@@ -178,7 +178,7 @@ class TestEthicsViolationDetector:
         """Smoke test for EthicsViolationDetector.scan_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.scan_transaction(transaction={})
+            instance.scan_transaction(transaction={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_transaction needs specific domain fixtures/data: {e}")
             return
@@ -189,7 +189,7 @@ class TestEthicsViolationDetector:
         """Smoke test for EthicsViolationDetector.report_violation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.report_violation(description="test_value", category=ViolationCategory.CONFLICT_OF_INTEREST, severity=ViolationSeverity.MINOR, reported_by=uuid4(), involved_parties=[uuid4()], evidence=[MagicMock()], policy_reference="test_value")
+            instance.report_violation(description="test_value", category=ViolationCategory.CONFLICT_OF_INTEREST, severity=ViolationSeverity.MINOR, reported_by=uuid4(), involved_parties=[uuid4()], evidence=[MagicMock()], policy_reference="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"report_violation needs specific domain fixtures/data: {e}")
             return
@@ -200,7 +200,7 @@ class TestEthicsViolationDetector:
         """Smoke test for EthicsViolationDetector.get_violation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_violation(violation_id=uuid4())
+            instance.get_violation(violation_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_violation needs specific domain fixtures/data: {e}")
             return
@@ -211,7 +211,7 @@ class TestEthicsViolationDetector:
         """Smoke test for EthicsViolationDetector.update_violation_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.update_violation_status(violation_id=uuid4(), new_status=ViolationStatus.OPEN, updated_by=uuid4(), notes="test_value")
+            instance.update_violation_status(violation_id=uuid4(), new_status=ViolationStatus.OPEN, updated_by=uuid4(), notes="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_violation_status needs specific domain fixtures/data: {e}")
             return

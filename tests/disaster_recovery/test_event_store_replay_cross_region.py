@@ -375,13 +375,12 @@ class TestCrossRegionEventStoreReplayer:
             "backoff_seconds": 0.2,
             "version": 3,
         }
-        with patch("boto3.resource") as mock_resource:
-            with patch("boto3.client") as mock_client:
-                replayer = CrossRegionEventStoreReplayer.from_dict(data)
-                assert replayer.source_region == "ap-southeast-1"
-                assert replayer.target_region == "ap-southeast-2"
-                assert replayer.batch_size == 50
-                assert replayer._version == 3
+        with patch("boto3.resource"), patch("boto3.client"):
+            replayer = CrossRegionEventStoreReplayer.from_dict(data)
+            assert replayer.source_region == "ap-southeast-1"
+            assert replayer.target_region == "ap-southeast-2"
+            assert replayer.batch_size == 50
+            assert replayer._version == 3
 
     def test_clone(self, replayer):
         clone = replayer.clone()

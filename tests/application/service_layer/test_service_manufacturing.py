@@ -71,14 +71,14 @@ class TestBOMRequest:
     """Tests for the BOMRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            product_id=uuid4(),
-            product_code="test_value",
-            effective_date=date.today(),
-            version="test_value",
-            is_active=True,
-            items=[{}],
-        )
+        return {
+            'product_id': uuid4(),
+            'product_code': "test_value",
+            'effective_date': date.today(),
+            'version': "test_value",
+            'is_active': True,
+            'items': [{}],
+        }
 
     def test_construction_success(self):
         """BOMRequest can be constructed with valid field values."""
@@ -96,12 +96,12 @@ class TestBOMUpdateRequest:
     """Tests for the BOMUpdateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bom_id=uuid4(),
-            effective_date=date.today(),
-            is_active=True,
-            items=[{}],
-        )
+        return {
+            'bom_id': uuid4(),
+            'effective_date': date.today(),
+            'is_active': True,
+            'items': [{}],
+        }
 
     def test_construction_success(self):
         """BOMUpdateRequest can be constructed with valid field values."""
@@ -119,15 +119,15 @@ class TestBOMResponse:
     """Tests for the BOMResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            bom_id=uuid4(),
-            product_id=uuid4(),
-            items=[{}],
-            total_material_cost=Decimal("100.00"),
-            effective_date=date.today(),
-            is_active=True,
-            version="test_value",
-        )
+        return {
+            'bom_id': uuid4(),
+            'product_id': uuid4(),
+            'items': [{}],
+            'total_material_cost': Decimal("100.00"),
+            'effective_date': date.today(),
+            'is_active': True,
+            'version': "test_value",
+        }
 
     def test_construction_success(self):
         """BOMResponse can be constructed with valid field values."""
@@ -145,15 +145,15 @@ class TestWorkOrderRequest:
     """Tests for the WorkOrderRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            product_id=uuid4(),
-            product_code="test_value",
-            quantity=Decimal("100.00"),
-            due_date=date.today(),
-            bom_version="test_value",
-            routing_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            'product_id': uuid4(),
+            'product_code': "test_value",
+            'quantity': Decimal("100.00"),
+            'due_date': date.today(),
+            'bom_version': "test_value",
+            'routing_id': uuid4(),
+            'legal_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """WorkOrderRequest can be constructed with valid field values."""
@@ -171,16 +171,16 @@ class TestWorkOrderResponse:
     """Tests for the WorkOrderResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            work_order_number="test_value",
-            product_id=uuid4(),
-            quantity=Decimal("100.00"),
-            completed_quantity=Decimal("100.00"),
-            due_date=date.today(),
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'work_order_id': uuid4(),
+            'work_order_number': "test_value",
+            'product_id': uuid4(),
+            'quantity': Decimal("100.00"),
+            'completed_quantity': Decimal("100.00"),
+            'due_date': date.today(),
+            'status': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """WorkOrderResponse can be constructed with valid field values."""
@@ -198,15 +198,15 @@ class TestMaterialIssueRequest:
     """Tests for the MaterialIssueRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            material_id=uuid4(),
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            issue_date=date.today(),
-            issued_by=uuid4(),
-            notes="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'material_id': uuid4(),
+            'quantity': Decimal("100.00"),
+            'unit_cost': Decimal("100.00"),
+            'issue_date': date.today(),
+            'issued_by': uuid4(),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """MaterialIssueRequest can be constructed with valid field values."""
@@ -224,16 +224,16 @@ class TestLaborPostRequest:
     """Tests for the LaborPostRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            employee_id=uuid4(),
-            employee_name="test_value",
-            hours=Decimal("100.00"),
-            rate=Decimal("100.00"),
-            work_date=date.today(),
-            posted_by=uuid4(),
-            notes="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'employee_id': uuid4(),
+            'employee_name': "test_value",
+            'hours': Decimal("100.00"),
+            'rate': Decimal("100.00"),
+            'work_date': date.today(),
+            'posted_by': uuid4(),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """LaborPostRequest can be constructed with valid field values."""
@@ -251,14 +251,14 @@ class TestOverheadApplyRequest:
     """Tests for the OverheadApplyRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            overhead_pool="test_value",
-            amount=Decimal("100.00"),
-            allocation_basis="test_value",
-            applied_by=uuid4(),
-            notes="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'overhead_pool': "test_value",
+            'amount': Decimal("100.00"),
+            'allocation_basis': "test_value",
+            'applied_by': uuid4(),
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """OverheadApplyRequest can be constructed with valid field values."""
@@ -276,14 +276,14 @@ class TestProductionCompletionRequest:
     """Tests for the ProductionCompletionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            work_order_id=uuid4(),
-            completed_quantity=Decimal("100.00"),
-            rejected_quantity=Decimal("100.00"),
-            completion_date=date.today(),
-            completed_by=uuid4(),
-            remarks="test_value",
-        )
+        return {
+            'work_order_id': uuid4(),
+            'completed_quantity': Decimal("100.00"),
+            'rejected_quantity': Decimal("100.00"),
+            'completion_date': date.today(),
+            'completed_by': uuid4(),
+            'remarks': "test_value",
+        }
 
     def test_construction_success(self):
         """ProductionCompletionRequest can be constructed with valid field values."""
@@ -301,16 +301,16 @@ class TestStandardCostRequest:
     """Tests for the StandardCostRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            product_id=uuid4(),
-            product_code="test_value",
-            product_name="test_value",
-            material_cost=Decimal("100.00"),
-            labor_cost=Decimal("100.00"),
-            overhead_cost=Decimal("100.00"),
-            effective_date=date.today(),
-            created_by=uuid4(),
-        )
+        return {
+            'product_id': uuid4(),
+            'product_code': "test_value",
+            'product_name': "test_value",
+            'material_cost': Decimal("100.00"),
+            'labor_cost': Decimal("100.00"),
+            'overhead_cost': Decimal("100.00"),
+            'effective_date': date.today(),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """StandardCostRequest can be constructed with valid field values."""
@@ -328,11 +328,11 @@ class TestHPPCalculationRequest:
     """Tests for the HPPCalculationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            product_id=uuid4(),
-            period_start=date.today(),
-            period_end=date.today(),
-        )
+        return {
+            'product_id': uuid4(),
+            'period_start': date.today(),
+            'period_end': date.today(),
+        }
 
     def test_construction_success(self):
         """HPPCalculationRequest can be constructed with valid field values."""
@@ -429,7 +429,7 @@ class TestManufacturingService:
         """Smoke test for ManufacturingService.create_bom using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_bom(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_bom(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_bom needs specific domain fixtures/data: {e}")
             return
@@ -440,7 +440,7 @@ class TestManufacturingService:
         """Smoke test for ManufacturingService.update_bom using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_bom(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.update_bom(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_bom needs specific domain fixtures/data: {e}")
             return
@@ -451,7 +451,7 @@ class TestManufacturingService:
         """Smoke test for ManufacturingService.activate_bom using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.activate_bom(bom_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
+            await instance.activate_bom(bom_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"activate_bom needs specific domain fixtures/data: {e}")
             return
@@ -462,7 +462,7 @@ class TestManufacturingService:
         """Smoke test for ManufacturingService.obsolete_bom using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.obsolete_bom(bom_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.obsolete_bom(bom_id=uuid4(), reason="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"obsolete_bom needs specific domain fixtures/data: {e}")
             return
@@ -473,7 +473,7 @@ class TestManufacturingService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -483,7 +483,7 @@ def test_audit_smoke():
 async def test_create_manufacturing_service_smoke():
     """Smoke test for module-level function create_manufacturing_service."""
     try:
-        result = await create_manufacturing_service(manufacturing_repo=MagicMock(), inventory_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_manufacturing_service(manufacturing_repo=MagicMock(), inventory_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_manufacturing_service needs specific input data: {e}")
         return

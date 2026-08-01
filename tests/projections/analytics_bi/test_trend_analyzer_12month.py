@@ -53,7 +53,7 @@ class TestTrendAnalyzer12Month:
         """Smoke test for TrendAnalyzer12Month.collect_monthly_data using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_monthly_data(legal_entity_id=uuid4(), months=1)
+            await instance.collect_monthly_data(legal_entity_id=uuid4(), months=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_monthly_data needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestTrendAnalyzer12Month:
         """Smoke test for TrendAnalyzer12Month.calculate_mom_changes using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_mom_changes(data=[{}])
+            instance.calculate_mom_changes(data=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_mom_changes needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestTrendAnalyzer12Month:
         """Smoke test for TrendAnalyzer12Month.calculate_yoy_changes using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_yoy_changes(data=[{}])
+            instance.calculate_yoy_changes(data=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_yoy_changes needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestTrendAnalyzer12Month:
         """Smoke test for TrendAnalyzer12Month.calculate_moving_averages using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_moving_averages(data=[{}], window=1)
+            instance.calculate_moving_averages(data=[{}], window=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_moving_averages needs specific domain fixtures/data: {e}")
             return
@@ -105,8 +105,8 @@ class TestTrendAnalysisTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = TrendAnalysisTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -118,7 +118,7 @@ class TestTrendAnalysisTable:
 async def test_get_trend_analyzer_smoke():
     """Smoke test for module-level function get_trend_analyzer."""
     try:
-        result = await get_trend_analyzer()
+        await get_trend_analyzer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_trend_analyzer needs specific input data: {e}")
         return

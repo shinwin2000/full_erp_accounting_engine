@@ -26,20 +26,20 @@ class TestPettyCashFundTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            fund_name="test_value",
-            legal_entity_id=uuid4(),
-            currency_code="test_value",
-            current_balance=Decimal("100.00"),
-            initial_amount=Decimal("100.00"),
-            custodian_id=uuid4(),
-            gl_account_id=uuid4(),
-            reimbursement_threshold=Decimal("100.00"),
-            fund_location="test_value",
-            status="test_value",
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'fund_name': "test_value",
+            'legal_entity_id': uuid4(),
+            'currency_code': "test_value",
+            'current_balance': Decimal("100.00"),
+            'initial_amount': Decimal("100.00"),
+            'custodian_id': uuid4(),
+            'gl_account_id': uuid4(),
+            'reimbursement_threshold': Decimal("100.00"),
+            'fund_location': "test_value",
+            'status': "test_value",
+            'created_by': MagicMock(),
+        }
         try:
             instance = PettyCashFundTable(**kwargs)
         except (Exception, SystemExit) as e:

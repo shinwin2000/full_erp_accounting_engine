@@ -567,7 +567,7 @@ class TestGoingConcernAxiom:
         )
         assert a1.status == GoingConcernStatus.HEALTHY
 
-        a2 = axiom.perform_assessment(
+        axiom.perform_assessment(
             legal_entity_id=entity_id,
             assessed_by="tester",
             indicators=[GoingConcernIndicator.LOSS_OF_MAJOR_CUSTOMER],

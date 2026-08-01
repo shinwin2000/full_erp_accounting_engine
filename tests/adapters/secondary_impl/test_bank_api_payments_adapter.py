@@ -32,7 +32,7 @@ class TestBankAPIPaymentsAdapter:
         """Smoke test for BankAPIPaymentsAdapter.transfer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.transfer(from_account="test_value", to_account="test_value", amount=Decimal("100.00"), currency="test_value")
+            await instance.transfer(from_account="test_value", to_account="test_value", amount=Decimal("100.00"), currency="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"transfer needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestBankAPIPaymentsAdapter:
         """Smoke test for BankAPIPaymentsAdapter.check_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_status(transaction_id="test_value")
+            await instance.check_status(transaction_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_status needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestBankAPIPaymentsAdapter:
         """Smoke test for BankAPIPaymentsAdapter.get_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balance(account_number="test_value")
+            await instance.get_balance(account_number="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balance needs specific domain fixtures/data: {e}")
             return

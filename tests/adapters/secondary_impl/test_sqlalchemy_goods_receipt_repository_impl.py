@@ -34,7 +34,7 @@ class TestSQLAlchemyGoodsReceiptRepository:
         """Smoke test for SQLAlchemyGoodsReceiptRepository.save_grn using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_grn(grn=MagicMock())
+            await instance.save_grn(grn=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_grn needs specific domain fixtures/data: {e}")
             return
@@ -45,7 +45,7 @@ class TestSQLAlchemyGoodsReceiptRepository:
         """Smoke test for SQLAlchemyGoodsReceiptRepository.get_grn_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_grn_by_id(grn_id=MagicMock())
+            await instance.get_grn_by_id(grn_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_grn_by_id needs specific domain fixtures/data: {e}")
             return
@@ -56,7 +56,7 @@ class TestSQLAlchemyGoodsReceiptRepository:
         """Smoke test for SQLAlchemyGoodsReceiptRepository.get_grn_by_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_grn_by_number(grn_number="test_value", legal_entity_id=MagicMock())
+            await instance.get_grn_by_number(grn_number="test_value", legal_entity_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_grn_by_number needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyGoodsReceiptRepository:
         """Smoke test for SQLAlchemyGoodsReceiptRepository.get_grns_by_po using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_grns_by_po(purchase_order_id=MagicMock())
+            await instance.get_grns_by_po(purchase_order_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_grns_by_po needs specific domain fixtures/data: {e}")
             return

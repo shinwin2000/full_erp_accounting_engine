@@ -222,7 +222,7 @@ class TestImmutableIntentRecord:
             d = immutable_record.to_dict()
             d["signature"] = immutable_record.signature
             d["created_at"] = immutable_record.created_at.isoformat()
-            new_record = ImmutableIntentRecord.from_dict(d)
+            ImmutableIntentRecord.from_dict(d)
             mock_from_string.assert_called_with(d["intent_type"])
 
     def test_clone(self, immutable_record):

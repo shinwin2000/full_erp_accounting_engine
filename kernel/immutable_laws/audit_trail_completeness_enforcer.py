@@ -63,9 +63,9 @@ class _FallbackAuditRepository:
         result = []
         for e in self._events:
             ts = e.get("timestamp")
-            if ts and from_date <= ts <= to_date:
-                if e.get("legal_entity_id") == legal_entity_id:
-                    result.append(_AuditEventProxy(e))
+            # Gabungkan nested if menjadi satu (SIM102)
+            if ts and from_date <= ts <= to_date and e.get("legal_entity_id") == legal_entity_id:
+                result.append(_AuditEventProxy(e))
         return result
 
     async def get_last_event(self, legal_entity_id: UUID) -> Any | None:

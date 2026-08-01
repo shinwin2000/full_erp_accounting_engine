@@ -74,14 +74,14 @@ class TestAddress:
     """Tests for the Address value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            street="test_value",
-            city="test_value",
-            postal_code="test_value",
-            province="test_value",
-            country="test_value",
-            is_main=True,
-        )
+        return {
+            'street': "test_value",
+            'city': "test_value",
+            'postal_code': "test_value",
+            'province': "test_value",
+            'country': "test_value",
+            'is_main': True,
+        }
 
     def test_construction_success(self):
         """Address can be constructed with valid field values."""
@@ -99,14 +99,14 @@ class TestContact:
     """Tests for the Contact value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            email="test_value",
-            phone="test_value",
-            mobile="test_value",
-            fax="test_value",
-            website="test_value",
-            contact_person="test_value",
-        )
+        return {
+            'email': "test_value",
+            'phone': "test_value",
+            'mobile': "test_value",
+            'fax': "test_value",
+            'website': "test_value",
+            'contact_person': "test_value",
+        }
 
     def test_construction_success(self):
         """Contact can be constructed with valid field values."""
@@ -124,20 +124,20 @@ class TestTaxProfile:
     """Tests for the TaxProfile value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            npwp="test_value",
-            tax_regime=TaxRegime.GENERAL,
-            is_pkp=True,
-            pkp_number="test_value",
-            tax_office="test_value",
-            tax_office_code="test_value",
-            default_tax_rate_ppn=Decimal("100.00"),
-            default_withholding_pph21=Decimal("100.00"),
-            default_withholding_pph23=Decimal("100.00"),
-            use_e_faktur=True,
-            coretax_id="test_value",
-            coretax_password="test_value",
-        )
+        return {
+            'npwp': "test_value",
+            'tax_regime': TaxRegime.GENERAL,
+            'is_pkp': True,
+            'pkp_number': "test_value",
+            'tax_office': "test_value",
+            'tax_office_code': "test_value",
+            'default_tax_rate_ppn': Decimal("100.00"),
+            'default_withholding_pph21': Decimal("100.00"),
+            'default_withholding_pph23': Decimal("100.00"),
+            'use_e_faktur': True,
+            'coretax_id': "test_value",
+            'coretax_password': "test_value",
+        }
 
     def test_construction_success(self):
         """TaxProfile can be constructed with valid field values."""
@@ -155,34 +155,34 @@ class TestLegalEntity:
     """Tests for the LegalEntity value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            entity_code="test_value",
-            entity_name="test_value",
-            legal_name="test_value",
-            entity_type=LegalEntityType.CORPORATION,
-            registration_number="test_value",
-            registration_date=date.today(),
-            established_date=date.today(),
-            fiscal_year_start_month=1,
-            fiscal_year_end_month=1,
-            functional_currency="test_value",
-            reporting_currency="test_value",
-            addresses=[MagicMock()],
-            contacts=[MagicMock()],
-            tax_profile=MagicMock(),
-            parent_entity_id=uuid4(),
-            consolidation_method=ConsolidationMethod.FULL,
-            consolidation_group_id=uuid4(),
-            is_active=True,
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            deleted_at=datetime.now(UTC),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'entity_code': "test_value",
+            'entity_name': "test_value",
+            'legal_name': "test_value",
+            'entity_type': LegalEntityType.CORPORATION,
+            'registration_number': "test_value",
+            'registration_date': date.today(),
+            'established_date': date.today(),
+            'fiscal_year_start_month': 1,
+            'fiscal_year_end_month': 1,
+            'functional_currency': "test_value",
+            'reporting_currency': "test_value",
+            'addresses': [MagicMock()],
+            'contacts': [MagicMock()],
+            'tax_profile': MagicMock(),
+            'parent_entity_id': uuid4(),
+            'consolidation_method': ConsolidationMethod.FULL,
+            'consolidation_group_id': uuid4(),
+            'is_active': True,
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'deleted_at': datetime.now(UTC),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """LegalEntity can be constructed with valid field values."""

@@ -25,22 +25,22 @@ class TestLegalEntityBranchTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            parent_entity_id=MagicMock(),
-            branch_name="test_value",
-            branch_code="test_value",
-            address="test_value",
-            city="test_value",
-            phone="test_value",
-            manager_name="test_value",
-            is_active=True,
-            created_by=MagicMock(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            deleted_at=datetime.now(UTC),
-            parent_entity=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'parent_entity_id': MagicMock(),
+            'branch_name': "test_value",
+            'branch_code': "test_value",
+            'address': "test_value",
+            'city': "test_value",
+            'phone': "test_value",
+            'manager_name': "test_value",
+            'is_active': True,
+            'created_by': MagicMock(),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'deleted_at': datetime.now(UTC),
+            'parent_entity': MagicMock(),
+        }
         try:
             instance = LegalEntityBranchTable(**kwargs)
         except (Exception, SystemExit) as e:

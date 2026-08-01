@@ -67,12 +67,12 @@ from sqlalchemy.ext.asyncio import (
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+# ==================================================
+from adapters.primary_api.common.fastapi_auth_jwt_middleware import JWTAuthMiddleware
 from bootstrap.dependency_container.ioc_container import get_container
 
 # ==================== PERUBAHAN ====================
 from bootstrap.iam_setup import setup_iam_service
-
-# ==================================================
 
 # ============================================================
 # RCA ENGINE — via kernel.error_analysis (tidak langsung dari checker)
@@ -477,6 +477,11 @@ class AppWrapper:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 1. OpenTelemetry (graceful)
     _setup_tracing()
+
+    from infrastructure.persistence_orm import load_all_models
+    load_all_models()
+    logger.info("All ORM models eagerly loaded ✓")
+    
     try:
         SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
         logger.info("OpenTelemetry configured ✓")
@@ -843,7 +848,6 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if not settings.is_production else None,
         lifespan=lifespan,
     )
-
     _app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -852,6 +856,17 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Idempotency-Key"],
         expose_headers=["X-Request-ID", "Warning"],
         max_age=600,
+    )
+    _app.add_middleware(
+        JWTAuthMiddleware,
+        public_paths=[
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/api/v1/iam/login",
+            "/api/v1/iam/refresh",
+            "/",
+        ],
     )
 
     @_app.middleware("http")

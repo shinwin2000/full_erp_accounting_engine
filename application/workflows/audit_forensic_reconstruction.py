@@ -28,15 +28,10 @@ Audit:
 from __future__ import annotations
 
 import asyncio
-import csv
-import json
 import logging
-import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
-
-import aiofiles  # <-- Tambahan untuk async file I/O
 
 from application.commands_cqrs.command_bus_unified import Command, CommandResult
 from application.service_layer.service_audit import AuditService
@@ -58,7 +53,6 @@ def audit(func):
 # ============================================================================
 # Ports (abstractions)
 # ============================================================================
-
 
 class EventRecord(Protocol):
     """Protokol untuk event record."""
@@ -110,7 +104,6 @@ class EventStorePort(Protocol):
 # ============================================================================
 # Command
 # ============================================================================
-
 
 class AuditForensicReconstructionCommand(Command):
     """Command untuk rekonstruksi forensik audit."""
@@ -387,7 +380,7 @@ class AuditForensicReconstructionWorkflow:
             )
 
     # ========================================================================
-    # PERBAIKAN: _generate_report menggunakan aiofiles dan asyncio.to_thread
+    # PERBAIKAN: impor berat (aiofiles, csv, json, os) dipindahkan ke dalam fungsi
     # ========================================================================
     async def _generate_report(
         self,
@@ -398,6 +391,12 @@ class AuditForensicReconstructionWorkflow:
         gaps: list[dict[str, Any]],
         export_format: str,
     ) -> str:
+        import csv
+        import json
+        import os
+
+        import aiofiles
+
         os.makedirs("/tmp", exist_ok=True)
 
         timestamp = datetime.now(UTC).timestamp()
@@ -426,13 +425,11 @@ class AuditForensicReconstructionWorkflow:
             }
             file_path = f"/tmp/{base_filename}.json"
 
-            # Serialisasi JSON di thread pool (CPU-bound)
             def _dump_json():
                 return json.dumps(report_data, indent=2, default=str)
 
             json_content = await asyncio.to_thread(_dump_json)
 
-            # Tulis secara async
             async with aiofiles.open(file_path, "w") as f:
                 await f.write(json_content)
 
@@ -442,7 +439,6 @@ class AuditForensicReconstructionWorkflow:
         elif export_format == "csv":
             file_path = f"/tmp/{base_filename}.csv"
 
-            # Buat konten CSV di memory (dalam thread pool)
             def _generate_csv():
                 import io
                 output = io.StringIO()
@@ -471,7 +467,6 @@ class AuditForensicReconstructionWorkflow:
 
             csv_content = await asyncio.to_thread(_generate_csv)
 
-            # Tulis secara async
             async with aiofiles.open(file_path, "w", newline="") as f:
                 await f.write(csv_content)
 
@@ -492,7 +487,6 @@ class AuditForensicReconstructionWorkflow:
 # ============================================================================
 # Factory function
 # ============================================================================
-
 
 def create_audit_forensic_reconstruction_workflow(
     event_store: EventStorePort,

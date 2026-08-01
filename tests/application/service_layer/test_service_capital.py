@@ -29,14 +29,14 @@ class TestCapitalContributionRequest:
     """Tests for the CapitalContributionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            amount=Decimal("100.00"),
-            contribution_date=date.today(),
-            description="test_value",
-            contributor_id=uuid4(),
-            contribution_type="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "contribution_date": date.today(),
+            "description": "test_value",
+            "contributor_id": uuid4(),
+            "contribution_type": "test_value",
+        }
 
     def test_construction_success(self):
         """CapitalContributionRequest can be constructed with valid field values."""
@@ -54,14 +54,14 @@ class TestCapitalContributionResponse:
     """Tests for the CapitalContributionResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            contribution_id=uuid4(),
-            legal_entity_id=uuid4(),
-            amount=Decimal("100.00"),
-            contribution_date=date.today(),
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "contribution_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "amount": Decimal("100.00"),
+            "contribution_date": date.today(),
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """CapitalContributionResponse can be constructed with valid field values."""
@@ -79,14 +79,14 @@ class TestDividendDeclarationRequest:
     """Tests for the DividendDeclarationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            total_amount=Decimal("100.00"),
-            declaration_date=date.today(),
-            payment_date=date.today(),
-            description="test_value",
-            declared_by=uuid4(),
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "total_amount": Decimal("100.00"),
+            "declaration_date": date.today(),
+            "payment_date": date.today(),
+            "description": "test_value",
+            "declared_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """DividendDeclarationRequest can be constructed with valid field values."""
@@ -104,15 +104,15 @@ class TestDividendResponse:
     """Tests for the DividendResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            dividend_id=uuid4(),
-            legal_entity_id=uuid4(),
-            total_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            declaration_date=date.today(),
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "dividend_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "total_amount": Decimal("100.00"),
+            "paid_amount": Decimal("100.00"),
+            "declaration_date": date.today(),
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """DividendResponse can be constructed with valid field values."""
@@ -161,7 +161,7 @@ class TestCapitalService:
         """Smoke test for CapitalService.record_capital_contribution using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_capital_contribution(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.record_capital_contribution(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_capital_contribution needs specific domain fixtures/data: {e}")
             return
@@ -172,7 +172,7 @@ class TestCapitalService:
         """Smoke test for CapitalService.approve_capital_contribution using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.approve_capital_contribution(contribution_id=uuid4(), approved_by=uuid4(), correlation_id="test_value")
+            await instance.approve_capital_contribution(contribution_id=uuid4(), approved_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_capital_contribution needs specific domain fixtures/data: {e}")
             return
@@ -183,7 +183,7 @@ class TestCapitalService:
         """Smoke test for CapitalService.post_capital_contribution using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.post_capital_contribution(contribution_id=uuid4(), posted_by=uuid4(), correlation_id="test_value")
+            await instance.post_capital_contribution(contribution_id=uuid4(), posted_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"post_capital_contribution needs specific domain fixtures/data: {e}")
             return
@@ -194,7 +194,7 @@ class TestCapitalService:
         """Smoke test for CapitalService.cancel_capital_contribution using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cancel_capital_contribution(contribution_id=uuid4(), reason="test_value", cancelled_by=uuid4(), correlation_id="test_value")
+            await instance.cancel_capital_contribution(contribution_id=uuid4(), reason="test_value", cancelled_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"cancel_capital_contribution needs specific domain fixtures/data: {e}")
             return
@@ -205,7 +205,7 @@ class TestCapitalService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -215,7 +215,7 @@ def test_audit_smoke():
 async def test_create_capital_service_smoke():
     """Smoke test for module-level function create_capital_service."""
     try:
-        result = await create_capital_service(event_publisher=MagicMock())
+        await create_capital_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_capital_service needs specific input data: {e}")
         return

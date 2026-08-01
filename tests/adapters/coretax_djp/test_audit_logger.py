@@ -212,30 +212,30 @@ class TestAuditRecord:
         legal_entity_id = uuid4()
         now = datetime.now(UTC)
 
-        kwargs = dict(
-            id=record_id,
-            timestamp=now,
-            event_type=AuditEventType.API_REQUEST,
-            severity=AuditSeverity.INFO,
-            status=AuditStatus.SUCCESS,
-            correlation_id="corr-123",
-            user_id=user_id,
-            legal_entity_id=legal_entity_id,
-            endpoint="/api/v1/faktur",
-            method="POST",
-            request_body_hash="abc123",
-            response_status=200,
-            response_body_hash="def456",
-            latency_ms=150.5,
-            error_message=None,
-            extra_data={"key": "value"},
-            source_ip="192.168.1.1",
-            user_agent="TestClient/1.0",
-            previous_hash="prev_hash",
-            hash="current_hash",
-            signature="signature",
-            retention_until=now + timedelta(days=365),
-        )
+        kwargs = {
+            "id": record_id,
+            "timestamp": now,
+            "event_type": AuditEventType.API_REQUEST,
+            "severity": AuditSeverity.INFO,
+            "status": AuditStatus.SUCCESS,
+            "correlation_id": "corr-123",
+            "user_id": user_id,
+            "legal_entity_id": legal_entity_id,
+            "endpoint": "/api/v1/faktur",
+            "method": "POST",
+            "request_body_hash": "abc123",
+            "response_status": 200,
+            "response_body_hash": "def456",
+            "latency_ms": 150.5,
+            "error_message": None,
+            "extra_data": {"key": "value"},
+            "source_ip": "192.168.1.1",
+            "user_agent": "TestClient/1.0",
+            "previous_hash": "prev_hash",
+            "hash": "current_hash",
+            "signature": "signature",
+            "retention_until": now + timedelta(days=365),
+        }
 
         instance = AuditRecord(**kwargs)
         assert isinstance(instance, AuditRecord)
@@ -247,14 +247,14 @@ class TestAuditRecord:
 
     def test_construction_optional_fields(self):
         """AuditRecord handles optional fields correctly."""
-        kwargs = dict(
-            id=uuid4(),
-            timestamp=datetime.now(UTC),
-            event_type=AuditEventType.SYSTEM_EVENT,
-            severity=AuditSeverity.DEBUG,
-            status=AuditStatus.SUCCESS,
-            correlation_id="corr-optional-test",  # Required field, must provide value
-        )
+        kwargs = {
+            "id": uuid4(),
+            "timestamp": datetime.now(UTC),
+            "event_type": AuditEventType.SYSTEM_EVENT,
+            "severity": AuditSeverity.DEBUG,
+            "status": AuditStatus.SUCCESS,
+            "correlation_id": "corr-optional-test",  # Required field, must provide value
+        }
 
         instance = AuditRecord(**kwargs)
         assert instance.user_id is None
@@ -296,20 +296,20 @@ class TestAuditSearchCriteria:
         legal_entity_id = uuid4()
         now = datetime.now(UTC)
 
-        kwargs = dict(
-            event_types=[AuditEventType.API_REQUEST, AuditEventType.API_RESPONSE],
-            severities=[AuditSeverity.INFO, AuditSeverity.WARNING],
-            statuses=[AuditStatus.SUCCESS],
-            user_id=user_id,
-            legal_entity_id=legal_entity_id,
-            correlation_id="corr-123",
-            endpoint="/api/v1/faktur",
-            start_time=now - timedelta(hours=1),
-            end_time=now,
-            min_latency_ms=50.0,
-            max_latency_ms=500.0,
-            has_error=False,
-        )
+        kwargs = {
+            "event_types": [AuditEventType.API_REQUEST, AuditEventType.API_RESPONSE],
+            "severities": [AuditSeverity.INFO, AuditSeverity.WARNING],
+            "statuses": [AuditStatus.SUCCESS],
+            "user_id": user_id,
+            "legal_entity_id": legal_entity_id,
+            "correlation_id": "corr-123",
+            "endpoint": "/api/v1/faktur",
+            "start_time": now - timedelta(hours=1),
+            "end_time": now,
+            "min_latency_ms": 50.0,
+            "max_latency_ms": 500.0,
+            "has_error": False,
+        }
 
         instance = AuditSearchCriteria(**kwargs)
         assert isinstance(instance, AuditSearchCriteria)
@@ -320,11 +320,11 @@ class TestAuditSearchCriteria:
 
     def test_construction_partial_criteria(self):
         """AuditSearchCriteria works with partial criteria."""
-        kwargs = dict(
-            event_types=[AuditEventType.FAKTUR_SUBMITTED],
-            start_time=datetime.now(UTC) - timedelta(days=1),
-            end_time=datetime.now(UTC),
-        )
+        kwargs = {
+            "event_types": [AuditEventType.FAKTUR_SUBMITTED],
+            "start_time": datetime.now(UTC) - timedelta(days=1),
+            "end_time": datetime.now(UTC),
+        }
 
         instance = AuditSearchCriteria(**kwargs)
         assert isinstance(instance, AuditSearchCriteria)
@@ -351,28 +351,28 @@ class TestAuditStats:
 
     def test_construction_success(self):
         """AuditStats can be constructed with valid field values."""
-        kwargs = dict(
-            total_records=1000,
-            by_event_type={
+        kwargs = {
+            "total_records": 1000,
+            "by_event_type": {
                 AuditEventType.API_REQUEST: 500,
                 AuditEventType.API_RESPONSE: 400,
                 AuditEventType.API_ERROR: 100,
             },
-            by_severity={
+            "by_severity": {
                 AuditSeverity.INFO: 800,
                 AuditSeverity.WARNING: 150,
                 AuditSeverity.ERROR: 50,
             },
-            by_status={
+            "by_status": {
                 AuditStatus.SUCCESS: 900,
                 AuditStatus.FAILURE: 100,
             },
-            by_hour={"2024-01-01T10:00": 50, "2024-01-01T11:00": 75},
-            average_latency_ms=125.5,
-            error_rate=0.10,
-            time_range_days=7,
-            hash_chain_integrity=True,
-        )
+            "by_hour": {"2024-01-01T10:00": 50, "2024-01-01T11:00": 75},
+            "average_latency_ms": 125.5,
+            "error_rate": 0.10,
+            "time_range_days": 7,
+            "hash_chain_integrity": True,
+        }
 
         instance = AuditStats(**kwargs)
         assert isinstance(instance, AuditStats)
@@ -383,17 +383,17 @@ class TestAuditStats:
 
     def test_construction_empty_stats(self):
         """AuditStats handles zero/empty statistics."""
-        kwargs = dict(
-            total_records=0,
-            by_event_type={},
-            by_severity={},
-            by_status={},
-            by_hour={},
-            average_latency_ms=0.0,
-            error_rate=0.0,
-            time_range_days=1,
-            hash_chain_integrity=True,
-        )
+        kwargs = {
+            "total_records": 0,
+            "by_event_type": {},
+            "by_severity": {},
+            "by_status": {},
+            "by_hour": {},
+            "average_latency_ms": 0.0,
+            "error_rate": 0.0,
+            "time_range_days": 1,
+            "hash_chain_integrity": True,
+        }
 
         instance = AuditStats(**kwargs)
         assert instance.total_records == 0

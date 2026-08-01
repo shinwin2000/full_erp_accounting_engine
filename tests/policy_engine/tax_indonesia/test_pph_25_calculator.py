@@ -267,7 +267,7 @@ class TestPPh25Calculator:
             last_period_tax=last_period_tax,
             tax_year=2026,
         )
-        avg = (last_period_tax / Decimal(3)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)  # 10,000,000
+        (last_period_tax / Decimal(3)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)  # 10,000,000
         assert result.monthly_installment == Decimal("10000000")
         assert result.total_annual_tax_estimate == Decimal("120000000")
         assert len(result.installments) == 12

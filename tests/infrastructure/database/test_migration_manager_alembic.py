@@ -70,7 +70,7 @@ class TestAlembicMigrationManager:
         """Smoke test for AlembicMigrationManager.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestAlembicMigrationManager:
         """Smoke test for AlembicMigrationManager.init using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.init()
+            instance.init()
         except (Exception, SystemExit) as e:
             pytest.skip(f"init needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestAlembicMigrationManager:
         """Smoke test for AlembicMigrationManager.create_migration using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_migration(message="test_value", autogenerate=True)
+            await instance.create_migration(message="test_value", autogenerate=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_migration needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestAlembicMigrationManager:
         """Smoke test for AlembicMigrationManager.upgrade using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upgrade(revision="test_value")
+            await instance.upgrade(revision="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"upgrade needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestAlembicMigrationManager:
 async def test_get_migration_manager_smoke():
     """Smoke test for module-level function get_migration_manager."""
     try:
-        result = await get_migration_manager()
+        await get_migration_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_migration_manager needs specific input data: {e}")
         return
@@ -124,7 +124,7 @@ async def test_get_migration_manager_smoke():
 async def test_migrate_database_smoke():
     """Smoke test for module-level function migrate_database."""
     try:
-        result = await migrate_database()
+        await migrate_database()
     except (Exception, SystemExit) as e:
         pytest.skip(f"migrate_database needs specific input data: {e}")
         return
@@ -134,7 +134,7 @@ async def test_migrate_database_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return

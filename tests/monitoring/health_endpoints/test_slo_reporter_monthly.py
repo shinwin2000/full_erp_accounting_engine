@@ -31,14 +31,14 @@ class TestSLOReport:
     """Tests for the SLOReport value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period="test_value",
-            metric_name="test_value",
-            target_value=Decimal("100.00"),
-            actual_value=Decimal("100.00"),
-            met=True,
-            details={},
-        )
+        return {
+            'period': "test_value",
+            'metric_name': "test_value",
+            'target_value': Decimal("100.00"),
+            'actual_value': Decimal("100.00"),
+            'met': True,
+            'details': {},
+        }
 
     def test_construction_success(self):
         """SLOReport can be constructed with valid field values."""
@@ -71,7 +71,7 @@ class TestSLOReporter:
         """Smoke test for SLOReporter.calculate_availability using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_availability()
+            instance.calculate_availability()
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_availability needs specific domain fixtures/data: {e}")
             return
@@ -82,7 +82,7 @@ class TestSLOReporter:
         """Smoke test for SLOReporter.calculate_latency_p99 using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_latency_p99()
+            instance.calculate_latency_p99()
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_latency_p99 needs specific domain fixtures/data: {e}")
             return
@@ -93,7 +93,7 @@ class TestSLOReporter:
         """Smoke test for SLOReporter.calculate_error_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_error_rate()
+            instance.calculate_error_rate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_error_rate needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class TestSLOReporter:
         """Smoke test for SLOReporter.calculate_coretax_success_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.calculate_coretax_success_rate()
+            instance.calculate_coretax_success_rate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_coretax_success_rate needs specific domain fixtures/data: {e}")
             return

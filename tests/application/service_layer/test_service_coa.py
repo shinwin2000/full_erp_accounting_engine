@@ -224,7 +224,7 @@ class TestCOAService:
         """Smoke test for COAService.create_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_account(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_account(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_account needs specific domain fixtures/data: {e}")
             return
@@ -235,7 +235,7 @@ class TestCOAService:
         """Smoke test for COAService.update_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_account(account_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.update_account(account_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_account needs specific domain fixtures/data: {e}")
             return
@@ -246,7 +246,7 @@ class TestCOAService:
         """Smoke test for COAService.deactivate_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.deactivate_account(account_id=uuid4(), user_id=uuid4(), reason="test_value", correlation_id="test_value")
+            await instance.deactivate_account(account_id=uuid4(), user_id=uuid4(), reason="test_value", correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"deactivate_account needs specific domain fixtures/data: {e}")
             return
@@ -257,7 +257,7 @@ class TestCOAService:
         """Smoke test for COAService.reactivate_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reactivate_account(account_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
+            await instance.reactivate_account(account_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"reactivate_account needs specific domain fixtures/data: {e}")
             return
@@ -268,7 +268,7 @@ class TestCOAService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -278,7 +278,7 @@ def test_audit_smoke():
 async def test_create_coa_service_smoke():
     """Smoke test for module-level function create_coa_service."""
     try:
-        result = await create_coa_service(account_repository=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_coa_service(account_repository=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_coa_service needs specific input data: {e}")
         return

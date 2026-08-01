@@ -195,7 +195,7 @@ async def test_get_cost_card_projection_smoke(mock_db_session):
     # Fungsi level modul juga perlu patch jika dia mengakses DB saat inisialisasi
     with patch(DB_SESSION_PATH, return_value=mock_db_session):
         try:
-            result = await get_cost_card_projection()
+            await get_cost_card_projection()
         except Exception as e:
             if "connection" in str(e).lower() or "session" in str(e).lower():
                  pytest.fail(f"DB Mock failed for projection function: {e}")

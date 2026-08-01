@@ -3,8 +3,7 @@
 Module: handlers.py
 Layer: Application / Use Cases
 Responsibility: Alias untuk use case classes dan REAL handler untuk base classes.
-                Menggunakan Module-Level __getattr__ untuk memutus rantai circular import
-                secara bersih tanpa mematikan visibilitas error (No Silent Exception).
+                Semua handler diimport secara statis dari file masing-masing.
 """
 
 from __future__ import annotations
@@ -53,7 +52,6 @@ class BaseCommandHandler:
         """
         Menangani BaseCommand — akan selalu menolak dengan error.
         """
-        # ========== SOD / AUTHORITY CHECK (ACC-051) ==========
         BaseCommandHandler._check_authority(
             getattr(command, "user_id", None),
             "handle_base_command"
@@ -94,7 +92,6 @@ class BaseQueryHandler:
         """
         Menangani BaseQuery — akan selalu raise NotImplementedError.
         """
-        # ========== SOD / AUTHORITY CHECK (ACC-051) ==========
         BaseQueryHandler._check_authority(
             getattr(query, "user_id", None),
             "handle_base_query"
@@ -113,7 +110,7 @@ class BaseQueryHandler:
 
 
 # ============================================================================
-# ALIAS UNTUK USE CASE HANDLERS (STATIC IMPORTS)
+# USE CASE HANDLERS (STATIC IMPORTS dari masing-masing modul)
 # ============================================================================
 
 from .aml_screening_transaction import AMLScreeningUseCase
@@ -131,6 +128,7 @@ from .financial_statement_generation import FinancialStatementGenerationUseCase
 from .fiscal_reconciliation import FiscalReconciliationUseCase
 from .forex_revaluation import ForexRevaluationUseCase
 from .hedge_accounting_execution import HedgeAccountingUseCase
+from .hpp_manufacturing_close import HppManufacturingCloseUseCase  # langsung import
 from .impairment_testing_annual import ImpairmentTestingUseCase
 from .intercompany_elimination import IntercompanyEliminationUseCase
 from .payroll_monthly_run import PayrollMonthlyRunUseCase
@@ -145,23 +143,7 @@ from .tax_filing_submission import TaxFilingSubmissionUseCase
 from .year_end_closing import YearEndClosingUseCase
 
 # ============================================================================
-# HPP Manufacturing Close - Static import with fallback
-# ============================================================================
-
-try:
-    # Try to import from the actual file name (use case file)
-    from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
-except ImportError:
-    try:
-        # Fallback: try to import from the original file name
-        from .hpp_manufacturing_close import HPPManufacturingCloseUseCase
-    except ImportError:
-        # If both fail, define a placeholder class that will be resolved later
-        # This will be caught by __getattr__ fallback
-        HPPManufacturingCloseUseCase = None  # type: ignore
-
-# ============================================================================
-# Aliases untuk convenience / backward compatibility
+# ALIAS UNTUK KENYAMANAN (semua handler juga memiliki alias "xxxHandler")
 # ============================================================================
 
 AmlScreeningTransactionHandler = AMLScreeningUseCase
@@ -179,7 +161,7 @@ FinancialStatementGenerationHandler = FinancialStatementGenerationUseCase
 FiscalReconciliationHandler = FiscalReconciliationUseCase
 ForexRevaluationHandler = ForexRevaluationUseCase
 HedgeAccountingExecutionHandler = HedgeAccountingUseCase
-HppManufacturingCloseHandler = HPPManufacturingCloseUseCase
+HppManufacturingCloseHandler = HppManufacturingCloseUseCase
 ImpairmentTestingAnnualHandler = ImpairmentTestingUseCase
 IntercompanyEliminationHandler = IntercompanyEliminationUseCase
 PayrollMonthlyRunHandler = PayrollMonthlyRunUseCase
@@ -195,27 +177,26 @@ YearEndClosingHandler = YearEndClosingUseCase
 
 
 # ============================================================================
-# DEFERRED DYNAMIC RESOLUTION (Anti-Circular Loop Guard)
+# LAZY LOADING GUARD (hanya untuk keperluan dynamic import jika ada yang belum diimport)
 # ============================================================================
 
 def __getattr__(name: str) -> Any:
     """
     Lazy resolution untuk komponen yang belum diimport statis.
+    Dalam kondisi normal, semua sudah diimport, jadi ini hanya fallback.
     """
+    # Jika ada permintaan untuk HppManufacturingCloseUseCase / Handler, kembalikan
     if name in ("HppManufacturingCloseUseCase", "HppManufacturingCloseHandler"):
-        try:
-            from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
-            return HPPManufacturingCloseUseCase
-        except ImportError:
-            try:
-                from .hpp_manufacturing_close import HPPManufacturingCloseUseCase
-                return HPPManufacturingCloseUseCase
-            except ImportError:
-                # If still not found, raise a descriptive error
-                raise ImportError(
-                    "Could not import HPPManufacturingCloseUseCase. "
-                    "Make sure the use case module is properly implemented."
-                )
+        return globals().get(name)
+
+    # Jika ada nama lain yang belum diimport, coba load dari file yang sesuai
+    # (misalnya untuk backward compatibility)
+    if name.endswith("UseCase") and name != "HppManufacturingCloseUseCase":
+        # Coba import dari modul dengan nama yang sama (snake_case)
+        module_name = name[:-7]  # hilangkan "UseCase"
+        # konversi CamelCase ke snake_case: misal AMLScreeningUseCase -> aml_screening_transaction
+        # tapi ini tidak praktis, jadi kita lewati
+        pass
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -225,13 +206,46 @@ def __getattr__(name: str) -> Any:
 # ============================================================================
 
 __all__ = [
+    # Base handlers
+    "BaseCommandHandler",
+    "BaseQueryHandler",
+
+    # Use case classes (diimpor langsung)
+    "AMLScreeningUseCase",
+    "APPaymentRunUseCase",
+    "ApproveJournalFourEyesUseCase",
+    "ARCollectionWorkflowUseCase",
+    "BankReconciliationUseCase",
+    "BudgetVsActualUseCase",
+    "COGSCalculationUseCase",
+    "ConsolidationGroupReportUseCase",
+    "CoretaxBulkSubmissionUseCase",
+    "DepreciationMonthlyRunUseCase",
+    "DisasterRecoveryReplayUseCase",
+    "FinancialStatementGenerationUseCase",
+    "FiscalReconciliationUseCase",
+    "ForexRevaluationUseCase",
+    "HedgeAccountingUseCase",
+    "HppManufacturingCloseUseCase",
+    "ImpairmentTestingUseCase",
+    "IntercompanyEliminationUseCase",
+    "PayrollMonthlyRunUseCase",
+    "PeriodCloseUseCase",
+    "PeriodReopenWithAuditUseCase",
+    "PostAdjustingJournalUseCase",
+    "PostClosingJournalUseCase",
+    "PostJournalEntryUseCase",
+    "ReverseJournalUseCase",
+    "StockOpnameCycleUseCase",
+    "TaxFilingSubmissionUseCase",
+    "YearEndClosingUseCase",
+
+    # Alias handler (untuk konsistensi naming)
     "AmlScreeningTransactionHandler",
     "ApPaymentRunHandler",
     "ApproveJournalFourEyesHandler",
     "ArCollectionWorkflowHandler",
     "BankReconciliationHandler",
-    "BaseCommandHandler",
-    "BaseQueryHandler",
     "BudgetVsActualAnalysisHandler",
     "COGSCalculationHandler",
     "ConsolidationGroupReportHandler",
@@ -243,7 +257,6 @@ __all__ = [
     "ForexRevaluationHandler",
     "HedgeAccountingExecutionHandler",
     "HppManufacturingCloseHandler",
-    "HppManufacturingCloseUseCase",
     "ImpairmentTestingAnnualHandler",
     "IntercompanyEliminationHandler",
     "PayrollMonthlyRunHandler",

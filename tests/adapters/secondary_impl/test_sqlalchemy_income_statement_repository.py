@@ -36,7 +36,7 @@ class TestSQLAlchemyIncomeStatementRepository:
         """Smoke test for SQLAlchemyIncomeStatementRepository.get_income_statement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_income_statement(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today(), show_percent_of_revenue=True, currency_code="test_value")
+            await instance.get_income_statement(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today(), show_percent_of_revenue=True, currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_income_statement needs specific domain fixtures/data: {e}")
             return

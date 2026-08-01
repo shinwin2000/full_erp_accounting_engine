@@ -41,22 +41,22 @@ class TestEnrichmentContext:
     """Tests for the EnrichmentContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            correlation_id="test_value",
-            causation_id="test_value",
-            user_id="test_value",
-            tenant_id="test_value",
-            legal_entity_id="test_value",
-            source_system="test_value",
-            source_ip="test_value",
-            user_agent="test_value",
-            processed_by="test_value",
-            enrichment_timestamp=datetime.now(UTC),
-            custom_fields={},
-            _audit_trail=[{}],
-            _snapshots=[{}],
-            _version=1,
-        )
+        return {
+            "correlation_id": "test_value",
+            "causation_id": "test_value",
+            "user_id": "test_value",
+            "tenant_id": "test_value",
+            "legal_entity_id": "test_value",
+            "source_system": "test_value",
+            "source_ip": "test_value",
+            "user_agent": "test_value",
+            "processed_by": "test_value",
+            "enrichment_timestamp": datetime.now(UTC),
+            "custom_fields": {},
+            "_audit_trail": [{}],
+            "_snapshots": [{}],
+            "_version": 1,
+        }
 
     def test_construction_success(self):
         """EnrichmentContext can be constructed with valid field values."""
@@ -89,7 +89,7 @@ class TestEventContextEnricher:
         """Smoke test for EventContextEnricher.register_enricher using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_enricher(func=(lambda *a, **kw: None))
+            instance.register_enricher(func=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_enricher needs specific domain fixtures/data: {e}")
             return
@@ -100,7 +100,7 @@ class TestEventContextEnricher:
         """Smoke test for EventContextEnricher.enrich using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.enrich(event={}, context=MagicMock(), request_headers={})
+            instance.enrich(event={}, context=MagicMock(), request_headers={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"enrich needs specific domain fixtures/data: {e}")
             return
@@ -111,7 +111,7 @@ class TestEventContextEnricher:
         """Smoke test for EventContextEnricher.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -122,7 +122,7 @@ class TestEventContextEnricher:
         """Smoke test for EventContextEnricher.reset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.reset()
+            instance.reset()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reset needs specific domain fixtures/data: {e}")
             return
@@ -133,7 +133,7 @@ class TestEventContextEnricher:
 def test_add_timestamp_enricher_smoke():
     """Smoke test for module-level function add_timestamp_enricher."""
     try:
-        result = add_timestamp_enricher(event={}, context=MagicMock())
+        add_timestamp_enricher(event={}, context=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"add_timestamp_enricher needs specific input data: {e}")
         return
@@ -143,7 +143,7 @@ def test_add_timestamp_enricher_smoke():
 def test_add_environment_enricher_smoke():
     """Smoke test for module-level function add_environment_enricher."""
     try:
-        result = add_environment_enricher(event={}, context=MagicMock())
+        add_environment_enricher(event={}, context=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"add_environment_enricher needs specific input data: {e}")
         return
@@ -153,7 +153,7 @@ def test_add_environment_enricher_smoke():
 def test_add_trace_parent_enricher_smoke():
     """Smoke test for module-level function add_trace_parent_enricher."""
     try:
-        result = add_trace_parent_enricher(event={}, context=MagicMock())
+        add_trace_parent_enricher(event={}, context=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"add_trace_parent_enricher needs specific input data: {e}")
         return

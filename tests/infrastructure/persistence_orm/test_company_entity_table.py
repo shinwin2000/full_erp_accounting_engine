@@ -24,20 +24,20 @@ class TestCompanyEntityTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            legal_name="test_value",
-            trade_name="test_value",
-            entity_type="test_value",
-            status="test_value",
-            npwp="test_value",
-            address="test_value",
-            city="test_value",
-            province="test_value",
-            postal_code="test_value",
-            country="test_value",
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'legal_name': "test_value",
+            'trade_name': "test_value",
+            'entity_type': "test_value",
+            'status': "test_value",
+            'npwp': "test_value",
+            'address': "test_value",
+            'city': "test_value",
+            'province': "test_value",
+            'postal_code': "test_value",
+            'country': "test_value",
+        }
         try:
             instance = CompanyEntityTable(**kwargs)
         except (Exception, SystemExit) as e:

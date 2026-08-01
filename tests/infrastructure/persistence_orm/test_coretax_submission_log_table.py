@@ -26,18 +26,18 @@ class TestCoretaxSubmissionLogTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            submission_id=MagicMock(),
-            spt_type="test_value",
-            npwp="test_value",
-            action="test_value",
-            status="test_value",
-            request_payload={},
-            response_payload={},
-            error_message="test_value",
-            created_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'submission_id': MagicMock(),
+            'spt_type': "test_value",
+            'npwp': "test_value",
+            'action': "test_value",
+            'status': "test_value",
+            'request_payload': {},
+            'response_payload': {},
+            'error_message': "test_value",
+            'created_at': datetime.now(UTC),
+        }
         try:
             instance = CoretaxSubmissionLogTable(**kwargs)
         except (Exception, SystemExit) as e:

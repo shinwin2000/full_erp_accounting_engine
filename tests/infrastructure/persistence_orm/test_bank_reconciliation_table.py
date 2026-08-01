@@ -30,24 +30,24 @@ class TestBankReconciliationTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            bank_account_id=uuid4(),
-            statement_date=date.today(),
-            period_start=date.today(),
-            period_end=date.today(),
-            statement_ending_balance=Decimal("100.00"),
-            system_ending_balance=Decimal("100.00"),
-            difference=Decimal("100.00"),
-            status="test_value",
-            reconciled_by=MagicMock(),
-            reconciled_at=datetime.now(UTC),
-            notes="test_value",
-            created_by=MagicMock(),
-            items=[MagicMock()],
-            bank_account=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'bank_account_id': uuid4(),
+            'statement_date': date.today(),
+            'period_start': date.today(),
+            'period_end': date.today(),
+            'statement_ending_balance': Decimal("100.00"),
+            'system_ending_balance': Decimal("100.00"),
+            'difference': Decimal("100.00"),
+            'status': "test_value",
+            'reconciled_by': MagicMock(),
+            'reconciled_at': datetime.now(UTC),
+            'notes': "test_value",
+            'created_by': MagicMock(),
+            'items': [MagicMock()],
+            'bank_account': MagicMock(),
+        }
         try:
             instance = BankReconciliationTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -67,21 +67,21 @@ class TestBankReconciliationItemTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            reconciliation_id=uuid4(),
-            transaction_id=MagicMock(),
-            transaction_date=date.today(),
-            description="test_value",
-            amount=Decimal("100.00"),
-            item_type="test_value",
-            source="test_value",
-            is_matched=1,
-            status="test_value",
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            reconciliation=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'reconciliation_id': uuid4(),
+            'transaction_id': MagicMock(),
+            'transaction_date': date.today(),
+            'description': "test_value",
+            'amount': Decimal("100.00"),
+            'item_type': "test_value",
+            'source': "test_value",
+            'is_matched': 1,
+            'status': "test_value",
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+            'reconciliation': MagicMock(),
+        }
         try:
             instance = BankReconciliationItemTable(**kwargs)
         except (Exception, SystemExit) as e:

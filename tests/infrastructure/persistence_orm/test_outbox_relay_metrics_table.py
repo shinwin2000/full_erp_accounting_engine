@@ -26,17 +26,17 @@ class TestOutboxRelayMetricsTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            consumer_group="test_value",
-            poll_interval_ms=1,
-            batch_size=1,
-            processing_latency_avg_ms=1,
-            events_per_second=Decimal("100.00"),
-            queue_depth=1,
-            last_poll_at=datetime.now(UTC),
-            created_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'consumer_group': "test_value",
+            'poll_interval_ms': 1,
+            'batch_size': 1,
+            'processing_latency_avg_ms': 1,
+            'events_per_second': Decimal("100.00"),
+            'queue_depth': 1,
+            'last_poll_at': datetime.now(UTC),
+            'created_at': datetime.now(UTC),
+        }
         try:
             instance = OutboxRelayMetricsTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -855,7 +855,7 @@ class TestVaultIntegratorPrivateMethods:
             vault_integrator._running = False
         vault_integrator._renewal_loop = MagicMock(side_effect=stop_loop)
         # Actually we'll just run one iteration by patching the loop
-        with patch.object(vault_integrator, "_renewal_loop") as mock_loop:
+        with patch.object(vault_integrator, "_renewal_loop"):
             # We'll just call _renewal_loop directly but mock it to simulate behavior
             # Instead, we test the token renewal logic by calling the loop once
             # We'll set a flag to exit after first iteration.
@@ -893,7 +893,7 @@ class TestVaultIntegratorPrivateMethods:
                 vault_integrator._running = False
             vault_integrator._renewal_loop = MagicMock(side_effect=stop_after)
             # Actually we'll just call the loop once and stop
-            with patch.object(vault_integrator, "_renewal_loop") as mock_loop:
+            with patch.object(vault_integrator, "_renewal_loop"):
                 # Simulate one iteration
                 def side_effect():
                     for path, sec in list(vault_integrator._secret_cache.items()):
@@ -910,7 +910,7 @@ class TestVaultIntegratorPrivateMethods:
         vault_integrator._running = True
         vault_integrator._client.is_authenticated.side_effect = Exception("Auth error")
         # We'll capture the exception handling
-        with patch.object(vault_integrator, "_renewal_loop") as mock_loop:
+        with patch.object(vault_integrator, "_renewal_loop"):
             def side_effect():
                 try:
                     # This will raise

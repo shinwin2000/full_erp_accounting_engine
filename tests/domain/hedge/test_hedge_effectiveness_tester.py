@@ -431,7 +431,7 @@ class TestHedgeEffectivenessTester:
     def test_get_last_test(self, tester):
         hedge_id = uuid4()
         assert tester.get_last_test(hedge_id) is None
-        result1 = tester.prospective_test(hedge_id, [Decimal("100")], [Decimal("100")])
+        tester.prospective_test(hedge_id, [Decimal("100")], [Decimal("100")])
         result2 = tester.prospective_test(hedge_id, [Decimal("200")], [Decimal("200")])
         last = tester.get_last_test(hedge_id)
         assert last is not None

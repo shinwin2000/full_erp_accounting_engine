@@ -119,7 +119,7 @@ class TestSQLAlchemyLegalEntityRepository:
         """Smoke test for SQLAlchemyLegalEntityRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestSQLAlchemyLegalEntityRepository:
         """Smoke test for SQLAlchemyLegalEntityRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session(value=MagicMock())
+            instance.session(value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestSQLAlchemyLegalEntityRepository:
         """Smoke test for SQLAlchemyLegalEntityRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(entity=MagicMock())
+            await instance.add(entity=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -152,7 +152,7 @@ class TestSQLAlchemyLegalEntityRepository:
         """Smoke test for SQLAlchemyLegalEntityRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(entity=MagicMock())
+            await instance.update(entity=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return

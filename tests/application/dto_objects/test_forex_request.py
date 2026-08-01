@@ -23,14 +23,14 @@ class TestForexRevaluationRequest:
     """Tests for the ForexRevaluationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            currency="test_value",
-            balance_in_fcy=Decimal("100.00"),
-            account_code="test_value",
-            as_of_date=date.today(),
-            description="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "currency": "test_value",
+            "balance_in_fcy": Decimal("100.00"),
+            "account_code": "test_value",
+            "as_of_date": date.today(),
+            "description": "test_value",
+        }
 
     def test_construction_success(self):
         """ForexRevaluationRequest can be constructed with valid field values."""
@@ -48,11 +48,11 @@ class TestForexRateRequest:
     """Tests for the ForexRateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            from_currency="test_value",
-            to_currency="test_value",
-            rate_date=date.today(),
-        )
+        return {
+            "from_currency": "test_value",
+            "to_currency": "test_value",
+            "rate_date": date.today(),
+        }
 
     def test_construction_success(self):
         """ForexRateRequest can be constructed with valid field values."""
@@ -70,13 +70,13 @@ class TestForexConversionRequest:
     """Tests for the ForexConversionRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            amount=Decimal("100.00"),
-            from_currency="test_value",
-            to_currency="test_value",
-            rate_date=date.today(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "amount": Decimal("100.00"),
+            "from_currency": "test_value",
+            "to_currency": "test_value",
+            "rate_date": date.today(),
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """ForexConversionRequest can be constructed with valid field values."""

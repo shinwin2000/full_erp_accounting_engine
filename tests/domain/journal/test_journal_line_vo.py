@@ -54,26 +54,26 @@ class TestJournalLineVO:
     """Tests for JournalLineVO."""
 
     def _build_kwargs(self):
-        return dict(
-            line_id=uuid4(),
-            journal_id=uuid4(),
-            account_id=uuid4(),
-            account_code="ACC-001",
-            account_name="Cash",
-            side=JournalSide.DEBIT,
-            amount=Decimal("100.00"),
-            description="Test entry",
-            legal_entity_id=uuid4(),
-            cost_center="CC-01",
-            department="DEPT-A",
-            project_id=uuid4(),
-            customer_id=uuid4(),
-            supplier_id=uuid4(),
-            employee_id=uuid4(),
-            currency="IDR",
-            tax_rate=Decimal("11"),
-            tax_amount=Decimal("11.00"),
-        )
+        return {
+            'line_id': uuid4(),
+            'journal_id': uuid4(),
+            'account_id': uuid4(),
+            'account_code': "ACC-001",
+            'account_name': "Cash",
+            'side': JournalSide.DEBIT,
+            'amount': Decimal("100.00"),
+            'description': "Test entry",
+            'legal_entity_id': uuid4(),
+            'cost_center': "CC-01",
+            'department': "DEPT-A",
+            'project_id': uuid4(),
+            'customer_id': uuid4(),
+            'supplier_id': uuid4(),
+            'employee_id': uuid4(),
+            'currency': "IDR",
+            'tax_rate': Decimal("11"),
+            'tax_amount': Decimal("11.00"),
+        }
 
     def test_construction_success(self):
         kwargs = self._build_kwargs()

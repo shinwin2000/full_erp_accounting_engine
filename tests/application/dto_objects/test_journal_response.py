@@ -24,15 +24,15 @@ class TestJournalLineResponseDTO:
     """Tests for the JournalLineResponseDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            description="test_value",
-            debit=Decimal("100.00"),
-            credit=Decimal("0"),
-            cost_center="test_value",
-            department="test_value",
-            project_code="test_value",
-        )
+        return {
+            "account_code": "test_value",
+            "description": "test_value",
+            "debit": Decimal("100.00"),
+            "credit": Decimal("0"),
+            "cost_center": "test_value",
+            "department": "test_value",
+            "project_code": "test_value",
+        }
 
     def test_construction_success(self):
         """JournalLineResponseDTO can be constructed with valid field values."""
@@ -50,27 +50,27 @@ class TestJournalEntryResponseDTO:
     """Tests for the JournalEntryResponseDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            journal_number="test_value",
-            journal_date=datetime.now(UTC),
-            period="test_value",
-            description="test_value",
-            lines=[MagicMock()],
-            total_debit=Decimal("100.00"),
-            total_credit=Decimal("0"),
-            status="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            approved_at=datetime.now(UTC),
-            approved_by=uuid4(),
-            reversed_at=datetime.now(UTC),
-            reversed_by=uuid4(),
-            original_journal_id=uuid4(),
-            posted_at=datetime.now(UTC),
-            posted_by=uuid4(),
-            version=1,
-        )
+        return {
+            "id": uuid4(),
+            "journal_number": "test_value",
+            "journal_date": datetime.now(UTC),
+            "period": "test_value",
+            "description": "test_value",
+            "lines": [MagicMock()],
+            "total_debit": Decimal("100.00"),
+            "total_credit": Decimal("0"),
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "approved_at": datetime.now(UTC),
+            "approved_by": uuid4(),
+            "reversed_at": datetime.now(UTC),
+            "reversed_by": uuid4(),
+            "original_journal_id": uuid4(),
+            "posted_at": datetime.now(UTC),
+            "posted_by": uuid4(),
+            "version": 1,
+        }
 
     def test_construction_success(self):
         """JournalEntryResponseDTO can be constructed with valid field values."""
@@ -88,13 +88,13 @@ class TestJournalValidationResultDTO:
     """Tests for the JournalValidationResultDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_valid=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-            total_debit=Decimal("100.00"),
-            total_credit=Decimal("0"),
-        )
+        return {
+            "is_valid": True,
+            "errors": ["test_value"],
+            "warnings": ["test_value"],
+            "total_debit": Decimal("100.00"),
+            "total_credit": Decimal("0"),
+        }
 
     def test_construction_success(self):
         """JournalValidationResultDTO can be constructed with valid field values."""

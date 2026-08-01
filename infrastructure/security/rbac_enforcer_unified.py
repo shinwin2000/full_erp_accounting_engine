@@ -105,7 +105,7 @@ class RBACEnforcer:
             # Dynamic import to avoid architecture layer violation (P08)
             get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
             container = get_container()
-            self._user_repo = container.resolve(IAMUserRepositoryPort)
+            self._user_repo = await container.resolve_async(IAMUserRepositoryPort)
         return self._user_repo
 
     def _get_cache_key(self, user_id: UUID) -> str:

@@ -33,7 +33,7 @@ class TestRegulatoryDeferralAccount:
         """Smoke test for RegulatoryDeferralAccount.is_active using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_active()
+            instance.is_active()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_active needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class TestRegulatoryDeferralAccount:
         """Smoke test for RegulatoryDeferralAccount.balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.balance()
+            instance.balance()
         except (Exception, SystemExit) as e:
             pytest.skip(f"balance needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestRegulatoryDeferralAccount:
         """Smoke test for RegulatoryDeferralAccount.deferral_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.deferral_asset()
+            instance.deferral_asset()
         except (Exception, SystemExit) as e:
             pytest.skip(f"deferral_asset needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestRegulatoryDeferralAccount:
         """Smoke test for RegulatoryDeferralAccount.deferral_liability using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.deferral_liability()
+            instance.deferral_liability()
         except (Exception, SystemExit) as e:
             pytest.skip(f"deferral_liability needs specific domain fixtures/data: {e}")
             return

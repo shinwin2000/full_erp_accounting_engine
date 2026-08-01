@@ -59,7 +59,7 @@ class TestCachePort:
         """Smoke test for CachePort.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get(key="test_value")
+            await instance.get(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestCachePort:
         """Smoke test for CachePort.setex using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.setex(key="test_value", ttl=1, value="test_value")
+            await instance.setex(key="test_value", ttl=1, value="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"setex needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestCachePort:
         """Smoke test for CachePort.exists using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.exists(key="test_value")
+            await instance.exists(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"exists needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestCachePort:
         """Smoke test for CachePort.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(key="test_value")
+            await instance.delete(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -104,15 +104,15 @@ class TestCreateUserRequest:
     """Tests for the CreateUserRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            username="test_value",
-            email="test_value",
-            password="test_value",
-            full_name="test_value",
-            legal_entity_id=uuid4(),
-            role_ids=[uuid4()],
-            created_by=uuid4(),
-        )
+        return {
+            "username": "test_value",
+            "email": "test_value",
+            "password": "test_value",
+            "full_name": "test_value",
+            "legal_entity_id": uuid4(),
+            "role_ids": [uuid4()],
+            "created_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """CreateUserRequest can be constructed with valid field values."""
@@ -130,15 +130,15 @@ class TestCreateRoleRequest:
     """Tests for the CreateRoleRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            role_name="test_value",
-            description="test_value",
-            permissions=["test_value"],
-            is_default=True,
-            is_system=True,
-            parent_role_id=uuid4(),
-            created_by=uuid4(),
-        )
+        return {
+            "role_name": "test_value",
+            "description": "test_value",
+            "permissions": ["test_value"],
+            "is_default": True,
+            "is_system": True,
+            "parent_role_id": uuid4(),
+            "created_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """CreateRoleRequest can be constructed with valid field values."""
@@ -156,13 +156,13 @@ class TestUpdateRoleRequest:
     """Tests for the UpdateRoleRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            role_name="test_value",
-            description="test_value",
-            permissions=["test_value"],
-            is_default=True,
-            parent_role_id=uuid4(),
-        )
+        return {
+            "role_name": "test_value",
+            "description": "test_value",
+            "permissions": ["test_value"],
+            "is_default": True,
+            "parent_role_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """UpdateRoleRequest can be constructed with valid field values."""
@@ -180,16 +180,16 @@ class TestUserResponse:
     """Tests for the UserResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            user_id=uuid4(),
-            username="test_value",
-            email="test_value",
-            full_name="test_value",
-            status="test_value",
-            legal_entity_id=uuid4(),
-            role_ids=[uuid4()],
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "user_id": uuid4(),
+            "username": "test_value",
+            "email": "test_value",
+            "full_name": "test_value",
+            "status": "test_value",
+            "legal_entity_id": uuid4(),
+            "role_ids": [uuid4()],
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """UserResponse can be constructed with valid field values."""
@@ -207,16 +207,16 @@ class TestRoleResponse:
     """Tests for the RoleResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            role_id=uuid4(),
-            role_name="test_value",
-            description="test_value",
-            permissions=["test_value"],
-            is_default=True,
-            is_system=True,
-            parent_role_id=uuid4(),
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "role_id": uuid4(),
+            "role_name": "test_value",
+            "description": "test_value",
+            "permissions": ["test_value"],
+            "is_default": True,
+            "is_system": True,
+            "parent_role_id": uuid4(),
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """RoleResponse can be constructed with valid field values."""
@@ -234,11 +234,11 @@ class TestLoginResponse:
     """Tests for the LoginResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            access_token="test_value",
-            refresh_token="test_value",
-            token_type="test_value",
-        )
+        return {
+            "access_token": "test_value",
+            "refresh_token": "test_value",
+            "token_type": "test_value",
+        }
 
     def test_construction_success(self):
         """LoginResponse can be constructed with valid field values."""
@@ -351,7 +351,7 @@ class TestIAMService:
         """Smoke test for IAMService.create_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_user(request=MagicMock(), correlation_id="test_value")
+            await instance.create_user(request=MagicMock(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_user needs specific domain fixtures/data: {e}")
             return
@@ -362,7 +362,7 @@ class TestIAMService:
         """Smoke test for IAMService.get_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_user(user_id=uuid4())
+            await instance.get_user(user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_user needs specific domain fixtures/data: {e}")
             return
@@ -373,7 +373,7 @@ class TestIAMService:
         """Smoke test for IAMService.update_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_user(user_id=uuid4(), updated_by=uuid4(), full_name="test_value", email="test_value", correlation_id="test_value")
+            await instance.update_user(user_id=uuid4(), updated_by=uuid4(), full_name="test_value", email="test_value", correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_user needs specific domain fixtures/data: {e}")
             return
@@ -384,7 +384,7 @@ class TestIAMService:
         """Smoke test for IAMService.activate_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.activate_user(user_id=uuid4(), activated_by=uuid4(), correlation_id="test_value")
+            await instance.activate_user(user_id=uuid4(), activated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"activate_user needs specific domain fixtures/data: {e}")
             return
@@ -395,7 +395,7 @@ class TestIAMService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -405,7 +405,7 @@ def test_audit_smoke():
 async def test_create_iam_service_smoke():
     """Smoke test for module-level function create_iam_service."""
     try:
-        result = await create_iam_service(iam_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock(), token_issuer=MagicMock(), cache=MagicMock())
+        await create_iam_service(iam_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock(), token_issuer=MagicMock(), cache=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_iam_service needs specific input data: {e}")
         return

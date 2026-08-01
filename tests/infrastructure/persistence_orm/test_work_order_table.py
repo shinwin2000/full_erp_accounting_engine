@@ -27,27 +27,27 @@ class TestWorkOrderTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            work_order_number="test_value",
-            product_id=uuid4(),
-            product_name="test_value",
-            planned_quantity=Decimal("100.00"),
-            completed_quantity=Decimal("100.00"),
-            rejected_quantity=Decimal("100.00"),
-            bom_id=MagicMock(),
-            routing_id=MagicMock(),
-            planned_start_date=date.today(),
-            planned_end_date=date.today(),
-            actual_start_date=date.today(),
-            actual_end_date=date.today(),
-            standard_cost=Decimal("100.00"),
-            actual_cost=Decimal("100.00"),
-            status="test_value",
-            cost_center="test_value",
-            notes="test_value",
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'work_order_number': "test_value",
+            'product_id': uuid4(),
+            'product_name': "test_value",
+            'planned_quantity': Decimal("100.00"),
+            'completed_quantity': Decimal("100.00"),
+            'rejected_quantity': Decimal("100.00"),
+            'bom_id': MagicMock(),
+            'routing_id': MagicMock(),
+            'planned_start_date': date.today(),
+            'planned_end_date': date.today(),
+            'actual_start_date': date.today(),
+            'actual_end_date': date.today(),
+            'standard_cost': Decimal("100.00"),
+            'actual_cost': Decimal("100.00"),
+            'status': "test_value",
+            'cost_center': "test_value",
+            'notes': "test_value",
+            'created_by': MagicMock(),
+        }
         try:
             instance = WorkOrderTable(**kwargs)
         except (Exception, SystemExit) as e:

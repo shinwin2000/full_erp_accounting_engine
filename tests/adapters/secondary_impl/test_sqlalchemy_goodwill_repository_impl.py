@@ -33,7 +33,7 @@ class TestSQLAlchemyGoodwillRepository:
         """Smoke test for SQLAlchemyGoodwillRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(goodwill=MagicMock())
+            await instance.save(goodwill=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class TestSQLAlchemyGoodwillRepository:
         """Smoke test for SQLAlchemyGoodwillRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(goodwill=MagicMock())
+            await instance.update(goodwill=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestSQLAlchemyGoodwillRepository:
         """Smoke test for SQLAlchemyGoodwillRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(goodwill_id=uuid4())
+            await instance.get_by_id(goodwill_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestSQLAlchemyGoodwillRepository:
         """Smoke test for SQLAlchemyGoodwillRepository.get_last_goodwill_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_goodwill_number(legal_entity_id=uuid4())
+            await instance.get_last_goodwill_number(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_goodwill_number needs specific domain fixtures/data: {e}")
             return

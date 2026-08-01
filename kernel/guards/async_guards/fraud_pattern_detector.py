@@ -58,20 +58,24 @@ class _FallbackTransactionRepository:
             if tx.get("legal_entity_id") != legal_entity_id:
                 continue
             tx_date = tx.get("transaction_date")
-            if tx_date and from_date <= tx_date <= to_date:
-                if transaction_type is None or tx.get("transaction_type") == transaction_type:
-                    result.append(
-                        type(
-                            "Transaction",
-                            (),
-                            {
-                                "id": tx.get("transaction_id"),
-                                "amount": tx.get("amount", Decimal(0)),
-                                "transaction_date": tx_date,
-                                "transaction_type": tx.get("transaction_type"),
-                            },
-                        )()
-                    )
+            # Gabungkan nested if menjadi satu kondisi (SIM102)
+            if (
+                tx_date
+                and from_date <= tx_date <= to_date
+                and (transaction_type is None or tx.get("transaction_type") == transaction_type)
+            ):
+                result.append(
+                    type(
+                        "Transaction",
+                        (),
+                        {
+                            "id": tx.get("transaction_id"),
+                            "amount": tx.get("amount", Decimal(0)),
+                            "transaction_date": tx_date,
+                            "transaction_type": tx.get("transaction_type"),
+                        },
+                    )()
+                )
         return result
 
     async def get_average_daily_volume(
@@ -267,7 +271,7 @@ class FraudAlert:
 class FraudCheckResult:
     """Hasil fraud check sync."""
 
-    def __init__(self, is_suspicious: bool, reasons: list[str] = None):
+    def __init__(self, is_suspicious: bool, reasons: list[str] | None = None):
         self.is_suspicious = is_suspicious
         self.reasons = reasons or []
 

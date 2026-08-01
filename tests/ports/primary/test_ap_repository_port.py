@@ -60,42 +60,42 @@ class TestAPInvoice:
     """Tests for the APInvoice value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            invoice_number="test_value",
-            vendor_id=uuid4(),
-            legal_entity_id=uuid4(),
-            purchase_order_id=uuid4(),
-            goods_receipt_id=uuid4(),
-            invoice_date=date.today(),
-            due_date=date.today(),
-            total_amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            discount_amount=Decimal("100.00"),
-            paid_amount=Decimal("100.00"),
-            outstanding_amount=Decimal("100.00"),
-            currency_code="test_value",
-            exchange_rate=Decimal("100.00"),
-            status=APInvoiceStatus.DRAFT,
-            matching_status=MatchingStatus.NOT_APPLICABLE,
-            description="test_value",
-            payment_terms="test_value",
-            payment_schedule_date=date.today(),
-            payment_run_id=uuid4(),
-            approved_by=uuid4(),
-            approved_at=datetime.now(UTC),
-            cancelled_by=uuid4(),
-            cancelled_at=datetime.now(UTC),
-            cancellation_reason="test_value",
-            disputed_reason="test_value",
-            attachment_urls=["test_value"],
-            notes="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'invoice_number': "test_value",
+            'vendor_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'purchase_order_id': uuid4(),
+            'goods_receipt_id': uuid4(),
+            'invoice_date': date.today(),
+            'due_date': date.today(),
+            'total_amount': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'discount_amount': Decimal("100.00"),
+            'paid_amount': Decimal("100.00"),
+            'outstanding_amount': Decimal("100.00"),
+            'currency_code': "test_value",
+            'exchange_rate': Decimal("100.00"),
+            'status': APInvoiceStatus.DRAFT,
+            'matching_status': MatchingStatus.NOT_APPLICABLE,
+            'description': "test_value",
+            'payment_terms': "test_value",
+            'payment_schedule_date': date.today(),
+            'payment_run_id': uuid4(),
+            'approved_by': uuid4(),
+            'approved_at': datetime.now(UTC),
+            'cancelled_by': uuid4(),
+            'cancelled_at': datetime.now(UTC),
+            'cancellation_reason': "test_value",
+            'disputed_reason': "test_value",
+            'attachment_urls': ["test_value"],
+            'notes': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """APInvoice can be constructed with valid field values."""
@@ -113,18 +113,18 @@ class TestCreditNoteAP:
     """Tests for the CreditNoteAP value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            credit_note_number="test_value",
-            vendor_id=uuid4(),
-            legal_entity_id=uuid4(),
-            original_invoice_id=uuid4(),
-            credit_date=date.today(),
-            amount=Decimal("100.00"),
-            reason="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'credit_note_number': "test_value",
+            'vendor_id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'original_invoice_id': uuid4(),
+            'credit_date': date.today(),
+            'amount': Decimal("100.00"),
+            'reason': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """CreditNoteAP can be constructed with valid field values."""
@@ -165,7 +165,7 @@ class TestInMemoryAPRepository:
         """Smoke test for InMemoryAPRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(invoice=MagicMock())
+            await instance.add(invoice=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestInMemoryAPRepository:
         """Smoke test for InMemoryAPRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(invoice_id=uuid4())
+            await instance.get_by_id(invoice_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestInMemoryAPRepository:
         """Smoke test for InMemoryAPRepository.get_by_invoice_number using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_invoice_number(invoice_number="test_value", vendor_id=uuid4())
+            await instance.get_by_invoice_number(invoice_number="test_value", vendor_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_invoice_number needs specific domain fixtures/data: {e}")
             return
@@ -198,7 +198,7 @@ class TestInMemoryAPRepository:
         """Smoke test for InMemoryAPRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(invoice=MagicMock())
+            await instance.update(invoice=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return

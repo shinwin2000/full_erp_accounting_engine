@@ -15,7 +15,7 @@ from bootstrap.dependency_container.container_bootstrap import build_container, 
 def test_initialize_container_smoke():
     """Smoke test for module-level function initialize_container."""
     try:
-        result = initialize_container()
+        initialize_container()
     except (Exception, SystemExit) as e:
         pytest.skip(f"initialize_container needs specific input data: {e}")
         return
@@ -25,7 +25,7 @@ def test_initialize_container_smoke():
 def test_build_container_smoke():
     """Smoke test for module-level function build_container."""
     try:
-        result = build_container()
+        build_container()
     except (Exception, SystemExit) as e:
         pytest.skip(f"build_container needs specific input data: {e}")
         return

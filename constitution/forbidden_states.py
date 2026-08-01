@@ -21,7 +21,6 @@ from uuid import UUID, uuid4
 
 from constitution.supreme_law import (
     ConstitutionalPrinciple,
-    ConstitutionalSeverity,
     get_supreme_law,
 )
 
@@ -1202,13 +1201,7 @@ class ForbiddenStatesRegistry:
     ) -> None:
         try:
             supreme_law = get_supreme_law()
-            severity_map = {
-                ForbiddenStateSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
-                ForbiddenStateSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
-                ForbiddenStateSeverity.HIGH: ConstitutionalSeverity.HIGH,
-                ForbiddenStateSeverity.MEDIUM: ConstitutionalSeverity.MEDIUM,
-                ForbiddenStateSeverity.LOW: ConstitutionalSeverity.LOW,
-            }
+            # severity_map dihapus karena tidak digunakan (F841)
             supreme_law.check_violation(
                 ConstitutionalPrinciple.IMMUTABILITY,
                 detection.source_module,

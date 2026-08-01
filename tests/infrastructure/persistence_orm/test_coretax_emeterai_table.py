@@ -26,18 +26,18 @@ class TestCoretaxEMeteraiTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            meterai_code="test_value",
-            npwp="test_value",
-            value=Decimal("100.00"),
-            status="test_value",
-            purchase_date=date.today(),
-            purchase_transaction_id="test_value",
-            used_at=datetime.now(UTC),
-            used_on_document="test_value",
-            used_by=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'meterai_code': "test_value",
+            'npwp': "test_value",
+            'value': Decimal("100.00"),
+            'status': "test_value",
+            'purchase_date': date.today(),
+            'purchase_transaction_id': "test_value",
+            'used_at': datetime.now(UTC),
+            'used_on_document': "test_value",
+            'used_by': MagicMock(),
+        }
         try:
             instance = CoretaxEMeteraiTable(**kwargs)
         except (Exception, SystemExit) as e:

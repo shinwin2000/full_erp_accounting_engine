@@ -573,7 +573,7 @@ async def test_QueryExecutorReadonly_execute_timeout(executor):
     executor._config.timeout_seconds = 0.01
     executor._config.max_retries = 0
 
-    with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+    with patch('asyncio.sleep', new_callable=AsyncMock):
         # Mock sleep to simulate taking longer than timeout
         # We'll make it raise TimeoutError directly from asyncio.wait_for
         # But simpler: we can let asyncio.wait_for handle it if we mock sleep to take long.

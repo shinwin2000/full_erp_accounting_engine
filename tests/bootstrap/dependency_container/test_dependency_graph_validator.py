@@ -70,7 +70,7 @@ class TestDependencyGraphValidator:
         """Smoke test for DependencyGraphValidator.build_graph using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.build_graph()
+            instance.build_graph()
         except (Exception, SystemExit) as e:
             pytest.skip(f"build_graph needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestDependencyGraphValidator:
         """Smoke test for DependencyGraphValidator.detect_circular_dependencies using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.detect_circular_dependencies()
+            instance.detect_circular_dependencies()
         except (Exception, SystemExit) as e:
             pytest.skip(f"detect_circular_dependencies needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestDependencyGraphValidator:
         """Smoke test for DependencyGraphValidator.validate_all_dependencies using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_all_dependencies()
+            instance.validate_all_dependencies()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_all_dependencies needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestDependencyGraphValidator:
         """Smoke test for DependencyGraphValidator.analyze_depth using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.analyze_depth()
+            instance.analyze_depth()
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_depth needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestDependencyGraphValidator:
 def test_get_dependency_validator_smoke():
     """Smoke test for module-level function get_dependency_validator."""
     try:
-        result = get_dependency_validator()
+        get_dependency_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_dependency_validator needs specific input data: {e}")
         return
@@ -124,7 +124,7 @@ def test_get_dependency_validator_smoke():
 async def test_validate_dependencies_smoke():
     """Smoke test for module-level function validate_dependencies."""
     try:
-        result = await validate_dependencies()
+        await validate_dependencies()
     except (Exception, SystemExit) as e:
         pytest.skip(f"validate_dependencies needs specific input data: {e}")
         return

@@ -25,21 +25,21 @@ class TestOutboxDeadLetterTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            original_outbox_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_id=uuid4(),
-            event_type="test_value",
-            payload="test_value",
-            extra_metadata="test_value",
-            kafka_topic="test_value",
-            final_error="test_value",
-            failed_at=datetime.now(UTC),
-            resolution_status="test_value",
-            resolved_at=datetime.now(UTC),
-            resolved_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'original_outbox_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_id': uuid4(),
+            'event_type': "test_value",
+            'payload': "test_value",
+            'extra_metadata': "test_value",
+            'kafka_topic': "test_value",
+            'final_error': "test_value",
+            'failed_at': datetime.now(UTC),
+            'resolution_status': "test_value",
+            'resolved_at': datetime.now(UTC),
+            'resolved_by': uuid4(),
+        }
         try:
             instance = OutboxDeadLetterTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -32,7 +32,7 @@ class TestSQLAlchemyApprovalRepository:
         """Smoke test for SQLAlchemyApprovalRepository.save_request using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_request(request=MagicMock())
+            await instance.save_request(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_request needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSQLAlchemyApprovalRepository:
         """Smoke test for SQLAlchemyApprovalRepository.get_request_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_request_by_id(request_id=MagicMock())
+            await instance.get_request_by_id(request_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_request_by_id needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSQLAlchemyApprovalRepository:
         """Smoke test for SQLAlchemyApprovalRepository.get_requests_by_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_requests_by_entity(entity_type="test_value", entity_id=MagicMock())
+            await instance.get_requests_by_entity(entity_type="test_value", entity_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requests_by_entity needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSQLAlchemyApprovalRepository:
         """Smoke test for SQLAlchemyApprovalRepository.get_pending_requests_for_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_pending_requests_for_user(user_id=MagicMock())
+            await instance.get_pending_requests_for_user(user_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_pending_requests_for_user needs specific domain fixtures/data: {e}")
             return

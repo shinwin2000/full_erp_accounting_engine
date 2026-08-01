@@ -237,7 +237,7 @@ class TestCommandResultTransformation:
     def test_with_warning_appends_warning(self, success_result: CommandResult) -> None:
         original_warnings = success_result.warnings.copy()
         new_result = success_result.with_warning("first").with_warning("second")
-        assert new_result.warnings == original_warnings + ["first", "second"]
+        assert new_result.warnings == [*original_warnings, "first", "second"]
         assert success_result.warnings == original_warnings  # unchanged
 
     def test_with_data_replaces_data(self, success_result: CommandResult) -> None:

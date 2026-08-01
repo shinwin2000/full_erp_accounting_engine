@@ -159,24 +159,24 @@ class TestSubscriptionConfig:
     """Tests for the SubscriptionConfig value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            topics=["test_value"],
-            group_id="test_value",
-            auto_offset_reset="test_value",
-            enable_auto_commit=True,
-            max_poll_records=1,
-            session_timeout_ms=1,
-            heartbeat_interval_ms=1,
-            max_poll_interval_ms=1,
-            retry_backoff_ms=1,
-            enable_idempotency=True,
-            idempotency_ttl_seconds=1,
-            dead_letter_topic="test_value",
-            max_retry_attempts=1,
-            worker_count=1,
-            prefetch_count=1,
-            processing_timeout_seconds=1,
-        )
+        return {
+            'topics': ["test_value"],
+            'group_id': "test_value",
+            'auto_offset_reset': "test_value",
+            'enable_auto_commit': True,
+            'max_poll_records': 1,
+            'session_timeout_ms': 1,
+            'heartbeat_interval_ms': 1,
+            'max_poll_interval_ms': 1,
+            'retry_backoff_ms': 1,
+            'enable_idempotency': True,
+            'idempotency_ttl_seconds': 1,
+            'dead_letter_topic': "test_value",
+            'max_retry_attempts': 1,
+            'worker_count': 1,
+            'prefetch_count': 1,
+            'processing_timeout_seconds': 1,
+        }
 
     def test_construction_success(self):
         """SubscriptionConfig can be constructed with valid field values."""

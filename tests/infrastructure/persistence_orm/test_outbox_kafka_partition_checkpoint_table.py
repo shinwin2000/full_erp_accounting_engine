@@ -27,15 +27,15 @@ class TestOutboxKafkaPartitionCheckpointTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            topic="test_value",
-            partition=1,
-            consumer_group="test_value",
-            last_offset=1,
-            last_committed_at=datetime.now(UTC),
-            committed_by="test_value",
-        )
+        kwargs = {
+            'id': uuid4(),
+            'topic': "test_value",
+            'partition': 1,
+            'consumer_group': "test_value",
+            'last_offset': 1,
+            'last_committed_at': datetime.now(UTC),
+            'committed_by': "test_value",
+        }
         try:
             instance = OutboxKafkaPartitionCheckpointTable(**kwargs)
         except (Exception, SystemExit) as e:

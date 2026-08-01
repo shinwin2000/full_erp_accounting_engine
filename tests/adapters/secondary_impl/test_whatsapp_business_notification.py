@@ -31,7 +31,7 @@ class TestWhatsAppBusinessNotification:
         """Smoke test for WhatsAppBusinessNotification.send_text using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_text(to_number="test_value", text="test_value")
+            await instance.send_text(to_number="test_value", text="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_text needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestWhatsAppBusinessNotification:
         """Smoke test for WhatsAppBusinessNotification.send_template using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_template(to_number="test_value", template_name="test_value", language="test_value")
+            await instance.send_template(to_number="test_value", template_name="test_value", language="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_template needs specific domain fixtures/data: {e}")
             return

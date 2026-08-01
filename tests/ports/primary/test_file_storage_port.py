@@ -38,25 +38,25 @@ class TestStoredFile:
     """Tests for the StoredFile value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            filename="test_value",
-            content=b"test",
-            content_type="test_value",
-            size=1,
-            hash_sha256="test_value",
-            hash_md5="test_value",
-            status=FileStorageStatus.ACTIVE,
-            version=1,
-            original_filename="test_value",
-            metadata={},
-            uploaded_by=uuid4(),
-            uploaded_at=datetime.now(UTC),
-            last_accessed_at=datetime.now(UTC),
-            access_count=1,
-            expires_at=datetime.now(UTC),
-            storage_class="test_value",
-        )
+        return {
+            'id': uuid4(),
+            'filename': "test_value",
+            'content': b"test",
+            'content_type': "test_value",
+            'size': 1,
+            'hash_sha256': "test_value",
+            'hash_md5': "test_value",
+            'status': FileStorageStatus.ACTIVE,
+            'version': 1,
+            'original_filename': "test_value",
+            'metadata': {},
+            'uploaded_by': uuid4(),
+            'uploaded_at': datetime.now(UTC),
+            'last_accessed_at': datetime.now(UTC),
+            'access_count': 1,
+            'expires_at': datetime.now(UTC),
+            'storage_class': "test_value",
+        }
 
     def test_construction_success(self):
         """StoredFile can be constructed with valid field values."""
@@ -74,15 +74,15 @@ class TestUploadSession:
     """Tests for the UploadSession value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            file_id=uuid4(),
-            total_chunks=1,
-            received_chunks=MagicMock(),
-            chunk_size=1,
-            created_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'file_id': uuid4(),
+            'total_chunks': 1,
+            'received_chunks': MagicMock(),
+            'chunk_size': 1,
+            'created_at': datetime.now(UTC),
+            'expires_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """UploadSession can be constructed with valid field values."""
@@ -115,7 +115,7 @@ class TestFileStoragePort:
         """Smoke test for FileStoragePort.upload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, uploaded_by=uuid4(), deduplicate=True, expiry_days=1)
+            await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, uploaded_by=uuid4(), deduplicate=True, expiry_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestFileStoragePort:
         """Smoke test for FileStoragePort.upload_chunked_start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload_chunked_start(file_name="test_value", total_size=1, total_chunks=1, chunk_size=1, content_type="test_value", metadata={}, uploaded_by=uuid4())
+            await instance.upload_chunked_start(file_name="test_value", total_size=1, total_chunks=1, chunk_size=1, content_type="test_value", metadata={}, uploaded_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload_chunked_start needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestFileStoragePort:
         """Smoke test for FileStoragePort.upload_chunked_part using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload_chunked_part(session_id=uuid4(), chunk_index=1, chunk_data=b"test")
+            await instance.upload_chunked_part(session_id=uuid4(), chunk_index=1, chunk_data=b"test")
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload_chunked_part needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestFileStoragePort:
         """Smoke test for FileStoragePort.upload_chunked_complete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload_chunked_complete(session_id=uuid4())
+            await instance.upload_chunked_complete(session_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload_chunked_complete needs specific domain fixtures/data: {e}")
             return

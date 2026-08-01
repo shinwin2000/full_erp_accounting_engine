@@ -931,7 +931,7 @@ class TestPeriodBoundAxiom:
     def test_reopen_period(self, sample_period):
         axiom = PeriodBoundAxiom()
         axiom.save_period(sample_period)
-        closed = axiom.close_period(sample_period.period_id, "admin")
+        axiom.close_period(sample_period.period_id, "admin")
         reopened = axiom.reopen_period(sample_period.period_id, "admin", "reason")
         assert reopened.status == PeriodStatus.OPEN
         assert axiom.get_period(sample_period.period_id).status == PeriodStatus.OPEN

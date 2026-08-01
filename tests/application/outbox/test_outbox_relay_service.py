@@ -63,20 +63,20 @@ class TestOutboxRelayConfig:
     """Tests for the OutboxRelayConfig value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            batch_size=1,
-            poll_interval_seconds=1.5,
-            max_retries=1,
-            retry_delay_seconds=[1],
-            lock_timeout_seconds=1,
-            circuit_breaker_threshold=1,
-            circuit_breaker_recovery_timeout=1.5,
-            enable_circuit_breaker=True,
-            dead_letter_topic="test_value",
-            default_topic="test_value",
-            event_timeout_seconds=1.5,
-            rate_limit_per_second=1,
-        )
+        return {
+            'batch_size': 1,
+            'poll_interval_seconds': 1.5,
+            'max_retries': 1,
+            'retry_delay_seconds': [1],
+            'lock_timeout_seconds': 1,
+            'circuit_breaker_threshold': 1,
+            'circuit_breaker_recovery_timeout': 1.5,
+            'enable_circuit_breaker': True,
+            'dead_letter_topic': "test_value",
+            'default_topic': "test_value",
+            'event_timeout_seconds': 1.5,
+            'rate_limit_per_second': 1,
+        }
 
     def test_construction_success(self):
         """OutboxRelayConfig can be constructed with valid field values."""
@@ -94,14 +94,14 @@ class TestOutboxEventPayload:
     """Tests for the OutboxEventPayload value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_type="test_value",
-            aggregate_id="test_value",
-            aggregate_type="test_value",
-            data={},
-            metadata={},
-            idempotency_key="test_value",
-        )
+        return {
+            'event_type': "test_value",
+            'aggregate_id': "test_value",
+            'aggregate_type': "test_value",
+            'data': {},
+            'metadata': {},
+            'idempotency_key': "test_value",
+        }
 
     def test_construction_success(self):
         """OutboxEventPayload can be constructed with valid field values."""
@@ -308,7 +308,7 @@ async def test_stop_relay_smoke():
     """Smoke test for module-level function stop_relay."""
     try:
         # First start a relay
-        service = await start_relay(outbox_repository=MagicMock(), message_broker=MagicMock(), config=MagicMock())
+        await start_relay(outbox_repository=MagicMock(), message_broker=MagicMock(), config=MagicMock())
         await stop_relay()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_relay needs specific input data: {e}")

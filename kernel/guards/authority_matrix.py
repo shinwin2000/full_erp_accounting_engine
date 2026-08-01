@@ -557,12 +557,12 @@ class AuthorityMatrixGuard(BaseAuthorityMatrixGuard):
             if perm_conditions and not self._check_conditions(perm_conditions, context):
                 continue
 
+            # Scope validation - FIX: SIM102 - gabungkan nested if untuk LEGAL_ENTITY
             if perm_scope == PermissionScope.SELF:
                 if target_entity_id and current_entity and target_entity_id != current_entity:
                     continue
-            elif perm_scope == PermissionScope.LEGAL_ENTITY:
-                if current_entity is None:
-                    continue
+            elif perm_scope == PermissionScope.LEGAL_ENTITY and current_entity is None:
+                continue
             return True
 
         return False

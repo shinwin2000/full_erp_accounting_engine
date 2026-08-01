@@ -154,7 +154,7 @@ class TestSQLAlchemyBankAccountRepository:
         """Smoke test for SQLAlchemyBankAccountRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestSQLAlchemyBankAccountRepository:
         """Smoke test for SQLAlchemyBankAccountRepository.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session(value=MagicMock())
+            instance.session(value=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestSQLAlchemyBankAccountRepository:
         """Smoke test for SQLAlchemyBankAccountRepository.add_bank_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_bank_account(account=MagicMock())
+            await instance.add_bank_account(account=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_bank_account needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestSQLAlchemyBankAccountRepository:
         """Smoke test for SQLAlchemyBankAccountRepository.get_bank_account_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_bank_account_by_id(account_id=uuid4())
+            await instance.get_bank_account_by_id(account_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_bank_account_by_id needs specific domain fixtures/data: {e}")
             return

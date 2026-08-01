@@ -25,21 +25,21 @@ class TestSnapshotStoreTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            snapshot_version=1,
-            snapshot_data=b"test",
-            data_format="test_value",
-            is_encrypted=True,
-            payload_metadata={},
-            taken_at=datetime.now(UTC),
-            status="test_value",
-            archived_at=datetime.now(UTC),
-            deleted_at=datetime.now(UTC),
-            version=1,
-        )
+        kwargs = {
+            'id': uuid4(),
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'snapshot_version': 1,
+            'snapshot_data': b"test",
+            'data_format': "test_value",
+            'is_encrypted': True,
+            'payload_metadata': {},
+            'taken_at': datetime.now(UTC),
+            'status': "test_value",
+            'archived_at': datetime.now(UTC),
+            'deleted_at': datetime.now(UTC),
+            'version': 1,
+        }
         try:
             instance = SnapshotStoreTable(**kwargs)
         except (Exception, SystemExit) as e:

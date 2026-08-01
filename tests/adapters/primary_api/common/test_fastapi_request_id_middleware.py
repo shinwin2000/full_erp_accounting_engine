@@ -305,7 +305,7 @@ class TestRequestIDMiddleware:
                 mock_request.url = "http://test.com"
                 call_next = AsyncMock(return_value=Response("ok"))
                 with patch.object(RequestIDGenerator, "generate_uuid", return_value="tele-123"):
-                    response = await middleware.dispatch(mock_request, call_next)
+                    await middleware.dispatch(mock_request, call_next)
         # check span started
         mock_tracer.start_span.assert_called_once_with(
             "http_request",

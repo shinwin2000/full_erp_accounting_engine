@@ -481,7 +481,7 @@ class TestCostCardEntityAudit:
 
     def test_audit_trail_appends_on_clone(self, sample_cost_card):
         cloned = sample_cost_card.clone()
-        trail = cloned.get_audit_trail()
+        cloned.get_audit_trail()
         # Cloning records audit on the original? Actually clone records audit on the new card.
         # The clone method calls _record_audit on itself.
         # The source card's audit trail remains unchanged.
@@ -884,7 +884,7 @@ class TestCostCardEntitySerialization:
         assert d["version"] == 1
 
     def test_from_dict(self, sample_cost_card):
-        d = sample_cost_card.to_dict()
+        sample_cost_card.to_dict()
         # Add some entries to test
         card_with_entries = sample_cost_card.add_material_cost(
             amount=Decimal("1000"),

@@ -26,23 +26,23 @@ class TestCoretaxSPTTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            spt_number="test_value",
-            spt_type="test_value",
-            npwp="test_value",
-            tahun=1,
-            bulan=1,
-            masa_pajak="test_value",
-            status="test_value",
-            xml_content="test_value",
-            coretax_tracking_id="test_value",
-            approval_date=date.today(),
-            rejection_reason="test_value",
-            submitted_by=MagicMock(),
-            submitted_at=datetime.now(UTC),
-            legal_entity_id=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'spt_number': "test_value",
+            'spt_type': "test_value",
+            'npwp': "test_value",
+            'tahun': 1,
+            'bulan': 1,
+            'masa_pajak': "test_value",
+            'status': "test_value",
+            'xml_content': "test_value",
+            'coretax_tracking_id': "test_value",
+            'approval_date': date.today(),
+            'rejection_reason': "test_value",
+            'submitted_by': MagicMock(),
+            'submitted_at': datetime.now(UTC),
+            'legal_entity_id': MagicMock(),
+        }
         try:
             instance = CoretaxSPTTable(**kwargs)
         except (Exception, SystemExit) as e:

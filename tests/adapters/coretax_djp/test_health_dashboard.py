@@ -276,7 +276,7 @@ class TestCoretaxHealthChecker:
         assert result.status == HealthStatus.DOWN
         assert "Connection timeout" in result.message
         assert len(health_checker._alerts) == 1
-        alert = list(health_checker._alerts.values())[0]
+        alert = next(iter(health_checker._alerts.values()))
         assert alert.component == "redis"
         assert alert.severity == AlertSeverity.CRITICAL
 
@@ -295,7 +295,7 @@ class TestCoretaxHealthChecker:
         assert result.status == HealthStatus.DOWN
         assert "DB unavailable" in result.message
         assert len(health_checker._alerts) == 1
-        alert = list(health_checker._alerts.values())[0]
+        alert = next(iter(health_checker._alerts.values()))
         assert alert.component == "database"
 
     @pytest.mark.asyncio
@@ -322,7 +322,7 @@ class TestCoretaxHealthChecker:
         assert result.status == HealthStatus.DOWN
         assert "Network error" in result.message
         assert len(health_checker._alerts) == 1
-        alert = list(health_checker._alerts.values())[0]
+        alert = next(iter(health_checker._alerts.values()))
         assert alert.severity == AlertSeverity.CRITICAL
 
     @pytest.mark.asyncio
@@ -355,7 +355,7 @@ class TestCoretaxHealthChecker:
         assert result.status == HealthStatus.DEGRADED
         assert "NSFP quota low" in result.message
         assert len(health_checker._alerts) == 1
-        alert = list(health_checker._alerts.values())[0]
+        alert = next(iter(health_checker._alerts.values()))
         assert alert.severity == AlertSeverity.WARNING
 
     @pytest.mark.asyncio
@@ -365,7 +365,7 @@ class TestCoretaxHealthChecker:
         assert result.status == HealthStatus.DOWN
         assert "NSFP quota exhausted" in result.message
         assert len(health_checker._alerts) == 1
-        alert = list(health_checker._alerts.values())[0]
+        alert = next(iter(health_checker._alerts.values()))
         assert alert.severity == AlertSeverity.CRITICAL
 
     @pytest.mark.asyncio
@@ -401,7 +401,7 @@ class TestCoretaxHealthChecker:
             result = await health_checker.check_pending_submissions()
             assert result.status == HealthStatus.DOWN
             assert len(health_checker._alerts) == 1
-            alert = list(health_checker._alerts.values())[0]
+            alert = next(iter(health_checker._alerts.values()))
             assert alert.severity == AlertSeverity.CRITICAL
 
     @pytest.mark.asyncio

@@ -51,17 +51,17 @@ class TestIFRSComplianceReport:
     """Tests for the IFRSComplianceReport value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            report_id="test_value",
-            entity_id=uuid4(),
-            entity_name="test_value",
-            reporting_period="test_value",
-            assessed_at=datetime.now(UTC),
-            overall_compliance=IFRSComplianceLevel.FULLY_COMPLIANT,
-            standards_assessed=[IFRSStandard.IFRS_9],
-            results={},
-            recommendations=["test_value"],
-        )
+        return {
+            'report_id': "test_value",
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'reporting_period': "test_value",
+            'assessed_at': datetime.now(UTC),
+            'overall_compliance': IFRSComplianceLevel.FULLY_COMPLIANT,
+            'standards_assessed': [IFRSStandard.IFRS_9],
+            'results': {},
+            'recommendations': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IFRSComplianceReport can be constructed with valid field values."""
@@ -94,7 +94,7 @@ class TestIFRSAggregator:
         """Smoke test for IFRSAggregator.get_validator using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_validator(standard=IFRSStandard.IFRS_9)
+            instance.get_validator(standard=IFRSStandard.IFRS_9)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_validator needs specific domain fixtures/data: {e}")
             return
@@ -105,7 +105,7 @@ class TestIFRSAggregator:
         """Smoke test for IFRSAggregator.get_all_validators using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_all_validators()
+            instance.get_all_validators()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all_validators needs specific domain fixtures/data: {e}")
             return
@@ -116,7 +116,7 @@ class TestIFRSAggregator:
         """Smoke test for IFRSAggregator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -127,7 +127,7 @@ class TestIFRSAggregator:
         """Smoke test for IFRSAggregator.assess_compliance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.assess_compliance(entity_id=uuid4(), entity_name="test_value", reporting_period="test_value", standards=[IFRSStandard.IFRS_9])
+            instance.assess_compliance(entity_id=uuid4(), entity_name="test_value", reporting_period="test_value", standards=[IFRSStandard.IFRS_9])
         except (Exception, SystemExit) as e:
             pytest.skip(f"assess_compliance needs specific domain fixtures/data: {e}")
             return
@@ -138,7 +138,7 @@ class TestIFRSAggregator:
 def test_get_ifrs_aggregator_smoke():
     """Smoke test for module-level function get_ifrs_aggregator."""
     try:
-        result = get_ifrs_aggregator()
+        get_ifrs_aggregator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ifrs_aggregator needs specific input data: {e}")
         return

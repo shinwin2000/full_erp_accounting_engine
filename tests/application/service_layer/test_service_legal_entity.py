@@ -58,43 +58,43 @@ class TestLegalEntity:
     """Tests for the LegalEntity value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_name="test_value",
-            trade_name="test_value",
-            entity_type=EntityType.CORPORATION,
-            registration_number="test_value",
-            npwp="test_value",
-            address="test_value",
-            city="test_value",
-            postal_code="test_value",
-            country="test_value",
-            phone="test_value",
-            email="test_value",
-            website="test_value",
-            established_date=datetime.now(UTC),
-            fiscal_year_start=1,
-            fiscal_year_end=1,
-            base_currency="test_value",
-            functional_currency="test_value",
-            status=EntityStatus.ACTIVE,
-            is_active=True,
-            parent_company_id=uuid4(),
-            consolidation_group_id=uuid4(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-            tax_office="test_value",
-            tax_office_code="test_value",
-            tax_classification="test_value",
-            taxable_date=date.today(),
-            annual_tax_return_due_date=date.today(),
-            monthly_tax_due_date=date.today(),
-            is_vat_collector=True,
-            vat_collector_number="test_value",
-            is_withholding_agent=True,
-        )
+        return {
+            'id': uuid4(),
+            'legal_name': "test_value",
+            'trade_name': "test_value",
+            'entity_type': EntityType.CORPORATION,
+            'registration_number': "test_value",
+            'npwp': "test_value",
+            'address': "test_value",
+            'city': "test_value",
+            'postal_code': "test_value",
+            'country': "test_value",
+            'phone': "test_value",
+            'email': "test_value",
+            'website': "test_value",
+            'established_date': datetime.now(UTC),
+            'fiscal_year_start': 1,
+            'fiscal_year_end': 1,
+            'base_currency': "test_value",
+            'functional_currency': "test_value",
+            'status': EntityStatus.ACTIVE,
+            'is_active': True,
+            'parent_company_id': uuid4(),
+            'consolidation_group_id': uuid4(),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+            'tax_office': "test_value",
+            'tax_office_code': "test_value",
+            'tax_classification': "test_value",
+            'taxable_date': date.today(),
+            'annual_tax_return_due_date': date.today(),
+            'monthly_tax_due_date': date.today(),
+            'is_vat_collector': True,
+            'vat_collector_number': "test_value",
+            'is_withholding_agent': True,
+        }
 
     def test_construction_success(self):
         """LegalEntity can be constructed with valid field values."""
@@ -224,18 +224,18 @@ class TestConsolidationGroup:
     """Tests for the ConsolidationGroup value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            group_name="test_value",
-            description="test_value",
-            base_currency="test_value",
-            fiscal_year_start=1,
-            fiscal_year_end=1,
-            member_count=1,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'group_name': "test_value",
+            'description': "test_value",
+            'base_currency': "test_value",
+            'fiscal_year_start': 1,
+            'fiscal_year_end': 1,
+            'member_count': 1,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """ConsolidationGroup can be constructed with valid field values."""
@@ -292,18 +292,18 @@ class TestLegalEntityBranch:
     """Tests for the LegalEntityBranch value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            branch_name="test_value",
-            branch_code="test_value",
-            address="test_value",
-            city="test_value",
-            is_active=True,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'branch_name': "test_value",
+            'branch_code': "test_value",
+            'address': "test_value",
+            'city': "test_value",
+            'is_active': True,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """LegalEntityBranch can be constructed with valid field values."""
@@ -451,7 +451,7 @@ class TestLegalEntityService:
         """Smoke test for LegalEntityService.create_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_legal_entity(
+            await instance.create_legal_entity(
                 legal_name="test_value",
                 entity_type="test_value",
                 trade_name="test_value",
@@ -475,7 +475,7 @@ class TestLegalEntityService:
         """Smoke test for LegalEntityService.get_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_legal_entity(legal_entity_id=uuid4())
+            await instance.get_legal_entity(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -486,7 +486,7 @@ class TestLegalEntityService:
         """Smoke test for LegalEntityService.list_legal_entities using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_legal_entities(entity_type="test_value", status="test_value", is_active=True)
+            await instance.list_legal_entities(entity_type="test_value", status="test_value", is_active=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_legal_entities needs specific domain fixtures/data: {e}")
             return
@@ -497,7 +497,7 @@ class TestLegalEntityService:
         """Smoke test for LegalEntityService.update_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_legal_entity(
+            await instance.update_legal_entity(
                 legal_entity_id=uuid4(),
                 legal_name="test_value",
                 trade_name="test_value",
@@ -518,7 +518,7 @@ class TestLegalEntityService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -537,7 +537,7 @@ def test_audit_direct_call():
 async def test_create_legal_entity_service_smoke():
     """Smoke test for module-level function create_legal_entity_service."""
     try:
-        result = await create_legal_entity_service(event_publisher=MagicMock())
+        await create_legal_entity_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_legal_entity_service needs specific input data: {e}")
         return

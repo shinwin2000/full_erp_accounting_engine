@@ -521,7 +521,7 @@ class TestCorrectionDoctrineEngine:
         engine.approve_correction(c2.id, user_id)
         engine.implement_correction(c2.id, user_id)
         impact = engine.get_impact_on_retained_earnings(date.today())
-        expected = (1200 - 1000) + (2500 - 2000)  # 200 + 500 = 700
+        (1200 - 1000) + (2500 - 2000)  # 200 + 500 = 700
         assert impact == Decimal("700.00")
 
     # ---- get_restatement_required ----

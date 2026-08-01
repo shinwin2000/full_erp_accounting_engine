@@ -318,7 +318,7 @@ class SealedGate(BaseSealedGate):
                     self._audit_hook.on_error(envelope, e)
                     raise
 
-            uow = _get_uow()
+            # FIX: Removed unused assignment `uow = _get_uow()`
             execution_result = await self._transactional_executor.execute(
                 uow_callback=execute_with_uow,
                 command_id=envelope.command_id,

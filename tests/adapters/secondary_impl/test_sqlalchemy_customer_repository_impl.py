@@ -28,8 +28,8 @@ class TestCustomerTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CustomerTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -57,7 +57,7 @@ class TestSQLAlchemyCustomerRepository:
         """Smoke test for SQLAlchemyCustomerRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(customer_id=uuid4())
+            await instance.get_by_id(customer_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestSQLAlchemyCustomerRepository:
         """Smoke test for SQLAlchemyCustomerRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(legal_entity_id=uuid4(), customer_code="test_value")
+            await instance.get_by_code(legal_entity_id=uuid4(), customer_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestSQLAlchemyCustomerRepository:
         """Smoke test for SQLAlchemyCustomerRepository.is_active using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_active(customer_id=uuid4())
+            await instance.is_active(customer_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_active needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestSQLAlchemyCustomerRepository:
         """Smoke test for SQLAlchemyCustomerRepository.check_credit_limit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_credit_limit(customer_id=uuid4(), invoice_amount=MagicMock())
+            await instance.check_credit_limit(customer_id=uuid4(), invoice_amount=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_credit_limit needs specific domain fixtures/data: {e}")
             return

@@ -49,18 +49,18 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=ConsolidationEventType.CONSOLIDATION_CREATED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id=uuid4(),
-            correlation_id="test_value",
-            causation_id="test_value",
-            version=1,
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': ConsolidationEventType.CONSOLIDATION_CREATED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': uuid4(),
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -78,8 +78,8 @@ class TestConsolidationCreated:
     """Tests for the ConsolidationCreated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ConsolidationCreated can be constructed with valid field values."""
@@ -96,8 +96,8 @@ class TestConsolidationStarted:
     """Tests for the ConsolidationStarted value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ConsolidationStarted can be constructed with valid field values."""
@@ -114,8 +114,8 @@ class TestConsolidationCompleted:
     """Tests for the ConsolidationCompleted value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ConsolidationCompleted can be constructed with valid field values."""
@@ -132,8 +132,8 @@ class TestConsolidationCancelled:
     """Tests for the ConsolidationCancelled value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ConsolidationCancelled can be constructed with valid field values."""
@@ -150,8 +150,8 @@ class TestConsolidationArchived:
     """Tests for the ConsolidationArchived value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """ConsolidationArchived can be constructed with valid field values."""
@@ -168,8 +168,8 @@ class TestIntercompanyTransactionDetected:
     """Tests for the IntercompanyTransactionDetected value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntercompanyTransactionDetected can be constructed with valid field values."""
@@ -186,8 +186,8 @@ class TestEliminationEntryCreated:
     """Tests for the EliminationEntryCreated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """EliminationEntryCreated can be constructed with valid field values."""
@@ -204,8 +204,8 @@ class TestNCICalculated:
     """Tests for the NCICalculated value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """NCICalculated can be constructed with valid field values."""
@@ -236,8 +236,8 @@ class TestConsolidationEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for ConsolidationEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await ConsolidationEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await ConsolidationEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -247,8 +247,8 @@ class TestConsolidationEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for ConsolidationEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await ConsolidationEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await ConsolidationEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -258,8 +258,8 @@ class TestConsolidationEventPublisher:
     def test_get_published_events_smoke(self):
         """Smoke test for ConsolidationEventPublisher.get_published_events using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ConsolidationEventPublisher.get_published_events()
+            self._build_instance()
+            ConsolidationEventPublisher.get_published_events()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_published_events needs specific domain fixtures/data: {e}")
             return
@@ -269,8 +269,8 @@ class TestConsolidationEventPublisher:
     def test_clear_smoke(self):
         """Smoke test for ConsolidationEventPublisher.clear using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ConsolidationEventPublisher.clear()
+            self._build_instance()
+            ConsolidationEventPublisher.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return

@@ -341,7 +341,7 @@ class TestActionExecutor:
 
     def test_action_validate_false(self):
         context = {"status": "pending"}
-        result = ActionExecutor._action_validate(context, rule="check_status", field="status", expected="approved")
+        ActionExecutor._action_validate(context, rule="check_status", field="status", expected="approved")
         assert context["_validations"][0]["valid"] is False
 
     def test_action_log_direct(self, caplog):
@@ -426,7 +426,7 @@ class TestActionExecutor:
 
         # Also test string conversion
         context2 = {}
-        result2 = ActionExecutor._action_apply_rate(context2, rate="0.03")
+        ActionExecutor._action_apply_rate(context2, rate="0.03")
         assert context2["rate"] == Decimal("0.03")
 
     # ---- execute method ----
@@ -533,17 +533,17 @@ class TestPolicyInterpreter:
         cache_key = "test_cache"
         interpreter.enable_cache(ttl_seconds=60)
         # First evaluation, condition should be evaluated and cached
-        results1 = interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
+        interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
         # Second evaluation with same key should use cache
         with patch.object(interpreter._condition_evaluator, "evaluate") as mock_eval:
             mock_eval.return_value = True
-            results2 = interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
+            interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
             mock_eval.assert_not_called()
         # Disable cache
         interpreter.disable_cache()
         with patch.object(interpreter._condition_evaluator, "evaluate") as mock_eval:
             mock_eval.return_value = True
-            results3 = interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
+            interpreter.evaluate_policy(sample_policy, sample_context, cache_key)
             mock_eval.assert_called()
 
     def test_evaluate_by_domain(self, interpreter, sample_policy, sample_context):

@@ -556,7 +556,7 @@ class TestVarianceAnalysisEngineOverheadVariance:
 class TestVarianceAnalysisEngineHistory:
     def test_get_analysis_history_default(self, engine, mock_work_order):
         # Run multiple analyses
-        for i in range(3):
+        for _i in range(3):
             engine.analyze_variance(
                 work_order=mock_work_order,
                 actual_material_cost=Decimal("1000"),
@@ -567,7 +567,7 @@ class TestVarianceAnalysisEngineHistory:
         assert len(history) == 3
 
     def test_get_analysis_history_limit(self, engine, mock_work_order):
-        for i in range(5):
+        for _i in range(5):
             engine.analyze_variance(
                 work_order=mock_work_order,
                 actual_material_cost=Decimal("1000"),

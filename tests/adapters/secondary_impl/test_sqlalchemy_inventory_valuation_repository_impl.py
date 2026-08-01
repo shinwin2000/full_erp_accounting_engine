@@ -36,7 +36,7 @@ class TestSQLAlchemyInventoryValuationRepository:
         """Smoke test for SQLAlchemyInventoryValuationRepository.get_inventory_valuation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_inventory_valuation(legal_entity_id=uuid4(), as_of_date=date.today(), product_ids=[uuid4()], valuation_method="test_value")
+            await instance.get_inventory_valuation(legal_entity_id=uuid4(), as_of_date=date.today(), product_ids=[uuid4()], valuation_method="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_inventory_valuation needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestSQLAlchemyInventoryValuationRepository:
         """Smoke test for SQLAlchemyInventoryValuationRepository.calculate_valuation_by_product using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.calculate_valuation_by_product(product_id=uuid4(), as_of_date=date.today(), valuation_method="test_value")
+            await instance.calculate_valuation_by_product(product_id=uuid4(), as_of_date=date.today(), valuation_method="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_valuation_by_product needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestSQLAlchemyInventoryValuationRepository:
         """Smoke test for SQLAlchemyInventoryValuationRepository.get_movement_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_movement_summary(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today(), product_ids=[uuid4()])
+            await instance.get_movement_summary(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today(), product_ids=[uuid4()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_movement_summary needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestSQLAlchemyInventoryValuationRepository:
         """Smoke test for SQLAlchemyInventoryValuationRepository.get_reorder_report using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_reorder_report(legal_entity_id=uuid4(), threshold=1)
+            await instance.get_reorder_report(legal_entity_id=uuid4(), threshold=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_reorder_report needs specific domain fixtures/data: {e}")
             return

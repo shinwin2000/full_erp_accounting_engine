@@ -32,7 +32,7 @@ class TestEncryptionKeyVaultAdapter:
         """Smoke test for EncryptionKeyVaultAdapter.create_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_key(key_id="test_value", algorithm=MagicMock(), key_size=1, created_by="test_value", rotation_days=1, tags={})
+            await instance.create_key(key_id="test_value", algorithm=MagicMock(), key_size=1, created_by="test_value", rotation_days=1, tags={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_key needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestEncryptionKeyVaultAdapter:
         """Smoke test for EncryptionKeyVaultAdapter.get_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_key(key_id="test_value", version="test_value")
+            await instance.get_key(key_id="test_value", version="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_key needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestEncryptionKeyVaultAdapter:
         """Smoke test for EncryptionKeyVaultAdapter.rotate_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rotate_key(key_id="test_value", created_by="test_value", new_algorithm="test_value")
+            await instance.rotate_key(key_id="test_value", created_by="test_value", new_algorithm="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"rotate_key needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestEncryptionKeyVaultAdapter:
         """Smoke test for EncryptionKeyVaultAdapter.delete_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_key(key_id="test_value", version="test_value")
+            await instance.delete_key(key_id="test_value", version="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_key needs specific domain fixtures/data: {e}")
             return

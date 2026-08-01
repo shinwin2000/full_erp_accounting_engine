@@ -75,11 +75,11 @@ class TestIAS36RecoverableAmount:
     """Tests for the IAS36RecoverableAmount value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            fair_value_less_cost_to_sell=MagicMock(),
-            value_in_use=MagicMock(),
-            recoverable_amount=MagicMock(),
-        )
+        return {
+            'fair_value_less_cost_to_sell': MagicMock(),
+            'value_in_use': MagicMock(),
+            'recoverable_amount': MagicMock(),
+        }
 
     def test_construction_success(self):
         """IAS36RecoverableAmount can be constructed with valid field values."""
@@ -97,14 +97,14 @@ class TestIAS36ImpairmentLoss:
     """Tests for the IAS36ImpairmentLoss value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            carrying_amount_before=MagicMock(),
-            recoverable_amount=MagicMock(),
-            impairment_loss=MagicMock(),
-            reversal_previous_loss=MagicMock(),
-            carrying_amount_after=MagicMock(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'carrying_amount_before': MagicMock(),
+            'recoverable_amount': MagicMock(),
+            'impairment_loss': MagicMock(),
+            'reversal_previous_loss': MagicMock(),
+            'carrying_amount_after': MagicMock(),
+        }
 
     def test_construction_success(self):
         """IAS36ImpairmentLoss can be constructed with valid field values."""
@@ -122,16 +122,16 @@ class TestIAS36CashGeneratingUnit:
     """Tests for the IAS36CashGeneratingUnit value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            cgu_id=uuid4(),
-            cgu_code="test_value",
-            name="test_value",
-            cgu_type=IAS36CashGeneratingUnitType.SINGLE_ASSET,
-            assets=[uuid4()],
-            goodwill_allocated=MagicMock(),
-            carrying_amount=MagicMock(),
-            recoverable_amount=MagicMock(),
-        )
+        return {
+            'cgu_id': uuid4(),
+            'cgu_code': "test_value",
+            'name': "test_value",
+            'cgu_type': IAS36CashGeneratingUnitType.SINGLE_ASSET,
+            'assets': [uuid4()],
+            'goodwill_allocated': MagicMock(),
+            'carrying_amount': MagicMock(),
+            'recoverable_amount': MagicMock(),
+        }
 
     def test_construction_success(self):
         """IAS36CashGeneratingUnit can be constructed with valid field values."""
@@ -163,8 +163,8 @@ class TestIAS36ImpairmentService:
     def test_calculate_value_in_use_smoke(self):
         """Smoke test for IAS36ImpairmentService.calculate_value_in_use using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36ImpairmentService.calculate_value_in_use(future_cash_flows=[()], discount_rate=Decimal("100.00"), currency="test_value")
+            self._build_instance()
+            IAS36ImpairmentService.calculate_value_in_use(future_cash_flows=[()], discount_rate=Decimal("100.00"), currency="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_value_in_use needs specific domain fixtures/data: {e}")
             return
@@ -174,8 +174,8 @@ class TestIAS36ImpairmentService:
     def test_calculate_fair_value_less_cost_to_sell_smoke(self):
         """Smoke test for IAS36ImpairmentService.calculate_fair_value_less_cost_to_sell using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36ImpairmentService.calculate_fair_value_less_cost_to_sell(fair_value=MagicMock(), cost_to_sell=MagicMock())
+            self._build_instance()
+            IAS36ImpairmentService.calculate_fair_value_less_cost_to_sell(fair_value=MagicMock(), cost_to_sell=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_fair_value_less_cost_to_sell needs specific domain fixtures/data: {e}")
             return
@@ -185,8 +185,8 @@ class TestIAS36ImpairmentService:
     def test_determine_recoverable_amount_smoke(self):
         """Smoke test for IAS36ImpairmentService.determine_recoverable_amount using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36ImpairmentService.determine_recoverable_amount(fvlcs=MagicMock(), viu=MagicMock())
+            self._build_instance()
+            IAS36ImpairmentService.determine_recoverable_amount(fvlcs=MagicMock(), viu=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_recoverable_amount needs specific domain fixtures/data: {e}")
             return
@@ -196,8 +196,8 @@ class TestIAS36ImpairmentService:
     def test_allocate_impairment_to_cgu_smoke(self):
         """Smoke test for IAS36ImpairmentService.allocate_impairment_to_cgu using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36ImpairmentService.allocate_impairment_to_cgu(cgu=MagicMock(), impairment_loss=MagicMock(), goodwill_first=True)
+            self._build_instance()
+            IAS36ImpairmentService.allocate_impairment_to_cgu(cgu=MagicMock(), impairment_loss=MagicMock(), goodwill_first=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"allocate_impairment_to_cgu needs specific domain fixtures/data: {e}")
             return
@@ -209,11 +209,11 @@ class TestIAS36ValidationResult:
     """Tests for the IAS36ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IAS36ValidationResult can be constructed with valid field values."""
@@ -245,8 +245,8 @@ class TestIAS36Rules:
     def test_validate_impairment_indicators_smoke(self):
         """Smoke test for IAS36Rules.validate_impairment_indicators using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36Rules.validate_impairment_indicators(indicators=[IAS36ImpairmentIndicator.MARKET_VALUE_DECLINE], is_goodwill=True)
+            self._build_instance()
+            IAS36Rules.validate_impairment_indicators(indicators=[IAS36ImpairmentIndicator.MARKET_VALUE_DECLINE], is_goodwill=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_impairment_indicators needs specific domain fixtures/data: {e}")
             return
@@ -256,8 +256,8 @@ class TestIAS36Rules:
     def test_validate_reversal_smoke(self):
         """Smoke test for IAS36Rules.validate_reversal using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36Rules.validate_reversal(original_impairment=MagicMock(), new_recoverable=MagicMock(), is_goodwill=True)
+            self._build_instance()
+            IAS36Rules.validate_reversal(original_impairment=MagicMock(), new_recoverable=MagicMock(), is_goodwill=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_reversal needs specific domain fixtures/data: {e}")
             return
@@ -284,7 +284,7 @@ class TestIAS36Validator:
         """Smoke test for IAS36Validator.validate_impairment_test using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_impairment_test(carrying_amount=MagicMock(), recoverable_amount=MagicMock(), asset_type="test_value")
+            instance.validate_impairment_test(carrying_amount=MagicMock(), recoverable_amount=MagicMock(), asset_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_impairment_test needs specific domain fixtures/data: {e}")
             return
@@ -295,7 +295,7 @@ class TestIAS36Validator:
         """Smoke test for IAS36Validator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -321,8 +321,8 @@ class TestIAS36:
     def test_get_recoverable_amount_smoke(self):
         """Smoke test for IAS36.get_recoverable_amount using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36.get_recoverable_amount(fair_value_less_cost=Decimal("100.00"), value_in_use=Decimal("100.00"))
+            self._build_instance()
+            IAS36.get_recoverable_amount(fair_value_less_cost=Decimal("100.00"), value_in_use=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_recoverable_amount needs specific domain fixtures/data: {e}")
             return
@@ -332,8 +332,8 @@ class TestIAS36:
     def test_calculate_impairment_loss_smoke(self):
         """Smoke test for IAS36.calculate_impairment_loss using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS36.calculate_impairment_loss(carrying_amount=Decimal("100.00"), recoverable_amount=Decimal("100.00"))
+            self._build_instance()
+            IAS36.calculate_impairment_loss(carrying_amount=Decimal("100.00"), recoverable_amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_impairment_loss needs specific domain fixtures/data: {e}")
             return
@@ -344,7 +344,7 @@ class TestIAS36:
 def test_get_ias36_validator_smoke():
     """Smoke test for module-level function get_ias36_validator."""
     try:
-        result = get_ias36_validator()
+        get_ias36_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ias36_validator needs specific input data: {e}")
         return

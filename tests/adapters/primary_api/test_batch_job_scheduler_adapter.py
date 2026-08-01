@@ -74,7 +74,7 @@ class TestBatchJobScheduler:
         """Smoke test for BatchJobScheduler.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -85,7 +85,7 @@ class TestBatchJobScheduler:
         """Smoke test for BatchJobScheduler.shutdown using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.shutdown()
+            await instance.shutdown()
         except (Exception, SystemExit) as e:
             pytest.skip(f"shutdown needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestBatchJobScheduler:
         """Smoke test for BatchJobScheduler.add_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add_job(job=MagicMock())
+            await instance.add_job(job=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_job needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestBatchJobScheduler:
         """Smoke test for BatchJobScheduler.remove_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.remove_job(job_id="test_value")
+            await instance.remove_job(job_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"remove_job needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestBatchJobScheduler:
 def test_get_default_job_definitions_smoke():
     """Smoke test for module-level function get_default_job_definitions."""
     try:
-        result = get_default_job_definitions(legal_entity_id=uuid4())
+        get_default_job_definitions(legal_entity_id=uuid4())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_default_job_definitions needs specific input data: {e}")
         return
@@ -128,7 +128,7 @@ def test_get_default_job_definitions_smoke():
 async def test_get_batch_scheduler_smoke():
     """Smoke test for module-level function get_batch_scheduler."""
     try:
-        result = await get_batch_scheduler()
+        await get_batch_scheduler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_batch_scheduler needs specific input data: {e}")
         return
@@ -138,7 +138,7 @@ async def test_get_batch_scheduler_smoke():
 async def test_get_scheduler_smoke():
     """Smoke test for module-level function get_scheduler."""
     try:
-        result = await get_scheduler()
+        await get_scheduler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_scheduler needs specific input data: {e}")
         return
@@ -148,7 +148,7 @@ async def test_get_scheduler_smoke():
 async def test_run_scheduler_standalone_smoke():
     """Smoke test for module-level function run_scheduler_standalone."""
     try:
-        result = await run_scheduler_standalone()
+        await run_scheduler_standalone()
     except (Exception, SystemExit) as e:
         pytest.skip(f"run_scheduler_standalone needs specific input data: {e}")
         return
@@ -158,7 +158,7 @@ async def test_run_scheduler_standalone_smoke():
 def test_main_smoke():
     """Smoke test for module-level function main."""
     try:
-        result = main()
+        main()
     except (Exception, SystemExit) as e:
         pytest.skip(f"main needs specific input data: {e}")
         return

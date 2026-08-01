@@ -23,20 +23,20 @@ class TestCreateAccountRequest:
     """Tests for the CreateAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            account_type="test_value",
-            parent_account_id=uuid4(),
-            is_active=True,
-            description="test_value",
-            currency="test_value",
-            normal_balance="test_value",
-            financial_report_section="test_value",
-            tax_code="test_value",
-            legal_entity_id=uuid4(),
-            opening_balance="test_value",
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "account_type": "test_value",
+            "parent_account_id": uuid4(),
+            "is_active": True,
+            "description": "test_value",
+            "currency": "test_value",
+            "normal_balance": "test_value",
+            "financial_report_section": "test_value",
+            "tax_code": "test_value",
+            "legal_entity_id": uuid4(),
+            "opening_balance": "test_value",
+        }
 
     def test_construction_success(self):
         """CreateAccountRequest can be constructed with valid field values."""
@@ -54,15 +54,15 @@ class TestUpdateAccountRequest:
     """Tests for the UpdateAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            account_name="test_value",
-            description="test_value",
-            is_active=True,
-            parent_account_id=uuid4(),
-            tax_code="test_value",
-            financial_report_section="test_value",
-        )
+        return {
+            "account_id": uuid4(),
+            "account_name": "test_value",
+            "description": "test_value",
+            "is_active": True,
+            "parent_account_id": uuid4(),
+            "tax_code": "test_value",
+            "financial_report_section": "test_value",
+        }
 
     def test_construction_success(self):
         """UpdateAccountRequest can be constructed with valid field values."""
@@ -80,16 +80,16 @@ class TestGetAccountsQuery:
     """Tests for the GetAccountsQuery value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            account_type="test_value",
-            is_active=True,
-            parent_account_id=uuid4(),
-            search="test_value",
-            include_children=True,
-            page=1,
-            page_size=1,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "account_type": "test_value",
+            "is_active": True,
+            "parent_account_id": uuid4(),
+            "search": "test_value",
+            "include_children": True,
+            "page": 1,
+            "page_size": 1,
+        }
 
     def test_construction_success(self):
         """GetAccountsQuery can be constructed with valid field values."""
@@ -107,10 +107,10 @@ class TestGetAccountRequest:
     """Tests for the GetAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "account_id": uuid4(),
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """GetAccountRequest can be constructed with valid field values."""
@@ -128,11 +128,11 @@ class TestDeleteAccountRequest:
     """Tests for the DeleteAccountRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_id=uuid4(),
-            legal_entity_id=uuid4(),
-            reason="test_value",
-        )
+        return {
+            "account_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "reason": "test_value",
+        }
 
     def test_construction_success(self):
         """DeleteAccountRequest can be constructed with valid field values."""

@@ -117,7 +117,7 @@ class TestKPIThresholdAlerter:
     def test_constructor_loads_config(self):
         with patch("projections.analytics_bi.kpi_threshold_alerter.KPIThresholdAlerter._get_load_yaml_config") as mock_load:
             mock_load.return_value.return_value = {"kpi_thresholds": {}}
-            alerter = KPIThresholdAlerter("dummy.yaml")
+            KPIThresholdAlerter("dummy.yaml")
             mock_load.assert_called_once()
 
     def test_get_load_yaml_config(self):
@@ -266,7 +266,7 @@ class TestKPIThresholdAlerter:
         # Set low threshold for revenue to trigger
         le_id = uuid4()
         period_id = uuid4()
-        le_id_str = str(le_id)
+        str(le_id)
         await alerter.update_thresholds(le_id, "revenue", Decimal("100"), Decimal("50"))
         # Mock ratios to return revenue 75 -> warning
         mock_ratios_calc.calculate_ratios = AsyncMock(return_value={
@@ -287,7 +287,7 @@ class TestKPIThresholdAlerter:
         # Trigger alert, then check again immediately -> should not re-alert due to cooldown
         le_id = uuid4()
         period_id = uuid4()
-        le_id_str = str(le_id)
+        str(le_id)
         await alerter.update_thresholds(le_id, "revenue", Decimal("100"), Decimal("50"))
         mock_ratios_calc.calculate_ratios = AsyncMock(return_value={
             "ratios": {"revenue": Decimal("75")}

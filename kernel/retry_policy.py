@@ -182,10 +182,8 @@ class RetryPolicy(BaseRetryPolicy):
         return wait
 
     def is_retryable(self, exception: Exception) -> bool:
-        for exc_type in self.retryable_exceptions:
-            if isinstance(exception, exc_type):
-                return True
-        return False
+        # FIX: gunakan any() sesuai saran SIM110
+        return any(isinstance(exception, exc_type) for exc_type in self.retryable_exceptions)
 
     async def execute(self, func: Callable[[], T]) -> T:
         self._retry_count = 0

@@ -89,7 +89,7 @@ class TestCompressionLZ4:
         """Smoke test for CompressionLZ4.compress using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.compress(data=b"test", include_hash=True)
+            instance.compress(data=b"test", include_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"compress needs specific domain fixtures/data: {e}")
             return
@@ -100,7 +100,7 @@ class TestCompressionLZ4:
         """Smoke test for CompressionLZ4.decompress using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.decompress(data=b"test", verify_hash=True)
+            instance.decompress(data=b"test", verify_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"decompress needs specific domain fixtures/data: {e}")
             return
@@ -111,7 +111,7 @@ class TestCompressionLZ4:
         """Smoke test for CompressionLZ4.compress_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.compress_json(data={}, include_hash=True)
+            instance.compress_json(data={}, include_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"compress_json needs specific domain fixtures/data: {e}")
             return
@@ -122,7 +122,7 @@ class TestCompressionLZ4:
         """Smoke test for CompressionLZ4.decompress_to_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.decompress_to_json(data=b"test", verify_hash=True)
+            instance.decompress_to_json(data=b"test", verify_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"decompress_to_json needs specific domain fixtures/data: {e}")
             return
@@ -133,7 +133,7 @@ class TestCompressionLZ4:
 def test_get_compressor_smoke():
     """Smoke test for module-level function get_compressor."""
     try:
-        result = get_compressor()
+        get_compressor()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_compressor needs specific input data: {e}")
         return
@@ -143,7 +143,7 @@ def test_get_compressor_smoke():
 def test_compress_smoke():
     """Smoke test for module-level function compress."""
     try:
-        result = compress(data=b"test")
+        compress(data=b"test")
     except (Exception, SystemExit) as e:
         pytest.skip(f"compress needs specific input data: {e}")
         return
@@ -153,7 +153,7 @@ def test_compress_smoke():
 def test_decompress_smoke():
     """Smoke test for module-level function decompress."""
     try:
-        result = decompress(data=b"test")
+        decompress(data=b"test")
     except (Exception, SystemExit) as e:
         pytest.skip(f"decompress needs specific input data: {e}")
         return
@@ -163,7 +163,7 @@ def test_decompress_smoke():
 def test_compress_json_smoke():
     """Smoke test for module-level function compress_json."""
     try:
-        result = compress_json(data={})
+        compress_json(data={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"compress_json needs specific input data: {e}")
         return
@@ -173,7 +173,7 @@ def test_compress_json_smoke():
 def test_decompress_to_json_smoke():
     """Smoke test for module-level function decompress_to_json."""
     try:
-        result = decompress_to_json(data=b"test")
+        decompress_to_json(data=b"test")
     except (Exception, SystemExit) as e:
         pytest.skip(f"decompress_to_json needs specific input data: {e}")
         return

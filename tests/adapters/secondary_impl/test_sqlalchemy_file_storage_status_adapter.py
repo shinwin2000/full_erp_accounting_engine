@@ -27,8 +27,8 @@ class TestFileStorageStatusTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = FileStorageStatusTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -56,7 +56,7 @@ class TestSQLAlchemyFileStorageStatusAdapter:
         """Smoke test for SQLAlchemyFileStorageStatusAdapter.get_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_status(file_id="test_value")
+            await instance.get_status(file_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_status needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestSQLAlchemyFileStorageStatusAdapter:
         """Smoke test for SQLAlchemyFileStorageStatusAdapter.set_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set_status(file_id="test_value", status="test_value", file_metadata="test_value")
+            await instance.set_status(file_id="test_value", status="test_value", file_metadata="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_status needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestSQLAlchemyFileStorageStatusAdapter:
         """Smoke test for SQLAlchemyFileStorageStatusAdapter.delete_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete_status(file_id="test_value")
+            await instance.delete_status(file_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete_status needs specific domain fixtures/data: {e}")
             return

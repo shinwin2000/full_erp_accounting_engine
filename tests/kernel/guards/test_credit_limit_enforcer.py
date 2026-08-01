@@ -44,7 +44,7 @@ class Test_FallbackCustomerRepository:
         """Smoke test for _FallbackCustomerRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class Test_FallbackCustomerRepository:
         """Smoke test for _FallbackCustomerRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(customer_code="test_value", legal_entity_id=uuid4())
+            await instance.get_by_code(customer_code="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class Test_FallbackCustomerRepository:
         """Smoke test for _FallbackCustomerRepository.get_credit_limit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_credit_limit(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_credit_limit(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_credit_limit needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class Test_FallbackCustomerRepository:
         """Smoke test for _FallbackCustomerRepository.get_risk_rating using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_risk_rating(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_risk_rating(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_risk_rating needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class Test_FallbackARRepository:
         """Smoke test for _FallbackARRepository.get_outstanding_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_outstanding_balance(customer_id=uuid4(), legal_entity_id=uuid4(), as_of=datetime.now(UTC))
+            await instance.get_outstanding_balance(customer_id=uuid4(), legal_entity_id=uuid4(), as_of=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_outstanding_balance needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class Test_FallbackARRepository:
         """Smoke test for _FallbackARRepository.get_aging_buckets using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_aging_buckets(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_aging_buckets(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_aging_buckets needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class Test_FallbackARRepository:
         """Smoke test for _FallbackARRepository.get_overdue_amount using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_overdue_amount(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_overdue_amount(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_overdue_amount needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class Test_FallbackARRepository:
         """Smoke test for _FallbackARRepository.get_available_credit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_available_credit(customer_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_available_credit(customer_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_available_credit needs specific domain fixtures/data: {e}")
             return
@@ -177,27 +177,27 @@ class TestCreditLimitInfo:
     """Tests for the CreditLimitInfo value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            check_id=uuid4(),
-            customer_id=uuid4(),
-            customer_name="test_value",
-            credit_limit=Decimal("0"),
-            currency="test_value",
-            current_outstanding=Decimal("100.00"),
-            available_credit=Decimal("0"),
-            requested_amount=Decimal("100.00"),
-            new_outstanding=Decimal("100.00"),
-            would_exceed=True,
-            exceed_amount=Decimal("100.00"),
-            action=CreditCheckAction.ALLOW,
-            severity=CreditCheckSeverity.CRITICAL,
-            message="test_value",
-            risk_rating="test_value",
-            overdue_amount=Decimal("100.00"),
-            aging_buckets={},
-            timestamp=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "check_id": uuid4(),
+            "customer_id": uuid4(),
+            "customer_name": "test_value",
+            "credit_limit": Decimal("0"),
+            "currency": "test_value",
+            "current_outstanding": Decimal("100.00"),
+            "available_credit": Decimal("0"),
+            "requested_amount": Decimal("100.00"),
+            "new_outstanding": Decimal("100.00"),
+            "would_exceed": True,
+            "exceed_amount": Decimal("100.00"),
+            "action": CreditCheckAction.ALLOW,
+            "severity": CreditCheckSeverity.CRITICAL,
+            "message": "test_value",
+            "risk_rating": "test_value",
+            "overdue_amount": Decimal("100.00"),
+            "aging_buckets": {},
+            "timestamp": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """CreditLimitInfo can be constructed with valid field values."""
@@ -238,7 +238,7 @@ class TestCreditLimitEnforcer:
         """Smoke test for CreditLimitEnforcer.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -249,7 +249,7 @@ class TestCreditLimitEnforcer:
         """Smoke test for CreditLimitEnforcer.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -260,7 +260,7 @@ class TestCreditLimitEnforcer:
         """Smoke test for CreditLimitEnforcer.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -270,8 +270,8 @@ class TestCreditLimitEnforcer:
     def test_from_dict_smoke(self):
         """Smoke test for CreditLimitEnforcer.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = CreditLimitEnforcer.from_dict(data={})
+            self._build_instance()
+            CreditLimitEnforcer.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -282,7 +282,7 @@ class TestCreditLimitEnforcer:
 def test_get_credit_limit_enforcer_smoke():
     """Smoke test for module-level function get_credit_limit_enforcer."""
     try:
-        result = get_credit_limit_enforcer()
+        get_credit_limit_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_credit_limit_enforcer needs specific input data: {e}")
         return

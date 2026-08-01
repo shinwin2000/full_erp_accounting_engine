@@ -209,7 +209,6 @@ class TestPurchaseReturnEntity:
     def test_remove_item(self, valid_return):
         """Test removal of an item - previously untested."""
         item_id = valid_return.items[0].item_id
-        old_total = valid_return.total_amount
         entity2 = valid_return.remove_item(item_id, "remover")
         assert len(entity2.items) == 0
         assert entity2.total_amount == Decimal(0)

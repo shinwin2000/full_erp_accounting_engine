@@ -33,21 +33,21 @@ AMLAlertSeverity = AMLScoreLevel
 AntiMoneyLaunderingDetector = AntiMoneyLaunderingEngine
 get_aml_detector = get_anti_money_laundering_engine
 
+# Diurutkan secara alfabetis sesuai saran RUF022
 __all__ = [
-    # Anti Money Laundering
+    "AMLAlert",
     "AMLAlertSeverity",
     "AMLAlertType",
     "AMLScoreLevel",
-    "AMLAlert",
-    "AntiMoneyLaunderingEngine",
     "AntiMoneyLaunderingDetector",
-    "get_anti_money_laundering_engine",
-    "get_aml_detector",
-    # Fraud Pattern Detector
-    "FraudSeverity",
-    "FraudPatternType",
+    "AntiMoneyLaunderingEngine",
     "FraudAlert",
     "FraudPatternDetector",
-    "get_fraud_pattern_detector",
+    "FraudPatternType",
+    "FraudSeverity",
     "__version__",
+    "get_aml_detector",
+    "get_anti_money_laundering_engine",
+    "get_fraud_pattern_detector",
 ]
+

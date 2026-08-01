@@ -450,7 +450,7 @@ class TestRevisionLogger:
     def test_get_revision_by_number(self, revision_logger):
         intent_id = uuid4()
         rev1 = revision_logger.log_revision(intent_id, "u", {"a": 1}, {"a": 2}, "first")
-        rev2 = revision_logger.log_revision(intent_id, "u", {"a": 2}, {"a": 3}, "second")
+        revision_logger.log_revision(intent_id, "u", {"a": 2}, {"a": 3}, "second")
         found = revision_logger.get_revision(intent_id, 2)
         assert found is not None
         assert found.revision_number == 2
@@ -484,9 +484,9 @@ class TestRevisionLogger:
     def test_rollback_to_revision(self, revision_logger):
         intent_id = uuid4()
         # Create revisions
-        rev1 = revision_logger.log_revision(intent_id, "u", {"a": 1}, {"a": 2}, "first")
+        revision_logger.log_revision(intent_id, "u", {"a": 1}, {"a": 2}, "first")
         rev2 = revision_logger.log_revision(intent_id, "u", {"a": 2}, {"a": 3}, "second")
-        rev3 = revision_logger.log_revision(intent_id, "u", {"a": 3}, {"a": 4}, "third")
+        revision_logger.log_revision(intent_id, "u", {"a": 3}, {"a": 4}, "third")
         # Rollback to revision 2
         rollback = revision_logger.rollback_to_revision(
             intent_id, 2, "admin", "Rollback to rev2"

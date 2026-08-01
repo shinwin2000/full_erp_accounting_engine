@@ -143,7 +143,7 @@ class TestTokenPayload:
         """Smoke test for TokenPayload.is_expired using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_expired()
+            instance.is_expired()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_expired needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestTokenPayload:
         """Smoke test for TokenPayload.has_permission using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.has_permission(permission="test_value")
+            instance.has_permission(permission="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"has_permission needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestTokenPayload:
         """Smoke test for TokenPayload.has_role using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.has_role(role="test_value")
+            instance.has_role(role="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"has_role needs specific domain fixtures/data: {e}")
             return
@@ -192,7 +192,7 @@ class TestJWTAuthMiddleware:
         """Smoke test for JWTAuthMiddleware.dispatch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.dispatch(request=MagicMock(), call_next=MagicMock())
+            await instance.dispatch(request=MagicMock(), call_next=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"dispatch needs specific domain fixtures/data: {e}")
             return
@@ -202,8 +202,8 @@ class TestJWTAuthMiddleware:
     async def test_create_access_token_smoke(self):
         """Smoke test for JWTAuthMiddleware.create_access_token using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await JWTAuthMiddleware.create_access_token(user_id=uuid4(), username="test_value", legal_entity_id=uuid4(), roles=["test_value"], permissions=["test_value"], device_id="test_value", expires_delta=MagicMock())
+            self._build_instance()
+            await JWTAuthMiddleware.create_access_token(user_id=uuid4(), username="test_value", legal_entity_id=uuid4(), roles=["test_value"], permissions=["test_value"], device_id="test_value", expires_delta=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_access_token needs specific domain fixtures/data: {e}")
             return
@@ -213,8 +213,8 @@ class TestJWTAuthMiddleware:
     async def test_create_refresh_token_smoke(self):
         """Smoke test for JWTAuthMiddleware.create_refresh_token using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await JWTAuthMiddleware.create_refresh_token(user_id=uuid4(), username="test_value", legal_entity_id=uuid4(), roles=["test_value"], permissions=["test_value"], device_id="test_value", expires_delta=MagicMock())
+            self._build_instance()
+            await JWTAuthMiddleware.create_refresh_token(user_id=uuid4(), username="test_value", legal_entity_id=uuid4(), roles=["test_value"], permissions=["test_value"], device_id="test_value", expires_delta=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_refresh_token needs specific domain fixtures/data: {e}")
             return
@@ -224,8 +224,8 @@ class TestJWTAuthMiddleware:
     async def test_revoke_token_smoke(self):
         """Smoke test for JWTAuthMiddleware.revoke_token using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await JWTAuthMiddleware.revoke_token(jti="test_value")
+            self._build_instance()
+            await JWTAuthMiddleware.revoke_token(jti="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revoke_token needs specific domain fixtures/data: {e}")
             return
@@ -236,7 +236,7 @@ class TestJWTAuthMiddleware:
 def test_get_current_user_smoke():
     """Smoke test for module-level function get_current_user."""
     try:
-        result = get_current_user(request=MagicMock())
+        get_current_user(request=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_current_user needs specific input data: {e}")
         return
@@ -246,7 +246,7 @@ def test_get_current_user_smoke():
 def test_get_current_user_id_smoke():
     """Smoke test for module-level function get_current_user_id."""
     try:
-        result = get_current_user_id(request=MagicMock())
+        get_current_user_id(request=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_current_user_id needs specific input data: {e}")
         return
@@ -256,7 +256,7 @@ def test_get_current_user_id_smoke():
 def test_get_current_legal_entity_smoke():
     """Smoke test for module-level function get_current_legal_entity."""
     try:
-        result = get_current_legal_entity(request=MagicMock())
+        get_current_legal_entity(request=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_current_legal_entity needs specific input data: {e}")
         return
@@ -266,7 +266,7 @@ def test_get_current_legal_entity_smoke():
 def test_require_permission_smoke():
     """Smoke test for module-level function require_permission."""
     try:
-        result = require_permission(permission="test_value")
+        require_permission(permission="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"require_permission needs specific input data: {e}")
         return

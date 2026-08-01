@@ -104,7 +104,7 @@ class TestDatabaseBackupPgDump:
         """Smoke test for DatabaseBackupPgDump.create_backup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_backup(backup_name="test_value", description="test_value")
+            await instance.create_backup(backup_name="test_value", description="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_backup needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class TestDatabaseBackupPgDump:
         """Smoke test for DatabaseBackupPgDump.restore_backup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.restore_backup(backup_name="test_value", target_database="test_value")
+            await instance.restore_backup(backup_name="test_value", target_database="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"restore_backup needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestDatabaseBackupPgDump:
         """Smoke test for DatabaseBackupPgDump.list_backups using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_backups()
+            await instance.list_backups()
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_backups needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestDatabaseBackupPgDump:
         """Smoke test for DatabaseBackupPgDump.cleanup_old_backups using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cleanup_old_backups()
+            await instance.cleanup_old_backups()
         except (Exception, SystemExit) as e:
             pytest.skip(f"cleanup_old_backups needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestDatabaseBackupPgDump:
 async def test_get_backup_manager_smoke():
     """Smoke test for module-level function get_backup_manager."""
     try:
-        result = await get_backup_manager()
+        await get_backup_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_backup_manager needs specific input data: {e}")
         return
@@ -158,7 +158,7 @@ async def test_get_backup_manager_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return
@@ -168,7 +168,7 @@ def test_cli_smoke():
 async def test_run_backup_cli_smoke():
     """Smoke test for module-level function run_backup_cli."""
     try:
-        result = await run_backup_cli()
+        await run_backup_cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"run_backup_cli needs specific input data: {e}")
         return

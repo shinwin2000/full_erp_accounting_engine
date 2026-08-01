@@ -172,18 +172,18 @@ class TestPostJournalRequest:
     """Tests for the PostJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            journal_date=date.today(),
-            period="test_value",
-            description="test_value",
-            lines=[{}],
-            source_system="test_value",
-            reference_number="test_value",
-            attachment_ids=[uuid4()],
-            user_id=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "journal_date": date.today(),
+            "period": "test_value",
+            "description": "test_value",
+            "lines": [{}],
+            "source_system": "test_value",
+            "reference_number": "test_value",
+            "attachment_ids": [uuid4()],
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """PostJournalRequest can be constructed with valid field values."""
@@ -201,12 +201,12 @@ class TestPostJournalResponse:
     """Tests for the PostJournalResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            journal_number="test_value",
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "journal_id": uuid4(),
+            "journal_number": "test_value",
+            "status": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PostJournalResponse can be constructed with valid field values."""
@@ -224,11 +224,11 @@ class TestSubmitJournalRequest:
     """Tests for the SubmitJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            user_id=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """SubmitJournalRequest can be constructed with valid field values."""
@@ -246,11 +246,11 @@ class TestApproveJournalRequest:
     """Tests for the ApproveJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            approver_id=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "approver_id": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """ApproveJournalRequest can be constructed with valid field values."""
@@ -268,12 +268,12 @@ class TestRejectJournalRequest:
     """Tests for the RejectJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            rejected_by=uuid4(),
-            reason="test_value",
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "rejected_by": uuid4(),
+            "reason": "test_value",
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """RejectJournalRequest can be constructed with valid field values."""
@@ -291,13 +291,13 @@ class TestReverseJournalRequest:
     """Tests for the ReverseJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            reversal_date=date.today(),
-            reason="test_value",
-            user_id=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "reversal_date": date.today(),
+            "reason": "test_value",
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """ReverseJournalRequest can be constructed with valid field values."""
@@ -315,12 +315,12 @@ class TestVoidJournalRequest:
     """Tests for the VoidJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            voided_by=uuid4(),
-            reason="test_value",
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "voided_by": uuid4(),
+            "reason": "test_value",
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """VoidJournalRequest can be constructed with valid field values."""
@@ -338,12 +338,12 @@ class TestCancelJournalRequest:
     """Tests for the CancelJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            cancelled_by=uuid4(),
-            reason="test_value",
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "cancelled_by": uuid4(),
+            "reason": "test_value",
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """CancelJournalRequest can be constructed with valid field values."""
@@ -361,11 +361,11 @@ class TestArchiveJournalRequest:
     """Tests for the ArchiveJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            archived_by=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "archived_by": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """ArchiveJournalRequest can be constructed with valid field values."""
@@ -383,11 +383,11 @@ class TestUnarchiveJournalRequest:
     """Tests for the UnarchiveJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            unarchived_by=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "unarchived_by": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """UnarchiveJournalRequest can be constructed with valid field values."""
@@ -405,13 +405,13 @@ class TestAdjustJournalRequest:
     """Tests for the AdjustJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            description="test_value",
-            lines=[{}],
-            adjusted_by=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "description": "test_value",
+            "lines": [{}],
+            "adjusted_by": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """AdjustJournalRequest can be constructed with valid field values."""
@@ -444,7 +444,7 @@ class TestJournalService:
         """Smoke test for JournalService.post_journal_entry using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.post_journal_entry(request=MagicMock())
+            await instance.post_journal_entry(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"post_journal_entry needs specific domain fixtures/data: {e}")
             return
@@ -455,7 +455,7 @@ class TestJournalService:
         """Smoke test for JournalService.submit_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.submit_journal(request=MagicMock())
+            await instance.submit_journal(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"submit_journal needs specific domain fixtures/data: {e}")
             return
@@ -466,7 +466,7 @@ class TestJournalService:
         """Smoke test for JournalService.approve_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.approve_journal(request=MagicMock())
+            await instance.approve_journal(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_journal needs specific domain fixtures/data: {e}")
             return
@@ -477,7 +477,7 @@ class TestJournalService:
         """Smoke test for JournalService.reject_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reject_journal(request=MagicMock())
+            await instance.reject_journal(request=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"reject_journal needs specific domain fixtures/data: {e}")
             return
@@ -488,7 +488,7 @@ class TestJournalService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -498,7 +498,7 @@ def test_audit_smoke():
 def test_validate_balance_smoke():
     """Smoke test for module-level function validate_balance."""
     try:
-        result = validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
+        validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
     except (Exception, SystemExit) as e:
         pytest.skip(f"validate_balance needs specific input data: {e}")
         return
@@ -508,7 +508,7 @@ def test_validate_balance_smoke():
 async def test_create_journal_service_smoke():
     """Smoke test for module-level function create_journal_service."""
     try:
-        result = await create_journal_service(journal_repo=MagicMock(), ledger_repo=MagicMock(), account_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_journal_service(journal_repo=MagicMock(), ledger_repo=MagicMock(), account_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_journal_service needs specific input data: {e}")
         return

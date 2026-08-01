@@ -678,7 +678,7 @@ def test_on_startup():
 
 def test_on_started():
     mock_cb = MagicMock()
-    decorated = on_started(mock_cb, priority=3)
+    on_started(mock_cb, priority=3)
     listener = get_lifecycle_listener()
     cbs = listener._callbacks.get(LifecycleEventType.STARTED, [])
     assert len(cbs) == 1
@@ -687,7 +687,7 @@ def test_on_started():
 
 def test_on_shutdown():
     mock_cb = MagicMock()
-    decorated = on_shutdown(mock_cb, priority=10)
+    on_shutdown(mock_cb, priority=10)
     listener = get_lifecycle_listener()
     cbs = listener._callbacks.get(LifecycleEventType.SHUTTING_DOWN, [])
     assert len(cbs) == 1
@@ -696,7 +696,7 @@ def test_on_shutdown():
 
 def test_on_health_change():
     mock_cb = MagicMock()
-    decorated = on_health_change(mock_cb, priority=1)
+    on_health_change(mock_cb, priority=1)
     listener = get_lifecycle_listener()
     # Should be registered for all three health events
     for et in [LifecycleEventType.HEALTHY, LifecycleEventType.DEGRADED, LifecycleEventType.UNHEALTHY]:

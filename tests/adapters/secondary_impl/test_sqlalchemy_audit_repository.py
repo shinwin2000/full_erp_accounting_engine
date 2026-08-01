@@ -29,8 +29,8 @@ class TestAuditEventTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = AuditEventTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -58,7 +58,7 @@ class TestSQLAlchemyAuditRepository:
         """Smoke test for SQLAlchemyAuditRepository.append_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append_event(event=MagicMock())
+            await instance.append_event(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"append_event needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestSQLAlchemyAuditRepository:
         """Smoke test for SQLAlchemyAuditRepository.get_events_by_aggregate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_events_by_aggregate(aggregate_id=uuid4(), from_version=1, limit=1)
+            await instance.get_events_by_aggregate(aggregate_id=uuid4(), from_version=1, limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_events_by_aggregate needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestSQLAlchemyAuditRepository:
         """Smoke test for SQLAlchemyAuditRepository.get_events_by_type using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_events_by_type(event_type="test_value", from_date=datetime.now(UTC), to_date=datetime.now(UTC), limit=1)
+            await instance.get_events_by_type(event_type="test_value", from_date=datetime.now(UTC), to_date=datetime.now(UTC), limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_events_by_type needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestSQLAlchemyAuditRepository:
         """Smoke test for SQLAlchemyAuditRepository.get_events_by_correlation_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_events_by_correlation_id(correlation_id="test_value")
+            await instance.get_events_by_correlation_id(correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_events_by_correlation_id needs specific domain fixtures/data: {e}")
             return

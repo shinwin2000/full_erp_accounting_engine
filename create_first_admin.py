@@ -3,8 +3,6 @@
 create_first_admin.py
 =======================
 Membuat user admin pertama secara langsung ke database.
-Script ini menggunakan Unit of Work pattern dengan explicit commit/rollback
-agar transaction_leak_checker tidak false positive.
 """
 
 from __future__ import annotations
@@ -33,6 +31,7 @@ except ImportError:
 
 try:
     from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 except ImportError:
     print("[X] Modul 'sqlalchemy' tidak ditemukan. Pastikan venv backend aktif & requirements terpasang.")
     sys.exit(1)
@@ -49,14 +48,13 @@ def hash_password_safely(password: str) -> str:
 
 async def main(args: argparse.Namespace) -> int:
     try:
-        from infrastructure.database.session_factory_sqlalchemy import get_session_factory
         from infrastructure.persistence_orm.iam_user_table import (
             IAMPermissionTable,
             IAMRoleTable,
             IAMUserTable,
         )
         from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
-        from infrastructure.uow.sqlalchemy_uow import SqlAlchemyUnitOfWork
+        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SqlAlchemyUnitOfWork
     except ImportError as exc:
         print(f"[X] Gagal import modul backend: {exc}")
         print("    Pastikan script ini dijalankan dari root folder backend")
@@ -93,8 +91,15 @@ async def main(args: argparse.Namespace) -> int:
         print("    Script ini akan secara otomatis memotongnya menjadi 72 byte pertama saja.")
         print("    Saat login nanti, pastikan Anda juga HANYA mengetikkan 72 byte tersebut.\n")
 
-    factory = await get_session_factory()
-    uow = SqlAlchemyUnitOfWork(session_factory=factory)
+    # --- Perbaikan: Buat engine dan async_sessionmaker langsung ---
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    if not DATABASE_URL:
+        # Default jika tidak ada
+        DATABASE_URL = "postgresql+asyncpg://postgresql:palapapls88@localhost/erp_db"
+        print(f"[!] DATABASE_URL tidak diset, menggunakan default: {DATABASE_URL}")
+    engine = create_async_engine(DATABASE_URL)
+    async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    uow = SqlAlchemyUnitOfWork(session_factory=async_session_maker)
 
     try:
         # Mulai transaksi secara eksplisit
@@ -227,6 +232,8 @@ async def main(args: argparse.Namespace) -> int:
         # Rollback jika terjadi error
         await uow.rollback()
         print(f"[X] Terjadi error: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 

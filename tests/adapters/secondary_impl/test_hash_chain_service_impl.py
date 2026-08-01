@@ -32,7 +32,7 @@ class TestHashChainServiceAdapter:
         """Smoke test for HashChainServiceAdapter.builder using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.builder()
+            instance.builder()
         except (Exception, SystemExit) as e:
             pytest.skip(f"builder needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestHashChainServiceAdapter:
         """Smoke test for HashChainServiceAdapter.append using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.append(chain_type="test_value", chain_id=uuid4(), payload={}, payload_type="test_value", payload_ref_id=uuid4(), created_by=uuid4(), metadata={}, sign=True, timestamp_token="test_value")
+            await instance.append(chain_type="test_value", chain_id=uuid4(), payload={}, payload_type="test_value", payload_ref_id=uuid4(), created_by=uuid4(), metadata={}, sign=True, timestamp_token="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"append needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestHashChainServiceAdapter:
         """Smoke test for HashChainServiceAdapter.verify_chain using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_chain(chain_type="test_value", chain_id=uuid4(), deep_verify=True, check_signatures=True)
+            await instance.verify_chain(chain_type="test_value", chain_id=uuid4(), deep_verify=True, check_signatures=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_chain needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestHashChainServiceAdapter:
         """Smoke test for HashChainServiceAdapter.get_last_hash using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_hash(chain_type="test_value", chain_id=uuid4())
+            await instance.get_last_hash(chain_type="test_value", chain_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_hash needs specific domain fixtures/data: {e}")
             return

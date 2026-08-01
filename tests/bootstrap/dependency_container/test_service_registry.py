@@ -37,7 +37,7 @@ class TestServiceRegistry:
         """Smoke test for ServiceRegistry.set_container using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_container(container=MagicMock())
+            instance.set_container(container=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_container needs specific domain fixtures/data: {e}")
             return
@@ -48,7 +48,7 @@ class TestServiceRegistry:
         """Smoke test for ServiceRegistry.register_service using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_service(interface=MagicMock(), implementation=MagicMock(), lifetime=MagicMock(), name="test_value")
+            instance.register_service(interface=MagicMock(), implementation=MagicMock(), lifetime=MagicMock(), name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_service needs specific domain fixtures/data: {e}")
             return
@@ -59,7 +59,7 @@ class TestServiceRegistry:
         """Smoke test for ServiceRegistry.register_alias using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_alias(alias="test_value", target="test_value")
+            instance.register_alias(alias="test_value", target="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_alias needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestServiceRegistry:
         """Smoke test for ServiceRegistry.get_service using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_service(service_name="test_value")
+            instance.get_service(service_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_service needs specific domain fixtures/data: {e}")
             return
@@ -96,8 +96,8 @@ class TestServiceRegistrar:
     async def test_register_all_smoke(self):
         """Smoke test for ServiceRegistrar.register_all using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await ServiceRegistrar.register_all(container=MagicMock())
+            self._build_instance()
+            await ServiceRegistrar.register_all(container=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_all needs specific domain fixtures/data: {e}")
             return
@@ -107,8 +107,8 @@ class TestServiceRegistrar:
     def test_register_all_sync_smoke(self):
         """Smoke test for ServiceRegistrar.register_all_sync using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = ServiceRegistrar.register_all_sync()
+            self._build_instance()
+            ServiceRegistrar.register_all_sync()
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_all_sync needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestServiceRegistrar:
 def test_service_smoke():
     """Smoke test for module-level function service."""
     try:
-        result = service(interface=MagicMock(), name="test_value", lifetime="test_value")
+        service(interface=MagicMock(), name="test_value", lifetime="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"service needs specific input data: {e}")
         return
@@ -129,7 +129,7 @@ def test_service_smoke():
 def test_get_service_registry_smoke():
     """Smoke test for module-level function get_service_registry."""
     try:
-        result = get_service_registry()
+        get_service_registry()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_service_registry needs specific input data: {e}")
         return

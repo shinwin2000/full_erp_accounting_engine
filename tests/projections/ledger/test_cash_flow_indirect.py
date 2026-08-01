@@ -54,7 +54,7 @@ class TestCashFlowIndirect:
         """Smoke test for CashFlowIndirect.get_cash_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_cash_balance(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_cash_balance(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cash_balance needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestCashFlowIndirect:
         """Smoke test for CashFlowIndirect.compute_operating_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_operating_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.compute_operating_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_operating_cash_flow needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestCashFlowIndirect:
         """Smoke test for CashFlowIndirect.compute_investing_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_investing_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.compute_investing_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_investing_cash_flow needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestCashFlowIndirect:
         """Smoke test for CashFlowIndirect.compute_financing_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_financing_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.compute_financing_cash_flow(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_financing_cash_flow needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestCashFlowStatementTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CashFlowStatementTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestCashFlowStatementTable:
 async def test_get_cash_flow_projection_smoke():
     """Smoke test for module-level function get_cash_flow_projection."""
     try:
-        result = await get_cash_flow_projection()
+        await get_cash_flow_projection()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_cash_flow_projection needs specific input data: {e}")
         return

@@ -31,8 +31,8 @@ class TestProjectTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ProjectTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -52,8 +52,8 @@ class TestTaskTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = TaskTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -73,8 +73,8 @@ class TestTimeEntryTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = TimeEntryTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -94,8 +94,8 @@ class TestExpenseEntryTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = ExpenseEntryTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -123,7 +123,7 @@ class TestSQLAlchemyProjectRepository:
         """Smoke test for SQLAlchemyProjectRepository.save_project using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_project(project=MagicMock())
+            await instance.save_project(project=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_project needs specific domain fixtures/data: {e}")
             return
@@ -134,7 +134,7 @@ class TestSQLAlchemyProjectRepository:
         """Smoke test for SQLAlchemyProjectRepository.get_project_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_project_by_id(project_id=uuid4())
+            await instance.get_project_by_id(project_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_project_by_id needs specific domain fixtures/data: {e}")
             return
@@ -145,7 +145,7 @@ class TestSQLAlchemyProjectRepository:
         """Smoke test for SQLAlchemyProjectRepository.get_project_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_project_by_code(project_code="test_value", legal_entity_id=uuid4())
+            await instance.get_project_by_code(project_code="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_project_by_code needs specific domain fixtures/data: {e}")
             return
@@ -156,7 +156,7 @@ class TestSQLAlchemyProjectRepository:
         """Smoke test for SQLAlchemyProjectRepository.list_projects_by_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_projects_by_legal_entity(legal_entity_id=uuid4(), status="test_value", limit=1, offset=1)
+            await instance.list_projects_by_legal_entity(legal_entity_id=uuid4(), status="test_value", limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_projects_by_legal_entity needs specific domain fixtures/data: {e}")
             return

@@ -26,23 +26,23 @@ class TestRevaluationTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            asset_id=MagicMock(),
-            revaluation_date=date.today(),
-            old_acquisition_cost=Decimal("100.00"),
-            new_acquisition_cost=Decimal("100.00"),
-            old_accumulated_depreciation=Decimal("100.00"),
-            new_accumulated_depreciation=Decimal("100.00"),
-            old_nbv=Decimal("100.00"),
-            new_nbv=Decimal("100.00"),
-            surplus_deficit=Decimal("100.00"),
-            currency="test_value",
-            reason="test_value",
-            journal_id=MagicMock(),
-            created_by=MagicMock(),
-            asset=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'asset_id': MagicMock(),
+            'revaluation_date': date.today(),
+            'old_acquisition_cost': Decimal("100.00"),
+            'new_acquisition_cost': Decimal("100.00"),
+            'old_accumulated_depreciation': Decimal("100.00"),
+            'new_accumulated_depreciation': Decimal("100.00"),
+            'old_nbv': Decimal("100.00"),
+            'new_nbv': Decimal("100.00"),
+            'surplus_deficit': Decimal("100.00"),
+            'currency': "test_value",
+            'reason': "test_value",
+            'journal_id': MagicMock(),
+            'created_by': MagicMock(),
+            'asset': MagicMock(),
+        }
         try:
             instance = RevaluationTable(**kwargs)
         except (Exception, SystemExit) as e:

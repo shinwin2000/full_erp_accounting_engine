@@ -963,13 +963,17 @@ class SODEnforcer(BaseSODEnforcer):
 
         applicable_rules = []
         for r in self._rules.values():
-            if r.rule_type == SODRuleType.TIME_BASED and r.is_active:
-                if transaction_type in r.parameters.get("transaction_types", []):
-                    threshold = r.parameters.get("threshold", Decimal(0))
-                    if not isinstance(threshold, Decimal):
-                        threshold = Decimal(str(threshold))
-                    if amount >= threshold:
-                        applicable_rules.append(r)
+            # FIX: SIM102 - Gabungkan kondisi nested if menjadi satu
+            if (
+                r.rule_type == SODRuleType.TIME_BASED
+                and r.is_active
+                and transaction_type in r.parameters.get("transaction_types", [])
+            ):
+                threshold = r.parameters.get("threshold", Decimal(0))
+                if not isinstance(threshold, Decimal):
+                    threshold = Decimal(str(threshold))
+                if amount >= threshold:
+                    applicable_rules.append(r)
 
         for rule in applicable_rules:
             min_hours = rule.parameters.get("min_hours", 2)
@@ -1111,7 +1115,7 @@ class SODEnforcer(BaseSODEnforcer):
 
         # Raise if any CRITICAL violation (or HIGH if strict mode)
         if raise_on_violation:
-            critical_severity = SODSeverity.CRITICAL
+            # FIX: F841 - Hapus variabel `critical_severity` yang tidak digunakan
             if self._strict_mode:
                 critical_violations = [
                     v for v in violations if v.severity in (SODSeverity.CRITICAL, SODSeverity.HIGH)

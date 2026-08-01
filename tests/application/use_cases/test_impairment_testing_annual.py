@@ -42,7 +42,7 @@ class TestImpairmentTestingCommand:
         """Smoke test for ImpairmentTestingCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -54,14 +54,14 @@ class TestImpairmentTestResult:
     """Tests for the ImpairmentTestResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            asset_name="test_value",
-            carrying_amount=Decimal("100.00"),
-            recoverable_amount=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            is_impaired=True,
-        )
+        return {
+            "asset_id": uuid4(),
+            "asset_name": "test_value",
+            "carrying_amount": Decimal("100.00"),
+            "recoverable_amount": Decimal("100.00"),
+            "impairment_loss": Decimal("100.00"),
+            "is_impaired": True,
+        }
 
     def test_construction_success(self):
         """ImpairmentTestResult can be constructed with valid field values."""
@@ -79,16 +79,16 @@ class TestImpairmentTestingResult:
     """Tests for the ImpairmentTestingResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            testing_id=uuid4(),
-            testing_date=date.today(),
-            cgu_id=uuid4(),
-            results=[MagicMock()],
-            total_impairment_loss=Decimal("100.00"),
-            journal_id=uuid4(),
-            reversal_recognized=True,
-            message="test_value",
-        )
+        return {
+            "testing_id": uuid4(),
+            "testing_date": date.today(),
+            "cgu_id": uuid4(),
+            "results": [MagicMock()],
+            "total_impairment_loss": Decimal("100.00"),
+            "journal_id": uuid4(),
+            "reversal_recognized": True,
+            "message": "test_value",
+        }
 
     def test_construction_success(self):
         """ImpairmentTestingResult can be constructed with valid field values."""
@@ -121,7 +121,7 @@ class TestImpairmentTestingUseCase:
         """Smoke test for ImpairmentTestingUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestImpairmentTestingUseCase:
         """Smoke test for ImpairmentTestingUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestImpairmentTestingUseCase:
         """Smoke test for ImpairmentTestingUseCase.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestImpairmentTestingUseCase:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -164,7 +164,7 @@ def test_audit_smoke():
 async def test_impairment_testing_handler_smoke():
     """Smoke test for module-level function impairment_testing_handler."""
     try:
-        result = await impairment_testing_handler(command=MagicMock(), use_case=MagicMock())
+        await impairment_testing_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"impairment_testing_handler needs specific input data: {e}")
         return

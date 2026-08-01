@@ -50,12 +50,12 @@ from domain.bank_cash.cash_disbursement_entity import (
 
 
 def _draft_disbursement(**overrides) -> CashDisbursementEntity:
-    defaults = dict(
-        disbursement_id=uuid4(), disbursement_number="CD-TEST-0001",
-        disbursement_type=CashDisbursementType.SUPPLIER_PAYMENT,
-        disbursement_date=datetime.now(UTC), amount=Decimal("1000000"), currency="IDR",
-        status=CashDisbursementStatus.DRAFT, approval_level_required=1,
-    )
+    defaults = {
+        "disbursement_id": uuid4(), "disbursement_number": "CD-TEST-0001",
+        "disbursement_type": CashDisbursementType.SUPPLIER_PAYMENT,
+        "disbursement_date": datetime.now(UTC), "amount": Decimal("1000000"), "currency": "IDR",
+        "status": CashDisbursementStatus.DRAFT, "approval_level_required": 1,
+    }
     defaults.update(overrides)
     return CashDisbursementEntity(**defaults)
 

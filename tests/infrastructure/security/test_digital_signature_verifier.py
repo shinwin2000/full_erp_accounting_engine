@@ -37,7 +37,7 @@ class TestDigitalSignatureVerifier:
         """Smoke test for DigitalSignatureVerifier.verify using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.verify(data="test_value", signature_b64="test_value", key_id="test_value")
+            instance.verify(data="test_value", signature_b64="test_value", key_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify needs specific domain fixtures/data: {e}")
             return
@@ -48,7 +48,7 @@ class TestDigitalSignatureVerifier:
         """Smoke test for DigitalSignatureVerifier.verify_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.verify_json(data={}, signature_b64="test_value", key_id="test_value", sort_keys=True)
+            instance.verify_json(data={}, signature_b64="test_value", key_id="test_value", sort_keys=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_json needs specific domain fixtures/data: {e}")
             return
@@ -59,7 +59,7 @@ class TestDigitalSignatureVerifier:
         """Smoke test for DigitalSignatureVerifier.verify_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.verify_batch(items=[{}])
+            instance.verify_batch(items=[{}])
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_batch needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestDigitalSignatureVerifier:
         """Smoke test for DigitalSignatureVerifier.verify_with_multiple_keys using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.verify_with_multiple_keys(data="test_value", signature_b64="test_value", key_ids=["test_value"])
+            instance.verify_with_multiple_keys(data="test_value", signature_b64="test_value", key_ids=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_with_multiple_keys needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestDigitalSignatureVerifier:
 def test_get_digital_signature_verifier_smoke():
     """Smoke test for module-level function get_digital_signature_verifier."""
     try:
-        result = get_digital_signature_verifier()
+        get_digital_signature_verifier()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_digital_signature_verifier needs specific input data: {e}")
         return
@@ -91,7 +91,7 @@ def test_get_digital_signature_verifier_smoke():
 def test_verify_signature_smoke():
     """Smoke test for module-level function verify_signature."""
     try:
-        result = verify_signature(data="test_value", signature_b64="test_value", key_id="test_value")
+        verify_signature(data="test_value", signature_b64="test_value", key_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"verify_signature needs specific input data: {e}")
         return
@@ -101,7 +101,7 @@ def test_verify_signature_smoke():
 def test_verify_json_signature_smoke():
     """Smoke test for module-level function verify_json_signature."""
     try:
-        result = verify_json_signature(data={}, signature_b64="test_value", key_id="test_value")
+        verify_json_signature(data={}, signature_b64="test_value", key_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"verify_json_signature needs specific input data: {e}")
         return

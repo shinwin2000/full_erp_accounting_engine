@@ -94,23 +94,23 @@ class TestCreateAssetRequest:
     """Tests for the CreateAssetRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            asset_category_id=uuid4(),
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            salvage_value=Decimal("100.00"),
-            useful_life_years=1,
-            depreciation_method="test_value",
-            location="test_value",
-            responsible_party=uuid4(),
-            description="test_value",
-            supplier_id=uuid4(),
-            invoice_number="test_value",
-            is_active=True,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'asset_code': "test_value",
+            'asset_name': "test_value",
+            'asset_category_id': uuid4(),
+            'acquisition_date': date.today(),
+            'acquisition_cost': Decimal("100.00"),
+            'salvage_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'depreciation_method': "test_value",
+            'location': "test_value",
+            'responsible_party': uuid4(),
+            'description': "test_value",
+            'supplier_id': uuid4(),
+            'invoice_number': "test_value",
+            'is_active': True,
+        }
 
     def test_construction_success(self):
         """CreateAssetRequest can be constructed with valid field values."""
@@ -128,15 +128,15 @@ class TestUpdateAssetRequest:
     """Tests for the UpdateAssetRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_name="test_value",
-            description="test_value",
-            location="test_value",
-            responsible_party=uuid4(),
-            salvage_value=Decimal("100.00"),
-            useful_life_years=1,
-            depreciation_method="test_value",
-        )
+        return {
+            'asset_name': "test_value",
+            'description': "test_value",
+            'location': "test_value",
+            'responsible_party': uuid4(),
+            'salvage_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'depreciation_method': "test_value",
+        }
 
     def test_construction_success(self):
         """UpdateAssetRequest can be constructed with valid field values."""
@@ -154,25 +154,25 @@ class TestAssetResponse:
     """Tests for the AssetResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            asset_type="test_value",
-            asset_category_id=uuid4(),
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            salvage_value=Decimal("100.00"),
-            useful_life_years=1,
-            depreciation_method="test_value",
-            accumulated_depreciation=Decimal("100.00"),
-            net_book_value=Decimal("100.00"),
-            location="test_value",
-            responsible_party=uuid4(),
-            status="test_value",
-            is_active=True,
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'asset_code': "test_value",
+            'asset_name': "test_value",
+            'asset_type': "test_value",
+            'asset_category_id': uuid4(),
+            'acquisition_date': date.today(),
+            'acquisition_cost': Decimal("100.00"),
+            'salvage_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'depreciation_method': "test_value",
+            'accumulated_depreciation': Decimal("100.00"),
+            'net_book_value': Decimal("100.00"),
+            'location': "test_value",
+            'responsible_party': uuid4(),
+            'status': "test_value",
+            'is_active': True,
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """AssetResponse can be constructed with valid field values."""
@@ -190,13 +190,13 @@ class TestDepreciationRunRequest:
     """Tests for the DepreciationRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            period_year=1,
-            period_month=1,
-            posting_date=date.today(),
-            user_id=uuid4(),
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'period_year': 1,
+            'period_month': 1,
+            'posting_date': date.today(),
+            'user_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """DepreciationRunRequest can be constructed with valid field values."""
@@ -214,13 +214,13 @@ class TestDepreciationRunResponse:
     """Tests for the DepreciationRunResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            total_assets_processed=1,
-            total_depreciation_amount=Decimal("100.00"),
-            posted_to_gl=True,
-            journal_id=uuid4(),
-            errors=["test_value"],
-        )
+        return {
+            'total_assets_processed': 1,
+            'total_depreciation_amount': Decimal("100.00"),
+            'posted_to_gl': True,
+            'journal_id': uuid4(),
+            'errors': ["test_value"],
+        }
 
     def test_construction_success(self):
         """DepreciationRunResponse can be constructed with valid field values."""
@@ -238,16 +238,16 @@ class TestDisposalRequest:
     """Tests for the DisposalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            disposal_date=date.today(),
-            disposal_type="test_value",
-            proceeds_amount=Decimal("100.00"),
-            disposal_cost=Decimal("100.00"),
-            reason="test_value",
-            customer_id=uuid4(),
-            invoice_number="test_value",
-        )
+        return {
+            'asset_id': uuid4(),
+            'disposal_date': date.today(),
+            'disposal_type': "test_value",
+            'proceeds_amount': Decimal("100.00"),
+            'disposal_cost': Decimal("100.00"),
+            'reason': "test_value",
+            'customer_id': uuid4(),
+            'invoice_number': "test_value",
+        }
 
     def test_construction_success(self):
         """DisposalRequest can be constructed with valid field values."""
@@ -265,15 +265,15 @@ class TestDisposalResponse:
     """Tests for the DisposalResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            asset_code="test_value",
-            disposal_date=date.today(),
-            proceeds=Decimal("100.00"),
-            cost=Decimal("100.00"),
-            gain_loss=Decimal("100.00"),
-            journal_id=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'asset_code': "test_value",
+            'disposal_date': date.today(),
+            'proceeds': Decimal("100.00"),
+            'cost': Decimal("100.00"),
+            'gain_loss': Decimal("100.00"),
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """DisposalResponse can be constructed with valid field values."""
@@ -291,13 +291,13 @@ class TestImpairmentTestRequest:
     """Tests for the ImpairmentTestRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            test_date=date.today(),
-            recoverable_amount=Decimal("100.00"),
-            method="test_value",
-            notes="test_value",
-        )
+        return {
+            'asset_id': uuid4(),
+            'test_date': date.today(),
+            'recoverable_amount': Decimal("100.00"),
+            'method': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """ImpairmentTestRequest can be constructed with valid field values."""
@@ -315,14 +315,14 @@ class TestImpairmentTestResponse:
     """Tests for the ImpairmentTestResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            carrying_amount=Decimal("100.00"),
-            recoverable_amount=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            needs_impairment=True,
-            journal_id=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'carrying_amount': Decimal("100.00"),
+            'recoverable_amount': Decimal("100.00"),
+            'impairment_loss': Decimal("100.00"),
+            'needs_impairment': True,
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """ImpairmentTestResponse can be constructed with valid field values."""
@@ -340,13 +340,13 @@ class TestRevaluationRequest:
     """Tests for the RevaluationRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            new_acquisition_cost=Decimal("100.00"),
-            revaluation_date=date.today(),
-            notes="test_value",
-            approved_by=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'new_acquisition_cost': Decimal("100.00"),
+            'revaluation_date': date.today(),
+            'notes': "test_value",
+            'approved_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """RevaluationRequest can be constructed with valid field values."""
@@ -364,14 +364,14 @@ class TestRevaluationResponse:
     """Tests for the RevaluationResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            old_net_book_value=Decimal("100.00"),
-            new_net_book_value=Decimal("100.00"),
-            revaluation_increase=Decimal("100.00"),
-            revaluation_decrease=Decimal("100.00"),
-            journal_id=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'old_net_book_value': Decimal("100.00"),
+            'new_net_book_value': Decimal("100.00"),
+            'revaluation_increase': Decimal("100.00"),
+            'revaluation_decrease': Decimal("100.00"),
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """RevaluationResponse can be constructed with valid field values."""
@@ -389,14 +389,14 @@ class TestAssetTransferRequest:
     """Tests for the AssetTransferRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            from_legal_entity_id=uuid4(),
-            to_legal_entity_id=uuid4(),
-            transfer_date=date.today(),
-            reason="test_value",
-            transferred_by=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'from_legal_entity_id': uuid4(),
+            'to_legal_entity_id': uuid4(),
+            'transfer_date': date.today(),
+            'reason': "test_value",
+            'transferred_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """AssetTransferRequest can be constructed with valid field values."""
@@ -414,13 +414,13 @@ class TestImpairmentReversalRequest:
     """Tests for the ImpairmentReversalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            reversal_date=date.today(),
-            reversal_amount=Decimal("100.00"),
-            reason="test_value",
-            approved_by=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'reversal_date': date.today(),
+            'reversal_amount': Decimal("100.00"),
+            'reason': "test_value",
+            'approved_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """ImpairmentReversalRequest can be constructed with valid field values."""
@@ -549,7 +549,7 @@ class TestFixedAssetService:
         """Smoke test for FixedAssetService.create_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_asset(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_asset(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_asset needs specific domain fixtures/data: {e}")
             return
@@ -560,7 +560,7 @@ class TestFixedAssetService:
         """Smoke test for FixedAssetService.update_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_asset(asset_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.update_asset(asset_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_asset needs specific domain fixtures/data: {e}")
             return
@@ -571,7 +571,7 @@ class TestFixedAssetService:
         """Smoke test for FixedAssetService.get_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_asset(asset_id=uuid4())
+            await instance.get_asset(asset_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_asset needs specific domain fixtures/data: {e}")
             return
@@ -582,7 +582,7 @@ class TestFixedAssetService:
         """Smoke test for FixedAssetService.list_assets using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_assets(legal_entity_id=uuid4(), asset_type="test_value", status="test_value", category_id=uuid4(), limit=1, offset=1)
+            await instance.list_assets(legal_entity_id=uuid4(), asset_type="test_value", status="test_value", category_id=uuid4(), limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_assets needs specific domain fixtures/data: {e}")
             return
@@ -593,7 +593,7 @@ class TestFixedAssetService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -603,7 +603,7 @@ def test_audit_smoke():
 async def test_create_fixed_asset_service_smoke():
     """Smoke test for module-level function create_fixed_asset_service."""
     try:
-        result = await create_fixed_asset_service(asset_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_fixed_asset_service(asset_repo=MagicMock(), ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_fixed_asset_service needs specific input data: {e}")
         return

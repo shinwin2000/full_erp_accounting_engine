@@ -51,7 +51,7 @@ class TestDuplicateDetectorFuzzy:
         """Smoke test for DuplicateDetectorFuzzy.detect_duplicates_in_stream using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.detect_duplicates_in_stream(stream_name="test_value")
+            await instance.detect_duplicates_in_stream(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"detect_duplicates_in_stream needs specific domain fixtures/data: {e}")
             return
@@ -62,7 +62,7 @@ class TestDuplicateDetectorFuzzy:
         """Smoke test for DuplicateDetectorFuzzy.scan_all_streams using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.scan_all_streams()
+            await instance.scan_all_streams()
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_all_streams needs specific domain fixtures/data: {e}")
             return
@@ -73,7 +73,7 @@ class TestDuplicateDetectorFuzzy:
         """Smoke test for DuplicateDetectorFuzzy.start_periodic_scan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_scan()
+            await instance.start_periodic_scan()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_scan needs specific domain fixtures/data: {e}")
             return
@@ -84,7 +84,7 @@ class TestDuplicateDetectorFuzzy:
         """Smoke test for DuplicateDetectorFuzzy.stop_periodic_scan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_periodic_scan()
+            await instance.stop_periodic_scan()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_periodic_scan needs specific domain fixtures/data: {e}")
             return
@@ -95,7 +95,7 @@ class TestDuplicateDetectorFuzzy:
 async def test_get_duplicate_detector_smoke():
     """Smoke test for module-level function get_duplicate_detector."""
     try:
-        result = await get_duplicate_detector()
+        await get_duplicate_detector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_duplicate_detector needs specific input data: {e}")
         return

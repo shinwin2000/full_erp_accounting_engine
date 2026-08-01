@@ -47,7 +47,7 @@ class TestGapDetector:
         """Smoke test for GapDetector.detect_sequence_gaps using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.detect_sequence_gaps(stream_name="test_value")
+            await instance.detect_sequence_gaps(stream_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"detect_sequence_gaps needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestGapDetector:
         """Smoke test for GapDetector.detect_timestamp_gaps using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.detect_timestamp_gaps(stream_name="test_value", max_gap_seconds=1)
+            await instance.detect_timestamp_gaps(stream_name="test_value", max_gap_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"detect_timestamp_gaps needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestGapDetector:
         """Smoke test for GapDetector.scan_all_streams using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.scan_all_streams()
+            await instance.scan_all_streams()
         except (Exception, SystemExit) as e:
             pytest.skip(f"scan_all_streams needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestGapDetector:
         """Smoke test for GapDetector.start_periodic_scan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_scan()
+            await instance.start_periodic_scan()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_scan needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestGapDetector:
 async def test_get_gap_detector_smoke():
     """Smoke test for module-level function get_gap_detector."""
     try:
-        result = await get_gap_detector()
+        await get_gap_detector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_gap_detector needs specific input data: {e}")
         return

@@ -26,20 +26,20 @@ class TestDeliveryOrderLinesTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            delivery_order_id=uuid4(),
-            sales_order_line_id=uuid4(),
-            line_number=1,
-            item_id=uuid4(),
-            item_code="test_value",
-            item_name="test_value",
-            quantity_shipped=Decimal("100.00"),
-            batch_number="test_value",
-            legal_entity_id=uuid4(),
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'delivery_order_id': uuid4(),
+            'sales_order_line_id': uuid4(),
+            'line_number': 1,
+            'item_id': uuid4(),
+            'item_code': "test_value",
+            'item_name': "test_value",
+            'quantity_shipped': Decimal("100.00"),
+            'batch_number': "test_value",
+            'legal_entity_id': uuid4(),
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+        }
         try:
             instance = DeliveryOrderLinesTable(**kwargs)
         except (Exception, SystemExit) as e:

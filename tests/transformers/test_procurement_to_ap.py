@@ -51,7 +51,7 @@ class TestBaseTransformer:
 
     def test_take_snapshot_limit(self):
         t = BaseTransformer()
-        for i in range(15):
+        for _i in range(15):
             t._take_snapshot()
         assert len(t._snapshots) == 10
 
@@ -209,7 +209,7 @@ class TestProcurementToAPTransformer:
 
     # ---- Constructor ----
     def test_construction(self, mock_deps):
-        with patch('transformers.procurement_to_ap.ThreeWayMatchEngine') as mock_me:
+        with patch('transformers.procurement_to_ap.ThreeWayMatchEngine'):
             t = ProcurementToAPTransformer(
                 command_bus=mock_deps["command_bus"],
                 ap_service=mock_deps["ap_service"],
@@ -661,7 +661,7 @@ class TestProcurementToAPTransformer:
     # ---- from_dict ----
     def test_from_dict(self):
         data = {"version": 3, "transformer_id": "123"}
-        with patch('transformers.procurement_to_ap.ThreeWayMatchEngine') as mock_me:
+        with patch('transformers.procurement_to_ap.ThreeWayMatchEngine'):
             t = ProcurementToAPTransformer.from_dict(data)
             assert t._version == 3
             assert t._transformer_id == "123"

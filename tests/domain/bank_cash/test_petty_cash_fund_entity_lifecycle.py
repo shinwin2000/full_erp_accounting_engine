@@ -34,13 +34,13 @@ from domain.bank_cash.petty_cash_fund_entity import PettyCashFundEntity, PettyCa
 
 
 def _pending_petty_cash(**overrides) -> PettyCashFundEntity:
-    defaults = dict(
-        petty_cash_id=uuid4(), petty_cash_code="PC-TEST-001", petty_cash_name="Kas Kecil Test",
-        legal_entity_id=uuid4(), currency="IDR", initial_fund=Decimal("2000000"),
-        current_balance=Decimal("2000000"), total_disbursements=Decimal("0"),
-        replenishment_threshold=Decimal("1000000"), replenishment_amount=Decimal("2000000"),
-        status=PettyCashStatus.PENDING_APPROVAL, custodian_name="Budi Santoso",
-    )
+    defaults = {
+        "petty_cash_id": uuid4(), "petty_cash_code": "PC-TEST-001", "petty_cash_name": "Kas Kecil Test",
+        "legal_entity_id": uuid4(), "currency": "IDR", "initial_fund": Decimal("2000000"),
+        "current_balance": Decimal("2000000"), "total_disbursements": Decimal("0"),
+        "replenishment_threshold": Decimal("1000000"), "replenishment_amount": Decimal("2000000"),
+        "status": PettyCashStatus.PENDING_APPROVAL, "custodian_name": "Budi Santoso",
+    }
     defaults.update(overrides)
     return PettyCashFundEntity(**defaults)
 

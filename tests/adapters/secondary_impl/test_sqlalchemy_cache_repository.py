@@ -35,7 +35,7 @@ class Test_InMemoryCache:
         """Smoke test for _InMemoryCache.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get(key="test_value")
+            await instance.get(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -46,7 +46,7 @@ class Test_InMemoryCache:
         """Smoke test for _InMemoryCache.set using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set(key="test_value", value=MagicMock(), ttl=1)
+            await instance.set(key="test_value", value=MagicMock(), ttl=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"set needs specific domain fixtures/data: {e}")
             return
@@ -57,7 +57,7 @@ class Test_InMemoryCache:
         """Smoke test for _InMemoryCache.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(key="test_value")
+            await instance.delete(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class Test_InMemoryCache:
         """Smoke test for _InMemoryCache.exists using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.exists(key="test_value")
+            await instance.exists(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"exists needs specific domain fixtures/data: {e}")
             return
@@ -95,7 +95,7 @@ class TestSQLAlchemyCacheRepository:
         """Smoke test for SQLAlchemyCacheRepository.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get(key="test_value")
+            await instance.get(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -106,7 +106,7 @@ class TestSQLAlchemyCacheRepository:
         """Smoke test for SQLAlchemyCacheRepository.set using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.set(key="test_value", value=MagicMock(), ttl=1)
+            await instance.set(key="test_value", value=MagicMock(), ttl=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"set needs specific domain fixtures/data: {e}")
             return
@@ -117,7 +117,7 @@ class TestSQLAlchemyCacheRepository:
         """Smoke test for SQLAlchemyCacheRepository.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(key="test_value")
+            await instance.delete(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -128,7 +128,7 @@ class TestSQLAlchemyCacheRepository:
         """Smoke test for SQLAlchemyCacheRepository.exists using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.exists(key="test_value")
+            await instance.exists(key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"exists needs specific domain fixtures/data: {e}")
             return

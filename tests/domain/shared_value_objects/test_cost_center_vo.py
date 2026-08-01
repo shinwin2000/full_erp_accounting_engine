@@ -426,7 +426,7 @@ class TestHelperFunctions:
         child1 = CostCenterVO.create_child("1010", "IT", "1000")
         child2 = CostCenterVO.create_child("1020", "HR", "1000")
         child3 = CostCenterVO.create_child("2010", "Accounting", "2000")
-        cost_centers = roots + [child1, child2, child3]
+        cost_centers = [*roots, child1, child2, child3]
         hierarchy = build_cost_center_hierarchy(cost_centers)
 
         # Check root children

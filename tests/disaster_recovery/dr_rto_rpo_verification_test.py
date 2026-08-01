@@ -459,7 +459,7 @@ class TestRTO_RPO_VerificationTest:
                 failover = MagicMock(return_value="ok")
                 with patch("time.time") as mock_time_time:
                     mock_time_time.side_effect = [1000.0, 1004.0]
-                    metrics = rto_rpo_tester.simulate_failure(failover)
+                    rto_rpo_tester.simulate_failure(failover)
                     mock_gauge.assert_called()
 
     def test_run_with_timeout_success(self, rto_rpo_tester):
@@ -472,7 +472,7 @@ class TestRTO_RPO_VerificationTest:
         def slow_func():
             time.sleep(100)
             return "ok"
-        with patch("threading.Thread.join") as mock_join:
+        with patch("threading.Thread.join"):
             with patch("threading.Thread.is_alive") as mock_is_alive:
                 mock_is_alive.return_value = True
                 with pytest.raises(TimeoutError):
@@ -481,9 +481,8 @@ class TestRTO_RPO_VerificationTest:
     def test_run_with_timeout_exception(self, rto_rpo_tester):
         def error_func():
             raise ValueError("bad")
-        with patch("threading.Thread.join"):
-            with pytest.raises(ValueError, match="bad"):
-                rto_rpo_tester._run_with_timeout(error_func, timeout=10)
+        with patch("threading.Thread.join"), pytest.raises(ValueError, match="bad"):
+            rto_rpo_tester._run_with_timeout(error_func, timeout=10)
 
     def test_get_last_metrics(self, rto_rpo_tester, sample_dr_metrics):
         assert rto_rpo_tester.get_last_metrics() is None

@@ -35,7 +35,7 @@ class TestMinioEvidenceAdapter:
         """Smoke test for MinioEvidenceAdapter.upload_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload_evidence(file_content=MagicMock(), file_name="test_value", transaction_type="test_value", transaction_id="test_value", metadata={})
+            await instance.upload_evidence(file_content=MagicMock(), file_name="test_value", transaction_type="test_value", transaction_id="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload_evidence needs specific domain fixtures/data: {e}")
             return
@@ -46,7 +46,7 @@ class TestMinioEvidenceAdapter:
         """Smoke test for MinioEvidenceAdapter.download_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download_evidence(file_uri="test_value", verify_hash=True)
+            await instance.download_evidence(file_uri="test_value", verify_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"download_evidence needs specific domain fixtures/data: {e}")
             return
@@ -57,7 +57,7 @@ class TestMinioEvidenceAdapter:
         """Smoke test for MinioEvidenceAdapter.upload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, bucket="test_value")
+            await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, bucket="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestMinioEvidenceAdapter:
         """Smoke test for MinioEvidenceAdapter.download using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download(file_uri="test_value")
+            await instance.download(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"download needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestMinioEvidenceAdapter:
 async def test_get_minio_evidence_adapter_smoke():
     """Smoke test for module-level function get_minio_evidence_adapter."""
     try:
-        result = await get_minio_evidence_adapter()
+        await get_minio_evidence_adapter()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_minio_evidence_adapter needs specific input data: {e}")
         return

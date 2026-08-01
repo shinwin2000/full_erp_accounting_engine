@@ -310,12 +310,12 @@ class TestPPh21Calculator:
         # Annual gross 120M, PTKP 63M -> taxable 57M -> tax = 2.85M (57M*5%)
         # Monthly tax = 2.85M/12 = 237500
         nett = PPh21Calculator.nett_salary(Decimal("10000000"), "K/1", Decimal("0"))
-        expected = Decimal("10000000") - Decimal("237500")  # ~9,762,500
+        Decimal("10000000") - Decimal("237500")  # ~9,762,500
         assert nett == Decimal("9762500")
 
         # With BPJS
         nett2 = PPh21Calculator.nett_salary(Decimal("10000000"), "K/1", Decimal("300000"))
-        expected2 = Decimal("10000000") - Decimal("237500") - Decimal("300000")
+        Decimal("10000000") - Decimal("237500") - Decimal("300000")
         assert nett2 == Decimal("9462500")
 
     # ---- validate, get_rate, calculate_tax (compatibility) ----

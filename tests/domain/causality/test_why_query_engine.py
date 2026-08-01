@@ -396,7 +396,7 @@ class TestWhyQueryEngine:
         engine._chain_builder.get_traceability_report.return_value = {"chain": [{"node_type": "INTENT"}]}
         engine._causality_tracker.get_upstream.return_value = []
         # Run queries
-        for i in range(5):
+        for _i in range(5):
             engine.query_why(
                 entity_id=uuid4(),
                 entity_type="journal",

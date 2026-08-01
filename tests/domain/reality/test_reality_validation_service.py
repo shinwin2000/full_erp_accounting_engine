@@ -223,8 +223,8 @@ def mock_event_service():
 def validation_service(mock_event_service):
     with patch("domain.reality.reality_validation_service.get_economic_event_service") as mock_get:
         mock_get.return_value = mock_event_service
-        with patch("domain.reality.reality_validation_service.get_financial_obligation_service") as mock_ob:
-            with patch("domain.reality.reality_validation_service.get_financial_entitlement_service") as mock_en:
+        with patch("domain.reality.reality_validation_service.get_financial_obligation_service"):
+            with patch("domain.reality.reality_validation_service.get_financial_entitlement_service"):
                 service = RealityValidationService()
                 service._event_service = mock_event_service
                 yield service
@@ -717,7 +717,7 @@ class TestGetValidationHistory:
         assert history == []
 
     def test_returns_limit(self, validation_service):
-        for i in range(5):
+        for _i in range(5):
             result = ValidationResult(is_valid=True, issues=[], warnings=[], validated_by="user")
             validation_service._validation_history.append(result)
         history = validation_service.get_validation_history(limit=3)

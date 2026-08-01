@@ -194,13 +194,14 @@ class BaseAuditHookInjector(ABC):
         """Return statistics."""
         return {}
 
+    @abstractmethod
     def reset(self) -> None:
         """Reset internal state."""
         pass
 
 
 # ============================================================================
-# AUDIT HOOK INJECTOR — LAZY WORKER
+# AUDIT HOOK INJECTOR = LAZY WORKER
 # ============================================================================
 
 
@@ -518,7 +519,8 @@ class AuditHookInjector(BaseAuditHookInjector):
             return f"<max depth {max_depth}>"
         if obj is None:
             return None
-        if isinstance(obj, (str, int, float, bool)):
+        # FIX: UP038 - use union types in isinstance
+        if isinstance(obj, str | int | float | bool):
             return obj
         if isinstance(obj, UUID):
             return str(obj)
@@ -531,7 +533,8 @@ class AuditHookInjector(BaseAuditHookInjector):
             if len(obj) > 20:
                 result["..."] = f"and {len(obj) - 20} more keys"
             return result
-        if isinstance(obj, (list, tuple)):
+        # FIX: UP038 - use union types in isinstance
+        if isinstance(obj, list | tuple):
             result = []
             for item in list(obj)[:10]:
                 result.append(self._safe_serialize(item, max_depth, current_depth + 1))

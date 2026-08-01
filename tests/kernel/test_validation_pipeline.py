@@ -60,14 +60,14 @@ class TestValidationResult:
     """Tests for the ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            stage=ValidationStage.PRE_VALIDATION,
-            status=ValidationStatus.PASS,
-            message="test_value",
-            details={},
-            duration_ms=1.5,
-            severity="test_value",
-        )
+        return {
+            'stage': ValidationStage.PRE_VALIDATION,
+            'status': ValidationStatus.PASS,
+            'message': "test_value",
+            'details': {},
+            'duration_ms': 1.5,
+            'severity': "test_value",
+        }
 
     def test_construction_success(self):
         """ValidationResult can be constructed with valid field values."""
@@ -85,16 +85,16 @@ class TestPipelineResult:
     """Tests for the PipelineResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            command_id=uuid4(),
-            command_type="test_value",
-            timestamp=datetime.now(UTC),
-            overall_status=ValidationStatus.PASS,
-            stage_results=[MagicMock()],
-            total_duration_ms=1.5,
-            rejection_reason="test_value",
-            required_approvals=["test_value"],
-        )
+        return {
+            'command_id': uuid4(),
+            'command_type': "test_value",
+            'timestamp': datetime.now(UTC),
+            'overall_status': ValidationStatus.PASS,
+            'stage_results': [MagicMock()],
+            'total_duration_ms': 1.5,
+            'rejection_reason': "test_value",
+            'required_approvals': ["test_value"],
+        }
 
     def test_construction_success(self):
         """PipelineResult can be constructed with valid field values."""
@@ -135,7 +135,7 @@ class TestValidationPipeline:
         """Smoke test for ValidationPipeline.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate(command_id=uuid4(), command_type="test_value", command_data={}, user_id="test_value", legal_entity_id=uuid4(), context={})
+            await instance.validate(command_id=uuid4(), command_type="test_value", command_data={}, user_id="test_value", legal_entity_id=uuid4(), context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -146,7 +146,7 @@ class TestValidationPipeline:
         """Smoke test for ValidationPipeline.get_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_history(limit=1)
+            instance.get_history(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_history needs specific domain fixtures/data: {e}")
             return
@@ -157,7 +157,7 @@ class TestValidationPipeline:
         """Smoke test for ValidationPipeline.get_statistics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_statistics()
+            instance.get_statistics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_statistics needs specific domain fixtures/data: {e}")
             return
@@ -168,7 +168,7 @@ class TestValidationPipeline:
         """Smoke test for ValidationPipeline.reset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.reset()
+            instance.reset()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reset needs specific domain fixtures/data: {e}")
             return
@@ -179,7 +179,7 @@ class TestValidationPipeline:
 def test_get_validation_pipeline_smoke():
     """Smoke test for module-level function get_validation_pipeline."""
     try:
-        result = get_validation_pipeline()
+        get_validation_pipeline()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_validation_pipeline needs specific input data: {e}")
         return

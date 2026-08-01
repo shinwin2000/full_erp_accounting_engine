@@ -378,12 +378,12 @@ class TestAuditStoryBuilder:
     def test_get_stories_by_transaction(self):
         builder = AuditStoryBuilder()
         tx_id = uuid4()
-        story1 = builder.build_audit_story(
+        builder.build_audit_story(
             transaction_id=tx_id,
             transaction_type="JOURNAL",
             generated_by="tester",
         )
-        story2 = builder.build_audit_story(
+        builder.build_audit_story(
             transaction_id=tx_id,
             transaction_type="INVOICE",
             generated_by="tester",
@@ -475,7 +475,7 @@ class TestAuditStoryBuilder:
 
     def test_get_statistics(self):
         builder = AuditStoryBuilder()
-        for i in range(3):
+        for _i in range(3):
             builder.build_audit_story(
                 transaction_id=uuid4(),
                 transaction_type="JOURNAL",

@@ -25,19 +25,19 @@ class TestUMKMProfileTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            business_name="test_value",
-            business_type="test_value",
-            taxpayer_npwp="test_value",
-            business_address="test_value",
-            uses_umkm_tax=True,
-            tax_method="test_value",
-            annual_revenue_threshold=1,
-            extra_metadata={},
-            created_by=MagicMock(),
-            updated_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'business_name': "test_value",
+            'business_type': "test_value",
+            'taxpayer_npwp': "test_value",
+            'business_address': "test_value",
+            'uses_umkm_tax': True,
+            'tax_method': "test_value",
+            'annual_revenue_threshold': 1,
+            'extra_metadata': {},
+            'created_by': MagicMock(),
+            'updated_by': MagicMock(),
+        }
         try:
             instance = UMKMProfileTable(**kwargs)
         except (Exception, SystemExit) as e:

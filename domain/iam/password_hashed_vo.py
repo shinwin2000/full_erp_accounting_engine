@@ -2,7 +2,7 @@
 """
 Module: password_hashed_vo.py
 Layer: Domain / IAM
-Responsibility: Value object password yang sudah di-hash dengan semua method value object.
+Responsibility: Value object for hashed passwords with full value object methods.
 """
 
 from __future__ import annotations
@@ -17,12 +17,10 @@ from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
-
 # ============================================================================
 # Constants
 # ============================================================================
 
-# Password policy constants
 MIN_PASSWORD_LENGTH: int = 8
 MAX_PASSWORD_LENGTH: int = 128
 PASSWORD_REQUIRES_UPPERCASE: bool = True
@@ -31,44 +29,26 @@ PASSWORD_REQUIRES_DIGIT: bool = True
 PASSWORD_REQUIRES_SPECIAL: bool = True
 SPECIAL_CHARS: str = "!@#$%^&*()_+-=[]{}|;:,.<>?"
 COMMON_PASSWORDS: set[str] = {
-    "password",
-    "123456",
-    "12345678",
-    "qwerty",
-    "abc123",
-    "monkey",
-    "letmein",
-    "dragon",
-    "baseball",
-    "iloveyou",
-    "trustno1",
-    "123456789",
-    "1234567890",
-    "admin",
-    "welcome",
-    "login",
-    "password1",
+    "password", "123456", "12345678", "qwerty", "abc123",
+    "monkey", "letmein", "dragon", "baseball", "iloveyou",
+    "trustno1", "123456789", "1234567890", "admin", "welcome",
+    "login", "password1",
 }
 
-# BCrypt constants
 BCRYPT_AVAILABLE: bool = False
 try:
     import bcrypt
-
     BCRYPT_AVAILABLE = True
 except ImportError:
     logger.warning("bcrypt not available, using PBKDF2 fallback")
 
-# Argon2 constants
 ARGON2_AVAILABLE: bool = False
 try:
     import argon2
-
     ARGON2_AVAILABLE = True
 except ImportError:
     pass
 
-# Default hashing parameters
 DEFAULT_BCRYPT_ROUNDS: int = 12
 DEFAULT_PBKDF2_ITERATIONS: int = 100000
 DEFAULT_PBKDF2_SALT_LENGTH: int = 32
@@ -76,60 +56,45 @@ DEFAULT_ARGON2_TIME_COST: int = 2
 DEFAULT_ARGON2_MEMORY_COST: int = 19456
 DEFAULT_ARGON2_PARALLELISM: int = 1
 
-
 # ============================================================================
 # Custom Exceptions
 # ============================================================================
 
-
 class PasswordError(ValueError):
     pass
-
 
 class PasswordTooShortError(PasswordError):
     pass
 
-
 class PasswordTooLongError(PasswordError):
     pass
-
 
 class PasswordMissingUppercaseError(PasswordError):
     pass
 
-
 class PasswordMissingLowercaseError(PasswordError):
     pass
-
 
 class PasswordMissingDigitError(PasswordError):
     pass
 
-
 class PasswordMissingSpecialError(PasswordError):
     pass
-
 
 class PasswordCommonError(PasswordError):
     pass
 
-
 class PasswordHashError(PasswordError):
     pass
 
-
 class PasswordVerifyError(PasswordError):
     pass
-
 
 # ============================================================================
 # Password Policy
 # ============================================================================
 
-
 class PasswordPolicy:
-    """Password policy configuration."""
-
     def __init__(
         self,
         min_length: int = MIN_PASSWORD_LENGTH,
@@ -155,58 +120,35 @@ class PasswordPolicy:
         self.max_repeated_chars = max_repeated_chars
 
     def validate(self, password: str, username: str | None = None) -> None:
-        """Validate password against policy."""
         if not password:
             raise PasswordError("Password cannot be empty")
-
         if len(password) < self.min_length:
             raise PasswordTooShortError(f"Password must be at least {self.min_length} characters")
-
         if len(password) > self.max_length:
             raise PasswordTooLongError(f"Password cannot exceed {self.max_length} characters")
-
         if self.require_uppercase and not any(c.isupper() for c in password):
-            raise PasswordMissingUppercaseError(
-                "Password must contain at least one uppercase letter"
-            )
-
+            raise PasswordMissingUppercaseError("Password must contain at least one uppercase letter")
         if self.require_lowercase and not any(c.islower() for c in password):
-            raise PasswordMissingLowercaseError(
-                "Password must contain at least one lowercase letter"
-            )
-
+            raise PasswordMissingLowercaseError("Password must contain at least one lowercase letter")
         if self.require_digit and not any(c.isdigit() for c in password):
             raise PasswordMissingDigitError("Password must contain at least one digit")
-
         if self.require_special and not any(c in self.special_chars for c in password):
-            raise PasswordMissingSpecialError(
-                f"Password must contain at least one special character: {self.special_chars}"
-            )
-
-        # Check for repeated characters
+            raise PasswordMissingSpecialError(f"Password must contain at least one special character: {self.special_chars}")
         if self.max_repeated_chars > 0:
             for i in range(len(password) - self.max_repeated_chars):
-                if len(set(password[i : i + self.max_repeated_chars + 1])) == 1:
-                    raise PasswordError(
-                        f"Password cannot contain more than {self.max_repeated_chars} repeated characters"
-                    )
-
-        # Check for common passwords
+                if len(set(password[i:i + self.max_repeated_chars + 1])) == 1:
+                    raise PasswordError(f"Password cannot contain more than {self.max_repeated_chars} repeated characters")
         if self.forbid_common and password.lower() in COMMON_PASSWORDS:
             raise PasswordCommonError("Password is too common. Please choose a stronger password")
-
-        # Check if password contains username
         if self.forbid_username and username:
             username_lower = username.lower()
             password_lower = password.lower()
             if username_lower in password_lower or password_lower in username_lower:
                 raise PasswordError("Password cannot contain username")
 
-
 # ============================================================================
 # Password Hashed Value Object
 # ============================================================================
-
 
 @dataclass(frozen=True)
 class PasswordHashedVO:
@@ -220,53 +162,41 @@ class PasswordHashedVO:
     _cache: ClassVar[dict[str, PasswordHashedVO]] = {}
 
     def __post_init__(self) -> None:
-        """Validate hash format."""
+        """Validate hash format and extract rounds for bcrypt."""
         if not self.hashed_value or len(self.hashed_value) < 10:
             raise PasswordHashError("Invalid password hash")
-        # For bcrypt, iterations represents rounds (valid range: 4-31)
-        # For other algorithms, iterations should be >= 1000
-        if self.algorithm == "bcrypt":
-            if not (4 <= self.iterations <= 31):
-                raise PasswordHashError(f"Invalid bcrypt rounds: {self.iterations} (must be 4-31)")
-        elif self.iterations < 1000:
+
+        # For bcrypt, extract rounds from the hash itself
+        if self.algorithm == "bcrypt" and self.hashed_value.startswith("$2"):
+            try:
+                parts = self.hashed_value.split('$')
+                if len(parts) >= 3:
+                    rounds = int(parts[2])
+                    object.__setattr__(self, 'iterations', rounds)
+                    if not (4 <= rounds <= 31):
+                        raise PasswordHashError(f"Invalid bcrypt rounds: {rounds} (must be 4-31)")
+                else:
+                    raise PasswordHashError("Invalid bcrypt hash format")
+            except (IndexError, ValueError) as e:
+                raise PasswordHashError(f"Could not parse bcrypt hash: {e}")
+
+        # Validate iterations for other algorithms
+        if self.algorithm != "bcrypt" and self.iterations < 1000:
             raise PasswordHashError(f"Invalid iterations: {self.iterations}")
 
-    # ==================== FACTORY METHODS ====================
-
+    # Factory methods
     @classmethod
     def set_policy(cls, policy: PasswordPolicy) -> None:
-        """Set global password policy."""
         cls._policy = policy
 
     @classmethod
     def get_policy(cls) -> PasswordPolicy:
-        """Get global password policy."""
         return cls._policy
 
     @classmethod
-    def create_from_plain(
-        cls,
-        plain_password: str,
-        username: str | None = None,
-        algorithm: str | None = None,
-    ) -> PasswordHashedVO:
-        """
-        Create PasswordHashedVO from plain password.
-
-        Args:
-            plain_password: Password in plaintext
-            username: Optional username for policy validation
-            algorithm: Hashing algorithm ('bcrypt', 'argon2', 'pbkdf2_sha256')
-
-        Returns:
-            PasswordHashedVO with generated hash
-        """
-        # Validate password strength
+    def create_from_plain(cls, plain_password: str, username: str | None = None, algorithm: str | None = None) -> PasswordHashedVO:
         cls._policy.validate(plain_password, username)
-
-        # Select algorithm
         algo = algorithm or ("bcrypt" if BCRYPT_AVAILABLE else "pbkdf2_sha256")
-
         if algo == "bcrypt" and BCRYPT_AVAILABLE:
             return cls._hash_bcrypt(plain_password)
         elif algo == "argon2" and ARGON2_AVAILABLE:
@@ -276,7 +206,6 @@ class PasswordHashedVO:
 
     @classmethod
     def _hash_bcrypt(cls, plain_password: str) -> PasswordHashedVO:
-        """Hash password using bcrypt."""
         salt = bcrypt.gensalt(rounds=DEFAULT_BCRYPT_ROUNDS)
         hashed = bcrypt.hashpw(plain_password.encode("utf-8"), salt)
         return cls(
@@ -288,7 +217,6 @@ class PasswordHashedVO:
 
     @classmethod
     def _hash_argon2(cls, plain_password: str) -> PasswordHashedVO:
-        """Hash password using Argon2."""
         ph = argon2.PasswordHasher(
             time_cost=DEFAULT_ARGON2_TIME_COST,
             memory_cost=DEFAULT_ARGON2_MEMORY_COST,
@@ -303,16 +231,9 @@ class PasswordHashedVO:
 
     @classmethod
     def _hash_pbkdf2(cls, plain_password: str) -> PasswordHashedVO:
-        """Hash password using PBKDF2-SHA256."""
         salt = secrets.token_bytes(DEFAULT_PBKDF2_SALT_LENGTH)
         iterations = DEFAULT_PBKDF2_ITERATIONS
-        hash_obj = hashlib.pbkdf2_hmac(
-            "sha256",
-            plain_password.encode("utf-8"),
-            salt,
-            iterations,
-        )
-        # Format: algorithm$iterations$salt$hash
+        hash_obj = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), salt, iterations)
         hashed_value = f"pbkdf2_sha256${iterations}${salt.hex()}${hash_obj.hex()}"
         return cls(
             hashed_value=hashed_value,
@@ -323,37 +244,21 @@ class PasswordHashedVO:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PasswordHashedVO:
-        """Reconstruct from dictionary."""
         return cls(
             hashed_value=data["hashed_value"],
             algorithm=data.get("algorithm", "pbkdf2_sha256"),
             salt=data.get("salt"),
             iterations=data.get("iterations", DEFAULT_PBKDF2_ITERATIONS),
-            created_at=datetime.fromisoformat(data["created_at"])
-            if data.get("created_at")
-            else datetime.now(UTC),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC),
         )
 
-    # ==================== VERIFICATION METHODS ====================
-
+    # Verification methods
     def verify(self, plain_password: str) -> bool:
-        """
-        Verify plain password against hash.
-
-        Args:
-            plain_password: Password in plaintext
-
-        Returns:
-            True if password matches, False otherwise
-        """
         if not plain_password:
             return False
-
         try:
             if self.algorithm == "bcrypt" and BCRYPT_AVAILABLE:
-                return bcrypt.checkpw(
-                    plain_password.encode("utf-8"), self.hashed_value.encode("utf-8")
-                )
+                return bcrypt.checkpw(plain_password.encode("utf-8"), self.hashed_value.encode("utf-8"))
             elif self.algorithm == "argon2" and ARGON2_AVAILABLE:
                 ph = argon2.PasswordHasher()
                 try:
@@ -367,98 +272,60 @@ class PasswordHashedVO:
                 logger.warning(f"Unknown hash algorithm: {self.algorithm}")
                 return False
         except (ValueError, TypeError, UnicodeDecodeError) as e:
-            # Log error details without exposing the password, then return False as business result
             logger.error(f"Verification error: {type(e).__name__}", exc_info=True)
-            return False  # explicit business result for failure
+            return False
 
     def _verify_pbkdf2(self, plain_password: str) -> bool:
-        """Verify password against PBKDF2 hash."""
         try:
-            # Parse format: pbkdf2_sha256$iterations$salt$hash
             parts = self.hashed_value.split("$")
             if len(parts) != 4:
                 return False
-
             iterations = int(parts[1])
             salt = bytes.fromhex(parts[2])
             expected_hash = parts[3]
-
-            computed = hashlib.pbkdf2_hmac(
-                "sha256",
-                plain_password.encode("utf-8"),
-                salt,
-                iterations,
-            )
+            computed = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), salt, iterations)
             return hmac.compare_digest(computed.hex(), expected_hash)
         except (ValueError, TypeError) as e:
-            # Log error without exposing the password, then return False as business result
             logger.error(f"PBKDF2 verification error: {type(e).__name__}", exc_info=True)
-            return False  # explicit business result for failure
+            return False
 
-    # ==================== PASSWORD STRENGTH METHODS ====================
-
+    # Password strength
     @classmethod
     def validate_password_strength(cls, password: str, username: str | None = None) -> None:
-        """
-        Validate password strength according to policy.
-
-        Args:
-            password: Password to validate
-            username: Optional username for policy validation
-
-        Raises:
-            PasswordError: If password does not meet policy requirements
-        """
         cls._policy.validate(password, username)
 
     @classmethod
     def check_password_strength(cls, password: str, username: str | None = None) -> dict[str, Any]:
-        """
-        Check password strength and return detailed results.
-
-        Returns:
-            Dictionary with strength score and issues
-        """
         issues = []
         score = 100
-
         if len(password) < MIN_PASSWORD_LENGTH:
             issues.append(f"At least {MIN_PASSWORD_LENGTH} characters")
             score -= 20
         elif len(password) > MAX_PASSWORD_LENGTH:
             issues.append(f"No more than {MAX_PASSWORD_LENGTH} characters")
             score -= 10
-
         if PASSWORD_REQUIRES_UPPERCASE and not any(c.isupper() for c in password):
             issues.append("At least one uppercase letter")
             score -= 15
-
         if PASSWORD_REQUIRES_LOWERCASE and not any(c.islower() for c in password):
             issues.append("At least one lowercase letter")
             score -= 15
-
         if PASSWORD_REQUIRES_DIGIT and not any(c.isdigit() for c in password):
             issues.append("At least one digit")
             score -= 15
-
         if PASSWORD_REQUIRES_SPECIAL and not any(c in SPECIAL_CHARS for c in password):
             issues.append(f"At least one special character: {SPECIAL_CHARS}")
             score -= 15
-
         if password.lower() in COMMON_PASSWORDS:
             issues.append("Not a common password")
             score -= 20
-
         if username and username.lower() in password.lower():
             issues.append("Does not contain username")
             score -= 10
-
-        # Additional entropy checks
         unique_chars = len(set(password))
         if unique_chars < 5:
             issues.append("More unique characters")
             score -= 10
-
         return {
             "score": max(0, score),
             "strength": cls._get_strength_label(score),
@@ -468,7 +335,6 @@ class PasswordHashedVO:
 
     @staticmethod
     def _get_strength_label(score: int) -> str:
-        """Get strength label based on score."""
         if score >= 80:
             return "strong"
         elif score >= 60:
@@ -478,25 +344,15 @@ class PasswordHashedVO:
         else:
             return "very_weak"
 
-    # ==================== HASH MANAGEMENT METHODS ====================
-
+    # Hash management
     def needs_rehash(self) -> bool:
-        """
-        Check if hash needs to be upgraded to newer algorithm.
-
-        Returns:
-            True if hash should be rehashed with stronger parameters
-        """
         if self.algorithm == "bcrypt":
-            # Check if rounds are sufficient (at least 12)
             try:
-                # Extract rounds from bcrypt hash
-                # Bcrypt format: $2b$12$...
                 if self.hashed_value.startswith("$2b$"):
-                    rounds = int(self.hashed_value.split("$")[2])
+                    parts = self.hashed_value.split("$")
+                    rounds = int(parts[2])
                     return rounds < DEFAULT_BCRYPT_ROUNDS
             except (ValueError, IndexError):
-                # If parsing fails, assume it needs rehash
                 return True
             return False
         elif self.algorithm == "argon2":
@@ -506,21 +362,10 @@ class PasswordHashedVO:
         return True
 
     def upgrade_hash(self, plain_password: str) -> PasswordHashedVO:
-        """
-        Upgrade hash to current algorithm and parameters.
-
-        Args:
-            plain_password: Original plain password
-
-        Returns:
-            New PasswordHashedVO with upgraded hash
-        """
         return self.create_from_plain(plain_password)
 
-    # ==================== SERIALIZATION ====================
-
+    # Serialization
     def to_dict(self) -> dict[str, Any]:
-        """Convert to JSON-serializable dict."""
         return {
             "hashed_value": self.hashed_value,
             "algorithm": self.algorithm,
@@ -530,7 +375,6 @@ class PasswordHashedVO:
         }
 
     def to_db_record(self) -> dict[str, Any]:
-        """Convert to database-friendly format."""
         return {
             "password_hash": self.hashed_value,
             "password_algorithm": self.algorithm,
@@ -539,8 +383,7 @@ class PasswordHashedVO:
             "password_created_at": self.created_at,
         }
 
-    # ==================== DUNDER METHODS ====================
-
+    # Dunder
     def __str__(self) -> str:
         return f"PasswordHashedVO(algorithm={self.algorithm}, hash={self.hashed_value[:20]}...)"
 
@@ -560,47 +403,24 @@ class PasswordHashedVO:
 # Helper Functions
 # ============================================================================
 
-
 def generate_random_password(length: int = 12, include_special: bool = True) -> str:
-    """
-    Generate a random secure password.
-
-    Args:
-        length: Password length
-        include_special: Whether to include special characters
-
-    Returns:
-        Random password string
-    """
     chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     if include_special:
         chars += SPECIAL_CHARS
-
     return "".join(secrets.choice(chars) for _ in range(length))
 
-
 def hash_password(plain_password: str, username: str | None = None) -> PasswordHashedVO:
-    """Convenience function to hash a password."""
     return PasswordHashedVO.create_from_plain(plain_password, username)
 
-
 def verify_password(plain_password: str, hashed_password: PasswordHashedVO) -> bool:
-    """Convenience function to verify a password."""
     return hashed_password.verify(plain_password)
 
-
 def is_password_strong(password: str) -> bool:
-    """Quick check if password is strong enough."""
     try:
         PasswordHashedVO.validate_password_strength(password)
         return True
     except PasswordError:
         return False
-
-
-# ============================================================================
-# Exports
-# ============================================================================
 
 __all__ = [
     "BCRYPT_AVAILABLE",

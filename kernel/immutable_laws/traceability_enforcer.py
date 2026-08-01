@@ -848,12 +848,12 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
         for i in range(1, len(chain)):
             prev = chain[i - 1]
             curr = chain[i]
-            if curr.get("causation_id"):
-                if curr["causation_id"] != prev["transaction_id"]:
-                    issues.append(
-                        f"Chain break at {curr['transaction_id']}: causation {curr['causation_id']} "
-                        f"does not match previous {prev['transaction_id']}"
-                    )
+            # Gabungkan dua kondisi menjadi satu (SIM102)
+            if curr.get("causation_id") and curr["causation_id"] != prev["transaction_id"]:
+                issues.append(
+                    f"Chain break at {curr['transaction_id']}: causation {curr['causation_id']} "
+                    f"does not match previous {prev['transaction_id']}"
+                )
 
         for item in chain:
             if not item.get("source_type"):

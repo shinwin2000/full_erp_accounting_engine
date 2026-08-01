@@ -99,11 +99,8 @@ class FiscalPeriod:
 
     def is_open_for_posting(self, allow_locked: bool = False) -> bool:
         """Apakah periode terbuka untuk posting."""
-        if self.status == PeriodStatus.OPEN:
-            return True
-        if allow_locked and self.status == PeriodStatus.LOCKED:
-            return True
-        return False
+        # FIX: SIM103 - return condition directly
+        return self.status == PeriodStatus.OPEN or (allow_locked and self.status == PeriodStatus.LOCKED)
 
     def can_be_adjusted(self) -> bool:
         """Apakah periode dapat menerima jurnal penyesuaian."""

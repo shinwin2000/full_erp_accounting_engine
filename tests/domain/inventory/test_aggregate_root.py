@@ -399,7 +399,6 @@ class TestInventoryAggregate:
         agg = sample_aggregate
         initial_stock = agg.current_stock
         initial_value = agg.current_stock_value
-        initial_avg = agg.average_cost
 
         agg.receive_stock(stock_movement, user_id)
 
@@ -542,7 +541,7 @@ class TestInventoryAggregate:
         unit_cost = Decimal("50")  # Not used for decrease, FIFO takes cost
         agg.adjust_stock(adjustment_amount, AdjustmentReason.SPOILAGE, unit_cost, user_id)
 
-        expected_stock = initial_stock + adjustment_amount  # 100 - 30 = 70
+        initial_stock + adjustment_amount  # 100 - 30 = 70
         # FIFO cost: 30 * 50 = 1500
         expected_value = initial_value - Decimal("1500")
         assert agg.current_stock == Decimal("70")

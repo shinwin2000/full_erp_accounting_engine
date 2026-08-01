@@ -105,7 +105,7 @@ class TestBackupMetadata:
         """Smoke test for BackupMetadata.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -115,8 +115,8 @@ class TestBackupMetadata:
     def test_from_dict_smoke(self):
         """Smoke test for BackupMetadata.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = BackupMetadata.from_dict(data={})
+            self._build_instance()
+            BackupMetadata.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestEventStoreBackupArchiver:
         """Smoke test for EventStoreBackupArchiver.create_full_backup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_full_backup()
+            await instance.create_full_backup()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_full_backup needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestEventStoreBackupArchiver:
         """Smoke test for EventStoreBackupArchiver.archive_to_cold_storage using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.archive_to_cold_storage(backup_id=uuid4())
+            await instance.archive_to_cold_storage(backup_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"archive_to_cold_storage needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestEventStoreBackupArchiver:
         """Smoke test for EventStoreBackupArchiver.get_backup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_backup(backup_id=uuid4())
+            await instance.get_backup(backup_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_backup needs specific domain fixtures/data: {e}")
             return
@@ -176,7 +176,7 @@ class TestEventStoreBackupArchiver:
         """Smoke test for EventStoreBackupArchiver.restore_backup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.restore_backup(backup_id=uuid4(), target_database="test_value")
+            await instance.restore_backup(backup_id=uuid4(), target_database="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"restore_backup needs specific domain fixtures/data: {e}")
             return
@@ -187,7 +187,7 @@ class TestEventStoreBackupArchiver:
 async def test_get_backup_archiver_smoke():
     """Smoke test for module-level function get_backup_archiver."""
     try:
-        result = await get_backup_archiver()
+        await get_backup_archiver()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_backup_archiver needs specific input data: {e}")
         return

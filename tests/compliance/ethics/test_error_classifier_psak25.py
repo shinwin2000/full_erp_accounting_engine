@@ -81,7 +81,7 @@ class TestErrorClassification:
         """Smoke test for ErrorClassification.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestErrorClassifierPSAK25:
         """Smoke test for ErrorClassifierPSAK25.classify using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.classify(error_description="test_value", intentional=True, policy_change=True, estimate_change=True, error_amount=Decimal("100.00"), reference_amount=Decimal("100.00"), qualitative_factors=["test_value"])
+            instance.classify(error_description="test_value", intentional=True, policy_change=True, estimate_change=True, error_amount=Decimal("100.00"), reference_amount=Decimal("100.00"), qualitative_factors=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"classify needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestErrorClassifierPSAK25:
         """Smoke test for ErrorClassifierPSAK25.classify_with_materiality_assessment using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.classify_with_materiality_assessment(error_description="test_value", error_amount=Decimal("100.00"), revenue=Decimal("100.00"), total_assets=Decimal("100.00"), equity=Decimal("100.00"), intentional=True, policy_change=True, estimate_change=True, qualitative_factors=["test_value"])
+            instance.classify_with_materiality_assessment(error_description="test_value", error_amount=Decimal("100.00"), revenue=Decimal("100.00"), total_assets=Decimal("100.00"), equity=Decimal("100.00"), intentional=True, policy_change=True, estimate_change=True, qualitative_factors=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"classify_with_materiality_assessment needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestErrorClassifierPSAK25:
         """Smoke test for ErrorClassifierPSAK25.requires_restatement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.requires_restatement(classification=MagicMock())
+            instance.requires_restatement(classification=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"requires_restatement needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestErrorClassifierPSAK25:
         """Smoke test for ErrorClassifierPSAK25.get_disclosure_requirements using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_disclosure_requirements(classification=MagicMock())
+            instance.get_disclosure_requirements(classification=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_disclosure_requirements needs specific domain fixtures/data: {e}")
             return

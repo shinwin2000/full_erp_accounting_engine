@@ -262,7 +262,7 @@ class TestLegalObligationCalendar:
 
     def test_get_obligation(self, calendar):
         # Get existing
-        ob = calendar.get_obligation(list(calendar._obligations.keys())[0])
+        ob = calendar.get_obligation(next(iter(calendar._obligations.keys())))
         assert ob is not None
         # Get non-existent
         assert calendar.get_obligation(uuid4()) is None
@@ -519,7 +519,7 @@ class TestLegalObligationCalendar:
     def test_generate_all_instances(self, calendar):
         # Calendar has default obligations; we add a few more to ensure count
         # We'll just count after generating
-        initial_obligations = len(calendar._obligations)
+        len(calendar._obligations)
         total = calendar.generate_all_instances(2026)
         # Each obligation generates some instances
         # We can't know exact count, but it should be > 0
@@ -869,8 +869,8 @@ class TestLegalObligationCalendar:
         total = calendar.generate_all_instances(FIXED_YEAR)
         assert total > 0
         # Check overdue and upcoming
-        overdue = calendar.get_overdue_instances()
-        upcoming = calendar.get_upcoming_instances(days_ahead=30)
+        calendar.get_overdue_instances()
+        calendar.get_upcoming_instances(days_ahead=30)
         # Update overdue
         count = calendar.check_and_update_overdue()
         assert count >= 0

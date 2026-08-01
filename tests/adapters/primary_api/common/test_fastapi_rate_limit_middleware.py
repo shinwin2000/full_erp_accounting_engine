@@ -188,7 +188,7 @@ class TestTokenBucketRateLimiter:
         capacity = 5
         refill_rate = 1
         interval = 1
-        now = time.time()
+        time.time()
         # First request consumes a token
         allowed, remaining, reset_time = limiter._check_memory(key, capacity, refill_rate, interval)
         assert allowed is True

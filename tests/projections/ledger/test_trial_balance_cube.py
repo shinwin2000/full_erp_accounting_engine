@@ -53,7 +53,7 @@ class TestTrialBalanceCube:
         """Smoke test for TrialBalanceCube.get_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today(), include_zero_balance=True, include_subaccounts=True)
+            await instance.get_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today(), include_zero_balance=True, include_subaccounts=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance needs specific domain fixtures/data: {e}")
             return
@@ -64,7 +64,7 @@ class TestTrialBalanceCube:
         """Smoke test for TrialBalanceCube.get_trial_balance_by_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance_by_period(legal_entity_id=uuid4(), period_id=uuid4())
+            await instance.get_trial_balance_by_period(legal_entity_id=uuid4(), period_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance_by_period needs specific domain fixtures/data: {e}")
             return
@@ -75,7 +75,7 @@ class TestTrialBalanceCube:
         """Smoke test for TrialBalanceCube.get_aggregated_by_account_type using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_aggregated_by_account_type(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_aggregated_by_account_type(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_aggregated_by_account_type needs specific domain fixtures/data: {e}")
             return
@@ -86,7 +86,7 @@ class TestTrialBalanceCube:
         """Smoke test for TrialBalanceCube.get_hierarchical_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_hierarchical_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_hierarchical_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_hierarchical_trial_balance needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestTrialBalanceCube:
 async def test_get_trial_balance_cube_smoke():
     """Smoke test for module-level function get_trial_balance_cube."""
     try:
-        result = await get_trial_balance_cube()
+        await get_trial_balance_cube()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_trial_balance_cube needs specific input data: {e}")
         return

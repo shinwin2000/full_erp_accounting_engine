@@ -192,7 +192,7 @@ class BaseDistributedLock(ABC):
 
 class DistributedLock(BaseDistributedLock):
     """
-    Kunci terdistribusi menggunakan Redis (Redlock algorithm) – dengan fallback in-memory.
+    Kunci terdistribusi menggunakan Redis (Redlock algorithm) - dengan fallback in-memory.
     """
 
     DEFAULT_TTL = 30
@@ -236,7 +236,6 @@ class DistributedLock(BaseDistributedLock):
             return False
 
         lock_value = str(uuid4())
-        start_time = time.time()
         attempt = 0
 
         while True:
@@ -299,10 +298,8 @@ class DistributedLock(BaseDistributedLock):
         end
         """
         for client in self._redis_clients:
-            try:
+            with contextlib.suppress(Exception):
                 await client.eval(lua_script, 1, lock_key, lock_value)
-            except Exception:
-                pass
 
     async def _renew_lock(self, lock_key: str) -> None:
         while True:

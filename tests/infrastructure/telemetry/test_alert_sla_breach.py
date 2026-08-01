@@ -57,16 +57,16 @@ class TestSLAProcess:
     """Tests for the SLAProcess value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            process_type=SLAProcessType.PERIOD_CLOSE,
-            process_id="test_value",
-            start_time=datetime.now(UTC),
-            end_time=datetime.now(UTC),
-            duration_seconds=1.5,
-            legal_entity_id="test_value",
-            user_id="test_value",
-            metadata={},
-        )
+        return {
+            'process_type': SLAProcessType.PERIOD_CLOSE,
+            'process_id': "test_value",
+            'start_time': datetime.now(UTC),
+            'end_time': datetime.now(UTC),
+            'duration_seconds': 1.5,
+            'legal_entity_id': "test_value",
+            'user_id': "test_value",
+            'metadata': {},
+        }
 
     def test_construction_success(self):
         """SLAProcess can be constructed with valid field values."""
@@ -99,7 +99,7 @@ class TestSLABreachAlerter:
         """Smoke test for SLABreachAlerter.start_process using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.start_process(process_type=SLAProcessType.PERIOD_CLOSE, process_id="test_value", legal_entity_id="test_value", user_id="test_value", metadata={})
+            instance.start_process(process_type=SLAProcessType.PERIOD_CLOSE, process_id="test_value", legal_entity_id="test_value", user_id="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_process needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class TestSLABreachAlerter:
         """Smoke test for SLABreachAlerter.complete_process using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.complete_process(process_key="test_value")
+            instance.complete_process(process_key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"complete_process needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestSLABreachAlerter:
         """Smoke test for SLABreachAlerter.get_compliance_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_compliance_stats(process_type=SLAProcessType.PERIOD_CLOSE, legal_entity_id="test_value")
+            instance.get_compliance_stats(process_type=SLAProcessType.PERIOD_CLOSE, legal_entity_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_compliance_stats needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestSLABreachAlerter:
         """Smoke test for SLABreachAlerter.get_alert_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_alert_history(limit=1)
+            instance.get_alert_history(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_alert_history needs specific domain fixtures/data: {e}")
             return
@@ -159,7 +159,7 @@ class TestSLAMonitor:
 def test_get_sla_alerter_smoke():
     """Smoke test for module-level function get_sla_alerter."""
     try:
-        result = get_sla_alerter()
+        get_sla_alerter()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_sla_alerter needs specific input data: {e}")
         return

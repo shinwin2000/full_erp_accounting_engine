@@ -889,30 +889,23 @@ EnforcementError = EnforcementException
 InvariantViolationError = InvariantViolationException
 
 
-# === 7. EXPORTS ===
-
+# === 7. EXPORTS - diurutkan secara alfabetis (RUF022) ===
 __all__ = [
-    # Enums
-    "ConstitutionExceptionSeverity",
-    "ConstitutionExceptionCategory",
-    # Base exception
-    "ConstitutionException",
-    # Concrete exceptions
-    "ConstitutionalViolationException",
-    "SovereigntyViolationException",
     "AmendmentException",
-    "VersionLockException",
-    "InvariantViolationException",
-    "ForbiddenStateException",
-    "EnforcementException",
-    "IntegrityException",
     "AuthorizationException",
-    "ValidationException",
-    # Factory
+    "ConstitutionException",
+    "ConstitutionExceptionCategory",
     "ConstitutionExceptionFactory",
-    # Handler
     "ConstitutionExceptionHandler",
-    # Aliases
+    "ConstitutionExceptionSeverity",
+    "ConstitutionalViolationException",
     "EnforcementError",
+    "EnforcementException",
+    "ForbiddenStateException",
+    "IntegrityException",
     "InvariantViolationError",
+    "InvariantViolationException",
+    "SovereigntyViolationException",
+    "ValidationException",
+    "VersionLockException",
 ]

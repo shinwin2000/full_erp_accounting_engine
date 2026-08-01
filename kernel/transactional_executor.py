@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
-from typing import Any, Protocol, TypeVar
+from typing import Any, ClassVar, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 from kernel.metric_collector import get_metric_collector
@@ -272,19 +272,20 @@ class DeadlockDetector:
 
 # === 4. RETRYABLE ERROR DETECTOR ===
 class RetryableErrorDetector:
-    RETRYABLE_KEYWORDS = ["deadlock", "lock", "timeout", "connection", "network", "unavailable"]
-    NON_RETRYABLE_KEYWORDS = ["constraint", "validation", "duplicate", "foreign key"]
+    RETRYABLE_KEYWORDS: ClassVar[list[str]] = [
+        "deadlock", "lock", "timeout", "connection", "network", "unavailable"
+    ]
+    NON_RETRYABLE_KEYWORDS: ClassVar[list[str]] = [
+        "constraint", "validation", "duplicate", "foreign key"
+    ]
 
     @classmethod
     def is_retryable(cls, error: Exception) -> bool:
         error_str = str(error).lower()
-        for kw in cls.NON_RETRYABLE_KEYWORDS:
-            if kw in error_str:
-                return False
-        for kw in cls.RETRYABLE_KEYWORDS:
-            if kw in error_str:
-                return True
-        return False
+        # Cek non-retryable dulu
+        if any(kw in error_str for kw in cls.NON_RETRYABLE_KEYWORDS):
+            return False
+        return any(kw in error_str for kw in cls.RETRYABLE_KEYWORDS)
 
     # Entity methods for consistency
     def validate(self) -> dict[str, Any]:
@@ -391,6 +392,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
         self._version = 1
+        self._clear_task: asyncio.Task | None = None
 
     # --- Sync execution (for pure sync operations) ---
     def execute_sync(self, operation: Callable[[], T]) -> T:
@@ -692,7 +694,10 @@ class TransactionalExecutor(BaseTransactionalExecutor):
 
     def reset(self) -> None:
         self._execution_history = []
-        asyncio.create_task(self._deadlock_detector.clear())
+        # Batalkan task sebelumnya jika ada
+        if self._clear_task and not self._clear_task.done():
+            self._clear_task.cancel()
+        self._clear_task = asyncio.create_task(self._deadlock_detector.clear())
         self._version += 1
         self._audit_trail = []
         self._snapshots = []

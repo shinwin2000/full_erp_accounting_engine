@@ -85,7 +85,7 @@ class TestEthicsCommitteeDecision:
         """Smoke test for EthicsCommitteeDecision.add_implementation_note using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_implementation_note(note="test_value", added_by="test_value")
+            instance.add_implementation_note(note="test_value", added_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_implementation_note needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestEthicsCommitteeDecision:
         """Smoke test for EthicsCommitteeDecision.mark_implemented using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.mark_implemented()
+            instance.mark_implemented()
         except (Exception, SystemExit) as e:
             pytest.skip(f"mark_implemented needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestEthicsCommitteeDecision:
         """Smoke test for EthicsCommitteeDecision.supersede using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.supersede(new_decision_id=uuid4())
+            instance.supersede(new_decision_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"supersede needs specific domain fixtures/data: {e}")
             return
@@ -118,7 +118,7 @@ class TestEthicsCommitteeDecision:
         """Smoke test for EthicsCommitteeDecision.is_appeal_possible using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_appeal_possible(as_of=datetime.now(UTC))
+            instance.is_appeal_possible(as_of=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_appeal_possible needs specific domain fixtures/data: {e}")
             return
@@ -145,7 +145,7 @@ class TestEthicsCommitteeDecisionLog:
         """Smoke test for EthicsCommitteeDecisionLog.add_decision using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_decision(decision=MagicMock())
+            instance.add_decision(decision=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_decision needs specific domain fixtures/data: {e}")
             return
@@ -156,7 +156,7 @@ class TestEthicsCommitteeDecisionLog:
         """Smoke test for EthicsCommitteeDecisionLog.get_decision using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_decision(decision_id=uuid4())
+            instance.get_decision(decision_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_decision needs specific domain fixtures/data: {e}")
             return
@@ -167,7 +167,7 @@ class TestEthicsCommitteeDecisionLog:
         """Smoke test for EthicsCommitteeDecisionLog.get_decisions_by_case using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_decisions_by_case(case_id=uuid4())
+            instance.get_decisions_by_case(case_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_decisions_by_case needs specific domain fixtures/data: {e}")
             return
@@ -178,7 +178,7 @@ class TestEthicsCommitteeDecisionLog:
         """Smoke test for EthicsCommitteeDecisionLog.get_latest_decision_by_case using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_latest_decision_by_case(case_id=uuid4())
+            instance.get_latest_decision_by_case(case_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_latest_decision_by_case needs specific domain fixtures/data: {e}")
             return

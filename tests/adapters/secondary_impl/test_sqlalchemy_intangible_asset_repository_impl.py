@@ -30,8 +30,8 @@ class TestAmortizationScheduleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = AmortizationScheduleTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -51,8 +51,8 @@ class TestRevaluationRecordTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = RevaluationRecordTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -80,7 +80,7 @@ class TestSQLAlchemyIntangibleAssetRepository:
         """Smoke test for SQLAlchemyIntangibleAssetRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(asset=MagicMock())
+            await instance.save(asset=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestSQLAlchemyIntangibleAssetRepository:
         """Smoke test for SQLAlchemyIntangibleAssetRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(asset=MagicMock())
+            await instance.update(asset=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestSQLAlchemyIntangibleAssetRepository:
         """Smoke test for SQLAlchemyIntangibleAssetRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(asset_id=uuid4())
+            await instance.get_by_id(asset_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestSQLAlchemyIntangibleAssetRepository:
         """Smoke test for SQLAlchemyIntangibleAssetRepository.list_by_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_by_legal_entity(legal_entity_id=uuid4(), include_inactive=True)
+            await instance.list_by_legal_entity(legal_entity_id=uuid4(), include_inactive=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_by_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -124,7 +124,7 @@ class TestSQLAlchemyIntangibleAssetRepository:
 async def test_create_intangible_asset_repository_smoke():
     """Smoke test for module-level function create_intangible_asset_repository."""
     try:
-        result = await create_intangible_asset_repository()
+        await create_intangible_asset_repository()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_intangible_asset_repository needs specific input data: {e}")
         return

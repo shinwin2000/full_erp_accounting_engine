@@ -603,7 +603,7 @@ class UserEntity:
             "status": self.status.value,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-    
+
     @property
     def version(self) -> int:
         return self.audit.version

@@ -107,12 +107,12 @@ class TestIAS16RevaluationSurplus:
     """Tests for the IAS16RevaluationSurplus value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            amount=MagicMock(),
-            revaluation_date=datetime.now(UTC),
-            performed_by="test_value",
-            effective_date=datetime.now(UTC),
-        )
+        return {
+            'amount': MagicMock(),
+            'revaluation_date': datetime.now(UTC),
+            'performed_by': "test_value",
+            'effective_date': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """IAS16RevaluationSurplus can be constructed with valid field values."""
@@ -130,22 +130,22 @@ class TestIAS16Asset:
     """Tests for the IAS16Asset value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            asset_code="test_value",
-            name="test_value",
-            classification=IAS16AssetClassification.LAND,
-            acquisition_date=datetime.now(UTC),
-            cost=MagicMock(),
-            accumulated_depreciation=MagicMock(),
-            accumulated_impairment=MagicMock(),
-            useful_life_years=1,
-            residual_value=MagicMock(),
-            depreciation_method=IAS16DepreciationMethod.STRAIGHT_LINE,
-            measurement_model=IAS16MeasurementModel.COST_MODEL,
-            revaluation_surplus=MagicMock(),
-            is_active=True,
-        )
+        return {
+            'asset_id': uuid4(),
+            'asset_code': "test_value",
+            'name': "test_value",
+            'classification': IAS16AssetClassification.LAND,
+            'acquisition_date': datetime.now(UTC),
+            'cost': MagicMock(),
+            'accumulated_depreciation': MagicMock(),
+            'accumulated_impairment': MagicMock(),
+            'useful_life_years': 1,
+            'residual_value': MagicMock(),
+            'depreciation_method': IAS16DepreciationMethod.STRAIGHT_LINE,
+            'measurement_model': IAS16MeasurementModel.COST_MODEL,
+            'revaluation_surplus': MagicMock(),
+            'is_active': True,
+        }
 
     def test_construction_success(self):
         """IAS16Asset can be constructed with valid field values."""
@@ -163,12 +163,12 @@ class TestIAS16AssetRegister:
     """Tests for the IAS16AssetRegister value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            register_id=uuid4(),
-            entity_id=uuid4(),
-            assets=[MagicMock()],
-            revaluation_frequency_years=1,
-        )
+        return {
+            'register_id': uuid4(),
+            'entity_id': uuid4(),
+            'assets': [MagicMock()],
+            'revaluation_frequency_years': 1,
+        }
 
     def test_construction_success(self):
         """IAS16AssetRegister can be constructed with valid field values."""
@@ -200,8 +200,8 @@ class TestIAS16AssetService:
     def test_calculate_depreciation_for_period_smoke(self):
         """Smoke test for IAS16AssetService.calculate_depreciation_for_period using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS16AssetService.calculate_depreciation_for_period(asset=MagicMock(), period_start=datetime.now(UTC), period_end=datetime.now(UTC))
+            self._build_instance()
+            IAS16AssetService.calculate_depreciation_for_period(asset=MagicMock(), period_start=datetime.now(UTC), period_end=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_depreciation_for_period needs specific domain fixtures/data: {e}")
             return
@@ -211,8 +211,8 @@ class TestIAS16AssetService:
     def test_revalue_asset_smoke(self):
         """Smoke test for IAS16AssetService.revalue_asset using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS16AssetService.revalue_asset(asset=MagicMock(), fair_value=MagicMock(), valuation_date=datetime.now(UTC), performed_by="test_value")
+            self._build_instance()
+            IAS16AssetService.revalue_asset(asset=MagicMock(), fair_value=MagicMock(), valuation_date=datetime.now(UTC), performed_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"revalue_asset needs specific domain fixtures/data: {e}")
             return
@@ -224,11 +224,11 @@ class TestIAS16ValidationResult:
     """Tests for the IAS16ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            errors=["test_value"],
-            warnings=["test_value"],
-        )
+        return {
+            'is_compliant': True,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+        }
 
     def test_construction_success(self):
         """IAS16ValidationResult can be constructed with valid field values."""
@@ -260,8 +260,8 @@ class TestIAS16Rules:
     def test_validate_useful_life_review_smoke(self):
         """Smoke test for IAS16Rules.validate_useful_life_review using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS16Rules.validate_useful_life_review(current_useful_life=1, remaining_useful_life=1, has_changed=True)
+            self._build_instance()
+            IAS16Rules.validate_useful_life_review(current_useful_life=1, remaining_useful_life=1, has_changed=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_useful_life_review needs specific domain fixtures/data: {e}")
             return
@@ -271,8 +271,8 @@ class TestIAS16Rules:
     def test_validate_revaluation_frequency_smoke(self):
         """Smoke test for IAS16Rules.validate_revaluation_frequency using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = IAS16Rules.validate_revaluation_frequency(last_revaluation_date=datetime.now(UTC), current_date=datetime.now(UTC), frequency_years=1)
+            self._build_instance()
+            IAS16Rules.validate_revaluation_frequency(last_revaluation_date=datetime.now(UTC), current_date=datetime.now(UTC), frequency_years=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_revaluation_frequency needs specific domain fixtures/data: {e}")
             return
@@ -299,7 +299,7 @@ class TestIAS16Validator:
         """Smoke test for IAS16Validator.validate_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate_asset(asset=MagicMock())
+            instance.validate_asset(asset=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_asset needs specific domain fixtures/data: {e}")
             return
@@ -310,7 +310,7 @@ class TestIAS16Validator:
         """Smoke test for IAS16Validator.get_requirements_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_requirements_summary()
+            instance.get_requirements_summary()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_requirements_summary needs specific domain fixtures/data: {e}")
             return
@@ -321,7 +321,7 @@ class TestIAS16Validator:
 def test_get_ias16_validator_smoke():
     """Smoke test for module-level function get_ias16_validator."""
     try:
-        result = get_ias16_validator()
+        get_ias16_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_ias16_validator needs specific input data: {e}")
         return

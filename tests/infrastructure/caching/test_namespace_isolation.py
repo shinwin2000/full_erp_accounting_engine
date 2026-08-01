@@ -54,7 +54,7 @@ class TestNamespaceIsolation:
         """Smoke test for NamespaceIsolation.build_key using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.build_key(cache_type=CacheType.ENTITY, key="test_value", legal_entity_id="test_value")
+            instance.build_key(cache_type=CacheType.ENTITY, key="test_value", legal_entity_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"build_key needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestNamespaceIsolation:
         """Smoke test for NamespaceIsolation.build_pattern using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.build_pattern(cache_type=CacheType.ENTITY, legal_entity_id="test_value", pattern="test_value")
+            instance.build_pattern(cache_type=CacheType.ENTITY, legal_entity_id="test_value", pattern="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"build_pattern needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestNamespaceIsolation:
         """Smoke test for NamespaceIsolation.extract_namespace using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.extract_namespace(namespaced_key="test_value")
+            instance.extract_namespace(namespaced_key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"extract_namespace needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestNamespaceIsolation:
         """Smoke test for NamespaceIsolation.get_tenant_prefix using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_tenant_prefix(legal_entity_id="test_value")
+            instance.get_tenant_prefix(legal_entity_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_tenant_prefix needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestNamespaceIsolation:
 def test_with_namespace_smoke():
     """Smoke test for module-level function with_namespace."""
     try:
-        result = with_namespace(cache_type=CacheType.ENTITY)
+        with_namespace(cache_type=CacheType.ENTITY)
     except (Exception, SystemExit) as e:
         pytest.skip(f"with_namespace needs specific input data: {e}")
         return
@@ -108,7 +108,7 @@ def test_with_namespace_smoke():
 def test_get_namespace_manager_smoke():
     """Smoke test for module-level function get_namespace_manager."""
     try:
-        result = get_namespace_manager()
+        get_namespace_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_namespace_manager needs specific input data: {e}")
         return

@@ -55,7 +55,7 @@ def version_controller():
 @pytest.fixture
 def populated_controller(version_controller, sample_config, sample_config_v2):
     v1 = version_controller.create_version(sample_config, "Initial config", "admin")
-    v2 = version_controller.create_version(sample_config_v2, "Update config", "admin", parent_version_id=v1.version_id)
+    version_controller.create_version(sample_config_v2, "Update config", "admin", parent_version_id=v1.version_id)
     return version_controller
 
 

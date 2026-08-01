@@ -50,7 +50,7 @@ class TestLitigationCaseLinker:
         """Smoke test for LitigationCaseLinker.add_case using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_case(case=MagicMock())
+            instance.add_case(case=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_case needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class TestLitigationCaseLinker:
         """Smoke test for LitigationCaseLinker.link_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.link_transaction(case_id=uuid4(), transaction_id=uuid4())
+            instance.link_transaction(case_id=uuid4(), transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"link_transaction needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestLitigationCaseLinker:
         """Smoke test for LitigationCaseLinker.get_cases_for_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_cases_for_transaction(transaction_id=uuid4())
+            instance.get_cases_for_transaction(transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cases_for_transaction needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestLitigationCaseLinker:
         """Smoke test for LitigationCaseLinker.get_case using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_case(case_id=uuid4())
+            instance.get_case(case_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_case needs specific domain fixtures/data: {e}")
             return

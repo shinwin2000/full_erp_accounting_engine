@@ -25,6 +25,12 @@ from ui.theme import QSS
 setup_logging()
 install_qt_message_handler()
 
+# Sebelumnya file ini punya salinan stylesheet sendiri (FORCED_STYLESHEET)
+# yang terpisah dari ui/theme.py, sehingga perubahan tema di ui/theme.py
+# tidak pernah tampil di aplikasi. Sekarang satu-satunya sumber tema adalah
+# ui/theme.py (QSS) supaya tidak ada lagi dua stylesheet yang berbeda.
+FORCED_STYLESHEET = QSS
+
 
 class Application:
     """Mengelola transisi Login <-> MainWindow di dalam satu proses Qt."""
@@ -33,7 +39,11 @@ class Application:
         self.app = QApplication(sys.argv)
         self.app.setApplicationName(APP_NAME)
         self.app.setOrganizationName(APP_ORG)
-        self.app.setStyleSheet(QSS)
+
+        # TERAPKAN STYLESHEET PAKSA
+        print("DEBUG: Memaksa stylesheet ...")
+        self.app.setStyleSheet(FORCED_STYLESHEET)
+        print("DEBUG: Stylesheet diterapkan (panjang =", len(FORCED_STYLESHEET), ")")
 
         self.login_window: LoginWindow | None = None
         self.main_window: MainWindow | None = None
@@ -57,7 +67,7 @@ class Application:
 
         self.main_window = MainWindow()
         self.main_window.logout_requested.connect(self._show_login)
-        self.main_window.show()
+        self.main_window.showMaximized()
 
     def run(self) -> int:
         return self.app.exec()

@@ -27,25 +27,25 @@ class TestBudgetActualTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            budget_id=uuid4(),
-            transaction_date=date.today(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            source_type="test_value",
-            source_id=uuid4(),
-            source_number="test_value",
-            description="test_value",
-            reference="test_value",
-            cost_center="test_value",
-            project_id=MagicMock(),
-            status="test_value",
-            reversed_by_id=MagicMock(),
-            reversed_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            budget=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'budget_id': uuid4(),
+            'transaction_date': date.today(),
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'source_type': "test_value",
+            'source_id': uuid4(),
+            'source_number': "test_value",
+            'description': "test_value",
+            'reference': "test_value",
+            'cost_center': "test_value",
+            'project_id': MagicMock(),
+            'status': "test_value",
+            'reversed_by_id': MagicMock(),
+            'reversed_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'budget': MagicMock(),
+        }
         try:
             instance = BudgetActualTable(**kwargs)
         except (Exception, SystemExit) as e:

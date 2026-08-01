@@ -25,21 +25,21 @@ class TestIntegrityCheckResultTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            check_started_at=datetime.now(UTC),
-            check_completed_at=datetime.now(UTC),
-            chain_type="test_value",
-            chain_id_start=uuid4(),
-            chain_id_end=uuid4(),
-            total_entries_checked=1,
-            total_entries_valid=1,
-            total_entries_invalid=1,
-            invalid_chain_ids="test_value",
-            status="test_value",
-            report_path="test_value",
-            triggered_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'check_started_at': datetime.now(UTC),
+            'check_completed_at': datetime.now(UTC),
+            'chain_type': "test_value",
+            'chain_id_start': uuid4(),
+            'chain_id_end': uuid4(),
+            'total_entries_checked': 1,
+            'total_entries_valid': 1,
+            'total_entries_invalid': 1,
+            'invalid_chain_ids': "test_value",
+            'status': "test_value",
+            'report_path': "test_value",
+            'triggered_by': uuid4(),
+        }
         try:
             instance = IntegrityCheckResultTable(**kwargs)
         except (Exception, SystemExit) as e:

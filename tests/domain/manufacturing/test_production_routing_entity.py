@@ -34,20 +34,20 @@ class TestRoutingOperation:
     """Tests for the RoutingOperation value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            operation_id=uuid4(),
-            operation_code="OP-001",
-            operation_name="Test Operation",
-            sequence=1,
-            work_center_id=uuid4(),
-            work_center_name="WC-01",
-            setup_time_hours=Decimal("1.5"),
-            run_time_per_unit_hours=Decimal("0.5"),
-            labor_cost_per_hour=Decimal("100.00"),
-            machine_cost_per_hour=Decimal("50.00"),
-            fixed_cost=Decimal("20.00"),
-            description="Test",
-        )
+        return {
+            'operation_id': uuid4(),
+            'operation_code': "OP-001",
+            'operation_name': "Test Operation",
+            'sequence': 1,
+            'work_center_id': uuid4(),
+            'work_center_name': "WC-01",
+            'setup_time_hours': Decimal("1.5"),
+            'run_time_per_unit_hours': Decimal("0.5"),
+            'labor_cost_per_hour': Decimal("100.00"),
+            'machine_cost_per_hour': Decimal("50.00"),
+            'fixed_cost': Decimal("20.00"),
+            'description': "Test",
+        }
 
     def test_construction_success(self):
         """RoutingOperation can be constructed with valid field values."""
@@ -152,23 +152,23 @@ class TestProductionRoutingEntity:
         )
 
     def _build_kwargs(self):
-        return dict(
-            routing_id=uuid4(),
-            routing_code="ROU",
-            product_id=uuid4(),
-            product_code="PC",
-            product_name="PN",
-            version=1,
-            operations=[],
-            status=RoutingStatus.DRAFT,
-            effective_date=datetime.now(UTC),
-            expiry_date=datetime.now(UTC),
-            notes="test",
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by="system",
-            version_counter=1,
-        )
+        return {
+            'routing_id': uuid4(),
+            'routing_code': "ROU",
+            'product_id': uuid4(),
+            'product_code': "PC",
+            'product_name': "PN",
+            'version': 1,
+            'operations': [],
+            'status': RoutingStatus.DRAFT,
+            'effective_date': datetime.now(UTC),
+            'expiry_date': datetime.now(UTC),
+            'notes': "test",
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': "system",
+            'version_counter': 1,
+        }
 
     def test_construction_success(self):
         """ProductionRoutingEntity can be constructed with valid field values."""
@@ -254,7 +254,7 @@ class TestProductionRoutingEntity:
     # --- TAMBAHAN: Test activate ---
     def test_activate(self):
         routing = self._create_sample_routing()
-        now = datetime.now(UTC)
+        datetime.now(UTC)
         new_routing = routing.activate("activator")
         assert new_routing.status == RoutingStatus.ACTIVE
         assert new_routing.effective_date is not None
@@ -293,12 +293,12 @@ class TestProductionRoutingEntity:
     def test_is_active_at_with_expiry(self):
         routing = self._create_sample_routing()
         now = datetime.now(UTC)
-        active = routing.activate("activator")
+        routing.activate("activator")
         # Manually set expiry date by obsoleting? Better: we can create a routing with expiry date.
         # Since we can't set expiry directly, we can use update? Actually, we can create a new routing with expiry.
         # But we'll test that if expiry is set, it works.
         # We'll create a new instance with expiry date in future.
-        expiry = now + timedelta(days=30)
+        now + timedelta(days=30)
         # We don't have a setter, so we'll use the obsoleted method which sets expiry to now.
         # So we need a routing that is active and has expiry in future. We can create a routing manually.
         op = self._create_sample_operation()

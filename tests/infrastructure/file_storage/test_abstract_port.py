@@ -128,7 +128,7 @@ class TestBaseFileStorageAdapter:
         """Smoke test for BaseFileStorageAdapter.upload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, bucket="test_value")
+            await instance.upload(file_content=MagicMock(), file_name="test_value", content_type="test_value", metadata={}, bucket="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"upload needs specific domain fixtures/data: {e}")
             return
@@ -139,7 +139,7 @@ class TestBaseFileStorageAdapter:
         """Smoke test for BaseFileStorageAdapter.download using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.download(file_uri="test_value")
+            await instance.download(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"download needs specific domain fixtures/data: {e}")
             return
@@ -150,7 +150,7 @@ class TestBaseFileStorageAdapter:
         """Smoke test for BaseFileStorageAdapter.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(file_uri="test_value")
+            await instance.delete(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -161,7 +161,7 @@ class TestBaseFileStorageAdapter:
         """Smoke test for BaseFileStorageAdapter.get_metadata using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_metadata(file_uri="test_value")
+            await instance.get_metadata(file_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_metadata needs specific domain fixtures/data: {e}")
             return

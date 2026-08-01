@@ -26,24 +26,24 @@ class TestEventStoreTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            stream_name="test_value",
-            sequence_number=1,
-            event_type="test_value",
-            event_version=1,
-            data={},
-            event_metadata={},
-            timestamp=datetime.now(UTC),
-            previous_hash="test_value",
-            hash="test_value",
-            aggregate_id=MagicMock(),
-            aggregate_type="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-            legal_entity_id=MagicMock(),
-            user_id=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'stream_name': "test_value",
+            'sequence_number': 1,
+            'event_type': "test_value",
+            'event_version': 1,
+            'data': {},
+            'event_metadata': {},
+            'timestamp': datetime.now(UTC),
+            'previous_hash': "test_value",
+            'hash': "test_value",
+            'aggregate_id': MagicMock(),
+            'aggregate_type': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+            'legal_entity_id': MagicMock(),
+            'user_id': MagicMock(),
+        }
         try:
             instance = EventStoreTable(**kwargs)
         except (Exception, SystemExit) as e:

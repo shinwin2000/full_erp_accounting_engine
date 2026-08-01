@@ -20,27 +20,27 @@ class TestSalesSagaState:
     """Tests for the SalesSagaState value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            legal_entity_id=uuid4(),
-            customer_id=uuid4(),
-            items=[{}],
-            user_id=uuid4(),
-            correlation_id="test_value",
-            so_id=uuid4(),
-            so_number="test_value",
-            delivery_id=uuid4(),
-            delivery_number="test_value",
-            invoice_id=uuid4(),
-            invoice_number="test_value",
-            payment_id=uuid4(),
-            payment_receipt_number="test_value",
-            total_amount=Decimal("100.00"),
-            status="test_value",
-            errors=["test_value"],
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        return {
+            "saga_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "customer_id": uuid4(),
+            "items": [{}],
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+            "so_id": uuid4(),
+            "so_number": "test_value",
+            "delivery_id": uuid4(),
+            "delivery_number": "test_value",
+            "invoice_id": uuid4(),
+            "invoice_number": "test_value",
+            "payment_id": uuid4(),
+            "payment_receipt_number": "test_value",
+            "total_amount": Decimal("100.00"),
+            "status": "test_value",
+            "errors": ["test_value"],
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """SalesSagaState can be constructed with valid field values."""
@@ -58,20 +58,20 @@ class TestSalesSagaContext:
     """Tests for the SalesSagaContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            saga_id=uuid4(),
-            legal_entity_id=uuid4(),
-            customer_id=uuid4(),
-            items=[{}],
-            user_id=uuid4(),
-            correlation_id="test_value",
-            status="test_value",
-            so_number="test_value",
-            delivery_number="test_value",
-            invoice_number="test_value",
-            payment_receipt_number="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            "saga_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "customer_id": uuid4(),
+            "items": [{}],
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+            "status": "test_value",
+            "so_number": "test_value",
+            "delivery_number": "test_value",
+            "invoice_number": "test_value",
+            "payment_receipt_number": "test_value",
+            "created_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """SalesSagaContext can be constructed with valid field values."""
@@ -142,7 +142,7 @@ class TestSalesSagaOrchestrator:
         """Smoke test for SalesSagaOrchestrator.start_sales using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_sales(
+            await instance.start_sales(
                 legal_entity_id=uuid4(),
                 customer_id=uuid4(),
                 items=[{}],

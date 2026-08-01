@@ -55,7 +55,7 @@ class TestBudgetRepository:
         """Smoke test for BudgetRepository.get_budget using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_budget(legal_entity_id=uuid4(), fiscal_year=1, period=1, account_code="test_value", cost_center="test_value")
+            await instance.get_budget(legal_entity_id=uuid4(), fiscal_year=1, period=1, account_code="test_value", cost_center="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_budget needs specific domain fixtures/data: {e}")
             return
@@ -82,7 +82,7 @@ class TestVarianceAnalyzerActualVsBudget:
         """Smoke test for VarianceAnalyzerActualVsBudget.analyze_period_variance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_period_variance(legal_entity_id=uuid4(), fiscal_year=1, period=1)
+            await instance.analyze_period_variance(legal_entity_id=uuid4(), fiscal_year=1, period=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_period_variance needs specific domain fixtures/data: {e}")
             return
@@ -93,7 +93,7 @@ class TestVarianceAnalyzerActualVsBudget:
         """Smoke test for VarianceAnalyzerActualVsBudget.analyze_ytd_variance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_ytd_variance(legal_entity_id=uuid4(), fiscal_year=1)
+            await instance.analyze_ytd_variance(legal_entity_id=uuid4(), fiscal_year=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_ytd_variance needs specific domain fixtures/data: {e}")
             return
@@ -104,7 +104,7 @@ class TestVarianceAnalyzerActualVsBudget:
         """Smoke test for VarianceAnalyzerActualVsBudget.analyze_by_cost_center using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.analyze_by_cost_center(legal_entity_id=uuid4(), fiscal_year=1, period=1)
+            await instance.analyze_by_cost_center(legal_entity_id=uuid4(), fiscal_year=1, period=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"analyze_by_cost_center needs specific domain fixtures/data: {e}")
             return
@@ -115,7 +115,7 @@ class TestVarianceAnalyzerActualVsBudget:
         """Smoke test for VarianceAnalyzerActualVsBudget.save_variance_analysis using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_variance_analysis(legal_entity_id=uuid4(), fiscal_year=1, period=1, analysis={})
+            await instance.save_variance_analysis(legal_entity_id=uuid4(), fiscal_year=1, period=1, analysis={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_variance_analysis needs specific domain fixtures/data: {e}")
             return
@@ -134,8 +134,8 @@ class TestVarianceAnalysisTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = VarianceAnalysisTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -147,7 +147,7 @@ class TestVarianceAnalysisTable:
 async def test_get_variance_analyzer_smoke():
     """Smoke test for module-level function get_variance_analyzer."""
     try:
-        result = await get_variance_analyzer()
+        await get_variance_analyzer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_variance_analyzer needs specific input data: {e}")
         return

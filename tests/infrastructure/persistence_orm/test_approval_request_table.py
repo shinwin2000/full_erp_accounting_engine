@@ -26,30 +26,30 @@ class TestApprovalRequestTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            request_number="test_value",
-            entity_type="test_value",
-            entity_id=uuid4(),
-            entity_snapshot={},
-            approver_id=uuid4(),
-            approver_name="test_value",
-            approver_role="test_value",
-            status="test_value",
-            priority=1,
-            deadline=datetime.now(UTC),
-            requester_comments="test_value",
-            approval_comments="test_value",
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            escalated_to=MagicMock(),
-            escalated_at=datetime.now(UTC),
-            cancelled_by=MagicMock(),
-            cancelled_at=datetime.now(UTC),
-            cancellation_reason="test_value",
-            requested_by=uuid4(),
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'request_number': "test_value",
+            'entity_type': "test_value",
+            'entity_id': uuid4(),
+            'entity_snapshot': {},
+            'approver_id': uuid4(),
+            'approver_name': "test_value",
+            'approver_role': "test_value",
+            'status': "test_value",
+            'priority': 1,
+            'deadline': datetime.now(UTC),
+            'requester_comments': "test_value",
+            'approval_comments': "test_value",
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'escalated_to': MagicMock(),
+            'escalated_at': datetime.now(UTC),
+            'cancelled_by': MagicMock(),
+            'cancelled_at': datetime.now(UTC),
+            'cancellation_reason': "test_value",
+            'requested_by': uuid4(),
+            'created_by': MagicMock(),
+        }
         try:
             instance = ApprovalRequestTable(**kwargs)
         except (Exception, SystemExit) as e:

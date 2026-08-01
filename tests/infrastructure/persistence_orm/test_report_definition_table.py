@@ -25,19 +25,19 @@ class TestReportDefinitionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            report_code="test_value",
-            report_name="test_value",
-            description="test_value",
-            category="test_value",
-            query_sql="test_value",
-            parameters_schema={},
-            template_path="test_value",
-            output_formats=["test_value"],
-            is_active=True,
-            created_by=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'report_code': "test_value",
+            'report_name': "test_value",
+            'description': "test_value",
+            'category': "test_value",
+            'query_sql': "test_value",
+            'parameters_schema': {},
+            'template_path': "test_value",
+            'output_formats': ["test_value"],
+            'is_active': True,
+            'created_by': MagicMock(),
+        }
         try:
             instance = ReportDefinitionTable(**kwargs)
         except (Exception, SystemExit) as e:

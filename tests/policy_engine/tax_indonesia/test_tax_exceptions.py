@@ -95,7 +95,7 @@ class TestTaxError:
         """Smoke test for TaxError.original_message using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.original_message()
+            instance.original_message()
         except (Exception, SystemExit) as e:
             pytest.skip(f"original_message needs specific domain fixtures/data: {e}")
             return
@@ -106,7 +106,7 @@ class TestTaxError:
         """Smoke test for TaxError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -117,7 +117,7 @@ class TestTaxError:
         """Smoke test for TaxError.is_critical using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_critical()
+            instance.is_critical()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_critical needs specific domain fixtures/data: {e}")
             return
@@ -319,8 +319,8 @@ class TestTaxExceptionFactory:
     def test_ppn_tariff_not_found_smoke(self):
         """Smoke test for TaxExceptionFactory.ppn_tariff_not_found using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TaxExceptionFactory.ppn_tariff_not_found(effective_date="test_value")
+            self._build_instance()
+            TaxExceptionFactory.ppn_tariff_not_found(effective_date="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"ppn_tariff_not_found needs specific domain fixtures/data: {e}")
             return
@@ -330,8 +330,8 @@ class TestTaxExceptionFactory:
     def test_ppn_calculation_error_smoke(self):
         """Smoke test for TaxExceptionFactory.ppn_calculation_error using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TaxExceptionFactory.ppn_calculation_error(dpp="test_value", tariff="test_value", reason="test_value")
+            self._build_instance()
+            TaxExceptionFactory.ppn_calculation_error(dpp="test_value", tariff="test_value", reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"ppn_calculation_error needs specific domain fixtures/data: {e}")
             return
@@ -341,8 +341,8 @@ class TestTaxExceptionFactory:
     def test_pph_tariff_not_found_smoke(self):
         """Smoke test for TaxExceptionFactory.pph_tariff_not_found using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TaxExceptionFactory.pph_tariff_not_found(pph_type="test_value", year=1)
+            self._build_instance()
+            TaxExceptionFactory.pph_tariff_not_found(pph_type="test_value", year=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"pph_tariff_not_found needs specific domain fixtures/data: {e}")
             return
@@ -352,8 +352,8 @@ class TestTaxExceptionFactory:
     def test_npwp_invalid_smoke(self):
         """Smoke test for TaxExceptionFactory.npwp_invalid using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TaxExceptionFactory.npwp_invalid(npwp="test_value", reason="test_value")
+            self._build_instance()
+            TaxExceptionFactory.npwp_invalid(npwp="test_value", reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"npwp_invalid needs specific domain fixtures/data: {e}")
             return

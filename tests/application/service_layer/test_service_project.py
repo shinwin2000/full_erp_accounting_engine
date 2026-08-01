@@ -98,18 +98,18 @@ class TestProjectRequest:
     """Tests for the ProjectRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            project_code="test_value",
-            name="test_value",
-            customer_id=uuid4(),
-            start_date=date.today(),
-            end_date=date.today(),
-            budget_amount=Decimal("100.00"),
-            project_type="test_value",
-            billing_method="test_value",
-            description="test_value",
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'project_code': "test_value",
+            'name': "test_value",
+            'customer_id': uuid4(),
+            'start_date': date.today(),
+            'end_date': date.today(),
+            'budget_amount': Decimal("100.00"),
+            'project_type': "test_value",
+            'billing_method': "test_value",
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """ProjectRequest can be constructed with valid field values."""
@@ -127,13 +127,13 @@ class TestProjectUpdateRequest:
     """Tests for the ProjectUpdateRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            name="test_value",
-            description="test_value",
-            end_date=date.today(),
-            budget_amount=Decimal("100.00"),
-            billing_method="test_value",
-        )
+        return {
+            'name': "test_value",
+            'description': "test_value",
+            'end_date': date.today(),
+            'budget_amount': Decimal("100.00"),
+            'billing_method': "test_value",
+        }
 
     def test_construction_success(self):
         """ProjectUpdateRequest can be constructed with valid field values."""
@@ -151,20 +151,20 @@ class TestProjectResponse:
     """Tests for the ProjectResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            project_id=uuid4(),
-            project_code="test_value",
-            name="test_value",
-            customer_id=uuid4(),
-            start_date=date.today(),
-            end_date=date.today(),
-            budget_amount=Decimal("100.00"),
-            total_cost=Decimal("100.00"),
-            total_billed=Decimal("100.00"),
-            total_recognized_revenue=Decimal("100.00"),
-            status="test_value",
-            created_at=datetime.now(UTC),
-        )
+        return {
+            'project_id': uuid4(),
+            'project_code': "test_value",
+            'name': "test_value",
+            'customer_id': uuid4(),
+            'start_date': date.today(),
+            'end_date': date.today(),
+            'budget_amount': Decimal("100.00"),
+            'total_cost': Decimal("100.00"),
+            'total_billed': Decimal("100.00"),
+            'total_recognized_revenue': Decimal("100.00"),
+            'status': "test_value",
+            'created_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ProjectResponse can be constructed with valid field values."""
@@ -182,15 +182,15 @@ class TestTimeEntryRequest:
     """Tests for the TimeEntryRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            project_id=uuid4(),
-            employee_id=uuid4(),
-            entry_date=date.today(),
-            hours=Decimal("100.00"),
-            billable=True,
-            description="test_value",
-            hourly_rate=Decimal("100.00"),
-        )
+        return {
+            'project_id': uuid4(),
+            'employee_id': uuid4(),
+            'entry_date': date.today(),
+            'hours': Decimal("100.00"),
+            'billable': True,
+            'description': "test_value",
+            'hourly_rate': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """TimeEntryRequest can be constructed with valid field values."""
@@ -208,16 +208,16 @@ class TestTimeEntryResponse:
     """Tests for the TimeEntryResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            time_entry_id=uuid4(),
-            project_id=uuid4(),
-            employee_id=uuid4(),
-            entry_date=date.today(),
-            hours=Decimal("100.00"),
-            billable_amount=Decimal("100.00"),
-            status="test_value",
-            description="test_value",
-        )
+        return {
+            'time_entry_id': uuid4(),
+            'project_id': uuid4(),
+            'employee_id': uuid4(),
+            'entry_date': date.today(),
+            'hours': Decimal("100.00"),
+            'billable_amount': Decimal("100.00"),
+            'status': "test_value",
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """TimeEntryResponse can be constructed with valid field values."""
@@ -235,13 +235,13 @@ class TestProjectBillingRequest:
     """Tests for the ProjectBillingRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            project_id=uuid4(),
-            billing_date=date.today(),
-            amount=Decimal("100.00"),
-            milestone_name="test_value",
-            description="test_value",
-        )
+        return {
+            'project_id': uuid4(),
+            'billing_date': date.today(),
+            'amount': Decimal("100.00"),
+            'milestone_name': "test_value",
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """ProjectBillingRequest can be constructed with valid field values."""
@@ -259,14 +259,14 @@ class TestProjectBillingResponse:
     """Tests for the ProjectBillingResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            project_id=uuid4(),
-            invoice_number="test_value",
-            billing_date=date.today(),
-            amount=Decimal("100.00"),
-            status="test_value",
-        )
+        return {
+            'invoice_id': uuid4(),
+            'project_id': uuid4(),
+            'invoice_number': "test_value",
+            'billing_date': date.today(),
+            'amount': Decimal("100.00"),
+            'status': "test_value",
+        }
 
     def test_construction_success(self):
         """ProjectBillingResponse can be constructed with valid field values."""
@@ -284,13 +284,13 @@ class TestMilestoneRequest:
     """Tests for the MilestoneRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            project_id=uuid4(),
-            milestone_name="test_value",
-            due_date=date.today(),
-            amount=Decimal("100.00"),
-            description="test_value",
-        )
+        return {
+            'project_id': uuid4(),
+            'milestone_name': "test_value",
+            'due_date': date.today(),
+            'amount': Decimal("100.00"),
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """MilestoneRequest can be constructed with valid field values."""
@@ -308,16 +308,16 @@ class TestMilestoneResponse:
     """Tests for the MilestoneResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            milestone_id=uuid4(),
-            project_id=uuid4(),
-            milestone_name="test_value",
-            due_date=date.today(),
-            amount=Decimal("100.00"),
-            is_ready=True,
-            is_billed=True,
-            description="test_value",
-        )
+        return {
+            'milestone_id': uuid4(),
+            'project_id': uuid4(),
+            'milestone_name': "test_value",
+            'due_date': date.today(),
+            'amount': Decimal("100.00"),
+            'is_ready': True,
+            'is_billed': True,
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """MilestoneResponse can be constructed with valid field values."""
@@ -430,7 +430,7 @@ class TestProjectService:
         """Smoke test for ProjectService.create_project using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_project(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.create_project(request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_project needs specific domain fixtures/data: {e}")
             return
@@ -441,7 +441,7 @@ class TestProjectService:
         """Smoke test for ProjectService.update_project using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_project(project_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.update_project(project_id=uuid4(), request=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_project needs specific domain fixtures/data: {e}")
             return
@@ -452,7 +452,7 @@ class TestProjectService:
         """Smoke test for ProjectService.activate_project using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.activate_project(project_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
+            await instance.activate_project(project_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"activate_project needs specific domain fixtures/data: {e}")
             return
@@ -463,7 +463,7 @@ class TestProjectService:
         """Smoke test for ProjectService.start_project using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_project(project_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
+            await instance.start_project(project_id=uuid4(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_project needs specific domain fixtures/data: {e}")
             return
@@ -474,7 +474,7 @@ class TestProjectService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -484,7 +484,7 @@ def test_audit_smoke():
 async def test_create_project_service_smoke():
     """Smoke test for module-level function create_project_service."""
     try:
-        result = await create_project_service(project_repo=MagicMock(), ledger_repo=MagicMock(), employee_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_project_service(project_repo=MagicMock(), ledger_repo=MagicMock(), employee_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_project_service needs specific input data: {e}")
         return

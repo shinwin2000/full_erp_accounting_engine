@@ -287,7 +287,6 @@ class TestAuditExceptionAggregator:
 
     def test_evaluate_against_materiality_not_material(self, aggregator, sample_exceptions):
         aggregator.add_exceptions_batch(sample_exceptions)
-        total_error = 205000000
         threshold = Decimal("300000000")
         result = aggregator.evaluate_against_materiality(threshold)
         assert result["is_material"] is False

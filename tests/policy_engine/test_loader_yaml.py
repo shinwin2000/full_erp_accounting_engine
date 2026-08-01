@@ -1,6 +1,7 @@
 # test_loader_yaml.py
 # Comprehensive tests for policy_engine/loader_yaml.py
 
+import contextlib
 import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -330,7 +331,7 @@ class TestPolicyLoaderLoading:
 
     def test_load_from_file_yaml_error(self):
         loader = PolicyLoader()
-        with patch("builtins.open", mock_open(read_data="invalid: yaml: [broken")) as m:
+        with patch("builtins.open", mock_open(read_data="invalid: yaml: [broken")):
             # yaml.safe_load will raise YAMLError
             with pytest.raises(PolicyValidationError) as exc:
                 loader.load_from_file("file.yaml")
@@ -676,7 +677,7 @@ class TestPolicyLoaderReload:
                 mock_load.assert_called_once_with(default_path)
 
     def test_reload_default_not_found(self, tmp_path, caplog):
-        default_path = Path(__file__).parent.parent / "config_files" / "application.yaml"
+        Path(__file__).parent.parent / "config_files" / "application.yaml"
         with patch("pathlib.Path.exists") as mock_exists:
             mock_exists.return_value = False
             loader = PolicyLoader()
@@ -855,10 +856,8 @@ class TestPolicyLoaderEdgeCases:
                 # We'll call the loop method directly with a break condition.
                 # To avoid infinite loop, we can set _running False after one iteration.
                 def run_once():
-                    try:
+                    with contextlib.suppress(Exception):
                         loader._reload_monitor_loop()
-                    except Exception:
-                        pass
                 # We'll set _running False to stop after first iteration
                 loader._running = False
                 with caplog.at_level("ERROR"):

@@ -86,7 +86,7 @@ class TestPartitionArchiver:
         """Smoke test for PartitionArchiver.archive_partition using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.archive_partition(table_config={}, partition={})
+            await instance.archive_partition(table_config={}, partition={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"archive_partition needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestPartitionArchiver:
         """Smoke test for PartitionArchiver.archive_old_partitions using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.archive_old_partitions(dry_run=True)
+            await instance.archive_old_partitions(dry_run=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"archive_old_partitions needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestPartitionArchiver:
         """Smoke test for PartitionArchiver.restore_partition using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.restore_partition(archive_key="test_value", target_table="test_value")
+            await instance.restore_partition(archive_key="test_value", target_table="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"restore_partition needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestPartitionArchiver:
         """Smoke test for PartitionArchiver.list_archives using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_archives(table_name="test_value")
+            await instance.list_archives(table_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_archives needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestPartitionArchiver:
 async def test_get_partition_archiver_smoke():
     """Smoke test for module-level function get_partition_archiver."""
     try:
-        result = await get_partition_archiver()
+        await get_partition_archiver()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_partition_archiver needs specific input data: {e}")
         return
@@ -140,7 +140,7 @@ async def test_get_partition_archiver_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return

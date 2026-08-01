@@ -88,7 +88,7 @@ class TestRBACEnforcer:
         """Smoke test for RBACEnforcer.check_permission using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_permission(user_id=uuid4(), resource="test_value", action="test_value", legal_entity_id=uuid4())
+            await instance.check_permission(user_id=uuid4(), resource="test_value", action="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_permission needs specific domain fixtures/data: {e}")
             return
@@ -99,7 +99,7 @@ class TestRBACEnforcer:
         """Smoke test for RBACEnforcer.enforce using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce(user_id=uuid4(), resource="test_value", action="test_value", legal_entity_id=uuid4())
+            await instance.enforce(user_id=uuid4(), resource="test_value", action="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class TestRBACEnforcer:
         """Smoke test for RBACEnforcer.check_permissions_batch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_permissions_batch(user_id=uuid4(), checks=[{}], legal_entity_id=uuid4())
+            await instance.check_permissions_batch(user_id=uuid4(), checks=[{}], legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_permissions_batch needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestRBACEnforcer:
         """Smoke test for RBACEnforcer.get_user_permissions using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_user_permissions(user_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_user_permissions(user_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_user_permissions needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestRBACEnforcer:
 async def test_get_rbac_enforcer_smoke():
     """Smoke test for module-level function get_rbac_enforcer."""
     try:
-        result = await get_rbac_enforcer()
+        await get_rbac_enforcer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_rbac_enforcer needs specific input data: {e}")
         return
@@ -142,7 +142,7 @@ async def test_get_rbac_enforcer_smoke():
 def test_require_permission_smoke():
     """Smoke test for module-level function require_permission."""
     try:
-        result = require_permission(resource="test_value", action="test_value")
+        require_permission(resource="test_value", action="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"require_permission needs specific input data: {e}")
         return

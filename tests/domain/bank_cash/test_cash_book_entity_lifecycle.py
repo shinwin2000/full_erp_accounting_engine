@@ -32,12 +32,12 @@ from domain.bank_cash.cash_book_entity import CashBookEntity, CashBookStatus
 
 
 def _pending_cash_book(**overrides) -> CashBookEntity:
-    defaults = dict(
-        cash_book_id=uuid4(), cash_book_code="CB-TEST-001", cash_book_name="Kas Kecil Test",
-        legal_entity_id=uuid4(), currency="IDR", opening_balance=Decimal("0"),
-        current_balance=Decimal("0"), total_receipts=Decimal("0"), total_disbursements=Decimal("0"),
-        status=CashBookStatus.PENDING_ACTIVATION, last_updated=datetime.now(UTC),
-    )
+    defaults = {
+        "cash_book_id": uuid4(), "cash_book_code": "CB-TEST-001", "cash_book_name": "Kas Kecil Test",
+        "legal_entity_id": uuid4(), "currency": "IDR", "opening_balance": Decimal("0"),
+        "current_balance": Decimal("0"), "total_receipts": Decimal("0"), "total_disbursements": Decimal("0"),
+        "status": CashBookStatus.PENDING_ACTIVATION, "last_updated": datetime.now(UTC),
+    }
     defaults.update(overrides)
     return CashBookEntity(**defaults)
 

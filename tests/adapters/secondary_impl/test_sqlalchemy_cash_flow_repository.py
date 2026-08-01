@@ -34,7 +34,7 @@ class TestSQLAlchemyCashFlowRepository:
         """Smoke test for SQLAlchemyCashFlowRepository.get_cash_flow using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_cash_flow(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today(), method="test_value", currency_code="test_value")
+            await instance.get_cash_flow(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today(), method="test_value", currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_cash_flow needs specific domain fixtures/data: {e}")
             return

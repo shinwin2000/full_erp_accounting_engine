@@ -55,10 +55,10 @@ FIXED_FUTURE = FIXED_NOW + timedelta(days=30)
 # ============================================================================
 
 def create_mock_contribution(
-    contribution_id: uuid.UUID = None,
+    contribution_id: uuid.UUID | None = None,
     status: ContributionStatus = ContributionStatus.DRAFT,
     amount: Decimal = Decimal("100000"),
-    shareholder_id: uuid.UUID = None,
+    shareholder_id: uuid.UUID | None = None,
     can_approve: bool = True,
     can_post: bool = True,
     can_cancel: bool = True,
@@ -79,10 +79,10 @@ def create_mock_contribution(
 
 
 def create_mock_withdrawal(
-    withdrawal_id: uuid.UUID = None,
+    withdrawal_id: uuid.UUID | None = None,
     status: WithdrawalStatus = WithdrawalStatus.DRAFT,
     amount: Decimal = Decimal("50000"),
-    shareholder_id: uuid.UUID = None,
+    shareholder_id: uuid.UUID | None = None,
     can_approve: bool = True,
     can_post: bool = True,
     can_cancel: bool = True,
@@ -104,7 +104,7 @@ def create_mock_withdrawal(
 
 def create_mock_retained_earnings(
     current_balance: Decimal = Decimal("500000"),
-    entries: list = None,
+    entries: list | None = None,
 ) -> RetainedEarningsEntity:
     mock = MagicMock(spec=RetainedEarningsEntity)
     mock.current_balance = current_balance
@@ -118,7 +118,7 @@ def create_mock_retained_earnings(
 
 
 def create_mock_dividend(
-    dividend_id: uuid.UUID = None,
+    dividend_id: uuid.UUID | None = None,
     status: DividendStatus = DividendStatus.PROPOSED,
     total_amount: Decimal = Decimal("100000"),
     unpaid_amount: Decimal = Decimal("100000"),

@@ -2,8 +2,8 @@
 # =============================================================================
 # Comprehensive tests for domain/subledger_ar/credit_note_entity.py.
 # Covers all enums, entity methods, business logic, serialization, repository interface,
-# state transitions, negative paths, and edge cases. All tests include proper assertions.
-# Duplicate tests consolidated via parametrization.
+# state transitions, negative paths, edge cases, and aliases.
+# All tests include proper assertions. Duplicate tests consolidated via parametrization.
 # =============================================================================
 
 from datetime import UTC, datetime
@@ -14,6 +14,9 @@ from uuid import uuid4
 import pytest
 
 from domain.subledger_ar.credit_note_entity import (
+    ARCreditNote,
+    ARCreditNoteReason,
+    ARCreditNoteStatus,
     CreditNoteEntity,
     CreditNoteReason,
     CreditNoteRepository,
@@ -218,7 +221,6 @@ class TestCreditNoteEntityConstruction:
             reason=CreditNoteReason.GOODS_RETURN,
             status=CreditNoteStatus.DRAFT,
             description="Test",
-            # tax_amount, tax_rate, original_invoice_amount omitted
         )
         assert entity.tax_amount == Decimal(0)
         assert entity.tax_rate == Decimal(11)
@@ -342,17 +344,14 @@ class TestCreditNoteEntityBaseMethods:
     def test_deactivate_already_draft_returns_same(self, sample_credit_note):
         result = sample_credit_note.deactivate("alice")
         assert result is sample_credit_note
+        assert result.version == sample_credit_note.version
 
     @pytest.mark.parametrize("invalid_status,expected_error", [
-        (CreditNoteStatus.DRAFT, "Cannot deactivate credit note in status draft"),  # Note: deactivate returns self for DRAFT, so this may not raise; we handle in separate test
         (CreditNoteStatus.APPLIED, "Cannot deactivate credit note in status applied"),
     ])
     def test_deactivate_invalid_states_raises(self, applied_credit_note, invalid_status, expected_error):
         """Consolidates duplicate tests for deactivate from invalid states."""
-        if invalid_status == CreditNoteStatus.APPLIED:
-            entity = applied_credit_note
-        else:
-            entity = applied_credit_note  # fallback
+        entity = applied_credit_note
         with pytest.raises(ValueError, match=expected_error):
             entity.deactivate("alice")
 
@@ -443,7 +442,6 @@ class TestCreditNoteEntitySerialization:
             "updated_at": datetime.now(UTC).isoformat(),
             "created_by": "system",
             "version": 1,
-            # tax_amount, tax_rate, original_invoice_amount omitted
         }
         entity = CreditNoteEntity.from_dict(data)
         assert entity.tax_amount == Decimal("0")
@@ -563,13 +561,10 @@ class TestCreditNoteEntityStateTransitions:
         assert cancelled.status == CreditNoteStatus.CANCELLED
         restored = cancelled.restore("alice")
         assert restored.status == CreditNoteStatus.DRAFT
-        # Can reactivate to issued
         reactivated = restored.activate("alice")
         assert reactivated.status == CreditNoteStatus.ISSUED
 
-    def test_state_flow_issued_to_cancelled_and_restored_to_draft(self, issued_credit_note):
-        # This test is different from test_cancel_success_issued because it verifies
-        # the complete round trip: issued -> cancelled -> draft -> issued again.
+    def test_state_flow_issued_to_cancelled_to_restored(self, issued_credit_note):
         cancelled = issued_credit_note.cancel("alice", "Error")
         assert cancelled.status == CreditNoteStatus.CANCELLED
         restored = cancelled.restore("alice")
@@ -729,7 +724,7 @@ class TestCreditNoteEntityEdgeCases:
         assert len(trail) == 5
 
     def test_snapshot_limit(self, sample_credit_note):
-        for i in range(15):
+        for _i in range(15):
             sample_credit_note._take_snapshot()
         assert len(sample_credit_note._snapshots) == 10
 
@@ -756,3 +751,38 @@ class TestCreditNoteEntityEdgeCases:
     def test_cancel_already_cancelled(self, cancelled_credit_note):
         with pytest.raises(ValueError, match="Cannot cancel credit note in status cancelled"):
             cancelled_credit_note.cancel("alice", "Again")
+
+
+# =============================================================================
+# Tests for Aliases (ARCreditNote, ARCreditNoteStatus, ARCreditNoteReason)
+# =============================================================================
+
+class TestAliases:
+    def test_ar_credit_note_alias(self):
+        assert ARCreditNote is CreditNoteEntity
+
+    def test_ar_credit_note_status_alias(self):
+        assert ARCreditNoteStatus is CreditNoteStatus
+
+    def test_ar_credit_note_reason_alias(self):
+        assert ARCreditNoteReason is CreditNoteReason
+
+    def test_ar_credit_note_usage(self):
+        # Create using alias to ensure it works
+        entity = ARCreditNote(
+            credit_note_id=uuid4(),
+            credit_note_number="CN-ALIAS-001",
+            invoice_id=uuid4(),
+            invoice_number="INV-ALIAS-001",
+            customer_id=uuid4(),
+            customer_name="Alias Customer",
+            issue_date=datetime.now(UTC),
+            amount=Decimal("200"),
+            currency="IDR",
+            reason=ARCreditNoteReason.GOODS_RETURN,
+            status=ARCreditNoteStatus.DRAFT,
+            description="Alias test",
+        )
+        assert isinstance(entity, CreditNoteEntity)
+        assert entity.status == CreditNoteStatus.DRAFT
+        assert entity.reason == CreditNoteReason.GOODS_RETURN

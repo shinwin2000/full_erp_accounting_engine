@@ -30,12 +30,12 @@ class TestIAMUserTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            roles=[MagicMock()],
-            legal_entities=[MagicMock()],
-            sessions=[MagicMock()],
-            login_attempts=[MagicMock()],
-        )
+        kwargs = {
+            'roles': [MagicMock()],
+            'legal_entities': [MagicMock()],
+            'sessions': [MagicMock()],
+            'login_attempts': [MagicMock()],
+        }
         try:
             instance = IAMUserTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -55,10 +55,10 @@ class TestIAMRoleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            permissions=[MagicMock()],
-            users=[MagicMock()],
-        )
+        kwargs = {
+            'permissions': [MagicMock()],
+            'users': [MagicMock()],
+        }
         try:
             instance = IAMRoleTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -78,9 +78,9 @@ class TestIAMPermissionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            roles=[MagicMock()],
-        )
+        kwargs = {
+            'roles': [MagicMock()],
+        }
         try:
             instance = IAMPermissionTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -100,9 +100,9 @@ class TestIAMSessionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            user=MagicMock(),
-        )
+        kwargs = {
+            'user': MagicMock(),
+        }
         try:
             instance = IAMSessionTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -122,8 +122,8 @@ class TestLoginAttemptTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = LoginAttemptTable(**kwargs)
         except (Exception, SystemExit) as e:

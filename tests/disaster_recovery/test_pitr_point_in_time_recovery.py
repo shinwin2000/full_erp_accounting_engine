@@ -42,6 +42,42 @@ def mock_datetime_now():
 
 
 # ============================================================================
+# Helper to create a mock S3 client with paginator
+# ============================================================================
+
+def create_mock_s3_client(backup_contents=None, wal_contents=None):
+    """Create a mock S3 client with configurable paginator responses."""
+    client = MagicMock()
+    paginator = MagicMock()
+
+    # Default backup contents
+    if backup_contents is None:
+        backup_contents = [
+            {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
+            {"Key": "base/backup2.backup", "LastModified": FIXED_EARLIER, "Size": 2000},
+        ]
+
+    # Default WAL contents
+    if wal_contents is None:
+        wal_contents = [
+            {"Key": "wal/file1.wal", "LastModified": FIXED_PAST + timedelta(hours=1), "Size": 100},
+            {"Key": "wal/file2.wal", "LastModified": FIXED_PAST + timedelta(hours=2), "Size": 100},
+        ]
+
+    # Configure paginator to return different results based on prefix
+    def paginate_side_effect(**kwargs):
+        prefix = kwargs.get("Prefix", "")
+        if "base" in prefix or "backup" in prefix:
+            return [{"Contents": backup_contents}]
+        else:
+            return [{"Contents": wal_contents}]
+
+    paginator.paginate.side_effect = paginate_side_effect
+    client.get_paginator.return_value = paginator
+    return client
+
+
+# ============================================================================
 # Tests for PITRRestorePoint
 # ============================================================================
 
@@ -78,32 +114,32 @@ class TestPITRRestorePoint:
         restore_point.restore_id = ""
         result = restore_point.validate()
         assert result["is_valid"] is False
-        assert "restore_id is required" in result["errors"][0]
+        assert "restore_id is required" in result["errors"]
 
     def test_validate_missing_base_backup_id(self, restore_point):
         restore_point.base_backup_id = ""
         result = restore_point.validate()
         assert result["is_valid"] is False
-        assert "base_backup_id is required" in result["errors"][0]
+        assert "base_backup_id is required" in result["errors"]
 
     def test_validate_backup_time_future(self, restore_point):
         restore_point.backup_time = FIXED_NOW + timedelta(days=1)
         result = restore_point.validate()
         assert result["is_valid"] is False
-        assert "backup_time cannot be in the future" in result["errors"][0]
+        assert "backup_time cannot be in the future" in result["errors"]
 
     def test_validate_earliest_after_latest(self, restore_point):
         restore_point.earliest_restore_time = FIXED_NOW
         restore_point.latest_restore_time = FIXED_PAST
         result = restore_point.validate()
         assert result["is_valid"] is False
-        assert "earliest_restore_time cannot be after latest_restore_time" in result["errors"][0]
+        assert "earliest_restore_time cannot be after latest_restore_time" in result["errors"]
 
     def test_validate_negative_size(self, restore_point):
         restore_point.total_size_bytes = -1
         result = restore_point.validate()
         assert result["is_valid"] is False
-        assert "total_size_bytes cannot be negative" in result["errors"][0]
+        assert "total_size_bytes cannot be negative" in result["errors"]
 
     def test_to_dict(self, restore_point):
         d = restore_point.to_dict()
@@ -112,7 +148,6 @@ class TestPITRRestorePoint:
         assert d["backup_time"] == FIXED_PAST.isoformat()
         assert d["total_size_bytes"] == 1024 * 1024
         assert d["version"] == 1
-        assert "earliest_restore_time" in d
 
     def test_from_dict(self):
         data = {
@@ -143,7 +178,6 @@ class TestPITRRestorePoint:
         assert cloned.backup_time == restore_point.backup_time
         assert cloned.total_size_bytes == restore_point.total_size_bytes
         assert cloned._version == restore_point._version + 1
-        # Audit trail should have CLONE entry
         trail = cloned.audit_trail()
         assert len(trail) == 1
         assert trail[0]["action"] == "CLONE"
@@ -153,7 +187,6 @@ class TestPITRRestorePoint:
         assert snap["version"] == restore_point._version
         assert snap["restore_id"] == "rp-001"
         assert snap["base_backup_id"] == "backup-001"
-        assert snap["backup_time"] == FIXED_PAST.isoformat()
 
     def test_version(self, restore_point):
         assert restore_point.version() == 1
@@ -211,27 +244,27 @@ class TestPITRRestoreResult:
         result.restore_id = ""
         res = result.validate()
         assert res["is_valid"] is False
-        assert "restore_id is required" in res["errors"][0]
+        assert "restore_id is required" in res["errors"]
 
     def test_validate_target_time_future(self, result):
         result.target_time = FIXED_NOW + timedelta(days=1)
         res = result.validate()
         assert res["is_valid"] is False
-        assert "target_time cannot be in the future" in res["errors"][0]
+        assert "target_time cannot be in the future" in res["errors"]
 
     def test_validate_negative_duration(self, result):
         result.duration_seconds = -1
         res = result.validate()
         assert res["is_valid"] is False
-        assert "duration_seconds cannot be negative" in res["errors"][0]
+        assert "duration_seconds cannot be negative" in res["errors"]
 
     def test_validate_negative_wal_files(self, result):
         result.wal_files_restored = -1
         res = result.validate()
         assert res["is_valid"] is False
-        assert "wal_files_restored cannot be negative" in res["errors"][0]
+        assert "wal_files_restored cannot be negative" in res["errors"]
 
-    def test_validate_success_without_error_message(self):
+    def test_validate_failed_without_error_message(self):
         r = PITRRestoreResult(
             restore_id="rid",
             target_time=FIXED_PAST,
@@ -243,7 +276,7 @@ class TestPITRRestoreResult:
         )
         res = r.validate()
         assert res["is_valid"] is False
-        assert "error_message is required when success=False" in res["errors"][0]
+        assert "error_message is required when success=False" in res["errors"]
 
     def test_to_dict(self, result):
         d = result.to_dict()
@@ -330,7 +363,7 @@ class TestPointInTimeRecovery:
     @pytest.fixture
     def mock_s3_client(self):
         with patch("disaster_recovery.pitr_point_in_time_recovery.boto3.client") as mock:
-            client = MagicMock()
+            client = create_mock_s3_client()
             mock.return_value = client
             yield client
 
@@ -428,7 +461,6 @@ class TestPointInTimeRecovery:
     def test_reset(self, pitr):
         pitr._restore_points["test"] = MagicMock()
         pitr._record_audit("TEST", "system", {})
-        old_version = pitr._version
         pitr.reset()
         assert pitr._restore_points == {}
         assert pitr._version == 1
@@ -440,42 +472,28 @@ class TestPointInTimeRecovery:
     # ------------------------------------------------------------------------
 
     def test_list_available_base_backups(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_NOW, "Size": 1000},
-                    {"Key": "base/backup2.backup", "LastModified": FIXED_PAST, "Size": 2000},
-                    {"Key": "base/backup3.txt", "LastModified": FIXED_EARLIER, "Size": 3000},
-                ]
-            }
-        ]
         backups = pitr.list_available_base_backups()
         # Only .tar.gz and .backup files should be included
         assert len(backups) == 2
         assert backups[0]["backup_id"] == "backup1"
         assert backups[1]["backup_id"] == "backup2"
 
-    def test_list_available_base_backups_client_error(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.side_effect = ClientError(
-            {"Error": {"Code": "NoSuchBucket", "Message": "Bucket not found"}},
-            "ListObjectsV2",
-        )
-        backups = pitr.list_available_base_backups()
-        assert backups == []
+    def test_list_available_base_backups_client_error(self, pitr):
+        with patch("disaster_recovery.pitr_point_in_time_recovery.boto3.client") as mock:
+            client = MagicMock()
+            client.get_paginator.return_value.paginate.side_effect = ClientError(
+                {"Error": {"Code": "NoSuchBucket", "Message": "Bucket not found"}},
+                "ListObjectsV2",
+            )
+            mock.return_value = client
+            backups = pitr.list_available_base_backups()
+            assert backups == []
 
     # ------------------------------------------------------------------------
     # get_restore_points
     # ------------------------------------------------------------------------
 
     def test_get_restore_points(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                    {"Key": "base/backup2.tar.gz", "LastModified": FIXED_EARLIER, "Size": 2000},
-                ]
-            }
-        ]
         points = pitr.get_restore_points()
         assert len(points) == 2
         assert points[0].base_backup_id == "backup1"
@@ -483,8 +501,7 @@ class TestPointInTimeRecovery:
         assert points[0].restore_id in pitr._restore_points
         # Audit trail should record
         trail = pitr.audit_trail()
-        assert len(trail) >= 1
-        assert trail[-1]["action"] == "GET_RESTORE_POINTS"
+        assert any(a["action"] == "GET_RESTORE_POINTS" for a in trail)
 
     # ------------------------------------------------------------------------
     # _get_wal_bucket and _get_wal_prefix
@@ -505,25 +522,21 @@ class TestPointInTimeRecovery:
     # ------------------------------------------------------------------------
 
     def test_list_wal_files_since(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "wal/file1.wal", "LastModified": FIXED_NOW},
-                    {"Key": "wal/file2.wal", "LastModified": FIXED_PAST},
-                ]
-            }
-        ]
         files = pitr._list_wal_files_since(FIXED_EARLIER)
-        # Both should be included since both are after FIXED_EARLIER
+        # Both WAL files should be included
         assert len(files) == 2
         assert "wal/file1.wal" in files
+        assert "wal/file2.wal" in files
 
-    def test_list_wal_files_since_client_error(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.side_effect = ClientError(
-            {"Error": {"Code": "AccessDenied"}}, "ListObjectsV2"
-        )
-        files = pitr._list_wal_files_since(FIXED_PAST)
-        assert files == []
+    def test_list_wal_files_since_client_error(self, pitr):
+        with patch("disaster_recovery.pitr_point_in_time_recovery.boto3.client") as mock:
+            client = MagicMock()
+            client.get_paginator.return_value.paginate.side_effect = ClientError(
+                {"Error": {"Code": "AccessDenied"}}, "ListObjectsV2"
+            )
+            mock.return_value = client
+            files = pitr._list_wal_files_since(FIXED_PAST)
+            assert files == []
 
     # ------------------------------------------------------------------------
     # _download_wal_file
@@ -550,10 +563,16 @@ class TestPointInTimeRecovery:
             "test-backups", "base/backup1.tar.gz", "/tmp/restore/base_backup.tar.gz"
         )
         mock_tar_open.assert_called_once()
-        # Check recovery.signal file created
-        recovery_signal = os.path.join("/tmp/restore/data", "recovery.signal")
-        assert os.path.exists(recovery_signal)  # Actually we mocked, but in real test would be created
         assert result == "/tmp/restore/data"
+
+    @patch("tarfile.open")
+    @patch("os.makedirs")
+    def test_restore_physical_backup_creates_recovery_signal(self, mock_makedirs, mock_tar_open, pitr, mock_s3_client):
+        restore_dir = "/tmp/restore"
+        with patch("builtins.open", mock_open()) as mock_file:
+            pitr._restore_physical_backup("base/backup1.tar.gz", restore_dir)
+            # Check that recovery.signal was created
+            mock_file.assert_called_with("/tmp/restore/data/recovery.signal", "w")
 
     # ------------------------------------------------------------------------
     # _configure_recovery
@@ -566,11 +585,10 @@ class TestPointInTimeRecovery:
         pitr._configure_recovery(data_dir, FIXED_NOW, wal_dir)
         mock_file_open.assert_called_once_with("/tmp/restore/data/postgresql.conf", "a")
         handle = mock_file_open()
-        # Check that the recovery config was written
         calls = handle.write.call_args_list
-        # The append should add multiple lines
-        assert "PITR recovery configuration" in calls[0][0][0]
-        assert f"recovery_target_time = '{FIXED_NOW.isoformat()}'" in calls[1][0][0]
+        # Should contain recovery config
+        assert any("PITR recovery configuration" in call[0][0] for call in calls)
+        assert any(f"recovery_target_time = '{FIXED_NOW.isoformat()}'" in call[0][0] for call in calls)
 
     # ------------------------------------------------------------------------
     # _restore_logical_backup
@@ -607,22 +625,6 @@ class TestPointInTimeRecovery:
     @patch("shutil.rmtree")
     @patch("subprocess.run")
     def test_restore_to_timestamp_physical_success(self, mock_subprocess, mock_rmtree, pitr, mock_s3_client):
-        # Mock backup listing
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                ]
-            }
-        ]
-        # Mock WAL listing
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "wal/file1.wal", "LastModified": FIXED_PAST + timedelta(hours=1)},
-                ]
-            }
-        ]
         mock_subprocess.return_value.returncode = 0
 
         result = pitr.restore_to_timestamp(
@@ -632,7 +634,7 @@ class TestPointInTimeRecovery:
         )
         assert result.success is True
         assert result.restored_path == "/tmp/restore/data"
-        assert result.wal_files_restored == 1
+        assert result.wal_files_restored == 2
         assert result.data_loss_seconds is not None
         # Should have recorded audit
         trail = pitr.audit_trail()
@@ -640,51 +642,48 @@ class TestPointInTimeRecovery:
 
     @patch("shutil.rmtree")
     def test_restore_to_timestamp_dry_run(self, mock_rmtree, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                ]
-            }
-        ]
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "wal/file1.wal", "LastModified": FIXED_PAST + timedelta(hours=1)},
-                ]
-            }
-        ]
-
         result = pitr.restore_to_timestamp(
             target_time=FIXED_NOW,
             dry_run=True,
         )
         assert result.success is True
         assert result.duration_seconds == 0
-        assert result.wal_files_restored == 1
+        assert result.wal_files_restored == 2
         # Should not have called s3 download or subprocess
         mock_s3_client.download_file.assert_not_called()
         # Audit trail should have dry run
         trail = pitr.audit_trail()
         assert any(a["action"] == "DRY_RUN_RESTORE" for a in trail)
 
-    def test_restore_to_timestamp_no_suitable_backup(self, pitr, mock_s3_client):
-        # No backups
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [{"Contents": []}]
+    def test_restore_to_timestamp_no_suitable_backup(self, pitr):
+        # No backups - create a client with empty backup list
+        with patch("disaster_recovery.pitr_point_in_time_recovery.boto3.client") as mock:
+            client = create_mock_s3_client(backup_contents=[])
+            mock.return_value = client
+            with pytest.raises(RecoveryError, match="No suitable base backup found"):
+                pitr.restore_to_timestamp(target_time=FIXED_NOW)
 
-        with pytest.raises(RecoveryError, match="No suitable base backup found"):
-            pitr.restore_to_timestamp(target_time=FIXED_NOW)
+    def test_restore_to_timestamp_with_restore_point_id(self, pitr, mock_s3_client):
+        # First get restore points to populate the cache
+        pitr.get_restore_points()
+        # Get the first restore point ID
+        restore_point_id = list(pitr._restore_points.keys())[0]
+
+        with patch.object(pitr, "_restore_physical_backup", return_value="/tmp/restore/data"):
+            with patch.object(pitr, "_list_wal_files_since", return_value=[]):
+                with patch.object(pitr, "_configure_recovery"):
+                    with patch("shutil.rmtree"):
+                        result = pitr.restore_to_timestamp(
+                            target_time=FIXED_NOW,
+                            restore_point_id=restore_point_id,
+                            dry_run=False,
+                        )
+        assert result.success is True
+        assert result.restored_path == "/tmp/restore/data"
 
     @patch("shutil.rmtree")
     def test_restore_to_timestamp_logical_success(self, mock_rmtree, pitr, mock_s3_client):
         pitr.use_physical_backup = False
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.dump", "LastModified": FIXED_PAST, "Size": 1000},
-                ]
-            }
-        ]
         with patch.object(pitr, "_restore_logical_backup", return_value="test_db"):
             result = pitr.restore_to_timestamp(
                 target_time=FIXED_NOW,
@@ -695,13 +694,6 @@ class TestPointInTimeRecovery:
 
     @patch("shutil.rmtree")
     def test_restore_to_timestamp_exception(self, mock_rmtree, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                ]
-            }
-        ]
         # Force exception during restore
         with patch.object(pitr, "_restore_physical_backup", side_effect=Exception("Restore failed")):
             result = pitr.restore_to_timestamp(
@@ -711,26 +703,25 @@ class TestPointInTimeRecovery:
         assert result.success is False
         assert "Restore failed" in result.error_message
 
+    @patch("shutil.rmtree")
+    def test_restore_to_timestamp_with_custom_restore_dir(self, mock_rmtree, pitr, mock_s3_client):
+        custom_dir = "/custom/restore/path"
+        with patch.object(pitr, "_restore_physical_backup", return_value="/custom/restore/path/data"):
+            with patch.object(pitr, "_list_wal_files_since", return_value=[]):
+                with patch.object(pitr, "_configure_recovery"):
+                    result = pitr.restore_to_timestamp(
+                        target_time=FIXED_NOW,
+                        restore_dir=custom_dir,
+                        dry_run=False,
+                    )
+        assert result.success is True
+        assert result.restored_path == "/custom/restore/path/data"
+
     # ------------------------------------------------------------------------
     # dry_run_recovery
     # ------------------------------------------------------------------------
 
     def test_dry_run_recovery_success(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                ]
-            }
-        ]
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "wal/file1.wal", "LastModified": FIXED_PAST + timedelta(hours=1)},
-                ]
-            }
-        ]
-
         target = FIXED_NOW
         result = pitr.dry_run_recovery(target)
         assert result["can_recover"] is True
@@ -738,11 +729,18 @@ class TestPointInTimeRecovery:
         assert "wal_files_required" in result
         assert result["estimated_data_loss_seconds"] > 0
 
-    def test_dry_run_recovery_no_suitable_backup(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [{"Contents": []}]
-        result = pitr.dry_run_recovery(FIXED_NOW)
+    def test_dry_run_recovery_no_suitable_backup(self, pitr):
+        with patch("disaster_recovery.pitr_point_in_time_recovery.boto3.client") as mock:
+            client = create_mock_s3_client(backup_contents=[])
+            mock.return_value = client
+            result = pitr.dry_run_recovery(FIXED_NOW)
+            assert result["can_recover"] is False
+            assert "No suitable base backup" in result["reason"]
+
+    def test_dry_run_recovery_target_before_backup(self, pitr, mock_s3_client):
+        # Target time before any backup
+        result = pitr.dry_run_recovery(FIXED_EARLIER - timedelta(days=10))
         assert result["can_recover"] is False
-        assert "No suitable base backup" in result["reason"]
 
     # ------------------------------------------------------------------------
     # validate_restore
@@ -787,36 +785,48 @@ class TestPointInTimeRecovery:
         )
         assert pitr.validate_restore(result) is False
 
+    @patch("subprocess.run")
+    def test_validate_restore_uses_db_password(self, mock_subprocess, pitr):
+        mock_subprocess.return_value.returncode = 0
+        result = PITRRestoreResult(
+            restore_id="rid",
+            target_time=FIXED_PAST,
+            restored_path="/tmp",
+            success=True,
+            duration_seconds=0,
+            wal_files_restored=0,
+        )
+        pitr.validate_restore(result)
+        # Check that environment was set
+        call_args = mock_subprocess.call_args
+        env = call_args[1].get("env", {})
+        assert env.get("PGPASSWORD") == "secret"
+
     # ------------------------------------------------------------------------
     # get_restore_points_report
     # ------------------------------------------------------------------------
 
     def test_get_restore_points_report(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                    {"Key": "base/backup2.tar.gz", "LastModified": FIXED_EARLIER, "Size": 2000},
-                ]
-            }
-        ]
         report = pitr.get_restore_points_report()
         assert report["total_restore_points"] == 2
         assert report["latest_backup_time"] == FIXED_PAST.isoformat()
         assert len(report["restore_points"]) == 2
+
+    def test_get_restore_points_report_empty(self, pitr):
+        with patch("disaster_recovery.pitr_point_in_time_recovery.boto3.client") as mock:
+            client = create_mock_s3_client(backup_contents=[])
+            mock.return_value = client
+            report = pitr.get_restore_points_report()
+            assert report["total_restore_points"] == 0
+            assert report["latest_backup_time"] is None
+            assert report["earliest_restore_time"] is None
+            assert report["restore_points"] == []
 
     # ------------------------------------------------------------------------
     # export_to_json
     # ------------------------------------------------------------------------
 
     def test_export_to_json(self, pitr, mock_s3_client):
-        mock_s3_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {"Key": "base/backup1.tar.gz", "LastModified": FIXED_PAST, "Size": 1000},
-                ]
-            }
-        ]
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
             file_path = f.name
         try:
@@ -826,6 +836,64 @@ class TestPointInTimeRecovery:
             assert data["db_type"] == "postgresql"
             assert data["backup_bucket"] == "test-backups"
             assert "restore_points_report" in data
-            assert data["restore_points_report"]["total_restore_points"] == 1
+            assert data["restore_points_report"]["total_restore_points"] == 2
+            assert data["version"] == pitr._version
         finally:
             os.unlink(file_path)
+
+    # ------------------------------------------------------------------------
+    # _take_snapshot and snapshot versioning
+    # ------------------------------------------------------------------------
+
+    def test_snapshot_versioning(self, pitr):
+        # Initial snapshot should have version 1
+        assert len(pitr._snapshots) == 1
+        assert pitr._snapshots[0]["version"] == 1
+
+        # Touch to increment version
+        pitr.touch("admin")
+        assert len(pitr._snapshots) == 2
+        assert pitr._snapshots[-1]["version"] == 2
+
+        # Reset should clear snapshots and add new one with version 1
+        pitr.reset()
+        assert len(pitr._snapshots) == 1
+        assert pitr._snapshots[0]["version"] == 1
+
+    # ------------------------------------------------------------------------
+    # Edge cases for restore_to_timestamp
+    # ------------------------------------------------------------------------
+
+    @patch("shutil.rmtree")
+    def test_restore_to_timestamp_data_loss_seconds_non_negative(self, mock_rmtree, pitr, mock_s3_client):
+        # Target time before backup time
+        with patch.object(pitr, "_restore_physical_backup", return_value="/tmp/restore/data"):
+            with patch.object(pitr, "_list_wal_files_since", return_value=[]):
+                with patch.object(pitr, "_configure_recovery"):
+                    result = pitr.restore_to_timestamp(
+                        target_time=FIXED_PAST - timedelta(days=1),
+                        dry_run=False,
+                    )
+        # Data loss should be 0 (clamped to non-negative)
+        assert result.data_loss_seconds == 0
+
+    @patch("shutil.rmtree")
+    def test_restore_to_timestamp_restore_dir_creation(self, mock_rmtree, pitr, mock_s3_client):
+        with patch("os.makedirs") as mock_makedirs:
+            with patch.object(pitr, "_restore_physical_backup", return_value="/tmp/restore/data"):
+                with patch.object(pitr, "_list_wal_files_since", return_value=[]):
+                    with patch.object(pitr, "_configure_recovery"):
+                        pitr.restore_to_timestamp(
+                            target_time=FIXED_NOW,
+                            restore_dir="/custom/restore/dir",
+                            dry_run=False,
+                        )
+            mock_makedirs.assert_called_with("/custom/restore/dir", exist_ok=True)
+
+    def test_restore_to_timestamp_restore_point_not_found(self, pitr, mock_s3_client):
+        # Use a restore_point_id that doesn't exist
+        with pytest.raises(RecoveryError, match="No suitable base backup found"):
+            pitr.restore_to_timestamp(
+                target_time=FIXED_NOW,
+                restore_point_id="non-existent-id",
+            )

@@ -280,7 +280,7 @@ class TestStandardCostEntity:
         assert active.is_active_at_date(now - timedelta(days=1)) is False  # before effective
 
         # With expiry
-        expiry = now + timedelta(days=30)
+        now + timedelta(days=30)
         # We need to create an active instance with expiry set (obsoleted sets expiry to now)
         # Let's manually create an active with expiry in future
         active_with_expiry = StandardCostEntity(

@@ -406,7 +406,6 @@ class TestSODMatrix:
 
     def test_reset(self, sod_matrix, sod_rule):
         sod_matrix.add_rule(sod_rule)
-        old_version = sod_matrix._version
         sod_matrix.reset()
         assert len(sod_matrix._rules) > 0  # default rules re-added
         assert sod_matrix._version == 1  # reset sets version to 1

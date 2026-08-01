@@ -68,7 +68,7 @@ class TestAuditSamplingEngineMaterialityBased:
         """Smoke test for AuditSamplingEngineMaterialityBased.setup_engagement using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.setup_engagement(legal_entity_id="test_value", basis_value=Decimal("100.00"), basis_type=MagicMock(), population_size=1, population_value=Decimal("100.00"), confidence_level=1, expected_error_percent=1.5, tolerable_error_percent=1.5)
+            await instance.setup_engagement(legal_entity_id="test_value", basis_value=Decimal("100.00"), basis_type=MagicMock(), population_size=1, population_value=Decimal("100.00"), confidence_level=1, expected_error_percent=1.5, tolerable_error_percent=1.5)
         except (Exception, SystemExit) as e:
             pytest.skip(f"setup_engagement needs specific domain fixtures/data: {e}")
             return
@@ -79,7 +79,7 @@ class TestAuditSamplingEngineMaterialityBased:
         """Smoke test for AuditSamplingEngineMaterialityBased.evaluate_sample_errors using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.evaluate_sample_errors(errors=[Decimal("100.00")])
+            instance.evaluate_sample_errors(errors=[Decimal("100.00")])
         except (Exception, SystemExit) as e:
             pytest.skip(f"evaluate_sample_errors needs specific domain fixtures/data: {e}")
             return
@@ -90,7 +90,7 @@ class TestAuditSamplingEngineMaterialityBased:
         """Smoke test for AuditSamplingEngineMaterialityBased.sequential_sampling using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.sequential_sampling(sequential_errors=[Decimal("100.00")], max_samples=1)
+            await instance.sequential_sampling(sequential_errors=[Decimal("100.00")], max_samples=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"sequential_sampling needs specific domain fixtures/data: {e}")
             return
@@ -101,7 +101,7 @@ class TestAuditSamplingEngineMaterialityBased:
         """Smoke test for AuditSamplingEngineMaterialityBased.project_and_conclude using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.project_and_conclude(sample_errors=[Decimal("100.00")], population_size=1, confidence_level=1)
+            await instance.project_and_conclude(sample_errors=[Decimal("100.00")], population_size=1, confidence_level=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"project_and_conclude needs specific domain fixtures/data: {e}")
             return
@@ -112,7 +112,7 @@ class TestAuditSamplingEngineMaterialityBased:
 async def test_get_sampling_engine_smoke():
     """Smoke test for module-level function get_sampling_engine."""
     try:
-        result = await get_sampling_engine()
+        await get_sampling_engine()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_sampling_engine needs specific input data: {e}")
         return

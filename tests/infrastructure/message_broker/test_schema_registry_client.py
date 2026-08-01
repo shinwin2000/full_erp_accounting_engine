@@ -86,7 +86,7 @@ class TestSchemaRegistryClient:
         """Smoke test for SchemaRegistryClient.close using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.close()
+            await instance.close()
         except (Exception, SystemExit) as e:
             pytest.skip(f"close needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestSchemaRegistryClient:
         """Smoke test for SchemaRegistryClient.register_schema using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.register_schema(topic="test_value", schema={}, schema_type="test_value", is_key=True)
+            await instance.register_schema(topic="test_value", schema={}, schema_type="test_value", is_key=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_schema needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestSchemaRegistryClient:
         """Smoke test for SchemaRegistryClient.get_schema_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_schema_id(topic="test_value", schema={}, is_key=True)
+            await instance.get_schema_id(topic="test_value", schema={}, is_key=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_schema_id needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestSchemaRegistryClient:
         """Smoke test for SchemaRegistryClient.get_schema_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_schema_by_id(schema_id=1)
+            await instance.get_schema_by_id(schema_id=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_schema_by_id needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestSchemaRegistryClient:
 async def test_get_schema_registry_smoke():
     """Smoke test for module-level function get_schema_registry."""
     try:
-        result = await get_schema_registry()
+        await get_schema_registry()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_schema_registry needs specific input data: {e}")
         return
@@ -140,7 +140,7 @@ async def test_get_schema_registry_smoke():
 async def test_close_schema_registry_smoke():
     """Smoke test for module-level function close_schema_registry."""
     try:
-        result = await close_schema_registry()
+        await close_schema_registry()
     except (Exception, SystemExit) as e:
         pytest.skip(f"close_schema_registry needs specific input data: {e}")
         return

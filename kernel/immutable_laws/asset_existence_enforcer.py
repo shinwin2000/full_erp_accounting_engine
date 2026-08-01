@@ -653,22 +653,25 @@ class AssetExistenceEnforcer(BaseAssetExistenceEnforcer):
                 },
             )
 
-        if amount >= self._verification_threshold * 2:
-            if verification_method not in [
+        # FIX: SIM102 - gabungkan nested if menjadi satu
+        if (
+            amount >= self._verification_threshold * 2
+            and verification_method not in [
                 VerificationMethod.PHYSICAL_INSPECTION,
                 VerificationMethod.THIRD_PARTY_CONFIRMATION,
                 VerificationMethod.VALUATION_REPORT,
-            ]:
-                raise AssetExistenceViolation(
-                    message=(
-                        f"High-value asset {asset_id} ({amount}) requires physical inspection "
-                        "or third-party confirmation"
-                    ),
-                    asset_id=str(asset_id),
-                    asset_type=asset_type.value,
-                    severity=LawViolationSeverity.HIGH,
-                    details={"amount": str(amount)},
-                )
+            ]
+        ):
+            raise AssetExistenceViolation(
+                message=(
+                    f"High-value asset {asset_id} ({amount}) requires physical inspection "
+                    "or third-party confirmation"
+                ),
+                asset_id=str(asset_id),
+                asset_type=asset_type.value,
+                severity=LawViolationSeverity.HIGH,
+                details={"amount": str(amount)},
+            )
 
         if not verification_document:
             raise AssetExistenceViolation(

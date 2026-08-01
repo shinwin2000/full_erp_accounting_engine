@@ -19,23 +19,23 @@ from domain.subledger_ar.debit_note_entity import DebitNoteEntity, DebitNoteStat
 
 
 def _draft_credit_note(**overrides) -> CreditNoteEntity:
-    defaults = dict(
-        credit_note_id=uuid4(), credit_note_number="CN-TEST-0001", invoice_id=uuid4(),
-        invoice_number="INV-TEST-0001", customer_id=uuid4(), customer_name="PT Pelanggan Test",
-        issue_date=date.today(), amount=Decimal("100000"), currency="IDR",
-        reason="retur barang", status=CreditNoteStatus.DRAFT, description="credit note test",
-    )
+    defaults = {
+        "credit_note_id": uuid4(), "credit_note_number": "CN-TEST-0001", "invoice_id": uuid4(),
+        "invoice_number": "INV-TEST-0001", "customer_id": uuid4(), "customer_name": "PT Pelanggan Test",
+        "issue_date": date.today(), "amount": Decimal("100000"), "currency": "IDR",
+        "reason": "retur barang", "status": CreditNoteStatus.DRAFT, "description": "credit note test",
+    }
     defaults.update(overrides)
     return CreditNoteEntity(**defaults)
 
 
 def _draft_debit_note(**overrides) -> DebitNoteEntity:
-    defaults = dict(
-        debit_note_id=uuid4(), debit_note_number="DN-TEST-0001", invoice_id=uuid4(),
-        invoice_number="INV-TEST-0001", customer_id=uuid4(), customer_name="PT Pelanggan Test",
-        issue_date=date.today(), amount=Decimal("50000"), currency="IDR",
-        reason="biaya tambahan", status=DebitNoteStatus.DRAFT, description="debit note test",
-    )
+    defaults = {
+        "debit_note_id": uuid4(), "debit_note_number": "DN-TEST-0001", "invoice_id": uuid4(),
+        "invoice_number": "INV-TEST-0001", "customer_id": uuid4(), "customer_name": "PT Pelanggan Test",
+        "issue_date": date.today(), "amount": Decimal("50000"), "currency": "IDR",
+        "reason": "biaya tambahan", "status": DebitNoteStatus.DRAFT, "description": "debit note test",
+    }
     defaults.update(overrides)
     return DebitNoteEntity(**defaults)
 

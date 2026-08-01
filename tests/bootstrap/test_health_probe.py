@@ -56,17 +56,17 @@ class TestComponentHealth:
     """Tests for the ComponentHealth value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            name="test_value",
-            status=HealthStatus.HEALTHY,
-            message="test_value",
-            last_check=datetime.now(UTC),
-            response_time_ms=1.5,
-            details={},
-            _version=1,
-            _audit_trail=[{}],
-            _snapshots=[{}],
-        )
+        return {
+            'name': "test_value",
+            'status': HealthStatus.HEALTHY,
+            'message': "test_value",
+            'last_check': datetime.now(UTC),
+            'response_time_ms': 1.5,
+            'details': {},
+            '_version': 1,
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+        }
 
     def test_construction_success(self):
         """ComponentHealth can be constructed with valid field values."""
@@ -84,18 +84,18 @@ class TestHealthReport:
     """Tests for the HealthReport value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            timestamp=datetime.now(UTC),
-            overall_status=HealthStatus.HEALTHY,
-            probe_type=ProbeType.LIVENESS,
-            components=[MagicMock()],
-            uptime_seconds=1.5,
-            summary={},
-            version="test_value",
-            _report_version=1,
-            _audit_trail=[{}],
-            _snapshots=[{}],
-        )
+        return {
+            'timestamp': datetime.now(UTC),
+            'overall_status': HealthStatus.HEALTHY,
+            'probe_type': ProbeType.LIVENESS,
+            'components': [MagicMock()],
+            'uptime_seconds': 1.5,
+            'summary': {},
+            'version': "test_value",
+            '_report_version': 1,
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+        }
 
     def test_construction_success(self):
         """HealthReport can be constructed with valid field values."""
@@ -128,7 +128,7 @@ class TestHealthProbe:
         """Smoke test for HealthProbe.check_liveness using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_liveness()
+            await instance.check_liveness()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_liveness needs specific domain fixtures/data: {e}")
             return
@@ -139,7 +139,7 @@ class TestHealthProbe:
         """Smoke test for HealthProbe.check_readiness using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_readiness()
+            await instance.check_readiness()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_readiness needs specific domain fixtures/data: {e}")
             return
@@ -150,7 +150,7 @@ class TestHealthProbe:
         """Smoke test for HealthProbe.check_startup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_startup()
+            await instance.check_startup()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_startup needs specific domain fixtures/data: {e}")
             return
@@ -161,7 +161,7 @@ class TestHealthProbe:
         """Smoke test for HealthProbe.check_component using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_component(component_name="test_value")
+            await instance.check_component(component_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_component needs specific domain fixtures/data: {e}")
             return
@@ -172,7 +172,7 @@ class TestHealthProbe:
 def test_get_health_probe_smoke():
     """Smoke test for module-level function get_health_probe."""
     try:
-        result = get_health_probe()
+        get_health_probe()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_health_probe needs specific input data: {e}")
         return
@@ -182,7 +182,7 @@ def test_get_health_probe_smoke():
 def test_create_liveness_endpoint_smoke():
     """Smoke test for module-level function create_liveness_endpoint."""
     try:
-        result = create_liveness_endpoint()
+        create_liveness_endpoint()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_liveness_endpoint needs specific input data: {e}")
         return
@@ -192,7 +192,7 @@ def test_create_liveness_endpoint_smoke():
 def test_create_readiness_endpoint_smoke():
     """Smoke test for module-level function create_readiness_endpoint."""
     try:
-        result = create_readiness_endpoint()
+        create_readiness_endpoint()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_readiness_endpoint needs specific input data: {e}")
         return
@@ -202,7 +202,7 @@ def test_create_readiness_endpoint_smoke():
 def test_create_startup_endpoint_smoke():
     """Smoke test for module-level function create_startup_endpoint."""
     try:
-        result = create_startup_endpoint()
+        create_startup_endpoint()
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_startup_endpoint needs specific input data: {e}")
         return

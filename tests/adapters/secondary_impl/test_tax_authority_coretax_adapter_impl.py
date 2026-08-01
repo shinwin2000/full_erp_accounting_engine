@@ -50,7 +50,7 @@ class TestTaxAuthorityCoretaxPortImpl:
         """Smoke test for TaxAuthorityCoretaxPortImpl.authenticate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.authenticate()
+            await instance.authenticate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"authenticate needs specific domain fixtures/data: {e}")
             return
@@ -61,7 +61,7 @@ class TestTaxAuthorityCoretaxPortImpl:
         """Smoke test for TaxAuthorityCoretaxPortImpl.submit_faktur_keluaran using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.submit_faktur_keluaran(faktur_data={})
+            await instance.submit_faktur_keluaran(faktur_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"submit_faktur_keluaran needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestTaxAuthorityCoretaxPortImpl:
         """Smoke test for TaxAuthorityCoretaxPortImpl.get_faktur_keluaran_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_faktur_keluaran_status(faktur_id="test_value")
+            await instance.get_faktur_keluaran_status(faktur_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_faktur_keluaran_status needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestTaxAuthorityCoretaxPortImpl:
         """Smoke test for TaxAuthorityCoretaxPortImpl.submit_faktur_masukan using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.submit_faktur_masukan(faktur_data={})
+            await instance.submit_faktur_masukan(faktur_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"submit_faktur_masukan needs specific domain fixtures/data: {e}")
             return

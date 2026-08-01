@@ -53,7 +53,7 @@ from domain.fixed_asset.domain_events import (
     AssetFullyDepreciated,
     AssetFullyDepreciatedEvent,
     AssetImpairedEvent,
-    AssetImpairmentRecognized,  # ditambahkan
+    AssetImpairmentRecognized,
     AssetRevaluatedEvent,
     AssetRevalued,
     AssetTransferred,
@@ -92,6 +92,11 @@ from domain.fixed_asset.transfer_entity import (
     TransferType,
 )
 
+# ============================================================================
+# Ekspor modul asset_entity untuk keperluan testing dan mocking
+# ============================================================================
+from . import asset_entity as asset_entity
+
 __all__ = [
     # asset_entity
     "AssetStatus",
@@ -100,6 +105,7 @@ __all__ = [
     "FixedAsset",
     "FixedAssetEntity",
     "FixedAssetEntityRepository",
+    "asset_entity",  # tambahkan agar checker tidak melaporkan error
     # asset_group_entity
     "AssetGroupEntity",
     "AssetGroup",

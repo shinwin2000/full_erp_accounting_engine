@@ -29,45 +29,45 @@ class TestCoretaxFakturTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            faktur_number="test_value",
-            nsfp_used="test_value",
-            faktur_type="test_value",
-            npwp_penjual="test_value",
-            nama_penjual="test_value",
-            alamat_penjual="test_value",
-            npwp_pembeli="test_value",
-            nama_pembeli="test_value",
-            alamat_pembeli="test_value",
-            faktur_date=date.today(),
-            dpp=Decimal("100.00"),
-            ppn=Decimal("100.00"),
-            ppn_bm=Decimal("100.00"),
-            currency="test_value",
-            status="test_value",
-            approval_code="test_value",
-            approval_date=date.today(),
-            rejection_reason="test_value",
-            reference_type="test_value",
-            reference_id=MagicMock(),
-            xml_content="test_value",
-            extra_metadata={},
-            created_by=MagicMock(),
-            ppn_rate=Decimal("100.00"),
-            transaction_date=date.today(),
-            tahun_pajak="test_value",
-            response_data="test_value",
-            customer_name="test_value",
-            dpp_amount=Decimal("100.00"),
-            error_message="test_value",
-            customer_npwp="test_value",
-            customer_id=1,
-            ppn_amount=Decimal("100.00"),
-            masa_pajak="test_value",
-            submission_date=datetime.now(UTC),
-            faktur_code="test_value",
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'faktur_number': "test_value",
+            'nsfp_used': "test_value",
+            'faktur_type': "test_value",
+            'npwp_penjual': "test_value",
+            'nama_penjual': "test_value",
+            'alamat_penjual': "test_value",
+            'npwp_pembeli': "test_value",
+            'nama_pembeli': "test_value",
+            'alamat_pembeli': "test_value",
+            'faktur_date': date.today(),
+            'dpp': Decimal("100.00"),
+            'ppn': Decimal("100.00"),
+            'ppn_bm': Decimal("100.00"),
+            'currency': "test_value",
+            'status': "test_value",
+            'approval_code': "test_value",
+            'approval_date': date.today(),
+            'rejection_reason': "test_value",
+            'reference_type': "test_value",
+            'reference_id': MagicMock(),
+            'xml_content': "test_value",
+            'extra_metadata': {},
+            'created_by': MagicMock(),
+            'ppn_rate': Decimal("100.00"),
+            'transaction_date': date.today(),
+            'tahun_pajak': "test_value",
+            'response_data': "test_value",
+            'customer_name': "test_value",
+            'dpp_amount': Decimal("100.00"),
+            'error_message': "test_value",
+            'customer_npwp': "test_value",
+            'customer_id': 1,
+            'ppn_amount': Decimal("100.00"),
+            'masa_pajak': "test_value",
+            'submission_date': datetime.now(UTC),
+            'faktur_code': "test_value",
+        }
         try:
             instance = CoretaxFakturTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -79,7 +79,7 @@ class TestCoretaxFakturTable:
 def test_generate_faktur_number_smoke():
     """Smoke test for module-level function generate_faktur_number."""
     try:
-        result = generate_faktur_number(legal_entity_code="test_value", year=1, month=1, sequence=1)
+        generate_faktur_number(legal_entity_code="test_value", year=1, month=1, sequence=1)
     except (Exception, SystemExit) as e:
         pytest.skip(f"generate_faktur_number needs specific input data: {e}")
         return

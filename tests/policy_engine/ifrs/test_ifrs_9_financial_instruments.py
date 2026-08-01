@@ -325,7 +325,7 @@ class TestIFRS9Impairment:
             {"ead": Decimal("200000"), "pd_12m": Decimal("0.02"), "lgd": Decimal("0.5")},
         ]
         total = IFRS9.calculate_ecl_for_portfolio(exposures, use_lifetime=False)
-        expected = (100000 * 0.01 * 0.4) + (200000 * 0.02 * 0.5)  # 400 + 2000 = 2400
+        (100000 * 0.01 * 0.4) + (200000 * 0.02 * 0.5)  # 400 + 2000 = 2400
         assert total == Decimal("2400.00")
 
     def test_calculate_ecl_for_portfolio_lifetime(self):
@@ -334,7 +334,7 @@ class TestIFRS9Impairment:
             {"ead": Decimal("200000"), "pd_lifetime": Decimal("0.04"), "lgd": Decimal("0.5")},
         ]
         total = IFRS9.calculate_ecl_for_portfolio(exposures, use_lifetime=True)
-        expected = (100000 * 0.03 * 0.4) + (200000 * 0.04 * 0.5)  # 1200 + 4000 = 5200
+        (100000 * 0.03 * 0.4) + (200000 * 0.04 * 0.5)  # 1200 + 4000 = 5200
         assert total == Decimal("5200.00")
 
 

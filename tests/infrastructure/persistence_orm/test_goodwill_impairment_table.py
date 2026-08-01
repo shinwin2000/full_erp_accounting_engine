@@ -27,25 +27,25 @@ class TestGoodwillImpairmentTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            goodwill_id=uuid4(),
-            test_date=date.today(),
-            test_period="test_value",
-            recoverable_amount=Decimal("100.00"),
-            carrying_amount_before=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            carrying_amount_after=Decimal("100.00"),
-            valuation_method="test_value",
-            discount_rate=Decimal("100.00"),
-            growth_rate=Decimal("100.00"),
-            impairment_source="test_value",
-            description="test_value",
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            goodwill=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'goodwill_id': uuid4(),
+            'test_date': date.today(),
+            'test_period': "test_value",
+            'recoverable_amount': Decimal("100.00"),
+            'carrying_amount_before': Decimal("100.00"),
+            'impairment_loss': Decimal("100.00"),
+            'carrying_amount_after': Decimal("100.00"),
+            'valuation_method': "test_value",
+            'discount_rate': Decimal("100.00"),
+            'growth_rate': Decimal("100.00"),
+            'impairment_source': "test_value",
+            'description': "test_value",
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'goodwill': MagicMock(),
+        }
         try:
             instance = GoodwillImpairmentTable(**kwargs)
         except (Exception, SystemExit) as e:

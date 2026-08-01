@@ -243,7 +243,6 @@ class TestDeficiency:
         h2 = sample_deficiency.refresh_hash()
         assert h2 == h1
         # Changing a field changes hash
-        old = sample_deficiency.title
         sample_deficiency.title = "Changed"
         h3 = sample_deficiency._compute_hash()
         assert h3 != h2
@@ -446,7 +445,7 @@ class TestDeficiencyTracker:
 
     # ---- Query methods ----
     def test_get_deficiencies(self, tracker, user_id, fixed_date):
-        d1 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="A", description="", category=DeficiencyCategory.AML,
             regulation="", severity=DeficiencySeverity.HIGH,
             discovered_by=user_id, due_date=fixed_date + timedelta(days=10)
@@ -456,7 +455,7 @@ class TestDeficiencyTracker:
             regulation="SOX", severity=DeficiencySeverity.CRITICAL,
             discovered_by=user_id, due_date=fixed_date + timedelta(days=20)
         )
-        d3 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="C", description="", category=DeficiencyCategory.AML,
             regulation="PSAK", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date - timedelta(days=5)
@@ -515,7 +514,7 @@ class TestDeficiencyTracker:
             regulation="", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date - timedelta(days=1)
         )
-        d3 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="Future", description="", category=DeficiencyCategory.OTHER,
             regulation="", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date + timedelta(days=10)
@@ -534,13 +533,13 @@ class TestDeficiencyTracker:
     def test_get_by_owner(self, tracker, user_id):
         owner1 = uuid4()
         owner2 = uuid4()
-        d1 = tracker.add_deficiency(title="1", description="", category=DeficiencyCategory.OTHER,
+        tracker.add_deficiency(title="1", description="", category=DeficiencyCategory.OTHER,
                                     regulation="", severity=DeficiencySeverity.LOW,
                                     discovered_by=user_id, owner_id=owner1)
-        d2 = tracker.add_deficiency(title="2", description="", category=DeficiencyCategory.OTHER,
+        tracker.add_deficiency(title="2", description="", category=DeficiencyCategory.OTHER,
                                     regulation="", severity=DeficiencySeverity.LOW,
                                     discovered_by=user_id, owner_id=owner2)
-        d3 = tracker.add_deficiency(title="3", description="", category=DeficiencyCategory.OTHER,
+        tracker.add_deficiency(title="3", description="", category=DeficiencyCategory.OTHER,
                                     regulation="", severity=DeficiencySeverity.LOW,
                                     discovered_by=user_id, owner_id=owner1)
         owned1 = tracker.get_by_owner(owner1)
@@ -561,12 +560,12 @@ class TestDeficiencyTracker:
 
     # ---- SLA and Escalation ----
     def test_check_all_sla(self, tracker, user_id, fixed_date):
-        d1 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="D1", description="", category=DeficiencyCategory.OTHER,
             regulation="", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date - timedelta(days=1)
         )
-        d2 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="D2", description="", category=DeficiencyCategory.OTHER,
             regulation="", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date + timedelta(days=1)
@@ -597,12 +596,12 @@ class TestDeficiencyTracker:
         assert escalated2 == 0
 
     def test_get_sla_summary(self, tracker, user_id, fixed_date):
-        d1 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="D1", description="", category=DeficiencyCategory.OTHER,
             regulation="", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date + timedelta(days=10)
         )
-        d2 = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="D2", description="", category=DeficiencyCategory.OTHER,
             regulation="", severity=DeficiencySeverity.LOW,
             discovered_by=user_id, due_date=fixed_date - timedelta(days=1)
@@ -735,7 +734,7 @@ class TestDeficiencyTracker:
         assert "comments" in data["deficiencies"][0]
 
     def test_export_to_csv(self, tracker, user_id, tmp_path):
-        did = tracker.add_deficiency(
+        tracker.add_deficiency(
             title="CSV", description="desc", category=DeficiencyCategory.AML,
             regulation="PSAK 72", severity=DeficiencySeverity.HIGH,
             discovered_by=user_id,

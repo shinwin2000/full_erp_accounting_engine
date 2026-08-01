@@ -25,27 +25,27 @@ class TestRoutingStepTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            routing_id=uuid4(),
-            step_sequence=1,
-            operation_code="test_value",
-            operation_name="test_value",
-            description="test_value",
-            work_center_id=uuid4(),
-            machine_id=uuid4(),
-            setup_time_minutes=1,
-            run_time_minutes=1,
-            queue_time_minutes=1,
-            wait_time_minutes=1,
-            move_time_minutes=1,
-            total_time_minutes=1,
-            labor_cost_rate=1.5,
-            machine_cost_rate=1.5,
-            overhead_rate=1.5,
-            routing=MagicMock(),
-            machine=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'routing_id': uuid4(),
+            'step_sequence': 1,
+            'operation_code': "test_value",
+            'operation_name': "test_value",
+            'description': "test_value",
+            'work_center_id': uuid4(),
+            'machine_id': uuid4(),
+            'setup_time_minutes': 1,
+            'run_time_minutes': 1,
+            'queue_time_minutes': 1,
+            'wait_time_minutes': 1,
+            'move_time_minutes': 1,
+            'total_time_minutes': 1,
+            'labor_cost_rate': 1.5,
+            'machine_cost_rate': 1.5,
+            'overhead_rate': 1.5,
+            'routing': MagicMock(),
+            'machine': MagicMock(),
+        }
         try:
             instance = RoutingStepTable(**kwargs)
         except (Exception, SystemExit) as e:

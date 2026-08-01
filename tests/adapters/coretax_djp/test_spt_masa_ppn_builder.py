@@ -467,7 +467,6 @@ class TestSPTMasaPPNPrivateMethods:
         assert sample_spt._events[-1]["event_type"] == "explicit_test"
 
     def test__calculate_hash_called_explicitly(self, sample_spt):
-        old = sample_spt._hash
         sample_spt._calculate_hash()
         # Hash may or may not change, but we call it
         assert sample_spt._hash is not None
@@ -493,7 +492,7 @@ class TestSPTMasaPPNBuilderInitFileStorage:
     def test_init_file_storage_custom_config(self):
         with patch("adapters.coretax_djp.spt_masa_ppn_builder.S3FileStorageAdapter") as mock_adapter:
             config = {"coretax_djp": {"spt_ppn": {"file_storage_bucket": "custom-bucket"}}}
-            builder = SPTMasaPPNBuilder(config=config)
+            SPTMasaPPNBuilder(config=config)
             mock_adapter.assert_called_once_with(bucket_name="custom-bucket")
 
     def test_init_file_storage_import_failure(self):

@@ -434,7 +434,7 @@ class TestPSAK73Rules:
             adjustment_to_lease_liability=Decimal("-100000000"),  # Should be consistent
             notes="",
         )
-        result = PSAK73Rules.validate_modification(mod)
+        PSAK73Rules.validate_modification(mod)
         # adjustment_to_rou_asset + adjustment_to_lease_liability should be near 0, but here it's 100M + (-100M) = 0, so valid
         # But we need to create a consistent one: rou adjustment = 100M, liability adjustment = -100M? Actually the rule checks absolute sum <= 1
         # So we set them both +100M to trigger error.
@@ -536,9 +536,7 @@ class TestPSAK73Validator:
 
     def test_modify_lease_extension(self, validator, sample_lease_contract, sample_liability, sample_rou_asset, fixed_now):
         # Create new payments: extend by 1 year
-        new_payments = sample_lease_contract.payments + [
-            PSAK73LeasePayment(amount=Decimal("120000000"), due_date=fixed_now + timedelta(days=365*5))
-        ]
+        new_payments = [*sample_lease_contract.payments, PSAK73LeasePayment(amount=Decimal("120000000"), due_date=fixed_now + timedelta(days=365 * 5))]
         new_contract, new_liability, new_rou, modification = validator.modify_lease(
             contract=sample_lease_contract,
             liability=sample_liability,

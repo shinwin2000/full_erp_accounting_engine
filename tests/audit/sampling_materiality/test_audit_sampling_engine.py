@@ -48,7 +48,7 @@ class TestAuditSamplingEngine:
         """Smoke test for AuditSamplingEngine.monetary_unit_sampling using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.monetary_unit_sampling(population=[MagicMock()], monetary_values=[Decimal("100.00")], confidence_level=1.5, materiality=Decimal("100.00"))
+            instance.monetary_unit_sampling(population=[MagicMock()], monetary_values=[Decimal("100.00")], confidence_level=1.5, materiality=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"monetary_unit_sampling needs specific domain fixtures/data: {e}")
             return
@@ -59,7 +59,7 @@ class TestAuditSamplingEngine:
         """Smoke test for AuditSamplingEngine.random_sampling using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.random_sampling(population=[MagicMock()], sample_size=1)
+            instance.random_sampling(population=[MagicMock()], sample_size=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"random_sampling needs specific domain fixtures/data: {e}")
             return
@@ -70,7 +70,7 @@ class TestAuditSamplingEngine:
         """Smoke test for AuditSamplingEngine.stratified_sampling using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.stratified_sampling(population_by_stratum={}, sample_sizes={})
+            instance.stratified_sampling(population_by_stratum={}, sample_sizes={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"stratified_sampling needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestAuditSamplingEngine:
         """Smoke test for AuditSamplingEngine.hauck_roessler_sampling using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.hauck_roessler_sampling(population=[MagicMock()], values=[Decimal("100.00")], min_value=Decimal("100.00"), max_value=Decimal("100.00"))
+            instance.hauck_roessler_sampling(population=[MagicMock()], values=[Decimal("100.00")], min_value=Decimal("100.00"), max_value=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"hauck_roessler_sampling needs specific domain fixtures/data: {e}")
             return

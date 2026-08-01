@@ -54,13 +54,13 @@ from domain.bank_cash.bank_transaction_entity import (
 
 
 def _pending_transaction(**overrides) -> BankTransactionEntity:
-    defaults = dict(
-        transaction_id=uuid4(), legal_entity_id=uuid4(), bank_account_id=uuid4(),
-        transaction_date=date.today(), amount=Decimal("750000"), transaction_type=TransactionType.DEPOSIT,
-        description="setoran tunai test", reference_number="REF-TEST-001", counterparty_name=None,
-        counterparty_account=None, status=TransactionStatus.PENDING, is_reconciled=False,
-        created_by=uuid4(), created_at=datetime.now(UTC), reconciled_at=None,
-    )
+    defaults = {
+        "transaction_id": uuid4(), "legal_entity_id": uuid4(), "bank_account_id": uuid4(),
+        "transaction_date": date.today(), "amount": Decimal("750000"), "transaction_type": TransactionType.DEPOSIT,
+        "description": "setoran tunai test", "reference_number": "REF-TEST-001", "counterparty_name": None,
+        "counterparty_account": None, "status": TransactionStatus.PENDING, "is_reconciled": False,
+        "created_by": uuid4(), "created_at": datetime.now(UTC), "reconciled_at": None,
+    }
     defaults.update(overrides)
     return BankTransactionEntity(**defaults)
 

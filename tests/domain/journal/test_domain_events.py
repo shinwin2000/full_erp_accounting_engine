@@ -108,17 +108,17 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_type=DomainEventType.JOURNAL_CREATED,
-            aggregate_id=uuid4(),
-            aggregate_version=1,
-            event_id=uuid4(),
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-        )
+        return {
+            "event_type": DomainEventType.JOURNAL_CREATED,
+            "aggregate_id": uuid4(),
+            "aggregate_version": 1,
+            "event_id": uuid4(),
+            "occurred_at": datetime.now(UTC),
+            "event_data": {},
+            "user_id": "test_value",
+            "correlation_id": "test_value",
+            "causation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -327,7 +327,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock())
+            await instance.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -338,7 +338,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_many(events=[MagicMock()])
+            await instance.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -349,7 +349,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish_with_retry using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_with_retry(event=MagicMock(), max_retries=1)
+            await instance.publish_with_retry(event=MagicMock(), max_retries=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_with_retry needs specific domain fixtures/data: {e}")
             return

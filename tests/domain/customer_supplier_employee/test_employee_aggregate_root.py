@@ -152,7 +152,7 @@ def safe_employee_type_full_time() -> EmployeeType:
     if hasattr(EmployeeType, 'FULLTIME'):
         return EmployeeType.FULLTIME
     # Fallback to first enum member
-    return list(EmployeeType)[0]
+    return next(iter(EmployeeType))
 
 
 def safe_employee_type_part_time() -> EmployeeType:
@@ -171,7 +171,7 @@ def safe_employee_type_part_time() -> EmployeeType:
 def safe_employee_status_draft() -> EmployeeStatus:
     if hasattr(EmployeeStatus, 'DRAFT'):
         return EmployeeStatus.DRAFT
-    return list(EmployeeStatus)[0]
+    return next(iter(EmployeeStatus))
 
 
 def safe_employee_status_active() -> EmployeeStatus:
@@ -186,7 +186,7 @@ def safe_employee_status_active() -> EmployeeStatus:
 def safe_gender_male() -> Gender:
     if hasattr(Gender, 'MALE'):
         return Gender.MALE
-    return list(Gender)[0]
+    return next(iter(Gender))
 
 
 def safe_gender_female() -> Gender:
@@ -375,7 +375,7 @@ class TestValidationHelpers:
         draft = safe_employee_status_draft()
         active = safe_employee_status_active()
         on_leave = safe_employee_status_on_leave() if hasattr(EmployeeStatus, 'ON_LEAVE') else list(EmployeeStatus)[2] if len(list(EmployeeStatus)) > 2 else active
-        resigned = safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
+        safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
 
         _validate_status_transition(draft, active)
         _validate_status_transition(active, on_leave)
@@ -448,22 +448,22 @@ class TestEmployeeAggregate:
             agg.add_employee(emp2, "tester")
 
     def test_get_employee(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         found = aggregate_with_employee.get_employee(emp.employee_id)
         assert found == emp
 
     def test_get_employee_by_number(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         found = aggregate_with_employee.get_employee_by_number(emp.employee_number)
         assert found == emp
 
     def test_get_employee_by_email(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         found = aggregate_with_employee.get_employee_by_email(emp.email)
         assert found == emp
 
     def test_get_employee_by_tax_id(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         found = aggregate_with_employee.get_employee_by_tax_id(emp.tax_id)
         assert found == emp
 
@@ -546,22 +546,22 @@ class TestEmployeeAggregate:
         assert total == Decimal("12000000")
 
     def test_number_exists(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         assert aggregate_with_employee.number_exists(emp.employee_number) is True
         assert aggregate_with_employee.number_exists("NONEXISTENT") is False
 
     def test_email_exists(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         assert aggregate_with_employee.email_exists(emp.email) is True
         assert aggregate_with_employee.email_exists("fake@example.com") is False
 
     def test_tax_id_exists(self, aggregate_with_employee):
-        emp = list(aggregate_with_employee.employees.values())[0]
+        emp = next(iter(aggregate_with_employee.employees.values()))
         assert aggregate_with_employee.tax_id_exists(emp.tax_id) is True
         assert aggregate_with_employee.tax_id_exists("000000") is False
 
     def test_update_employee_success(self, aggregate_with_employee):
-        old_emp = list(aggregate_with_employee.employees.values())[0]
+        old_emp = next(iter(aggregate_with_employee.employees.values()))
         new_emp = EmployeeEntity(
             employee_id=old_emp.employee_id,
             legal_entity_id=old_emp.legal_entity_id,
@@ -591,7 +591,7 @@ class TestEmployeeAggregate:
             aggregate_with_employee.update_employee(emp, "updater")
 
     def test_update_employee_version_mismatch(self, aggregate_with_employee):
-        old_emp = list(aggregate_with_employee.employees.values())[0]
+        old_emp = next(iter(aggregate_with_employee.employees.values()))
         new_emp = EmployeeEntity(
             employee_id=old_emp.employee_id,
             legal_entity_id=old_emp.legal_entity_id,
@@ -613,7 +613,7 @@ class TestEmployeeAggregate:
             aggregate_with_employee.update_employee(new_emp, "updater")
 
     def test_update_employee_status_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         active = safe_employee_status_active()
         agg = aggregate_with_employee.update_employee_status(emp_id, active, "hr", "Activated")
         updated = agg.get_employee(emp_id)
@@ -621,7 +621,7 @@ class TestEmployeeAggregate:
         assert agg.version == 3
 
     def test_update_employee_status_invalid_transition(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         resigned = safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
         with pytest.raises(InvalidEmployeeStatusTransitionError):
             aggregate_with_employee.update_employee_status(emp_id, resigned, "hr", "Invalid")
@@ -631,7 +631,7 @@ class TestEmployeeAggregate:
             empty_aggregate.update_employee_status(uuid4(), safe_employee_status_active(), "hr")
 
     def test_update_employee_status_resigned_triggers_event(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         active = safe_employee_status_active()
         resigned = safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
         agg = aggregate_with_employee.update_employee_status(emp_id, active, "hr")
@@ -644,7 +644,7 @@ class TestEmployeeAggregate:
         assert resign_events[0].reason == "Resigning"
 
     def test_update_employee_ptkp(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         new_ptkp = create_valid_ptkp()
         agg = aggregate_with_employee.update_employee_ptkp(emp_id, new_ptkp, "hr")
         updated = agg.get_employee(emp_id)
@@ -653,7 +653,7 @@ class TestEmployeeAggregate:
         assert any(e.__class__.__name__ == "EmployeePTKPUpdatedEvent" for e in events)
 
     def test_update_employee_bpjs_health(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         bpjs = create_valid_bpjs_health()
         agg = aggregate_with_employee.update_employee_bpjs_health(emp_id, bpjs, "hr")
         updated = agg.get_employee(emp_id)
@@ -662,7 +662,7 @@ class TestEmployeeAggregate:
         assert any(e.__class__.__name__ == "EmployeeBPJSUpdatedEvent" and e.bpjs_type == "health" for e in events)
 
     def test_update_employee_bpjs_employment(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         bpjs = create_valid_bpjs_employment()
         agg = aggregate_with_employee.update_employee_bpjs_employment(emp_id, bpjs, "hr")
         updated = agg.get_employee(emp_id)
@@ -671,26 +671,26 @@ class TestEmployeeAggregate:
         assert any(e.__class__.__name__ == "EmployeeBPJSUpdatedEvent" and e.bpjs_type == "employment" for e in events)
 
     def test_update_employee_salary(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         new_salary = Decimal("8000000")
         agg = aggregate_with_employee.update_employee_salary(emp_id, new_salary, "hr", date.today())
         updated = agg.get_employee(emp_id)
         assert updated.basic_salary == new_salary
 
     def test_update_employee_department(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.update_employee_department(emp_id, "Finance", "hr")
         updated = agg.get_employee(emp_id)
         assert updated.department == "Finance"
 
     def test_update_employee_position(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.update_employee_position(emp_id, "Senior Developer", "hr")
         updated = agg.get_employee(emp_id)
         assert updated.position == "Senior Developer"
 
     def test_remove_employee_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.remove_employee(emp_id, "admin")
         updated = agg.get_employee(emp_id)
         assert updated.status == EmployeeStatus.INACTIVE if hasattr(EmployeeStatus, 'INACTIVE') else list(EmployeeStatus)[2]
@@ -701,7 +701,7 @@ class TestEmployeeAggregate:
             empty_aggregate.remove_employee(uuid4(), "admin")
 
     def test_remove_employee_resigned_raises(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         active = safe_employee_status_active()
         resigned = safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
         agg = aggregate_with_employee.update_employee_status(emp_id, active, "hr")
@@ -710,13 +710,13 @@ class TestEmployeeAggregate:
             agg.remove_employee(emp_id, "admin")
 
     def test_can_post(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         assert aggregate_with_employee.can_post(emp_id) is False
         agg = aggregate_with_employee.update_employee_status(emp_id, safe_employee_status_active(), "hr")
         assert agg.can_post(emp_id) is True
 
     def test_post(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.update_employee_status(emp_id, safe_employee_status_active(), "hr")
         new_salary = Decimal("6000000")
         agg = agg.post(emp_id, new_salary, "payroll", "salary")
@@ -728,63 +728,63 @@ class TestEmployeeAggregate:
             aggregate_with_employee.post(uuid4(), Decimal("1000"), "user", "unknown")
 
     def test_can_approve(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         assert aggregate_with_employee.can_approve(emp_id, "hr_manager") is True
         assert aggregate_with_employee.can_approve(emp_id, "user") is False
 
     def test_approve_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.approve(emp_id, "hr_manager")
         updated = agg.get_employee(emp_id)
         assert updated.status == safe_employee_status_active()
 
     def test_approve_not_allowed(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         with pytest.raises(EmployeeAggregateError):
             aggregate_with_employee.approve(emp_id, "user")
 
     def test_can_reject(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         assert aggregate_with_employee.can_reject(emp_id, "hr_manager") is True
         assert aggregate_with_employee.can_reject(emp_id, "user") is False
 
     def test_reject_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.reject(emp_id, "hr_manager", "Not qualified")
         updated = agg.get_employee(emp_id)
         assert updated.status == EmployeeStatus.INACTIVE if hasattr(EmployeeStatus, 'INACTIVE') else list(EmployeeStatus)[2]
 
     def test_reject_not_allowed(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         with pytest.raises(EmployeeAggregateError):
             aggregate_with_employee.reject(emp_id, "user", "No")
 
     def test_can_cancel(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         assert aggregate_with_employee.can_cancel(emp_id) is True
         agg = aggregate_with_employee.update_employee_status(emp_id, safe_employee_status_active(), "hr")
         assert agg.can_cancel(emp_id) is False
 
     def test_cancel_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.cancel(emp_id, "hr", "No longer needed")
         updated = agg.get_employee(emp_id)
         assert updated.status == EmployeeStatus.INACTIVE if hasattr(EmployeeStatus, 'INACTIVE') else list(EmployeeStatus)[2]
 
     def test_cancel_not_allowed(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.update_employee_status(emp_id, safe_employee_status_active(), "hr")
         with pytest.raises(EmployeeAggregateError):
             agg.cancel(emp_id, "hr", "Cannot")
 
     def test_can_close(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         assert aggregate_with_employee.can_close(emp_id) is False
         agg = aggregate_with_employee.update_employee_status(emp_id, safe_employee_status_active(), "hr")
         assert agg.can_close(emp_id) is True
 
     def test_close_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.update_employee_status(emp_id, safe_employee_status_active(), "hr")
         terminated = EmployeeStatus.TERMINATED if hasattr(EmployeeStatus, 'TERMINATED') else list(EmployeeStatus)[-1]
         agg = agg.close(emp_id, "hr", "Terminated")
@@ -792,12 +792,12 @@ class TestEmployeeAggregate:
         assert updated.status == terminated
 
     def test_close_not_allowed(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         with pytest.raises(EmployeeAggregateError):
             aggregate_with_employee.close(emp_id, "hr", "Cannot")
 
     def test_can_reopen(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         active = safe_employee_status_active()
         resigned = safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
         agg = aggregate_with_employee.update_employee_status(emp_id, active, "hr")
@@ -808,7 +808,7 @@ class TestEmployeeAggregate:
         assert agg2.can_reopen(emp_id) is True
 
     def test_reopen_success(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         active = safe_employee_status_active()
         resigned = safe_employee_status_resigned() if hasattr(EmployeeStatus, 'RESIGNED') else list(EmployeeStatus)[-1]
         agg = aggregate_with_employee.update_employee_status(emp_id, active, "hr")
@@ -818,7 +818,7 @@ class TestEmployeeAggregate:
         assert updated.status == active
 
     def test_reopen_not_allowed(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         with pytest.raises(EmployeeAggregateError):
             aggregate_with_employee.reopen(emp_id, "hr", "Cannot")
 
@@ -901,7 +901,7 @@ class TestEmployeeAggregate:
     def test_audit_trail(self, empty_aggregate):
         agg = empty_aggregate
         agg = agg.add_employee(create_valid_employee(), "tester")
-        agg = agg.update_employee_status(list(agg.employees.keys())[0], safe_employee_status_active(), "hr")
+        agg = agg.update_employee_status(next(iter(agg.employees.keys())), safe_employee_status_active(), "hr")
         trail = agg.audit_trail(limit=5)
         assert len(trail) >= 3
         assert trail[-1]["action"] == "UPDATE"
@@ -1023,7 +1023,7 @@ class TestEmployeeAggregate:
         assert len(agg.employees) == 1
 
     def test_remove_child_alias(self, aggregate_with_employee):
-        emp_id = list(aggregate_with_employee.employees.values())[0].employee_id
+        emp_id = next(iter(aggregate_with_employee.employees.values())).employee_id
         agg = aggregate_with_employee.remove_child(emp_id, "admin")
         updated = agg.get_employee(emp_id)
         assert updated.status == EmployeeStatus.INACTIVE if hasattr(EmployeeStatus, 'INACTIVE') else list(EmployeeStatus)[2]

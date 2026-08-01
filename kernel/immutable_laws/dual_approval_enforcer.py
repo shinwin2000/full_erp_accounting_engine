@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_user
@@ -189,7 +189,7 @@ class DualApprovalEnforcer:
     minimal dua orang untuk mencegah fraud dan error signifikan.
     """
 
-    DEFAULT_THRESHOLDS = {
+    DEFAULT_THRESHOLDS: ClassVar[dict[str, Decimal]] = {
         "JOURNAL": Decimal("500000000"),
         "PAYMENT": Decimal("250000000"),
         "INVOICE": Decimal("500000000"),
@@ -199,7 +199,7 @@ class DualApprovalEnforcer:
         "CONSOLIDATION": Decimal("0"),
     }
 
-    ALWAYS_REQUIRE_DUAL = [
+    ALWAYS_REQUIRE_DUAL: ClassVar[list[str]] = [
         "PERIOD_CLOSE",
         "YEAR_END_CLOSE",
         "CONSOLIDATION",

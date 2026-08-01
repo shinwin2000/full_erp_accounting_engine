@@ -47,12 +47,12 @@ from domain.bank_cash.cash_receipt_entity import (
 
 
 def _draft_receipt(**overrides) -> CashReceiptEntity:
-    defaults = dict(
-        receipt_id=uuid4(), receipt_number="CR-TEST-0001",
-        receipt_type=CashReceiptType.CUSTOMER_PAYMENT,
-        receipt_date=datetime.now(UTC), amount=Decimal("500000"), currency="IDR",
-        status=CashReceiptStatus.DRAFT,
-    )
+    defaults = {
+        "receipt_id": uuid4(), "receipt_number": "CR-TEST-0001",
+        "receipt_type": CashReceiptType.CUSTOMER_PAYMENT,
+        "receipt_date": datetime.now(UTC), "amount": Decimal("500000"), "currency": "IDR",
+        "status": CashReceiptStatus.DRAFT,
+    }
     defaults.update(overrides)
     return CashReceiptEntity(**defaults)
 

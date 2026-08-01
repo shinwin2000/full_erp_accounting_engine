@@ -31,7 +31,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestKafkaProducerWrapper:
         """Smoke test for KafkaProducerWrapper.send using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send(topic="test_value", key=b"test", value=b"test")
+            await instance.send(topic="test_value", key=b"test", value=b"test")
         except (Exception, SystemExit) as e:
             pytest.skip(f"send needs specific domain fixtures/data: {e}")
             return

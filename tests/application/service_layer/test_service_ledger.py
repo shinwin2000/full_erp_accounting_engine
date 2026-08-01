@@ -32,16 +32,16 @@ class TestPostJournalRequest:
     """Tests for the PostJournalRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            journal_date=date.today(),
-            period="test_value",
-            description="test_value",
-            lines=[{}],
-            source_system="test_value",
-            user_id=uuid4(),
-            correlation_id="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "journal_date": date.today(),
+            "period": "test_value",
+            "description": "test_value",
+            "lines": [{}],
+            "source_system": "test_value",
+            "user_id": uuid4(),
+            "correlation_id": "test_value",
+        }
 
     def test_construction_success(self):
         """PostJournalRequest can be constructed with valid field values."""
@@ -59,12 +59,12 @@ class TestPostJournalResponse:
     """Tests for the PostJournalResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            journal_number="test_value",
-            status="test_value",
-            posted_at=datetime.now(UTC),
-        )
+        return {
+            "journal_id": uuid4(),
+            "journal_number": "test_value",
+            "status": "test_value",
+            "posted_at": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PostJournalResponse can be constructed with valid field values."""
@@ -82,14 +82,14 @@ class TestTrialBalanceRow:
     """Tests for the TrialBalanceRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            opening_balance=Decimal("100.00"),
-            period_debit=Decimal("100.00"),
-            period_credit=Decimal("0"),
-            closing_balance=Decimal("100.00"),
-        )
+        return {
+            "account_code": "test_value",
+            "account_name": "test_value",
+            "opening_balance": Decimal("100.00"),
+            "period_debit": Decimal("100.00"),
+            "period_credit": Decimal("0"),
+            "closing_balance": Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """TrialBalanceRow can be constructed with valid field values."""
@@ -107,14 +107,14 @@ class TestTrialBalanceResponse:
     """Tests for the TrialBalanceResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            as_of_date=date.today(),
-            rows=[MagicMock()],
-            total_debit=Decimal("100.00"),
-            total_credit=Decimal("0"),
-            is_balanced=True,
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "as_of_date": date.today(),
+            "rows": [MagicMock()],
+            "total_debit": Decimal("100.00"),
+            "total_credit": Decimal("0"),
+            "is_balanced": True,
+        }
 
     def test_construction_success(self):
         """TrialBalanceResponse can be constructed with valid field values."""
@@ -195,7 +195,7 @@ class TestLedgerService:
         """Smoke test for LedgerService.post_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.post_journal(legal_entity_id=uuid4(), journal_date=date.today(), period="test_value", description="test_value", lines=[{}], source_system="test_value", user_id=uuid4(), correlation_id="test_value")
+            await instance.post_journal(legal_entity_id=uuid4(), journal_date=date.today(), period="test_value", description="test_value", lines=[{}], source_system="test_value", user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"post_journal needs specific domain fixtures/data: {e}")
             return
@@ -206,7 +206,7 @@ class TestLedgerService:
         """Smoke test for LedgerService.get_trial_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today())
+            await instance.get_trial_balance(legal_entity_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_trial_balance needs specific domain fixtures/data: {e}")
             return
@@ -217,7 +217,7 @@ class TestLedgerService:
         """Smoke test for LedgerService.get_account_balance using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_account_balance(legal_entity_id=uuid4(), account_code="test_value", as_of_date=date.today())
+            await instance.get_account_balance(legal_entity_id=uuid4(), account_code="test_value", as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_account_balance needs specific domain fixtures/data: {e}")
             return
@@ -228,7 +228,7 @@ class TestLedgerService:
         """Smoke test for LedgerService.get_net_income using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_net_income(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today())
+            await instance.get_net_income(legal_entity_id=uuid4(), period_start=date.today(), period_end=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_net_income needs specific domain fixtures/data: {e}")
             return
@@ -239,7 +239,7 @@ class TestLedgerService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -249,7 +249,7 @@ def test_audit_smoke():
 def test_validate_balance_smoke():
     """Smoke test for module-level function validate_balance."""
     try:
-        result = validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
+        validate_balance(debit=Decimal("100.00"), credit=Decimal("0"))
     except (Exception, SystemExit) as e:
         pytest.skip(f"validate_balance needs specific input data: {e}")
         return
@@ -259,7 +259,7 @@ def test_validate_balance_smoke():
 async def test_create_ledger_service_smoke():
     """Smoke test for module-level function create_ledger_service."""
     try:
-        result = await create_ledger_service(ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_ledger_service(ledger_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_ledger_service needs specific input data: {e}")
         return

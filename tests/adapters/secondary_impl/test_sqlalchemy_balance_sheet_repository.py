@@ -36,7 +36,7 @@ class TestSQLAlchemyBalanceSheetRepository:
         """Smoke test for SQLAlchemyBalanceSheetRepository.get_balance_sheet using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_balance_sheet(legal_entity_id=uuid4(), as_of_date=date.today(), currency_code="test_value")
+            await instance.get_balance_sheet(legal_entity_id=uuid4(), as_of_date=date.today(), currency_code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_balance_sheet needs specific domain fixtures/data: {e}")
             return

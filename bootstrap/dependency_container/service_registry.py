@@ -2,6 +2,8 @@
 """
 Module: service_registry.py
 Layer: Bootstrap (Dependency Container)
+Responsibility: Mendaftarkan semua service ke IoC container.
+               Production-grade: tidak ada fallback, dependency injection eksplisit.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ class ServiceRegistry:
         self,
         interface: type[T],
         implementation: type | None = None,
-        lifetime: Any = None,   # akan diisi dari impor lokal
+        lifetime: Any = None,
         name: str | None = None,
     ) -> None:
         from bootstrap.dependency_container.ioc_container import Lifetime
@@ -218,24 +220,30 @@ class ServiceRegistrar:
             pass
 
         # ============================================================
-        # --- IAM SERVICE & DEPENDENCIES (TAMBAHAN BARU) ---
+        # --- IAM SERVICE & DEPENDENCIES (Production-grade) ---
         # ============================================================
         try:
             from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
+                SQLAlchemyIAMRepository,
                 SQLAlchemyIAMUserRepository,
             )
             from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
             from application.service_layer.service_iam import IAMService
             from ports.primary.iam_repository_port import IAMRepositoryPort
+            from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
             from ports.primary.unit_of_work_port import UnitOfWorkPort
 
-            # Daftarkan repository dan UoW
+            # Daftarkan implementasi konkret sebagai singleton (tanpa session/legal_entity)
             container.register_singleton(SQLAlchemyIAMUserRepository, SQLAlchemyIAMUserRepository)
+            container.register_singleton(SQLAlchemyIAMRepository, SQLAlchemyIAMRepository)
             container.register_singleton(SQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork)
-            container.register_singleton(IAMRepositoryPort, SQLAlchemyIAMUserRepository)
+
+            # Port → implementation (singleton, tapi session & legal_entity_id di-set per request)
+            container.register_singleton(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
+            container.register_singleton(IAMRepositoryPort, SQLAlchemyIAMRepository)
             container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
 
-            # Dependency opsional, coba import jika ada
+            # Dependency opsional
             event_publisher = None
             token_issuer = None
             cache = None
@@ -270,7 +278,8 @@ class ServiceRegistrar:
             except ImportError:
                 logger.warning("RedisCache not available, using None")
 
-            # Daftarkan IAMService dengan factory async
+            # Factory untuk IAMService – repository dan UoW diambil dari container,
+            # namun session & legal_entity_id akan di-set via service.set_context()
             async def _create_iam_service():
                 iam_repo = await container.resolve_async(IAMRepositoryPort)
                 uow = await container.resolve_async(UnitOfWorkPort)

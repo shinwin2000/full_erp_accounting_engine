@@ -2,29 +2,10 @@
 """
 Module: fastapi_iam_router.py
 Layer: Adapters (Primary API - v1)
-Responsibility: Menyediakan REST API endpoint untuk Identity & Access Management:
-               user CRUD, role CRUD, permission management, session management,
-               login attempt history, reset password, lock/unlock user,
-               MFA management, dan audit logging untuk keamanan.
-
-Method Standards (ERP):
-- create_user() / update_user() / delete_user() / get_user()
-- activate_user() / deactivate_user() / lock_user() / unlock_user()
-- create_role() / update_role() / delete_role() / get_role()
-- assign_role_to_user() / remove_role_from_user()
-- assign_permission_to_role() / remove_permission_from_role()
-- get_user_permissions() / get_user_roles()
-- login() / logout() / refresh_token() / change_password()
-- reset_password() / forgot_password() / verify_reset_token()
-- enable_mfa() / disable_mfa() / verify_mfa()
-- get_user_sessions() / revoke_session() / revoke_all_sessions()
-- get_login_attempts() / get_user_audit_log()
-- get_user_status() / get_user_history()
-- audit_trail_user() / can_transition_user()
-- register_user_event() / get_user_events()
-- version_user()
+Responsibility: IAM REST API endpoints.
+               Setiap endpoint memanggil service.set_context(session, legal_entity_id)
+               sebelum menggunakan service.
 """
-
 
 from __future__ import annotations
 
@@ -33,11 +14,12 @@ import json
 import logging
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     TokenPayload,
@@ -48,6 +30,9 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 from application.service_layer.service_iam import AuthenticationError
 from domain.iam.user_entity import UserStatus
 
+# Import async_session_maker dari lokasi yang benar
+from infrastructure.persistence_orm.database import async_session_maker
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -55,11 +40,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 class IdempotencyManager:
-    """
-    Simple in-memory idempotency manager untuk FastAPI endpoints.
-    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
-    TTL 24 jam.
-    """
+    """In-memory idempotency manager dengan TTL 24 jam."""
 
     def __init__(self):
         self._storage: dict[str, tuple[str, datetime]] = {}
@@ -92,42 +73,43 @@ class IdempotencyManager:
         self._storage[storage_key] = (result_json, datetime.now(UTC))
 
 
-# Global instance
 _idempotency_manager = IdempotencyManager()
+
+
+# ============================================================================
+# DATABASE SESSION DEPENDENCY
+# ============================================================================
+
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency yang menyediakan session database untuk setiap request."""
+    async with async_session_maker() as session:
+        yield session
 
 
 # ============================================================================
 # CONSTANTS & ENUMS
 # ============================================================================
 
-
 class RoleStatus(str, Enum):
-    """Status role."""
-
     ACTIVE = "active"
     INACTIVE = "inactive"
     DEPRECATED = "deprecated"
 
 
 class MFAType(str, Enum):
-    """Jenis MFA."""
-
-    TOTP = "totp"  # Time-based OTP (Google Authenticator)
-    SMS = "sms"  # SMS OTP
-    EMAIL = "email"  # Email OTP
-    BACKUP_CODE = "backup_code"  # Backup codes
+    TOTP = "totp"
+    SMS = "sms"
+    EMAIL = "email"
+    BACKUP_CODE = "backup_code"
 
 
 class SessionStatus(str, Enum):
-    """Status session."""
-
     ACTIVE = "active"
     EXPIRED = "expired"
     REVOKED = "revoked"
     LOGGED_OUT = "logged_out"
 
 
-# Default IAM settings
 DEFAULT_PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD_EXPIRY_DAYS = 90
 DEFAULT_SESSION_TIMEOUT_MINUTES = 30
@@ -140,24 +122,21 @@ MFA_ISSUER_NAME = "ERP-Accounting-Engine"
 # PYDANTIC SCHEMAS
 # ============================================================================
 
-
 class UserCreateSchema(BaseModel):
-    """Schema untuk membuat user baru."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    username: str = Field(..., min_length=3, max_length=100, description="Username")
-    email: str = Field(..., max_length=200, description="Email address")
-    full_name: str = Field(..., min_length=3, max_length=200, description="Full name")
-    password: str = Field(..., min_length=8, description="Password")
-    must_change_password: bool = Field(True, description="Must change password on first login")
-    legal_entity_ids: list[UUID] | None = Field(None, description="Legal entities access")
-    role_ids: list[UUID] | None = Field(None, description="Roles to assign")
-    department: str | None = Field(None, max_length=100, description="Department")
-    job_title: str | None = Field(None, max_length=100, description="Job title")
-    phone_number: str | None = Field(None, max_length=20, description="Phone number")
-    is_superuser: bool = Field(False, description="Superuser (full access)")
-    notes: str | None = Field(None, max_length=500, description="Notes")
+    username: str = Field(..., min_length=3, max_length=100)
+    email: str = Field(..., max_length=200)
+    full_name: str = Field(..., min_length=3, max_length=200)
+    password: str = Field(..., min_length=8)
+    must_change_password: bool = Field(True)
+    legal_entity_ids: list[UUID] | None = None
+    role_ids: list[UUID] | None = None
+    department: str | None = Field(None, max_length=100)
+    job_title: str | None = Field(None, max_length=100)
+    phone_number: str | None = Field(None, max_length=20)
+    is_superuser: bool = False
+    notes: str | None = Field(None, max_length=500)
 
     @field_validator("email")
     @classmethod
@@ -175,8 +154,6 @@ class UserCreateSchema(BaseModel):
 
 
 class UserUpdateSchema(BaseModel):
-    """Schema untuk update user."""
-
     model_config = ConfigDict(from_attributes=True)
 
     full_name: str | None = Field(None, min_length=3, max_length=200)
@@ -191,8 +168,6 @@ class UserUpdateSchema(BaseModel):
 
 
 class UserResponseSchema(BaseModel):
-    """Response user."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -221,14 +196,12 @@ class UserResponseSchema(BaseModel):
 
 
 class RoleCreateSchema(BaseModel):
-    """Schema untuk membuat role baru."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    name: str = Field(..., min_length=3, max_length=100, description="Role name")
-    description: str | None = Field(None, max_length=500, description="Description")
-    parent_role_id: UUID | None = Field(None, description="Parent role (inheritance)")
-    is_system_role: bool = Field(False, description="System role (cannot be deleted)")
+    name: str = Field(..., min_length=3, max_length=100)
+    description: str | None = Field(None, max_length=500)
+    parent_role_id: UUID | None = None
+    is_system_role: bool = False
 
     @field_validator("name")
     @classmethod
@@ -239,8 +212,6 @@ class RoleCreateSchema(BaseModel):
 
 
 class RoleUpdateSchema(BaseModel):
-    """Schema untuk update role."""
-
     model_config = ConfigDict(from_attributes=True)
 
     description: str | None = Field(None, max_length=500)
@@ -249,8 +220,6 @@ class RoleUpdateSchema(BaseModel):
 
 
 class RoleResponseSchema(BaseModel):
-    """Response role."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -270,8 +239,6 @@ class RoleResponseSchema(BaseModel):
 
 
 class PermissionResponseSchema(BaseModel):
-    """Response permission."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -284,37 +251,27 @@ class PermissionResponseSchema(BaseModel):
 
 
 class UserRoleAssignSchema(BaseModel):
-    """Schema untuk assign role ke user."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    role_ids: list[UUID] = Field(..., min_length=1, description="Role IDs")
+    role_ids: list[UUID] = Field(..., min_length=1)
 
 
 class RolePermissionAssignSchema(BaseModel):
-    """Schema untuk assign permission ke role."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    permission_ids: list[UUID] = Field(..., min_length=1, description="Permission IDs")
+    permission_ids: list[UUID] = Field(..., min_length=1)
 
 
 class LoginRequestSchema(BaseModel):
-    """Schema untuk login."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    username: str = Field(..., description="Username or email")
-    password: str = Field(..., description="Password")
-    mfa_code: str | None = Field(
-        None, min_length=6, max_length=6, description="MFA code (if enabled)"
-    )
-    legal_entity_id: UUID | None = Field(None, description="Legal entity ID")
+    username: str
+    password: str
+    mfa_code: str | None = Field(None, min_length=6, max_length=6)
+    legal_entity_id: UUID | None = None
 
 
 class LoginResponseSchema(BaseModel):
-    """Response login."""
-
     model_config = ConfigDict(from_attributes=True)
 
     access_token: str
@@ -325,20 +282,23 @@ class LoginResponseSchema(BaseModel):
 
 
 class RefreshTokenRequestSchema(BaseModel):
-    """Schema untuk refresh token."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    refresh_token: str = Field(..., description="Refresh token")
+    refresh_token: str
+
+
+class TokenRefreshResponseSchema(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int = 3600
 
 
 class ChangePasswordSchema(BaseModel):
-    """Schema untuk change password."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    old_password: str = Field(..., description="Current password")
-    new_password: str = Field(..., min_length=8, description="New password")
+    old_password: str
+    new_password: str = Field(..., min_length=8)
 
     @field_validator("new_password")
     @classmethod
@@ -351,25 +311,19 @@ class ChangePasswordSchema(BaseModel):
 
 
 class ResetPasswordRequestSchema(BaseModel):
-    """Schema untuk reset password."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    email: str = Field(..., description="User email")
+    email: str
 
 
 class ResetPasswordConfirmSchema(BaseModel):
-    """Schema untuk confirm reset password."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    token: str = Field(..., description="Reset token")
-    new_password: str = Field(..., min_length=8, description="New password")
+    token: str
+    new_password: str = Field(..., min_length=8)
 
 
 class ForgotPasswordResponseSchema(BaseModel):
-    """Response forgot password."""
-
     model_config = ConfigDict(from_attributes=True)
 
     message: str
@@ -378,8 +332,6 @@ class ForgotPasswordResponseSchema(BaseModel):
 
 
 class MFASetupResponseSchema(BaseModel):
-    """Response setup MFA."""
-
     model_config = ConfigDict(from_attributes=True)
 
     secret_key: str
@@ -389,25 +341,19 @@ class MFASetupResponseSchema(BaseModel):
 
 
 class MFAVerifySchema(BaseModel):
-    """Schema untuk verifikasi MFA."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    code: str = Field(..., min_length=6, max_length=6, description="MFA code")
+    code: str = Field(..., min_length=6, max_length=6)
 
 
 class MFADisableSchema(BaseModel):
-    """Schema untuk disable MFA."""
-
     model_config = ConfigDict(from_attributes=True)
 
-    password: str = Field(..., description="Current password")
-    mfa_code: str | None = Field(None, min_length=6, max_length=6, description="MFA code")
+    password: str
+    mfa_code: str | None = Field(None, min_length=6, max_length=6)
 
 
 class SessionResponseSchema(BaseModel):
-    """Response session."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -425,8 +371,6 @@ class SessionResponseSchema(BaseModel):
 
 
 class LoginAttemptResponseSchema(BaseModel):
-    """Response login attempt."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -440,8 +384,6 @@ class LoginAttemptResponseSchema(BaseModel):
 
 
 class UserAuditLogSchema(BaseModel):
-    """Response audit log user."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -461,6 +403,7 @@ async def get_iam_service(request: Request) -> Any:
     """Get IAM Service instance from app.state."""
     return request.app.state.iam_service
 
+
 # ============================================================================
 # ROUTER
 # ============================================================================
@@ -469,29 +412,27 @@ router = APIRouter(tags=["IAM"])
 
 
 # ----------------------------------------------------------------------------
-# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# HEALTH CHECKS
 # ----------------------------------------------------------------------------
 
 @router.get("/ping")
 def ping() -> dict[str, str]:
-    """Simple ping endpoint for IAM router."""
     return {"status": "ok", "service": "iam-router"}
+
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    """Health check endpoint for IAM router."""
     return {"status": "healthy"}
+
 
 @router.get("/info")
 def info() -> dict[str, str]:
-    """Service information for IAM router."""
     return {"version": "1.0", "name": "IAM Router"}
 
 
 # ----------------------------------------------------------------------------
 # USER MANAGEMENT
 # ----------------------------------------------------------------------------
-
 
 @router.post(
     "/users",
@@ -506,9 +447,11 @@ async def create_user(
     _permission: None = Depends(require_permission("iam:user_create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Create a new user."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "create_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -534,7 +477,6 @@ async def create_user(
             legal_entity_id=legal_entity_id,
         )
 
-        # FIX: Jangan log password
         logger.info(f"User created: {request.username}")
 
         response = UserResponseSchema(
@@ -571,7 +513,6 @@ async def create_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # FIX: Jangan log detail error yang mungkin mengandung password
         logger.exception(f"Failed to create user: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -591,9 +532,12 @@ async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[UserResponseSchema]:
-    """List users with pagination and filters."""
+    service.set_context(session, legal_entity_id)
+
     try:
         result = await service.list_users(
             status=status.value if status else None,
@@ -634,7 +578,6 @@ async def list_users(
             for u in result.items
         ]
     except Exception as e:
-        # FIX: Jangan log detail error
         logger.exception(f"Failed to list users: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -648,9 +591,12 @@ async def list_users(
 async def get_user(
     user_id: UUID,
     _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Get user by ID."""
+    service.set_context(session, legal_entity_id)
+
     try:
         user = await service.get_user_by_id(user_id)
 
@@ -698,9 +644,12 @@ async def get_user(
 async def get_user_by_username(
     username: str,
     _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Get user by username."""
+    service.set_context(session, legal_entity_id)
+
     try:
         user = await service.get_user_by_username(username)
 
@@ -751,9 +700,12 @@ async def update_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_update")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Update user information."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "update_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -832,9 +784,12 @@ async def deactivate_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_delete")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
-    """Deactivate or delete a user."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "deactivate_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -886,9 +841,12 @@ async def activate_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_update")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Activate a deactivated user."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "activate_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -957,9 +915,12 @@ async def lock_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_lock")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Lock a user account."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "lock_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1029,9 +990,12 @@ async def unlock_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_lock")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
-    """Unlock a locked user account."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "unlock_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1089,7 +1053,6 @@ async def unlock_user(
 # ROLE MANAGEMENT
 # ----------------------------------------------------------------------------
 
-
 @router.post(
     "/roles",
     response_model=RoleResponseSchema,
@@ -1102,9 +1065,12 @@ async def create_role(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_create")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> RoleResponseSchema:
-    """Create a new role."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "create_role"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1162,9 +1128,12 @@ async def list_roles(
     status: RoleStatus | None = Query(None, description="Filter by status"),
     is_active: bool | None = Query(None, description="Filter by active status"),
     _permission: None = Depends(require_permission("iam:role_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[RoleResponseSchema]:
-    """List all roles."""
+    service.set_context(session, legal_entity_id)
+
     try:
         roles = await service.list_roles(
             status=status.value if status else None,
@@ -1204,9 +1173,12 @@ async def list_roles(
 async def get_role(
     role_id: UUID,
     _permission: None = Depends(require_permission("iam:role_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> RoleResponseSchema:
-    """Get role by ID."""
+    service.set_context(session, legal_entity_id)
+
     try:
         role = await service.get_role_by_id(role_id)
 
@@ -1248,9 +1220,12 @@ async def update_role(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_update")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> RoleResponseSchema:
-    """Update role information."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "update_role"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1312,9 +1287,12 @@ async def delete_role(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_delete")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
-    """Delete a role (cannot delete system roles or roles assigned to users)."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "delete_role"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1353,7 +1331,6 @@ async def delete_role(
 # USER ROLE ASSIGNMENT
 # ----------------------------------------------------------------------------
 
-
 @router.post(
     "/users/{user_id}/roles",
     response_model=list[RoleResponseSchema],
@@ -1366,14 +1343,16 @@ async def assign_roles_to_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[RoleResponseSchema]:
-    """Assign multiple roles to a user."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "assign_roles_to_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            # cached is list of dicts
             logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return [RoleResponseSchema(**item) for item in cached]
 
@@ -1407,7 +1386,6 @@ async def assign_roles_to_user(
         ]
 
         if idempotency_key:
-            # Convert list to dict for caching
             _idempotency_manager.cache_result(
                 idempotency_key, method_name, {"items": [r.model_dump() for r in response]}
             )
@@ -1430,9 +1408,12 @@ async def assign_roles_to_user(
 async def get_user_roles(
     user_id: UUID,
     _permission: None = Depends(require_permission("iam:role_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[RoleResponseSchema]:
-    """Get roles assigned to a user."""
+    service.set_context(session, legal_entity_id)
+
     try:
         roles = await service.get_user_roles(user_id)
 
@@ -1472,9 +1453,12 @@ async def remove_role_from_user(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
-    """Remove a role from a user."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "remove_role_from_user"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1514,7 +1498,6 @@ async def remove_role_from_user(
 # PERMISSION MANAGEMENT
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/permissions",
     response_model=list[PermissionResponseSchema],
@@ -1524,9 +1507,12 @@ async def remove_role_from_user(
 async def list_permissions(
     resource: str | None = Query(None, description="Filter by resource"),
     _permission: None = Depends(require_permission("iam:permission_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[PermissionResponseSchema]:
-    """List all available permissions."""
+    service.set_context(session, legal_entity_id)
+
     try:
         permissions = await service.list_permissions(resource=resource)
 
@@ -1559,9 +1545,12 @@ async def assign_permissions_to_role(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[PermissionResponseSchema]:
-    """Assign multiple permissions to a role."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "assign_permissions_to_role"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1614,9 +1603,12 @@ async def assign_permissions_to_role(
 async def get_role_permissions(
     role_id: UUID,
     _permission: None = Depends(require_permission("iam:permission_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[PermissionResponseSchema]:
-    """Get permissions assigned to a role."""
+    service.set_context(session, legal_entity_id)
+
     try:
         permissions = await service.get_role_permissions(role_id)
 
@@ -1649,9 +1641,12 @@ async def remove_permission_from_role(
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
-    """Remove a permission from a role."""
+    service.set_context(session, legal_entity_id)
+
     method_name = "remove_permission_from_role"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1693,7 +1688,6 @@ async def remove_permission_from_role(
 # AUTHENTICATION
 # ----------------------------------------------------------------------------
 
-
 @router.post(
     "/login",
     response_model=LoginResponseSchema,
@@ -1704,9 +1698,11 @@ async def login(
     request: LoginRequestSchema,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> LoginResponseSchema:
-    """Authenticate user and return tokens."""
+    service.set_context(session, request.legal_entity_id)
+
     try:
         result = await service.login(
             username=request.username,
@@ -1717,7 +1713,6 @@ async def login(
             user_agent=user_agent,
         )
 
-        # FIX: Jangan log username, password, atau token
         logger.info("User logged in successfully")
 
         return LoginResponseSchema(
@@ -1751,15 +1746,12 @@ async def login(
             ),
         )
     except AuthenticationError as e:
-        # Handle specific authentication errors with 401
-        logger.warning(f"Login failed: AuthenticationError - {str(e)}")
+        logger.warning(f"Login failed: AuthenticationError - {e!s}")
         raise HTTPException(status_code=401, detail="Invalid username or password")
     except ValueError as e:
-        # Handle validation errors
-        logger.exception(f"Login failed: invalid input - {str(e)}")
+        logger.exception(f"Login failed: invalid input - {e!s}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # Handle unexpected internal errors with 500
         logger.exception(f"Login failed: Unexpected error - {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1772,71 +1764,47 @@ async def login(
 )
 async def logout(
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ):
-    """Logout current user (revoke session)."""
+    service.set_context(session, legal_entity_id)
+
     try:
         await service.logout(current_user.user_id, current_user.session_id)
         logger.info("User logged out")
     except Exception as e:
-        # FIX: Jangan log detail error
         logger.exception(f"Logout failed: {type(e).__name__}")
     return None
 
 
 @router.post(
     "/refresh",
-    response_model=LoginResponseSchema,
+    response_model=TokenRefreshResponseSchema,
     summary="Refresh access token",
     operation_id="refresh_token",
 )
 async def refresh_token(
     request: RefreshTokenRequestSchema,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
-) -> LoginResponseSchema:
-    """Refresh access token using refresh token."""
-    try:
-        result = await service.refresh_token(request.refresh_token)
+) -> TokenRefreshResponseSchema:
+    service.set_context(session, legal_entity_id)
 
-        # FIX: Jangan log token
+    try:
+        new_access_token = await service.refresh_access_token(request.refresh_token)
+
         logger.info("Session refreshed successfully")
 
-        return LoginResponseSchema(
-            access_token=result.access_token,
-            refresh_token=result.refresh_token,
-            expires_in=result.expires_in,
-            user=UserResponseSchema(
-                id=result.user.id,
-                username=result.user.username,
-                email=result.user.email,
-                full_name=result.user.full_name,
-                department=result.user.department,
-                job_title=result.user.job_title,
-                phone_number=result.user.phone_number,
-                status=result.user.status,
-                is_active=result.user.is_active,
-                is_locked=result.user.is_locked,
-                is_superuser=result.user.is_superuser,
-                must_change_password=result.user.must_change_password,
-                mfa_enabled=result.user.mfa_enabled,
-                last_login_at=result.user.last_login_at,
-                last_password_change=result.user.last_password_change,
-                legal_entity_ids=result.user.legal_entity_ids,
-                role_ids=result.user.role_ids,
-                notes=result.user.notes,
-                created_at=result.user.created_at,
-                updated_at=result.user.updated_at,
-                created_by=result.user.created_by,
-                created_by_name=result.user.created_by_name,
-                version=result.user.version,
-            ),
+        return TokenRefreshResponseSchema(
+            access_token=new_access_token,
+            refresh_token=request.refresh_token,
         )
     except ValueError as e:
-        # FIX: Jangan log detail error yang mungkin mengandung token
         logger.warning("Session refresh failed: invalid refresh credential")
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
-        # FIX: Jangan log detail error yang mungkin mengandung token
         logger.exception(f"Session refresh failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1850,9 +1818,12 @@ async def refresh_token(
 async def change_password(
     request: ChangePasswordSchema,
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ):
-    """Change current user's password."""
+    service.set_context(session, legal_entity_id)
+
     try:
         success = await service.change_password(
             user_id=current_user.user_id,
@@ -1863,14 +1834,11 @@ async def change_password(
         if not success:
             raise HTTPException(status_code=400, detail="Old password incorrect")
 
-        # FIX: Jangan log password
         logger.info(f"Credential updated for user: {current_user.user_id}")
-
         return None
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # FIX: Jangan log detail error yang mungkin mengandung password
         logger.exception(f"Credential change failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1883,13 +1851,15 @@ async def change_password(
 )
 async def forgot_password(
     request: ResetPasswordRequestSchema,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> ForgotPasswordResponseSchema:
-    """Request password reset (sends email with reset link)."""
+    service.set_context(session, legal_entity_id)
+
     try:
         result = await service.forgot_password(email=request.email)
 
-        # FIX: Jangan log email
         logger.info("Reset request submitted")
 
         return ForgotPasswordResponseSchema(
@@ -1900,7 +1870,6 @@ async def forgot_password(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        # FIX: Jangan log detail error
         logger.exception(f"Reset request failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1913,9 +1882,12 @@ async def forgot_password(
 )
 async def reset_password(
     request: ResetPasswordConfirmSchema,
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, str]:
-    """Reset password using token from forgot password request."""
+    service.set_context(session, legal_entity_id)
+
     try:
         success = await service.reset_password(
             token=request.token,
@@ -1925,14 +1897,11 @@ async def reset_password(
         if not success:
             raise HTTPException(status_code=400, detail="Invalid or expired token")
 
-        # FIX: Jangan log password atau token
         logger.info("Reset completed successfully")
-
         return {"message": "Password reset successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # FIX: Jangan log detail error yang mungkin mengandung password/token
         logger.exception(f"Reset failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1940,7 +1909,6 @@ async def reset_password(
 # ----------------------------------------------------------------------------
 # MFA (Multi-Factor Authentication)
 # ----------------------------------------------------------------------------
-
 
 @router.post(
     "/mfa/setup",
@@ -1950,9 +1918,12 @@ async def reset_password(
 )
 async def setup_mfa(
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> MFASetupResponseSchema:
-    """Setup MFA for current user (returns secret key and QR code)."""
+    service.set_context(session, legal_entity_id)
+
     try:
         result = await service.setup_mfa(
             user_id=current_user.user_id,
@@ -1981,9 +1952,12 @@ async def setup_mfa(
 async def verify_mfa(
     request: MFAVerifySchema,
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, bool]:
-    """Verify MFA code and enable MFA for user."""
+    service.set_context(session, legal_entity_id)
+
     try:
         success = await service.verify_and_enable_mfa(
             user_id=current_user.user_id,
@@ -2010,9 +1984,12 @@ async def verify_mfa(
 async def disable_mfa(
     request: MFADisableSchema,
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, bool]:
-    """Disable MFA for current user."""
+    service.set_context(session, legal_entity_id)
+
     try:
         success = await service.disable_mfa(
             user_id=current_user.user_id,
@@ -2035,7 +2012,6 @@ async def disable_mfa(
 # SESSION MANAGEMENT
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/sessions",
     response_model=list[SessionResponseSchema],
@@ -2044,9 +2020,12 @@ async def disable_mfa(
 )
 async def get_user_sessions(
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[SessionResponseSchema]:
-    """Get all active sessions for current user."""
+    service.set_context(session, legal_entity_id)
+
     try:
         sessions = await service.get_user_sessions(current_user.user_id)
 
@@ -2081,9 +2060,12 @@ async def get_user_sessions(
 async def revoke_session(
     session_id: UUID,
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ):
-    """Revoke a specific session (cannot revoke current session)."""
+    service.set_context(session, legal_entity_id)
+
     try:
         success = await service.revoke_session(session_id, current_user.user_id)
 
@@ -2091,7 +2073,6 @@ async def revoke_session(
             raise HTTPException(status_code=404, detail="Session not found")
 
         logger.info(f"Session revoked: {session_id}")
-
         return None
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -2108,9 +2089,12 @@ async def revoke_session(
 )
 async def revoke_all_other_sessions(
     current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ):
-    """Revoke all sessions except current one."""
+    service.set_context(session, legal_entity_id)
+
     try:
         await service.revoke_all_other_sessions(current_user.user_id, current_user.session_id)
         logger.info("All other sessions revoked")
@@ -2123,7 +2107,6 @@ async def revoke_all_other_sessions(
 # ----------------------------------------------------------------------------
 # LOGIN ATTEMPTS & AUDIT
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/login-attempts",
@@ -2139,9 +2122,12 @@ async def get_login_attempts(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     _permission: None = Depends(require_permission("iam:audit_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[LoginAttemptResponseSchema]:
-    """Get login attempts history for auditing."""
+    service.set_context(session, legal_entity_id)
+
     try:
         attempts = await service.get_login_attempts(
             username=username,
@@ -2180,9 +2166,12 @@ async def get_user_audit_log(
     user_id: UUID,
     limit: int = Query(100, ge=1, le=1000, description="Number of records"),
     _permission: None = Depends(require_permission("iam:audit_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[UserAuditLogSchema]:
-    """Get audit log for a specific user."""
+    service.set_context(session, legal_entity_id)
+
     try:
         logs = await service.get_user_audit_log(user_id, limit)
 
@@ -2207,7 +2196,6 @@ async def get_user_audit_log(
 # USER STATUS & HISTORY
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/users/{user_id}/status",
     response_model=dict[str, Any],
@@ -2217,9 +2205,12 @@ async def get_user_audit_log(
 async def get_user_status(
     user_id: UUID,
     _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
-    """Get detailed user status."""
+    service.set_context(session, legal_entity_id)
+
     try:
         status_info = await service.get_user_status(user_id)
 
@@ -2260,9 +2251,12 @@ async def get_user_status(
 async def get_user_history(
     user_id: UUID,
     _permission: None = Depends(require_permission("iam:user_read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
     service: Any = Depends(get_iam_service),
 ) -> list[dict[str, Any]]:
-    """Get user change history (audit trail)."""
+    service.set_context(session, legal_entity_id)
+
     try:
         history = await service.get_user_history(user_id)
 
@@ -2284,8 +2278,8 @@ async def get_user_history(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-# ----------------------------------------------------------------------------
+# ============================================================================
 # EXPORTS
-# ----------------------------------------------------------------------------
+# ============================================================================
 
 __all__ = ["router"]

@@ -161,7 +161,7 @@ class TestArithmetic:
             PercentageVO(Decimal("50")).divide(0)
 
     def test_divide_clamped_at_100(self):
-        result = PercentageVO(Decimal("200")).divide(1)
+        PercentageVO(Decimal("200")).divide(1)
         # Actually the result is clamped to [0,100] after multiplication/division
         # If we create a percentage with value 200, it's already invalid.
         # So we test multiplication clamping instead.

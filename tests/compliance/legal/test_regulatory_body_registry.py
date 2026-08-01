@@ -60,7 +60,7 @@ class TestRegulatoryBody:
         """Smoke test for RegulatoryBody.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestRegulatoryBodyRegistry:
         """Smoke test for RegulatoryBodyRegistry.register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register(body=MagicMock())
+            instance.register(body=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"register needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestRegulatoryBodyRegistry:
         """Smoke test for RegulatoryBodyRegistry.get_body using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_body(code="test_value")
+            instance.get_body(code="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_body needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestRegulatoryBodyRegistry:
         """Smoke test for RegulatoryBodyRegistry.get_bodies_by_jurisdiction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_bodies_by_jurisdiction(jurisdiction="test_value")
+            instance.get_bodies_by_jurisdiction(jurisdiction="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_bodies_by_jurisdiction needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestRegulatoryBodyRegistry:
         """Smoke test for RegulatoryBodyRegistry.get_bodies_by_scope using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_bodies_by_scope(scope=RegulatoryScope.BANKING)
+            instance.get_bodies_by_scope(scope=RegulatoryScope.BANKING)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_bodies_by_scope needs specific domain fixtures/data: {e}")
             return

@@ -43,7 +43,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_last_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_transaction(legal_entity_id=uuid4(), before_date=datetime.now(UTC))
+            await instance.get_last_transaction(legal_entity_id=uuid4(), before_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_transaction needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.record_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_transaction(legal_entity_id=uuid4(), transaction_date=datetime.now(UTC), transaction_id=uuid4())
+            await instance.record_transaction(legal_entity_id=uuid4(), transaction_date=datetime.now(UTC), transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_transaction needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_transaction_count using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_transaction_count(legal_entity_id=uuid4())
+            await instance.get_transaction_count(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_transaction_count needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class Test_FallbackTransactionRepository:
         """Smoke test for _FallbackTransactionRepository.get_last_transaction_date using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_last_transaction_date(legal_entity_id=uuid4())
+            await instance.get_last_transaction_date(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_last_transaction_date needs specific domain fixtures/data: {e}")
             return
@@ -117,23 +117,23 @@ class TestTemporalViolation:
     """Tests for the TemporalViolation value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            violation_id=uuid4(),
-            transaction_id=uuid4(),
-            legal_entity_id=uuid4(),
-            transaction_date=datetime.now(UTC),
-            reference_date=datetime.now(UTC),
-            violation_type="test_value",
-            backdate_days=1,
-            severity=TemporalViolationSeverity.CRITICAL,
-            message="test_value",
-            detected_at=datetime.now(UTC),
-            is_resolved=True,
-            resolved_at=datetime.now(UTC),
-            resolved_by="test_value",
-            resolution_action="test_value",
-            cryptographic_hash="test_value",
-        )
+        return {
+            "violation_id": uuid4(),
+            "transaction_id": uuid4(),
+            "legal_entity_id": uuid4(),
+            "transaction_date": datetime.now(UTC),
+            "reference_date": datetime.now(UTC),
+            "violation_type": "test_value",
+            "backdate_days": 1,
+            "severity": TemporalViolationSeverity.CRITICAL,
+            "message": "test_value",
+            "detected_at": datetime.now(UTC),
+            "is_resolved": True,
+            "resolved_at": datetime.now(UTC),
+            "resolved_by": "test_value",
+            "resolution_action": "test_value",
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """TemporalViolation can be constructed with valid field values."""
@@ -165,8 +165,8 @@ class TestTemporalConsistencyValidator:
     def test_validate_timestamp_smoke(self):
         """Smoke test for TemporalConsistencyValidator.validate_timestamp using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TemporalConsistencyValidator.validate_timestamp(transaction_date=datetime.now(UTC), allow_future=True, max_future_days=1, allow_backdate=True, max_backdate_days=1)
+            self._build_instance()
+            TemporalConsistencyValidator.validate_timestamp(transaction_date=datetime.now(UTC), allow_future=True, max_future_days=1, allow_backdate=True, max_backdate_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_timestamp needs specific domain fixtures/data: {e}")
             return
@@ -176,8 +176,8 @@ class TestTemporalConsistencyValidator:
     def test_validate_chronological_order_smoke(self):
         """Smoke test for TemporalConsistencyValidator.validate_chronological_order using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TemporalConsistencyValidator.validate_chronological_order(transaction_date=datetime.now(UTC), last_transaction_date=datetime.now(UTC), max_backdate_days=1)
+            self._build_instance()
+            TemporalConsistencyValidator.validate_chronological_order(transaction_date=datetime.now(UTC), last_transaction_date=datetime.now(UTC), max_backdate_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_chronological_order needs specific domain fixtures/data: {e}")
             return
@@ -187,8 +187,8 @@ class TestTemporalConsistencyValidator:
     def test_validate_clock_skew_smoke(self):
         """Smoke test for TemporalConsistencyValidator.validate_clock_skew using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TemporalConsistencyValidator.validate_clock_skew(system_timestamp=datetime.now(UTC), source_timestamp=datetime.now(UTC), source_name="test_value", max_skew_seconds=1)
+            self._build_instance()
+            TemporalConsistencyValidator.validate_clock_skew(system_timestamp=datetime.now(UTC), source_timestamp=datetime.now(UTC), source_name="test_value", max_skew_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_clock_skew needs specific domain fixtures/data: {e}")
             return
@@ -198,8 +198,8 @@ class TestTemporalConsistencyValidator:
     def test_get_severity_smoke(self):
         """Smoke test for TemporalConsistencyValidator.get_severity using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TemporalConsistencyValidator.get_severity(days=1, violation_type="test_value", max_backdate_days=1)
+            self._build_instance()
+            TemporalConsistencyValidator.get_severity(days=1, violation_type="test_value", max_backdate_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_severity needs specific domain fixtures/data: {e}")
             return
@@ -234,7 +234,7 @@ class TestTemporalConsistencyGuard:
         """Smoke test for TemporalConsistencyGuard.check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check(context={})
+            instance.check(context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"check needs specific domain fixtures/data: {e}")
             return
@@ -245,7 +245,7 @@ class TestTemporalConsistencyGuard:
         """Smoke test for TemporalConsistencyGuard.validate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.validate()
+            instance.validate()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate needs specific domain fixtures/data: {e}")
             return
@@ -256,7 +256,7 @@ class TestTemporalConsistencyGuard:
         """Smoke test for TemporalConsistencyGuard.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -266,8 +266,8 @@ class TestTemporalConsistencyGuard:
     def test_from_dict_smoke(self):
         """Smoke test for TemporalConsistencyGuard.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = TemporalConsistencyGuard.from_dict(data={})
+            self._build_instance()
+            TemporalConsistencyGuard.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -278,7 +278,7 @@ class TestTemporalConsistencyGuard:
 def test_get_temporal_consistency_guard_smoke():
     """Smoke test for module-level function get_temporal_consistency_guard."""
     try:
-        result = get_temporal_consistency_guard()
+        get_temporal_consistency_guard()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_temporal_consistency_guard needs specific input data: {e}")
         return

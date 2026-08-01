@@ -26,28 +26,28 @@ class TestDerivativeInstrumentTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            instrument_code="test_value",
-            instrument_type="test_value",
-            counterparty_id=uuid4(),
-            underlying_asset="test_value",
-            notional_amount=Decimal("100.00"),
-            currency_code="test_value",
-            settlement_date=date.today(),
-            maturity_date=date.today(),
-            strike_price=Decimal("100.00"),
-            premium_paid=Decimal("100.00"),
-            fair_value_at_reporting=Decimal("100.00"),
-            valuation_method="test_value",
-            is_designated_hedge=True,
-            hedging_relationship_id=uuid4(),
-            status="test_value",
-            version=1,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'instrument_code': "test_value",
+            'instrument_type': "test_value",
+            'counterparty_id': uuid4(),
+            'underlying_asset': "test_value",
+            'notional_amount': Decimal("100.00"),
+            'currency_code': "test_value",
+            'settlement_date': date.today(),
+            'maturity_date': date.today(),
+            'strike_price': Decimal("100.00"),
+            'premium_paid': Decimal("100.00"),
+            'fair_value_at_reporting': Decimal("100.00"),
+            'valuation_method': "test_value",
+            'is_designated_hedge': True,
+            'hedging_relationship_id': uuid4(),
+            'status': "test_value",
+            'version': 1,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+        }
         try:
             instance = DerivativeInstrumentTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -54,7 +54,7 @@ class TestAuditTriggerInstaller:
         """Smoke test for AuditTriggerInstaller.create_audit_schema using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_audit_schema()
+            await instance.create_audit_schema()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_audit_schema needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestAuditTriggerInstaller:
         """Smoke test for AuditTriggerInstaller.create_audit_table using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_audit_table()
+            await instance.create_audit_table()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_audit_table needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestAuditTriggerInstaller:
         """Smoke test for AuditTriggerInstaller.create_audit_function using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_audit_function()
+            await instance.create_audit_function()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_audit_function needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestAuditTriggerInstaller:
         """Smoke test for AuditTriggerInstaller.install_trigger using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.install_trigger(schema="test_value", table_name="test_value")
+            await instance.install_trigger(schema="test_value", table_name="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"install_trigger needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestAuditContextMiddleware:
         """Smoke test for AuditContextMiddleware.dispatch using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.dispatch(request=MagicMock(), call_next=MagicMock())
+            await instance.dispatch(request=MagicMock(), call_next=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"dispatch needs specific domain fixtures/data: {e}")
             return
@@ -125,7 +125,7 @@ class TestAuditContextMiddleware:
 async def test_get_audit_trigger_installer_smoke():
     """Smoke test for module-level function get_audit_trigger_installer."""
     try:
-        result = await get_audit_trigger_installer()
+        await get_audit_trigger_installer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_audit_trigger_installer needs specific input data: {e}")
         return
@@ -135,7 +135,7 @@ async def test_get_audit_trigger_installer_smoke():
 async def test_install_audit_triggers_smoke():
     """Smoke test for module-level function install_audit_triggers."""
     try:
-        result = await install_audit_triggers()
+        await install_audit_triggers()
     except (Exception, SystemExit) as e:
         pytest.skip(f"install_audit_triggers needs specific input data: {e}")
         return

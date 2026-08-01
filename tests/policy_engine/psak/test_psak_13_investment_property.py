@@ -118,23 +118,23 @@ class TestPSAK13InvestmentProperty:
     """Tests for the PSAK13InvestmentProperty value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            property_id=uuid4(),
-            property_code="test_value",
-            property_name="test_value",
-            property_type=PSAK13PropertyType.LAND,
-            measurement_model=PSAK13MeasurementModel.COST,
-            acquisition_date=datetime.now(UTC),
-            cost=Decimal("100.00"),
-            accumulated_depreciation=Decimal("100.00"),
-            accumulated_impairment=Decimal("100.00"),
-            fair_value=Decimal("100.00"),
-            fair_value_date=datetime.now(UTC),
-            fair_value_level=PSAK13FairValueLevel.LEVEL_1,
-            useful_life_years=1,
-            residual_value=Decimal("100.00"),
-            is_active=True,
-        )
+        return {
+            'property_id': uuid4(),
+            'property_code': "test_value",
+            'property_name': "test_value",
+            'property_type': PSAK13PropertyType.LAND,
+            'measurement_model': PSAK13MeasurementModel.COST,
+            'acquisition_date': datetime.now(UTC),
+            'cost': Decimal("100.00"),
+            'accumulated_depreciation': Decimal("100.00"),
+            'accumulated_impairment': Decimal("100.00"),
+            'fair_value': Decimal("100.00"),
+            'fair_value_date': datetime.now(UTC),
+            'fair_value_level': PSAK13FairValueLevel.LEVEL_1,
+            'useful_life_years': 1,
+            'residual_value': Decimal("100.00"),
+            'is_active': True,
+        }
 
     def test_construction_success(self):
         """PSAK13InvestmentProperty can be constructed with valid field values."""
@@ -152,16 +152,16 @@ class TestPSAK13InvestmentPropertyRegister:
     """Tests for the PSAK13InvestmentPropertyRegister value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            register_id=uuid4(),
-            entity_id=uuid4(),
-            entity_name="test_value",
-            reporting_date=datetime.now(UTC),
-            properties=[MagicMock()],
-            measurement_model=PSAK13MeasurementModel.COST,
-            has_transferred_properties=True,
-            transfer_disclosure="test_value",
-        )
+        return {
+            'register_id': uuid4(),
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'reporting_date': datetime.now(UTC),
+            'properties': [MagicMock()],
+            'measurement_model': PSAK13MeasurementModel.COST,
+            'has_transferred_properties': True,
+            'transfer_disclosure': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK13InvestmentPropertyRegister can be constructed with valid field values."""
@@ -179,13 +179,13 @@ class TestPSAK13ValidationResult:
     """Tests for the PSAK13ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK13ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK13ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK13ValidationResult can be constructed with valid field values."""
@@ -217,8 +217,8 @@ class TestPSAK13InvestmentPropertyService:
     def test_determine_fair_value_smoke(self):
         """Smoke test for PSAK13InvestmentPropertyService.determine_fair_value using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK13InvestmentPropertyService.determine_fair_value(market_price=Decimal("100.00"), discounted_cash_flow=Decimal("100.00"), independent_appraisal=Decimal("100.00"))
+            self._build_instance()
+            PSAK13InvestmentPropertyService.determine_fair_value(market_price=Decimal("100.00"), discounted_cash_flow=Decimal("100.00"), independent_appraisal=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_fair_value needs specific domain fixtures/data: {e}")
             return
@@ -228,8 +228,8 @@ class TestPSAK13InvestmentPropertyService:
     def test_calculate_depreciation_smoke(self):
         """Smoke test for PSAK13InvestmentPropertyService.calculate_depreciation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK13InvestmentPropertyService.calculate_depreciation(cost=Decimal("100.00"), residual=Decimal("100.00"), useful_life=1)
+            self._build_instance()
+            PSAK13InvestmentPropertyService.calculate_depreciation(cost=Decimal("100.00"), residual=Decimal("100.00"), useful_life=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_depreciation needs specific domain fixtures/data: {e}")
             return
@@ -239,8 +239,8 @@ class TestPSAK13InvestmentPropertyService:
     def test_can_change_measurement_model_smoke(self):
         """Smoke test for PSAK13InvestmentPropertyService.can_change_measurement_model using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK13InvestmentPropertyService.can_change_measurement_model(current_model=PSAK13MeasurementModel.COST, new_model=PSAK13MeasurementModel.COST, justification="test_value")
+            self._build_instance()
+            PSAK13InvestmentPropertyService.can_change_measurement_model(current_model=PSAK13MeasurementModel.COST, new_model=PSAK13MeasurementModel.COST, justification="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"can_change_measurement_model needs specific domain fixtures/data: {e}")
             return
@@ -266,8 +266,8 @@ class TestPSAK13Rules:
     def test_validate_measurement_consistency_smoke(self):
         """Smoke test for PSAK13Rules.validate_measurement_consistency using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK13Rules.validate_measurement_consistency(register=MagicMock())
+            self._build_instance()
+            PSAK13Rules.validate_measurement_consistency(register=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_measurement_consistency needs specific domain fixtures/data: {e}")
             return
@@ -277,8 +277,8 @@ class TestPSAK13Rules:
     def test_validate_fair_value_disclosure_smoke(self):
         """Smoke test for PSAK13Rules.validate_fair_value_disclosure using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK13Rules.validate_fair_value_disclosure(register=MagicMock())
+            self._build_instance()
+            PSAK13Rules.validate_fair_value_disclosure(register=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_fair_value_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -288,8 +288,8 @@ class TestPSAK13Rules:
     def test_validate_transfer_classification_smoke(self):
         """Smoke test for PSAK13Rules.validate_transfer_classification using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK13Rules.validate_transfer_classification(register=MagicMock())
+            self._build_instance()
+            PSAK13Rules.validate_transfer_classification(register=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_transfer_classification needs specific domain fixtures/data: {e}")
             return
@@ -316,7 +316,7 @@ class TestPSAK13Validator:
         """Smoke test for PSAK13Validator.create_property using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_property(property_code="test_value", property_name="test_value", property_type=PSAK13PropertyType.LAND, measurement_model=PSAK13MeasurementModel.COST, acquisition_date=datetime.now(UTC), cost=Decimal("100.00"), useful_life_years=1, residual_value=Decimal("100.00"), fair_value=Decimal("100.00"), fair_value_date=datetime.now(UTC), fair_value_level=PSAK13FairValueLevel.LEVEL_1)
+            instance.create_property(property_code="test_value", property_name="test_value", property_type=PSAK13PropertyType.LAND, measurement_model=PSAK13MeasurementModel.COST, acquisition_date=datetime.now(UTC), cost=Decimal("100.00"), useful_life_years=1, residual_value=Decimal("100.00"), fair_value=Decimal("100.00"), fair_value_date=datetime.now(UTC), fair_value_level=PSAK13FairValueLevel.LEVEL_1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_property needs specific domain fixtures/data: {e}")
             return
@@ -327,7 +327,7 @@ class TestPSAK13Validator:
         """Smoke test for PSAK13Validator.create_register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_register(entity_id=uuid4(), entity_name="test_value", reporting_date=datetime.now(UTC), measurement_model=PSAK13MeasurementModel.COST)
+            instance.create_register(entity_id=uuid4(), entity_name="test_value", reporting_date=datetime.now(UTC), measurement_model=PSAK13MeasurementModel.COST)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_register needs specific domain fixtures/data: {e}")
             return
@@ -338,7 +338,7 @@ class TestPSAK13Validator:
         """Smoke test for PSAK13Validator.add_property using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_property(register=MagicMock(), prop=MagicMock())
+            instance.add_property(register=MagicMock(), prop=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_property needs specific domain fixtures/data: {e}")
             return
@@ -349,7 +349,7 @@ class TestPSAK13Validator:
         """Smoke test for PSAK13Validator.record_depreciation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_depreciation(prop=MagicMock(), period_end=datetime.now(UTC))
+            instance.record_depreciation(prop=MagicMock(), period_end=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_depreciation needs specific domain fixtures/data: {e}")
             return
@@ -360,7 +360,7 @@ class TestPSAK13Validator:
 def test_get_psak13_validator_smoke():
     """Smoke test for module-level function get_psak13_validator."""
     try:
-        result = get_psak13_validator()
+        get_psak13_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak13_validator needs specific input data: {e}")
         return

@@ -130,14 +130,14 @@ class TestRelatedParty:
     """Tests for the RelatedParty value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            party_id=uuid4(),
-            party_name="test_value",
-            relationship_type=RelationshipType.PARENT,
-            controlling_entity_id=uuid4(),
-            description="test_value",
-            is_key_management=True,
-        )
+        return {
+            'party_id': uuid4(),
+            'party_name': "test_value",
+            'relationship_type': RelationshipType.PARENT,
+            'controlling_entity_id': uuid4(),
+            'description': "test_value",
+            'is_key_management': True,
+        }
 
     def test_construction_success(self):
         """RelatedParty can be constructed with valid field values."""
@@ -155,19 +155,19 @@ class TestRelatedPartyTransaction:
     """Tests for the RelatedPartyTransaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            transaction_id=uuid4(),
-            party_id=uuid4(),
-            transaction_type=TransactionType.PURCHASE,
-            amount=Decimal("100.00"),
-            currency="test_value",
-            transaction_date=datetime.now(UTC),
-            terms_and_conditions="test_value",
-            outstanding_balance=Decimal("100.00"),
-            bad_debt_provision=Decimal("100.00"),
-            is_arm_length=True,
-            description="test_value",
-        )
+        return {
+            'transaction_id': uuid4(),
+            'party_id': uuid4(),
+            'transaction_type': TransactionType.PURCHASE,
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'transaction_date': datetime.now(UTC),
+            'terms_and_conditions': "test_value",
+            'outstanding_balance': Decimal("100.00"),
+            'bad_debt_provision': Decimal("100.00"),
+            'is_arm_length': True,
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """RelatedPartyTransaction can be constructed with valid field values."""
@@ -185,17 +185,17 @@ class TestKeyManagementCompensation:
     """Tests for the KeyManagementCompensation value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            compensation_id=uuid4(),
-            entity_id=uuid4(),
-            period_start=datetime.now(UTC),
-            period_end=datetime.now(UTC),
-            compensation_type=CompensationType.SHORT_TERM_BENEFITS,
-            amount=Decimal("100.00"),
-            currency="test_value",
-            number_of_persons=1,
-            description="test_value",
-        )
+        return {
+            'compensation_id': uuid4(),
+            'entity_id': uuid4(),
+            'period_start': datetime.now(UTC),
+            'period_end': datetime.now(UTC),
+            'compensation_type': CompensationType.SHORT_TERM_BENEFITS,
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'number_of_persons': 1,
+            'description': "test_value",
+        }
 
     def test_construction_success(self):
         """KeyManagementCompensation can be constructed with valid field values."""
@@ -213,19 +213,19 @@ class TestRelatedPartyDisclosure:
     """Tests for the RelatedPartyDisclosure value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            disclosure_id=uuid4(),
-            entity_id=uuid4(),
-            entity_name="test_value",
-            reporting_period_end=datetime.now(UTC),
-            related_parties=[MagicMock()],
-            transactions=[MagicMock()],
-            key_management_compensation=[MagicMock()],
-            control_relationship_disclosed=True,
-            has_parent_entity=True,
-            parent_entity_name="test_value",
-            ultimate_controlling_party="test_value",
-        )
+        return {
+            'disclosure_id': uuid4(),
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'reporting_period_end': datetime.now(UTC),
+            'related_parties': [MagicMock()],
+            'transactions': [MagicMock()],
+            'key_management_compensation': [MagicMock()],
+            'control_relationship_disclosed': True,
+            'has_parent_entity': True,
+            'parent_entity_name': "test_value",
+            'ultimate_controlling_party': "test_value",
+        }
 
     def test_construction_success(self):
         """RelatedPartyDisclosure can be constructed with valid field values."""
@@ -243,13 +243,13 @@ class TestPSAK7ValidationResult:
     """Tests for the PSAK7ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK7ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK7ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK7ValidationResult can be constructed with valid field values."""
@@ -281,8 +281,8 @@ class TestPSAK7RelatedPartyService:
     def test_is_related_party_smoke(self):
         """Smoke test for PSAK7RelatedPartyService.is_related_party using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK7RelatedPartyService.is_related_party(relationship=RelationshipType.PARENT)
+            self._build_instance()
+            PSAK7RelatedPartyService.is_related_party(relationship=RelationshipType.PARENT)
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_related_party needs specific domain fixtures/data: {e}")
             return
@@ -292,8 +292,8 @@ class TestPSAK7RelatedPartyService:
     def test_identify_related_parties_smoke(self):
         """Smoke test for PSAK7RelatedPartyService.identify_related_parties using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK7RelatedPartyService.identify_related_parties(parent_id=uuid4(), subsidiaries=[uuid4()], associates=[uuid4()], key_management_ids=[uuid4()], close_family_of_management=[uuid4()])
+            self._build_instance()
+            PSAK7RelatedPartyService.identify_related_parties(parent_id=uuid4(), subsidiaries=[uuid4()], associates=[uuid4()], key_management_ids=[uuid4()], close_family_of_management=[uuid4()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"identify_related_parties needs specific domain fixtures/data: {e}")
             return
@@ -303,8 +303,8 @@ class TestPSAK7RelatedPartyService:
     def test_requires_disclosure_smoke(self):
         """Smoke test for PSAK7RelatedPartyService.requires_disclosure using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK7RelatedPartyService.requires_disclosure(transaction=MagicMock())
+            self._build_instance()
+            PSAK7RelatedPartyService.requires_disclosure(transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"requires_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -330,8 +330,8 @@ class TestPSAK7Rules:
     def test_validate_control_relationship_smoke(self):
         """Smoke test for PSAK7Rules.validate_control_relationship using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK7Rules.validate_control_relationship(disclosure=MagicMock())
+            self._build_instance()
+            PSAK7Rules.validate_control_relationship(disclosure=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_control_relationship needs specific domain fixtures/data: {e}")
             return
@@ -341,8 +341,8 @@ class TestPSAK7Rules:
     def test_validate_transaction_disclosure_smoke(self):
         """Smoke test for PSAK7Rules.validate_transaction_disclosure using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK7Rules.validate_transaction_disclosure(transactions=[MagicMock()])
+            self._build_instance()
+            PSAK7Rules.validate_transaction_disclosure(transactions=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_transaction_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -352,8 +352,8 @@ class TestPSAK7Rules:
     def test_validate_key_management_compensation_smoke(self):
         """Smoke test for PSAK7Rules.validate_key_management_compensation using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK7Rules.validate_key_management_compensation(compensations=[MagicMock()])
+            self._build_instance()
+            PSAK7Rules.validate_key_management_compensation(compensations=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_key_management_compensation needs specific domain fixtures/data: {e}")
             return
@@ -380,7 +380,7 @@ class TestPSAK7Validator:
         """Smoke test for PSAK7Validator.create_related_party using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_related_party(party_name="test_value", relationship_type=RelationshipType.PARENT, controlling_entity_id=uuid4(), description="test_value", is_key_management=True)
+            instance.create_related_party(party_name="test_value", relationship_type=RelationshipType.PARENT, controlling_entity_id=uuid4(), description="test_value", is_key_management=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_related_party needs specific domain fixtures/data: {e}")
             return
@@ -391,7 +391,7 @@ class TestPSAK7Validator:
         """Smoke test for PSAK7Validator.create_transaction using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_transaction(party_id=uuid4(), transaction_type=TransactionType.PURCHASE, amount=Decimal("100.00"), currency="test_value", transaction_date=datetime.now(UTC), terms_and_conditions="test_value", outstanding_balance=Decimal("100.00"), is_arm_length=True, description="test_value")
+            instance.create_transaction(party_id=uuid4(), transaction_type=TransactionType.PURCHASE, amount=Decimal("100.00"), currency="test_value", transaction_date=datetime.now(UTC), terms_and_conditions="test_value", outstanding_balance=Decimal("100.00"), is_arm_length=True, description="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_transaction needs specific domain fixtures/data: {e}")
             return
@@ -402,7 +402,7 @@ class TestPSAK7Validator:
         """Smoke test for PSAK7Validator.create_compensation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_compensation(entity_id=uuid4(), period_start=datetime.now(UTC), period_end=datetime.now(UTC), compensation_type=CompensationType.SHORT_TERM_BENEFITS, amount=Decimal("100.00"), currency="test_value", number_of_persons=1, description="test_value")
+            instance.create_compensation(entity_id=uuid4(), period_start=datetime.now(UTC), period_end=datetime.now(UTC), compensation_type=CompensationType.SHORT_TERM_BENEFITS, amount=Decimal("100.00"), currency="test_value", number_of_persons=1, description="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_compensation needs specific domain fixtures/data: {e}")
             return
@@ -413,7 +413,7 @@ class TestPSAK7Validator:
         """Smoke test for PSAK7Validator.create_disclosure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_disclosure(entity_id=uuid4(), entity_name="test_value", reporting_period_end=datetime.now(UTC), control_relationship_disclosed=True, has_parent_entity=True, parent_entity_name="test_value", ultimate_controlling_party="test_value")
+            instance.create_disclosure(entity_id=uuid4(), entity_name="test_value", reporting_period_end=datetime.now(UTC), control_relationship_disclosed=True, has_parent_entity=True, parent_entity_name="test_value", ultimate_controlling_party="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -424,7 +424,7 @@ class TestPSAK7Validator:
 def test_get_psak7_validator_smoke():
     """Smoke test for module-level function get_psak7_validator."""
     try:
-        result = get_psak7_validator()
+        get_psak7_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak7_validator needs specific input data: {e}")
         return

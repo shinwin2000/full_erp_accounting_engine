@@ -87,7 +87,7 @@ class TestEvidenceDocumentRetriever:
         """Smoke test for EvidenceDocumentRetriever.retrieve_evidence using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.retrieve_evidence(evidence_uri="test_value", verify_hash=True, use_cache=True)
+            await instance.retrieve_evidence(evidence_uri="test_value", verify_hash=True, use_cache=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"retrieve_evidence needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestEvidenceDocumentRetriever:
         """Smoke test for EvidenceDocumentRetriever.get_presigned_url using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_presigned_url(evidence_uri="test_value", expiration_seconds=1, force_refresh=True)
+            await instance.get_presigned_url(evidence_uri="test_value", expiration_seconds=1, force_refresh=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_presigned_url needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestEvidenceDocumentRetriever:
         """Smoke test for EvidenceDocumentRetriever.batch_retrieve using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.batch_retrieve(evidence_uris=["test_value"], verify_hash=True)
+            await instance.batch_retrieve(evidence_uris=["test_value"], verify_hash=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"batch_retrieve needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestEvidenceDocumentRetriever:
         """Smoke test for EvidenceDocumentRetriever.get_evidence_metadata using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_evidence_metadata(evidence_uri="test_value")
+            await instance.get_evidence_metadata(evidence_uri="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_evidence_metadata needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestEvidenceDocumentRetriever:
 async def test_get_evidence_retriever_smoke():
     """Smoke test for module-level function get_evidence_retriever."""
     try:
-        result = await get_evidence_retriever()
+        await get_evidence_retriever()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_evidence_retriever needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ async def test_get_evidence_retriever_smoke():
 async def test_get_evidence_retriever_dep_smoke():
     """Smoke test for module-level function get_evidence_retriever_dep."""
     try:
-        result = await get_evidence_retriever_dep()
+        await get_evidence_retriever_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_evidence_retriever_dep needs specific input data: {e}")
         return

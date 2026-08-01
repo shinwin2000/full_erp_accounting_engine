@@ -32,7 +32,7 @@ class TestConfigManager:
         """Smoke test for ConfigManager.load_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.load_all(config_dir="test_value", force_reload=True)
+            instance.load_all(config_dir="test_value", force_reload=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_all needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestConfigManager:
         """Smoke test for ConfigManager.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get(key="test_value", default=MagicMock())
+            instance.get(key="test_value", default=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestConfigManager:
         """Smoke test for ConfigManager.get_section using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_section(section="test_value")
+            instance.get_section(section="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_section needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestConfigManager:
         """Smoke test for ConfigManager.reload using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.reload()
+            instance.reload()
         except (Exception, SystemExit) as e:
             pytest.skip(f"reload needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestConfigManager:
 def test_get_config_manager_smoke():
     """Smoke test for module-level function get_config_manager."""
     try:
-        result = get_config_manager()
+        get_config_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_config_manager needs specific input data: {e}")
         return

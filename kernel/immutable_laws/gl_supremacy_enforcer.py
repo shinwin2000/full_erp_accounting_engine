@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_user
@@ -109,9 +109,9 @@ class _FallbackLedgerRepository:
     ) -> dict[str, Decimal]:
         result = {}
         for (le, pid, acc), bal in self._balances.items():
-            if le == legal_entity_id and pid == period_id:
-                if account_prefix is None or acc.startswith(account_prefix):
-                    result[acc] = bal
+            # Gabungkan dua kondisi menjadi satu (SIM102)
+            if le == legal_entity_id and pid == period_id and (account_prefix is None or acc.startswith(account_prefix)):
+                result[acc] = bal
         return result
 
     def set_balance(
@@ -568,10 +568,10 @@ class GLSupremacyEnforcer(BaseGLSupremacyEnforcer):
     laporan keuangan yang tidak akurat.
     """
 
-    DEFAULT_TOLERANCE = Decimal("0.01")
-    AUTO_CORRECT_THRESHOLD = Decimal("1000")
+    DEFAULT_TOLERANCE: ClassVar[Decimal] = Decimal("0.01")
+    AUTO_CORRECT_THRESHOLD: ClassVar[Decimal] = Decimal("1000")
 
-    ACCOUNT_CODE_MAPPING = {
+    ACCOUNT_CODE_MAPPING: ClassVar[dict[str, SubledgerType]] = {
         "1.1": SubledgerType.ACCOUNTS_RECEIVABLE,
         "1.1.01": SubledgerType.ACCOUNTS_RECEIVABLE,
         "1.1.02": SubledgerType.ACCOUNTS_RECEIVABLE,

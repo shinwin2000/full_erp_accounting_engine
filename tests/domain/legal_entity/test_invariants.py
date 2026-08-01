@@ -38,7 +38,7 @@ class TestInvariantResult:
         """Smoke test for InvariantResult.add_error using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_error(error="test_value")
+            instance.add_error(error="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_error needs specific domain fixtures/data: {e}")
             return
@@ -49,7 +49,7 @@ class TestInvariantResult:
         """Smoke test for InvariantResult.merge using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.merge(other=MagicMock())
+            instance.merge(other=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"merge needs specific domain fixtures/data: {e}")
             return
@@ -75,8 +75,8 @@ class TestLegalEntityInvariants:
     def test_validate_on_create_smoke(self):
         """Smoke test for LegalEntityInvariants.validate_on_create using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LegalEntityInvariants.validate_on_create(entity_code="test_value", entity_name="test_value", legal_name="test_value", npwp=MagicMock(), existing_codes=set(), existing_npwps=set())
+            self._build_instance()
+            LegalEntityInvariants.validate_on_create(entity_code="test_value", entity_name="test_value", legal_name="test_value", npwp=MagicMock(), existing_codes=set(), existing_npwps=set())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_on_create needs specific domain fixtures/data: {e}")
             return
@@ -86,8 +86,8 @@ class TestLegalEntityInvariants:
     def test_validate_on_update_smoke(self):
         """Smoke test for LegalEntityInvariants.validate_on_update using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LegalEntityInvariants.validate_on_update(legal_entity=MagicMock(), existing_codes=set(), existing_npwps=set(), skip_code_check=True, skip_npwp_check=True)
+            self._build_instance()
+            LegalEntityInvariants.validate_on_update(legal_entity=MagicMock(), existing_codes=set(), existing_npwps=set(), skip_code_check=True, skip_npwp_check=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_on_update needs specific domain fixtures/data: {e}")
             return
@@ -97,8 +97,8 @@ class TestLegalEntityInvariants:
     def test_validate_status_transition_smoke(self):
         """Smoke test for LegalEntityInvariants.validate_status_transition using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = LegalEntityInvariants.validate_status_transition(current_status=MagicMock(), new_status=MagicMock(), user_role="test_value", requires_approval=True)
+            self._build_instance()
+            LegalEntityInvariants.validate_status_transition(current_status=MagicMock(), new_status=MagicMock(), user_role="test_value", requires_approval=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_status_transition needs specific domain fixtures/data: {e}")
             return
@@ -124,8 +124,8 @@ class TestCompanyEntityInvariants:
     def test_validate_on_create_smoke(self):
         """Smoke test for CompanyEntityInvariants.validate_on_create using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = CompanyEntityInvariants.validate_on_create(trade_name="test_value", legal_name="test_value", address="test_value", city="test_value", province="test_value", npwp=MagicMock(), existing_npwps=set())
+            self._build_instance()
+            CompanyEntityInvariants.validate_on_create(trade_name="test_value", legal_name="test_value", address="test_value", city="test_value", province="test_value", npwp=MagicMock(), existing_npwps=set())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_on_create needs specific domain fixtures/data: {e}")
             return
@@ -135,8 +135,8 @@ class TestCompanyEntityInvariants:
     def test_validate_pkp_registration_smoke(self):
         """Smoke test for CompanyEntityInvariants.validate_pkp_registration using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = CompanyEntityInvariants.validate_pkp_registration(company=MagicMock(), registration_date=datetime.now(UTC))
+            self._build_instance()
+            CompanyEntityInvariants.validate_pkp_registration(company=MagicMock(), registration_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_pkp_registration needs specific domain fixtures/data: {e}")
             return
@@ -163,7 +163,7 @@ class TestLegalEntityInvariantEnforcer:
         """Smoke test for LegalEntityInvariantEnforcer.enforce_create using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce_create(entity_code="test_value", entity_name="test_value", legal_name="test_value", npwp=MagicMock())
+            await instance.enforce_create(entity_code="test_value", entity_name="test_value", legal_name="test_value", npwp=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce_create needs specific domain fixtures/data: {e}")
             return
@@ -174,7 +174,7 @@ class TestLegalEntityInvariantEnforcer:
         """Smoke test for LegalEntityInvariantEnforcer.enforce_update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce_update(legal_entity=MagicMock())
+            await instance.enforce_update(legal_entity=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce_update needs specific domain fixtures/data: {e}")
             return
@@ -185,7 +185,7 @@ class TestLegalEntityInvariantEnforcer:
         """Smoke test for LegalEntityInvariantEnforcer.enforce_status_transition using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce_status_transition(current_status=MagicMock(), new_status=MagicMock(), user_role="test_value")
+            await instance.enforce_status_transition(current_status=MagicMock(), new_status=MagicMock(), user_role="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce_status_transition needs specific domain fixtures/data: {e}")
             return
@@ -196,7 +196,7 @@ class TestLegalEntityInvariantEnforcer:
         """Smoke test for LegalEntityInvariantEnforcer.enforce_company_create using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.enforce_company_create(trade_name="test_value", legal_name="test_value", address="test_value", city="test_value", province="test_value", npwp=MagicMock())
+            await instance.enforce_company_create(trade_name="test_value", legal_name="test_value", address="test_value", city="test_value", province="test_value", npwp=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"enforce_company_create needs specific domain fixtures/data: {e}")
             return

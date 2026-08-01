@@ -562,7 +562,8 @@ class TestHotReloadWatcher:
 
     # ----- callbacks management -----
     def test_register_callback(self, watcher):
-        cb = lambda x, y: None
+        def cb(x, y):
+            return None
         watcher.register_callback("test", cb)
         assert len(watcher._callbacks) == 1
         assert watcher._callbacks[0].name == "test"

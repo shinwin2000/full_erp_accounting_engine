@@ -65,20 +65,20 @@ class TestCreateIntangibleAssetRequestDTO:
     """Tests for the CreateIntangibleAssetRequestDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            asset_type="test_value",
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            residual_value=Decimal("100.00"),
-            useful_life_years=1,
-            amortization_method="test_value",
-            description="test_value",
-            supplier_id=uuid4(),
-            is_active=True,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'asset_code': "test_value",
+            'asset_name': "test_value",
+            'asset_type': "test_value",
+            'acquisition_date': date.today(),
+            'acquisition_cost': Decimal("100.00"),
+            'residual_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'amortization_method': "test_value",
+            'description': "test_value",
+            'supplier_id': uuid4(),
+            'is_active': True,
+        }
 
     def test_construction_success(self):
         """CreateIntangibleAssetRequestDTO can be constructed with valid field values."""
@@ -96,24 +96,24 @@ class TestIntangibleAssetResponse:
     """Tests for the IntangibleAssetResponse value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            asset_type="test_value",
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            residual_value=Decimal("100.00"),
-            useful_life_years=1,
-            amortization_method="test_value",
-            accumulated_amortization=Decimal("100.00"),
-            carrying_amount=Decimal("100.00"),
-            status="test_value",
-            is_active=True,
-            created_at=datetime.now(UTC),
-            impairment_loss=Decimal("100.00"),
-            revaluation_surplus=Decimal("100.00"),
-        )
+        return {
+            'id': uuid4(),
+            'asset_code': "test_value",
+            'asset_name': "test_value",
+            'asset_type': "test_value",
+            'acquisition_date': date.today(),
+            'acquisition_cost': Decimal("100.00"),
+            'residual_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'amortization_method': "test_value",
+            'accumulated_amortization': Decimal("100.00"),
+            'carrying_amount': Decimal("100.00"),
+            'status': "test_value",
+            'is_active': True,
+            'created_at': datetime.now(UTC),
+            'impairment_loss': Decimal("100.00"),
+            'revaluation_surplus': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """IntangibleAssetResponse can be constructed with valid field values."""
@@ -131,12 +131,12 @@ class TestAmortizationEntry:
     """Tests for the AmortizationEntry value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period="test_value",
-            amount=Decimal("100.00"),
-            accumulated_after=Decimal("100.00"),
-            carrying_after=Decimal("100.00"),
-        )
+        return {
+            'period': "test_value",
+            'amount': Decimal("100.00"),
+            'accumulated_after': Decimal("100.00"),
+            'carrying_after': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """AmortizationEntry can be constructed with valid field values."""
@@ -154,14 +154,14 @@ class TestAmortizationRunResult:
     """Tests for the AmortizationRunResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            period="test_value",
-            amount=Decimal("100.00"),
-            success=True,
-            error="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'period': "test_value",
+            'amount': Decimal("100.00"),
+            'success': True,
+            'error': "test_value",
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """AmortizationRunResult can be constructed with valid field values."""
@@ -179,15 +179,15 @@ class TestDisposalResult:
     """Tests for the DisposalResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            asset_id=uuid4(),
-            asset_code="test_value",
-            disposal_amount=Decimal("100.00"),
-            carrying_amount=Decimal("100.00"),
-            gain_loss=Decimal("100.00"),
-            gain_loss_type="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            'asset_id': uuid4(),
+            'asset_code': "test_value",
+            'disposal_amount': Decimal("100.00"),
+            'carrying_amount': Decimal("100.00"),
+            'gain_loss': Decimal("100.00"),
+            'gain_loss_type': "test_value",
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """DisposalResult can be constructed with valid field values."""
@@ -284,7 +284,7 @@ class TestIntangibleAssetService:
         """Smoke test for IntangibleAssetService.create_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_asset(request=MagicMock(), created_by=uuid4())
+            await instance.create_asset(request=MagicMock(), created_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_asset needs specific domain fixtures/data: {e}")
             return
@@ -295,7 +295,7 @@ class TestIntangibleAssetService:
         """Smoke test for IntangibleAssetService.get_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_asset(asset_id=uuid4())
+            await instance.get_asset(asset_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_asset needs specific domain fixtures/data: {e}")
             return
@@ -306,7 +306,7 @@ class TestIntangibleAssetService:
         """Smoke test for IntangibleAssetService.list_assets_by_legal_entity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_assets_by_legal_entity(legal_entity_id=uuid4(), include_inactive=True)
+            await instance.list_assets_by_legal_entity(legal_entity_id=uuid4(), include_inactive=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_assets_by_legal_entity needs specific domain fixtures/data: {e}")
             return
@@ -317,7 +317,7 @@ class TestIntangibleAssetService:
         """Smoke test for IntangibleAssetService.run_monthly_amortization using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.run_monthly_amortization(legal_entity_id=uuid4(), period_date=date.today(), period_id=uuid4(), user_id=uuid4())
+            await instance.run_monthly_amortization(legal_entity_id=uuid4(), period_date=date.today(), period_id=uuid4(), user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"run_monthly_amortization needs specific domain fixtures/data: {e}")
             return
@@ -328,7 +328,7 @@ class TestIntangibleAssetService:
 async def test_create_intangible_asset_service_smoke():
     """Smoke test for module-level function create_intangible_asset_service."""
     try:
-        result = await create_intangible_asset_service(asset_repo=MagicMock(), uow=MagicMock(), cache=MagicMock(), event_publisher=MagicMock())
+        await create_intangible_asset_service(asset_repo=MagicMock(), uow=MagicMock(), cache=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_intangible_asset_service needs specific input data: {e}")
         return

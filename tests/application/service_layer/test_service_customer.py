@@ -42,27 +42,27 @@ class TestCustomer:
     """Tests for the Customer value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            customer_code="test_value",
-            name="test_value",
-            npwp="test_value",
-            address="test_value",
-            city="test_value",
-            country="test_value",
-            phone="test_value",
-            email="test_value",
-            contact_person="test_value",
-            credit_limit=Decimal("0"),
-            current_balance=Decimal("100.00"),
-            is_active=True,
-            status=CustomerStatus.ACTIVE,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'customer_code': "test_value",
+            'name': "test_value",
+            'npwp': "test_value",
+            'address': "test_value",
+            'city': "test_value",
+            'country': "test_value",
+            'phone': "test_value",
+            'email': "test_value",
+            'contact_person': "test_value",
+            'credit_limit': Decimal("0"),
+            'current_balance': Decimal("100.00"),
+            'is_active': True,
+            'status': CustomerStatus.ACTIVE,
+            'created_at': datetime.now(UTC),
+            'updated_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """Customer can be constructed with valid field values."""
@@ -127,7 +127,7 @@ class TestCustomerService:
         """Smoke test for CustomerService.create_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_customer(legal_entity_id=uuid4(), customer_code="test_value", name="test_value", npwp="test_value", address="test_value", city="test_value", country="test_value", phone="test_value", email="test_value", contact_person="test_value", credit_limit=Decimal("0"), created_by=uuid4(), correlation_id="test_value")
+            await instance.create_customer(legal_entity_id=uuid4(), customer_code="test_value", name="test_value", npwp="test_value", address="test_value", city="test_value", country="test_value", phone="test_value", email="test_value", contact_person="test_value", credit_limit=Decimal("0"), created_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_customer needs specific domain fixtures/data: {e}")
             return
@@ -138,7 +138,7 @@ class TestCustomerService:
         """Smoke test for CustomerService.get_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_customer(customer_id=uuid4())
+            await instance.get_customer(customer_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_customer needs specific domain fixtures/data: {e}")
             return
@@ -149,7 +149,7 @@ class TestCustomerService:
         """Smoke test for CustomerService.list_customers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.list_customers(legal_entity_id=uuid4(), is_active=True, status="test_value")
+            await instance.list_customers(legal_entity_id=uuid4(), is_active=True, status="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"list_customers needs specific domain fixtures/data: {e}")
             return
@@ -160,7 +160,7 @@ class TestCustomerService:
         """Smoke test for CustomerService.update_customer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update_customer(customer_id=uuid4(), name="test_value", address="test_value", city="test_value", phone="test_value", email="test_value", contact_person="test_value", is_active=True, status="test_value", updated_by=uuid4(), correlation_id="test_value")
+            await instance.update_customer(customer_id=uuid4(), name="test_value", address="test_value", city="test_value", phone="test_value", email="test_value", contact_person="test_value", is_active=True, status="test_value", updated_by=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"update_customer needs specific domain fixtures/data: {e}")
             return
@@ -171,7 +171,7 @@ class TestCustomerService:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -181,7 +181,7 @@ def test_audit_smoke():
 async def test_create_customer_service_smoke():
     """Smoke test for module-level function create_customer_service."""
     try:
-        result = await create_customer_service(event_publisher=MagicMock())
+        await create_customer_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_customer_service needs specific input data: {e}")
         return

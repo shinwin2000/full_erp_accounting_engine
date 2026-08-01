@@ -123,19 +123,19 @@ def legal_entity_id():
 
 
 def make_coa(legal_entity_id, **overrides):
-    defaults = dict(
-        coa_id=uuid4(), legal_entity_id=legal_entity_id, name="Main COA",
-        description="Primary chart of accounts", status=COAStatus.ACTIVE,
-    )
+    defaults = {
+        "coa_id": uuid4(), "legal_entity_id": legal_entity_id, "name": "Main COA",
+        "description": "Primary chart of accounts", "status": COAStatus.ACTIVE,
+    }
     defaults.update(overrides)
     return ChartOfAccounts(**defaults)
 
 
 def make_account(legal_entity_id, **overrides):
-    defaults = dict(
-        id=uuid4(), legal_entity_id=legal_entity_id, code=AccountCodeVO("1000"), name="Cash",
-        account_type=AccountType.ASSET, normal_balance=NormalBalance.DEBIT,
-    )
+    defaults = {
+        "id": uuid4(), "legal_entity_id": legal_entity_id, "code": AccountCodeVO("1000"), "name": "Cash",
+        "account_type": AccountType.ASSET, "normal_balance": NormalBalance.DEBIT,
+    }
     defaults.update(overrides)
     return AccountEntity(**defaults)
 

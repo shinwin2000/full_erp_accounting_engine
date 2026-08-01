@@ -54,7 +54,7 @@ class TestExchangeRateProvider:
         """Smoke test for ExchangeRateProvider.get_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
+            await instance.get_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rate needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestInMemoryExchangeRateProvider:
         """Smoke test for InMemoryExchangeRateProvider.get_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
+            await instance.get_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_rate needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestForeignCurrencyTranslator:
         """Smoke test for ForeignCurrencyTranslator.get_exchange_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_exchange_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
+            await instance.get_exchange_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_exchange_rate needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestForeignCurrencyTranslator:
         """Smoke test for ForeignCurrencyTranslator.get_average_rate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_average_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
+            await instance.get_average_rate(from_currency="test_value", to_currency="test_value", as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_average_rate needs specific domain fixtures/data: {e}")
             return

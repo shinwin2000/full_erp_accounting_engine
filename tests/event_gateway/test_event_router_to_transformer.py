@@ -72,17 +72,17 @@ class TestQueuedEvent:
     """Tests for the QueuedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            envelope=MagicMock(),
-            priority=1,
-            timestamp=1.5,
-            retry_count=1,
-            transformer_names=["test_value"],
-            _audit_trail=[{}],
-            _snapshots=[{}],
-            _version=1,
-            _id="test_value",
-        )
+        return {
+            "envelope": MagicMock(),
+            "priority": 1,
+            "timestamp": 1.5,
+            "retry_count": 1,
+            "transformer_names": ["test_value"],
+            "_audit_trail": [{}],
+            "_snapshots": [{}],
+            "_version": 1,
+            "_id": "test_value",
+        }
 
     def test_construction_success(self):
         """QueuedEvent can be constructed with valid field values."""
@@ -115,7 +115,7 @@ class TestTransformerRegistry:
         """Smoke test for TransformerRegistry.register using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register(event_type="test_value", transformer=(lambda *a, **kw: None), priority=1)
+            instance.register(event_type="test_value", transformer=(lambda *a, **kw: None), priority=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"register needs specific domain fixtures/data: {e}")
             return
@@ -126,7 +126,7 @@ class TestTransformerRegistry:
         """Smoke test for TransformerRegistry.unregister using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.unregister(event_type="test_value", transformer=(lambda *a, **kw: None))
+            instance.unregister(event_type="test_value", transformer=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"unregister needs specific domain fixtures/data: {e}")
             return
@@ -137,7 +137,7 @@ class TestTransformerRegistry:
         """Smoke test for TransformerRegistry.get_transformers using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_transformers(event_type="test_value")
+            instance.get_transformers(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_transformers needs specific domain fixtures/data: {e}")
             return
@@ -148,7 +148,7 @@ class TestTransformerRegistry:
         """Smoke test for TransformerRegistry.has_transformer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.has_transformer(event_type="test_value")
+            instance.has_transformer(event_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"has_transformer needs specific domain fixtures/data: {e}")
             return
@@ -175,7 +175,7 @@ class TestEventRouter:
         """Smoke test for EventRouter.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -186,7 +186,7 @@ class TestEventRouter:
         """Smoke test for EventRouter.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -197,7 +197,7 @@ class TestEventRouter:
         """Smoke test for EventRouter.route using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.route(envelope=MagicMock(), priority=1)
+            await instance.route(envelope=MagicMock(), priority=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"route needs specific domain fixtures/data: {e}")
             return
@@ -208,7 +208,7 @@ class TestEventRouter:
         """Smoke test for EventRouter.register_transformer using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_transformer(event_type="test_value", transformer=(lambda *a, **kw: None), priority=1)
+            instance.register_transformer(event_type="test_value", transformer=(lambda *a, **kw: None), priority=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_transformer needs specific domain fixtures/data: {e}")
             return

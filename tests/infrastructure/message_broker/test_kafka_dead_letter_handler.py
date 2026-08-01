@@ -70,7 +70,7 @@ class TestKafkaDeadLetterHandler:
         """Smoke test for KafkaDeadLetterHandler.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestKafkaDeadLetterHandler:
         """Smoke test for KafkaDeadLetterHandler.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestKafkaDeadLetterHandler:
         """Smoke test for KafkaDeadLetterHandler.reprocess_manually using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.reprocess_manually(message_id="test_value")
+            await instance.reprocess_manually(message_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"reprocess_manually needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestKafkaDeadLetterHandler:
         """Smoke test for KafkaDeadLetterHandler.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_stats()
+            await instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestKafkaDeadLetterHandler:
 async def test_get_dead_letter_handler_smoke():
     """Smoke test for module-level function get_dead_letter_handler."""
     try:
-        result = await get_dead_letter_handler()
+        await get_dead_letter_handler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_dead_letter_handler needs specific input data: {e}")
         return
@@ -124,7 +124,7 @@ async def test_get_dead_letter_handler_smoke():
 async def test_start_dead_letter_handler_smoke():
     """Smoke test for module-level function start_dead_letter_handler."""
     try:
-        result = await start_dead_letter_handler()
+        await start_dead_letter_handler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_dead_letter_handler needs specific input data: {e}")
         return
@@ -134,7 +134,7 @@ async def test_start_dead_letter_handler_smoke():
 async def test_stop_dead_letter_handler_smoke():
     """Smoke test for module-level function stop_dead_letter_handler."""
     try:
-        result = await stop_dead_letter_handler()
+        await stop_dead_letter_handler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_dead_letter_handler needs specific input data: {e}")
         return

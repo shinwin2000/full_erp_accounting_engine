@@ -169,20 +169,20 @@ class TestPSAK50FinancialInstrument:
     """Tests for the PSAK50FinancialInstrument value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            instrument_id=uuid4(),
-            instrument_name="test_value",
-            instrument_type=PSAK50InstrumentType.EQUITY,
-            financial_asset_category=PSAK50FinancialAssetCategory.CASH,
-            financial_liability_category=PSAK50FinancialLiabilityCategory.PAYABLE,
-            contractual_terms="test_value",
-            is_compound=True,
-            liability_component_amount=Decimal("100.00"),
-            equity_component_amount=Decimal("100.00"),
-            settlement_date=datetime.now(UTC),
-            is_perpetual=True,
-            has_discretionary_dividends=True,
-        )
+        return {
+            'instrument_id': uuid4(),
+            'instrument_name': "test_value",
+            'instrument_type': PSAK50InstrumentType.EQUITY,
+            'financial_asset_category': PSAK50FinancialAssetCategory.CASH,
+            'financial_liability_category': PSAK50FinancialLiabilityCategory.PAYABLE,
+            'contractual_terms': "test_value",
+            'is_compound': True,
+            'liability_component_amount': Decimal("100.00"),
+            'equity_component_amount': Decimal("100.00"),
+            'settlement_date': datetime.now(UTC),
+            'is_perpetual': True,
+            'has_discretionary_dividends': True,
+        }
 
     def test_construction_success(self):
         """PSAK50FinancialInstrument can be constructed with valid field values."""
@@ -200,15 +200,15 @@ class TestPSAK50OffsettingPair:
     """Tests for the PSAK50OffsettingPair value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            pair_id=uuid4(),
-            financial_asset_id=uuid4(),
-            financial_liability_id=uuid4(),
-            amount=Decimal("100.00"),
-            meets_conditions=True,
-            conditions_met=[PSAK50OffsettingCondition.LEGALLY_ENFORCEABLE_RIGHT],
-            net_amount_presented=Decimal("100.00"),
-        )
+        return {
+            'pair_id': uuid4(),
+            'financial_asset_id': uuid4(),
+            'financial_liability_id': uuid4(),
+            'amount': Decimal("100.00"),
+            'meets_conditions': True,
+            'conditions_met': [PSAK50OffsettingCondition.LEGALLY_ENFORCEABLE_RIGHT],
+            'net_amount_presented': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """PSAK50OffsettingPair can be constructed with valid field values."""
@@ -226,15 +226,15 @@ class TestPSAK50CompoundInstrumentSplit:
     """Tests for the PSAK50CompoundInstrumentSplit value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            split_id=uuid4(),
-            instrument_id=uuid4(),
-            total_proceeds=Decimal("100.00"),
-            liability_component_fair_value=Decimal("100.00"),
-            equity_component_amount=Decimal("100.00"),
-            split_method=PSAK50CompoundInstrumentSplitMethod.RESIDUAL_VALUE,
-            effective_interest_rate=Decimal("100.00"),
-        )
+        return {
+            'split_id': uuid4(),
+            'instrument_id': uuid4(),
+            'total_proceeds': Decimal("100.00"),
+            'liability_component_fair_value': Decimal("100.00"),
+            'equity_component_amount': Decimal("100.00"),
+            'split_method': PSAK50CompoundInstrumentSplitMethod.RESIDUAL_VALUE,
+            'effective_interest_rate': Decimal("100.00"),
+        }
 
     def test_construction_success(self):
         """PSAK50CompoundInstrumentSplit can be constructed with valid field values."""
@@ -252,15 +252,15 @@ class TestPSAK50TreasuryShares:
     """Tests for the PSAK50TreasuryShares value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            treasury_id=uuid4(),
-            entity_id=uuid4(),
-            number_of_shares=Decimal("100.00"),
-            acquisition_cost=Decimal("100.00"),
-            acquisition_date=datetime.now(UTC),
-            is_cancelled=True,
-            cancellation_date=datetime.now(UTC),
-        )
+        return {
+            'treasury_id': uuid4(),
+            'entity_id': uuid4(),
+            'number_of_shares': Decimal("100.00"),
+            'acquisition_cost': Decimal("100.00"),
+            'acquisition_date': datetime.now(UTC),
+            'is_cancelled': True,
+            'cancellation_date': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PSAK50TreasuryShares can be constructed with valid field values."""
@@ -278,13 +278,13 @@ class TestPSAK50ValidationResult:
     """Tests for the PSAK50ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK50ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK50ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK50ValidationResult can be constructed with valid field values."""
@@ -316,8 +316,8 @@ class TestPSAK50InstrumentClassificationService:
     def test_classify_instrument_smoke(self):
         """Smoke test for PSAK50InstrumentClassificationService.classify_instrument using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK50InstrumentClassificationService.classify_instrument(contractual_obligation_to_deliver_cash=True, has_discretionary_dividends=True, is_puttable=True, is_perpetual=True)
+            self._build_instance()
+            PSAK50InstrumentClassificationService.classify_instrument(contractual_obligation_to_deliver_cash=True, has_discretionary_dividends=True, is_puttable=True, is_perpetual=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"classify_instrument needs specific domain fixtures/data: {e}")
             return
@@ -327,8 +327,8 @@ class TestPSAK50InstrumentClassificationService:
     def test_split_compound_instrument_smoke(self):
         """Smoke test for PSAK50InstrumentClassificationService.split_compound_instrument using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK50InstrumentClassificationService.split_compound_instrument(total_proceeds=Decimal("100.00"), fair_value_of_liability_component=Decimal("100.00"), method=PSAK50CompoundInstrumentSplitMethod.RESIDUAL_VALUE, effective_interest_rate=Decimal("100.00"))
+            self._build_instance()
+            PSAK50InstrumentClassificationService.split_compound_instrument(total_proceeds=Decimal("100.00"), fair_value_of_liability_component=Decimal("100.00"), method=PSAK50CompoundInstrumentSplitMethod.RESIDUAL_VALUE, effective_interest_rate=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"split_compound_instrument needs specific domain fixtures/data: {e}")
             return
@@ -354,8 +354,8 @@ class TestPSAK50OffsettingService:
     def test_can_offset_smoke(self):
         """Smoke test for PSAK50OffsettingService.can_offset using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK50OffsettingService.can_offset(legally_enforceable_right=True, intention_to_settle_net=True, simultaneous_settlement=True)
+            self._build_instance()
+            PSAK50OffsettingService.can_offset(legally_enforceable_right=True, intention_to_settle_net=True, simultaneous_settlement=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"can_offset needs specific domain fixtures/data: {e}")
             return
@@ -381,8 +381,8 @@ class TestPSAK50Rules:
     def test_validate_classification_smoke(self):
         """Smoke test for PSAK50Rules.validate_classification using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK50Rules.validate_classification(instrument=MagicMock())
+            self._build_instance()
+            PSAK50Rules.validate_classification(instrument=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_classification needs specific domain fixtures/data: {e}")
             return
@@ -392,8 +392,8 @@ class TestPSAK50Rules:
     def test_validate_offsetting_smoke(self):
         """Smoke test for PSAK50Rules.validate_offsetting using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK50Rules.validate_offsetting(pair=MagicMock())
+            self._build_instance()
+            PSAK50Rules.validate_offsetting(pair=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_offsetting needs specific domain fixtures/data: {e}")
             return
@@ -403,8 +403,8 @@ class TestPSAK50Rules:
     def test_validate_treasury_shares_smoke(self):
         """Smoke test for PSAK50Rules.validate_treasury_shares using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK50Rules.validate_treasury_shares(treasury=MagicMock())
+            self._build_instance()
+            PSAK50Rules.validate_treasury_shares(treasury=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_treasury_shares needs specific domain fixtures/data: {e}")
             return
@@ -431,7 +431,7 @@ class TestPSAK50Validator:
         """Smoke test for PSAK50Validator.classify_instrument using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.classify_instrument(instrument_name="test_value", contractual_obligation_to_deliver_cash=True, has_discretionary_dividends=True, is_puttable=True, is_perpetual=True, financial_asset_category=PSAK50FinancialAssetCategory.CASH, financial_liability_category=PSAK50FinancialLiabilityCategory.PAYABLE)
+            instance.classify_instrument(instrument_name="test_value", contractual_obligation_to_deliver_cash=True, has_discretionary_dividends=True, is_puttable=True, is_perpetual=True, financial_asset_category=PSAK50FinancialAssetCategory.CASH, financial_liability_category=PSAK50FinancialLiabilityCategory.PAYABLE)
         except (Exception, SystemExit) as e:
             pytest.skip(f"classify_instrument needs specific domain fixtures/data: {e}")
             return
@@ -442,7 +442,7 @@ class TestPSAK50Validator:
         """Smoke test for PSAK50Validator.create_compound_instrument using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_compound_instrument(instrument_name="test_value", total_proceeds=Decimal("100.00"), fair_value_of_liability_component=Decimal("100.00"), split_method=PSAK50CompoundInstrumentSplitMethod.RESIDUAL_VALUE, effective_interest_rate=Decimal("100.00"))
+            instance.create_compound_instrument(instrument_name="test_value", total_proceeds=Decimal("100.00"), fair_value_of_liability_component=Decimal("100.00"), split_method=PSAK50CompoundInstrumentSplitMethod.RESIDUAL_VALUE, effective_interest_rate=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_compound_instrument needs specific domain fixtures/data: {e}")
             return
@@ -453,7 +453,7 @@ class TestPSAK50Validator:
         """Smoke test for PSAK50Validator.create_offsetting_pair using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_offsetting_pair(financial_asset_id=uuid4(), financial_liability_id=uuid4(), amount=Decimal("100.00"), legally_enforceable_right=True, intention_to_settle_net=True, simultaneous_settlement=True)
+            instance.create_offsetting_pair(financial_asset_id=uuid4(), financial_liability_id=uuid4(), amount=Decimal("100.00"), legally_enforceable_right=True, intention_to_settle_net=True, simultaneous_settlement=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_offsetting_pair needs specific domain fixtures/data: {e}")
             return
@@ -464,7 +464,7 @@ class TestPSAK50Validator:
         """Smoke test for PSAK50Validator.create_treasury_shares using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_treasury_shares(entity_id=uuid4(), number_of_shares=Decimal("100.00"), acquisition_cost=Decimal("100.00"), acquisition_date=datetime.now(UTC))
+            instance.create_treasury_shares(entity_id=uuid4(), number_of_shares=Decimal("100.00"), acquisition_cost=Decimal("100.00"), acquisition_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_treasury_shares needs specific domain fixtures/data: {e}")
             return
@@ -475,7 +475,7 @@ class TestPSAK50Validator:
 def test_get_psak50_validator_smoke():
     """Smoke test for module-level function get_psak50_validator."""
     try:
-        result = get_psak50_validator()
+        get_psak50_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak50_validator needs specific input data: {e}")
         return

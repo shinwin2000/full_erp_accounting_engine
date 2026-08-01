@@ -744,7 +744,7 @@ class TestNTPNValidator:
         validator._redis_client = None
         validator._rate_limit_cache = {}
         # Should allow up to limit calls
-        for i in range(10):
+        for _i in range(10):
             result = await validator._check_rate_limit("123")
             assert result is True
         # 11th call should fail

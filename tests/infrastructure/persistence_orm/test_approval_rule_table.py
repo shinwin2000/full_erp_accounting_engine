@@ -27,31 +27,31 @@ class TestApprovalRuleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            rule_code="test_value",
-            rule_name="test_value",
-            description="test_value",
-            entity_type="test_value",
-            min_amount=Decimal("100.00"),
-            max_amount=Decimal("100.00"),
-            department="test_value",
-            cost_center="test_value",
-            project_id=MagicMock(),
-            approval_level=1,
-            approver_role="test_value",
-            approver_user_id=MagicMock(),
-            backup_approver_id=MagicMock(),
-            action="test_value",
-            escalate_after_hours=1,
-            escalate_to_role="test_value",
-            priority=1,
-            is_active=True,
-            created_by=MagicMock(),
-            updated_by=MagicMock(),
-            approved_by=MagicMock(),
-            approved_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'rule_code': "test_value",
+            'rule_name': "test_value",
+            'description': "test_value",
+            'entity_type': "test_value",
+            'min_amount': Decimal("100.00"),
+            'max_amount': Decimal("100.00"),
+            'department': "test_value",
+            'cost_center': "test_value",
+            'project_id': MagicMock(),
+            'approval_level': 1,
+            'approver_role': "test_value",
+            'approver_user_id': MagicMock(),
+            'backup_approver_id': MagicMock(),
+            'action': "test_value",
+            'escalate_after_hours': 1,
+            'escalate_to_role': "test_value",
+            'priority': 1,
+            'is_active': True,
+            'created_by': MagicMock(),
+            'updated_by': MagicMock(),
+            'approved_by': MagicMock(),
+            'approved_at': datetime.now(UTC),
+        }
         try:
             instance = ApprovalRuleTable(**kwargs)
         except (Exception, SystemExit) as e:

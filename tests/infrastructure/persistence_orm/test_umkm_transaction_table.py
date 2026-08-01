@@ -27,25 +27,25 @@ class TestUMKMTransactionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            profile_id=uuid4(),
-            transaction_number="test_value",
-            transaction_date=date.today(),
-            transaction_type="test_value",
-            amount=Decimal("100.00"),
-            description="test_value",
-            category="test_value",
-            status="test_value",
-            reference_number="test_value",
-            reference_id=MagicMock(),
-            reference_type="test_value",
-            umkm_profile_id=MagicMock(),
-            legal_entity_id=MagicMock(),
-            created_at=datetime.now(UTC),
-            created_by=MagicMock(),
-            updated_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'profile_id': uuid4(),
+            'transaction_number': "test_value",
+            'transaction_date': date.today(),
+            'transaction_type': "test_value",
+            'amount': Decimal("100.00"),
+            'description': "test_value",
+            'category': "test_value",
+            'status': "test_value",
+            'reference_number': "test_value",
+            'reference_id': MagicMock(),
+            'reference_type': "test_value",
+            'umkm_profile_id': MagicMock(),
+            'legal_entity_id': MagicMock(),
+            'created_at': datetime.now(UTC),
+            'created_by': MagicMock(),
+            'updated_at': datetime.now(UTC),
+        }
         try:
             instance = UMKMTransactionTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -963,7 +963,7 @@ class TestMaterialityAxiom:
         # Add some data
         entity_id = uuid.uuid4()
         axiom.set_threshold(entity_id, 2026, MaterialityThresholdType.ABSOLUTE, Decimal("1000"))
-        judgment = axiom.record_judgment(
+        axiom.record_judgment(
             entity_id, 2026, "Item", Decimal("2000"), Decimal("1000"), True, [], "J", "admin", ["a"]
         )
         axiom.save_violation(

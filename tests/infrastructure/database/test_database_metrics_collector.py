@@ -34,7 +34,7 @@ class TestDatabaseMetricsCollector:
         """Smoke test for DatabaseMetricsCollector.collect_connection_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_connection_metrics()
+            await instance.collect_connection_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_connection_metrics needs specific domain fixtures/data: {e}")
             return
@@ -45,7 +45,7 @@ class TestDatabaseMetricsCollector:
         """Smoke test for DatabaseMetricsCollector.collect_transaction_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_transaction_metrics()
+            await instance.collect_transaction_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_transaction_metrics needs specific domain fixtures/data: {e}")
             return
@@ -56,7 +56,7 @@ class TestDatabaseMetricsCollector:
         """Smoke test for DatabaseMetricsCollector.collect_lock_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_lock_metrics()
+            await instance.collect_lock_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_lock_metrics needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestDatabaseMetricsCollector:
         """Smoke test for DatabaseMetricsCollector.collect_table_size_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_table_size_metrics()
+            await instance.collect_table_size_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_table_size_metrics needs specific domain fixtures/data: {e}")
             return
@@ -78,7 +78,7 @@ class TestDatabaseMetricsCollector:
 async def test_get_db_metrics_collector_smoke():
     """Smoke test for module-level function get_db_metrics_collector."""
     try:
-        result = await get_db_metrics_collector()
+        await get_db_metrics_collector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_db_metrics_collector needs specific input data: {e}")
         return

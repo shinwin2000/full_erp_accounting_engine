@@ -26,18 +26,18 @@ class TestProjectionCheckpointTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            projection_name="test_value",
-            last_event_id=MagicMock(),
-            last_event_sequence=1,
-            last_processed_at=datetime.now(UTC),
-            processed_count=1,
-            is_rebuilding=True,
-            rebuild_started_at=datetime.now(UTC),
-            rebuild_completed_at=datetime.now(UTC),
-            legal_entity_id=MagicMock(),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'projection_name': "test_value",
+            'last_event_id': MagicMock(),
+            'last_event_sequence': 1,
+            'last_processed_at': datetime.now(UTC),
+            'processed_count': 1,
+            'is_rebuilding': True,
+            'rebuild_started_at': datetime.now(UTC),
+            'rebuild_completed_at': datetime.now(UTC),
+            'legal_entity_id': MagicMock(),
+        }
         try:
             instance = ProjectionCheckpointTable(**kwargs)
         except (Exception, SystemExit) as e:

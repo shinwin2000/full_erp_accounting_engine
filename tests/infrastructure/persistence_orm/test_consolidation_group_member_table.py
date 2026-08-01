@@ -28,14 +28,14 @@ class TestConsolidationGroupMemberTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            group_id=MagicMock(),
-            entity_id=MagicMock(),
-            ownership_percentage=Decimal("100.00"),
-            joined_at=datetime.now(UTC),
-            group=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'group_id': MagicMock(),
+            'entity_id': MagicMock(),
+            'ownership_percentage': Decimal("100.00"),
+            'joined_at': datetime.now(UTC),
+            'group': MagicMock(),
+        }
         try:
             instance = ConsolidationGroupMemberTable(**kwargs)
         except (Exception, SystemExit) as e:

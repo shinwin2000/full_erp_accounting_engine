@@ -53,18 +53,18 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.ASSET_ACQUIRED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.ASSET_ACQUIRED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -82,8 +82,8 @@ class TestIntangibleAssetAcquiredEvent:
     """Tests for the IntangibleAssetAcquiredEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetAcquiredEvent can be constructed with valid field values."""
@@ -100,8 +100,8 @@ class TestIntangibleAssetUpdatedEvent:
     """Tests for the IntangibleAssetUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetUpdatedEvent can be constructed with valid field values."""
@@ -118,8 +118,8 @@ class TestIntangibleAssetAmortizationPostedEvent:
     """Tests for the IntangibleAssetAmortizationPostedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetAmortizationPostedEvent can be constructed with valid field values."""
@@ -136,8 +136,8 @@ class TestIntangibleAssetImpairedEvent:
     """Tests for the IntangibleAssetImpairedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetImpairedEvent can be constructed with valid field values."""
@@ -154,8 +154,8 @@ class TestIntangibleAssetImpairmentReversedEvent:
     """Tests for the IntangibleAssetImpairmentReversedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetImpairmentReversedEvent can be constructed with valid field values."""
@@ -172,8 +172,8 @@ class TestIntangibleAssetDisposedEvent:
     """Tests for the IntangibleAssetDisposedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetDisposedEvent can be constructed with valid field values."""
@@ -190,8 +190,8 @@ class TestIntangibleAssetFullyAmortizedEvent:
     """Tests for the IntangibleAssetFullyAmortizedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetFullyAmortizedEvent can be constructed with valid field values."""
@@ -208,8 +208,8 @@ class TestIntangibleAssetRevaluatedEvent:
     """Tests for the IntangibleAssetRevaluatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetRevaluatedEvent can be constructed with valid field values."""
@@ -226,8 +226,8 @@ class TestIntangibleAssetTransferredEvent:
     """Tests for the IntangibleAssetTransferredEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """IntangibleAssetTransferredEvent can be constructed with valid field values."""
@@ -258,8 +258,8 @@ class TestDomainEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -269,8 +269,8 @@ class TestDomainEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await DomainEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -280,8 +280,8 @@ class TestDomainEventPublisher:
     def test_get_published_events_smoke(self):
         """Smoke test for DomainEventPublisher.get_published_events using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.get_published_events()
+            self._build_instance()
+            DomainEventPublisher.get_published_events()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_published_events needs specific domain fixtures/data: {e}")
             return
@@ -291,8 +291,8 @@ class TestDomainEventPublisher:
     def test_clear_smoke(self):
         """Smoke test for DomainEventPublisher.clear using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.clear()
+            self._build_instance()
+            DomainEventPublisher.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return
@@ -303,7 +303,7 @@ class TestDomainEventPublisher:
 def test_deserialize_domain_event_smoke():
     """Smoke test for module-level function deserialize_domain_event."""
     try:
-        result = deserialize_domain_event(json_str="test_value")
+        deserialize_domain_event(json_str="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"deserialize_domain_event needs specific input data: {e}")
         return
@@ -313,7 +313,7 @@ def test_deserialize_domain_event_smoke():
 def test_serialize_domain_event_smoke():
     """Smoke test for module-level function serialize_domain_event."""
     try:
-        result = serialize_domain_event(event=MagicMock())
+        serialize_domain_event(event=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"serialize_domain_event needs specific input data: {e}")
         return

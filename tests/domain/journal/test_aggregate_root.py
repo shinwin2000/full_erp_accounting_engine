@@ -543,7 +543,7 @@ class TestLineManagement:
     def test_add_line_locked_raises(self, sample_journal):
         locked = sample_journal.lock("user1")
         debit = create_line(side=JournalSide.DEBIT, amount=Decimal("500"), legal_entity_id=sample_journal.legal_entity_id)
-        credit = create_line(side=JournalSide.CREDIT, amount=Decimal("500"), legal_entity_id=sample_journal.legal_entity_id)
+        create_line(side=JournalSide.CREDIT, amount=Decimal("500"), legal_entity_id=sample_journal.legal_entity_id)
         with pytest.raises(ValueError, match="locked"):
             locked.add_line(debit)
 

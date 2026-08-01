@@ -53,16 +53,16 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.PAYROLL_RUN_CREATED,
-            aggregate_id=uuid4(),
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.PAYROLL_RUN_CREATED,
+            'aggregate_id': uuid4(),
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -80,8 +80,8 @@ class TestPayrollRunCreatedEvent:
     """Tests for the PayrollRunCreatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayrollRunCreatedEvent can be constructed with valid field values."""
@@ -98,8 +98,8 @@ class TestPayrollRunCalculatedEvent:
     """Tests for the PayrollRunCalculatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayrollRunCalculatedEvent can be constructed with valid field values."""
@@ -116,8 +116,8 @@ class TestPayrollRunApprovedEvent:
     """Tests for the PayrollRunApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayrollRunApprovedEvent can be constructed with valid field values."""
@@ -134,8 +134,8 @@ class TestPayrollRunPaidEvent:
     """Tests for the PayrollRunPaidEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayrollRunPaidEvent can be constructed with valid field values."""
@@ -152,8 +152,8 @@ class TestPayrollRunPostedEvent:
     """Tests for the PayrollRunPostedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayrollRunPostedEvent can be constructed with valid field values."""
@@ -170,8 +170,8 @@ class TestPayrollRunCancelledEvent:
     """Tests for the PayrollRunCancelledEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayrollRunCancelledEvent can be constructed with valid field values."""
@@ -188,8 +188,8 @@ class TestPayslipGeneratedEvent:
     """Tests for the PayslipGeneratedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayslipGeneratedEvent can be constructed with valid field values."""
@@ -206,8 +206,8 @@ class TestPayslipSentToEmployeeEvent:
     """Tests for the PayslipSentToEmployeeEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """PayslipSentToEmployeeEvent can be constructed with valid field values."""
@@ -224,8 +224,8 @@ class TestEmployeeStructureUpdatedEvent:
     """Tests for the EmployeeStructureUpdatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """EmployeeStructureUpdatedEvent can be constructed with valid field values."""
@@ -242,8 +242,8 @@ class TestSalaryComponentAddedEvent:
     """Tests for the SalaryComponentAddedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SalaryComponentAddedEvent can be constructed with valid field values."""
@@ -275,7 +275,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock())
+            await instance.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -286,7 +286,7 @@ class TestDomainEventPublisher:
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_many(events=[MagicMock()])
+            await instance.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return

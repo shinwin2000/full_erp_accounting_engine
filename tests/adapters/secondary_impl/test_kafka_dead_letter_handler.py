@@ -31,7 +31,7 @@ class TestKafkaDeadLetterHandler:
         """Smoke test for KafkaDeadLetterHandler.handle using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.handle(message={}, error="test_value")
+            await instance.handle(message={}, error="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"handle needs specific domain fixtures/data: {e}")
             return

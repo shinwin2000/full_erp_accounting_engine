@@ -471,7 +471,7 @@ class TestGenerateFullComplianceReport:
     def test_generate_full_report(self, checker):
         report = checker.generate_full_compliance_report()
         # Should assess all standards (27)
-        assert len(report) == len([s for s in PSAKStandard])
+        assert len(report) == len(list(PSAKStandard))
         # Check that at least some results exist
         assert PSAKStandard.PSAK_1 in report
         assert PSAKStandard.PSAK_2 in report
@@ -484,7 +484,7 @@ class TestGenerateFullComplianceReport:
         assert PSAKStandard.PSAK_73 in report
         assert PSAKStandard.PSAK_101 in report
         # All should be compliant (we passed True to all assess calls)
-        for std, result in report.items():
+        for _std, result in report.items():
             assert result.status == ComplianceStatus.COMPLIANT
             assert result.compliance_percentage == Decimal("100")
 
@@ -496,8 +496,8 @@ class TestGenerateSummary:
         assert summary["entity"] == "PT Test"
         assert "fiscal_year_end" in summary
         assert "assessment_date" in summary
-        assert summary["total_standards_assessed"] == len([s for s in PSAKStandard])
-        assert summary["compliant"] == len([s for s in PSAKStandard])
+        assert summary["total_standards_assessed"] == len(list(PSAKStandard))
+        assert summary["compliant"] == len(list(PSAKStandard))
         assert summary["partially_compliant"] == 0
         assert summary["non_compliant"] == 0
         assert summary["overall_status"] == "compliant"
@@ -524,10 +524,10 @@ class TestGenerateSummary:
         )
         checker._results[PSAKStandard.PSAK_1] = partial_result
         summary = checker.generate_summary()
-        assert summary["compliant"] == len([s for s in PSAKStandard]) - 1
+        assert summary["compliant"] == len(list(PSAKStandard)) - 1
         assert summary["partially_compliant"] == 1
         assert summary["non_compliant"] == 0
-        assert summary["overall_compliance_percentage"] == pytest.approx((len([s for s in PSAKStandard]) - 1) * 100 / len([s for s in PSAKStandard]), 0.1)
+        assert summary["overall_compliance_percentage"] == pytest.approx((len(list(PSAKStandard)) - 1) * 100 / len(list(PSAKStandard)), 0.1)
 
 
 class TestExportMethods:
@@ -622,9 +622,9 @@ class TestCheckValidateGetViolations:
         # check() runs full assessment
         results = checker.check()
         assert isinstance(results, dict)
-        assert len(results) == len([s for s in PSAKStandard])
+        assert len(results) == len(list(PSAKStandard))
         # Should have stored results
-        assert len(checker._results) == len([s for s in PSAKStandard])
+        assert len(checker._results) == len(list(PSAKStandard))
 
     def test_validate(self, checker):
         data_valid = {"entity_name": "PT Valid"}
@@ -702,7 +702,7 @@ class TestEdgeCases:
         # Assess one standard with non-compliant
         checker.assess_psak_1(False, False, False, False, False)
         # Generate full report (should keep existing assessments and add others)
-        report = checker.generate_full_compliance_report()
+        checker.generate_full_compliance_report()
         # PSAK 1 should still be non-compliant
         assert checker._results[PSAKStandard.PSAK_1].status == ComplianceStatus.NON_COMPLIANT
         # Other standards should be compliant

@@ -276,11 +276,8 @@ class FiscalPeriod:
         return start <= date <= end
 
     def is_open_for_posting(self, allow_locked: bool = False) -> bool:
-        if self.status == PeriodStatus.OPEN:
-            return True
-        if allow_locked and self.status == PeriodStatus.LOCKED:
-            return True
-        return False
+        # FIX: SIM103 - return condition directly
+        return self.status == PeriodStatus.OPEN or (allow_locked and self.status == PeriodStatus.LOCKED)
 
     def is_closed(self) -> bool:
         return self.status == PeriodStatus.CLOSED

@@ -21,16 +21,16 @@ class TestPolicyVersionSnapshot:
     """Tests for the PolicyVersionSnapshot value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            version_id="test_value",
-            policy_id="test_value",
-            version_number=1,
-            content_hash="test_value",
-            created_at=datetime.now(UTC),
-            created_by="test_value",
-            metadata={},
-            previous_version_id="test_value",
-        )
+        return {
+            "version_id": "test_value",
+            "policy_id": "test_value",
+            "version_number": 1,
+            "content_hash": "test_value",
+            "created_at": datetime.now(UTC),
+            "created_by": "test_value",
+            "metadata": {},
+            "previous_version_id": "test_value",
+        }
 
     def test_construction_success(self):
         """PolicyVersionSnapshot can be constructed with valid field values."""
@@ -63,7 +63,7 @@ class TestPolicyVersionManager:
         """Smoke test for PolicyVersionManager.snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.snapshot(policy_id="test_value", created_by="test_value", metadata={})
+            instance.snapshot(policy_id="test_value", created_by="test_value", metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"snapshot needs specific domain fixtures/data: {e}")
             return
@@ -74,7 +74,7 @@ class TestPolicyVersionManager:
         """Smoke test for PolicyVersionManager.get_current_version using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_current_version(policy_id="test_value")
+            instance.get_current_version(policy_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_version needs specific domain fixtures/data: {e}")
             return
@@ -85,7 +85,7 @@ class TestPolicyVersionManager:
         """Smoke test for PolicyVersionManager.get_snapshot using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_snapshot(snapshot_id="test_value")
+            instance.get_snapshot(snapshot_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_snapshot needs specific domain fixtures/data: {e}")
             return
@@ -96,7 +96,7 @@ class TestPolicyVersionManager:
         """Smoke test for PolicyVersionManager.get_version_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_version_history(policy_id="test_value")
+            instance.get_version_history(policy_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_version_history needs specific domain fixtures/data: {e}")
             return
@@ -107,7 +107,7 @@ class TestPolicyVersionManager:
 def test_get_policy_version_manager_smoke():
     """Smoke test for module-level function get_policy_version_manager."""
     try:
-        result = get_policy_version_manager()
+        get_policy_version_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_policy_version_manager needs specific input data: {e}")
         return

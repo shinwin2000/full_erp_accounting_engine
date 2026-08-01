@@ -123,7 +123,7 @@ class TestRegulatoryAttestation:
         """Smoke test for RegulatoryAttestation.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -133,8 +133,8 @@ class TestRegulatoryAttestation:
     def test_from_dict_smoke(self):
         """Smoke test for RegulatoryAttestation.from_dict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = RegulatoryAttestation.from_dict(data={})
+            self._build_instance()
+            RegulatoryAttestation.from_dict(data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"from_dict needs specific domain fixtures/data: {e}")
             return
@@ -145,7 +145,7 @@ class TestRegulatoryAttestation:
         """Smoke test for RegulatoryAttestation.is_expired using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_expired()
+            instance.is_expired()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_expired needs specific domain fixtures/data: {e}")
             return
@@ -156,7 +156,7 @@ class TestRegulatoryAttestation:
         """Smoke test for RegulatoryAttestation.is_signed using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_signed()
+            instance.is_signed()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_signed needs specific domain fixtures/data: {e}")
             return
@@ -183,7 +183,7 @@ class TestRegulatoryAttestationSigner:
         """Smoke test for RegulatoryAttestationSigner.compute_audit_root_hash using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_audit_root_hash(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.compute_audit_root_hash(legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_audit_root_hash needs specific domain fixtures/data: {e}")
             return
@@ -194,7 +194,7 @@ class TestRegulatoryAttestationSigner:
         """Smoke test for RegulatoryAttestationSigner.create_attestation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_attestation(framework="test_value", period_start=date.today(), period_end=date.today(), legal_entity_id=uuid4(), metadata={})
+            await instance.create_attestation(framework="test_value", period_start=date.today(), period_end=date.today(), legal_entity_id=uuid4(), metadata={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_attestation needs specific domain fixtures/data: {e}")
             return
@@ -205,7 +205,7 @@ class TestRegulatoryAttestationSigner:
         """Smoke test for RegulatoryAttestationSigner.sign_attestation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.sign_attestation(attestation_id=uuid4(), signer_id=uuid4())
+            await instance.sign_attestation(attestation_id=uuid4(), signer_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"sign_attestation needs specific domain fixtures/data: {e}")
             return
@@ -216,7 +216,7 @@ class TestRegulatoryAttestationSigner:
         """Smoke test for RegulatoryAttestationSigner.verify_attestation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.verify_attestation(attestation_id=uuid4())
+            await instance.verify_attestation(attestation_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"verify_attestation needs specific domain fixtures/data: {e}")
             return
@@ -227,7 +227,7 @@ class TestRegulatoryAttestationSigner:
 async def test_get_regulatory_attestation_signer_smoke():
     """Smoke test for module-level function get_regulatory_attestation_signer."""
     try:
-        result = await get_regulatory_attestation_signer()
+        await get_regulatory_attestation_signer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_regulatory_attestation_signer needs specific input data: {e}")
         return
@@ -237,7 +237,7 @@ async def test_get_regulatory_attestation_signer_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return

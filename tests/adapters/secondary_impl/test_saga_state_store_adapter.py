@@ -32,7 +32,7 @@ class TestSagaStateStoreAdapter:
         """Smoke test for SagaStateStoreAdapter.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(saga_id=uuid4(), state={})
+            await instance.save(saga_id=uuid4(), state={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSagaStateStoreAdapter:
         """Smoke test for SagaStateStoreAdapter.get using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get(saga_id=uuid4())
+            await instance.get(saga_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSagaStateStoreAdapter:
         """Smoke test for SagaStateStoreAdapter.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(saga_id=uuid4(), state={})
+            await instance.update(saga_id=uuid4(), state={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSagaStateStoreAdapter:
         """Smoke test for SagaStateStoreAdapter.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(saga_id=uuid4())
+            await instance.delete(saga_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

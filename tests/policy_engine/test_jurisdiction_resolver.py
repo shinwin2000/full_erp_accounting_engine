@@ -53,7 +53,7 @@ class TestJurisdictionNode:
         assert node.metadata == {"key": "value"}
 
     def test_is_descendant_of(self):
-        hierarchy = JurisdictionHierarchy()
+        JurisdictionHierarchy()
         node_id = JurisdictionNode("ID-JKT-PST", "Jakarta Pusat", parent_code="ID-JKT", level=3)
         # We need a hierarchy to check
         # Use a mock hierarchy
@@ -462,6 +462,6 @@ class TestJurisdictionResolver:
 
     # ---- Test history trimming ----
     def test_history_trimming(self, resolver):
-        for i in range(1200):
+        for _i in range(1200):
             resolver._record_resolution("tax", "ID", [MagicMock()])
         assert len(resolver._history) == 500  # max 500

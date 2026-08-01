@@ -507,7 +507,7 @@ class TestSealedGate:
     # ---- get_command_history ----
     def test_get_command_history(self, gate):
         # Add some fake commands
-        for i in range(5):
+        for _i in range(5):
             env = MagicMock()
             env.command_type = "TEST"
             env.status = MagicMock(name="SUCCESS")
@@ -682,7 +682,7 @@ class TestSealedGate:
         assert gate._command_history[-1] is env
         # Test trimming when exceeds max_history
         gate._max_history = 2
-        for i in range(5):
+        for _i in range(5):
             gate._record_history(MagicMock())
         assert len(gate._command_history) == 2
 

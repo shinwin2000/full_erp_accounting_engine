@@ -653,11 +653,20 @@ class PurchaseOrderEntityRepository:
 
 
 # ============================================================================
+# Aliases for backward compatibility / test compatibility
+# ============================================================================
+
+# POLine is an alias for POItem, used by some tests (e.g., test_purchase_order_aggregate)
+POLine = POItem
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 
 __all__ = [
     "POItem",
+    "POLine",
     "POStatus",
     "POType",
     "PurchaseOrderEntity",

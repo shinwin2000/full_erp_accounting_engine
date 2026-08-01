@@ -2,7 +2,7 @@
 """
 Module: aggregate_root.py
 Layer: Domain / IAM
-Responsibility: Aggregate root untuk Identity Access Management dengan semua method entity dasar dan aggregate root.
+Responsibility: Aggregate root untuk Identity Access Management.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from domain.iam.password_hashed_vo import PasswordHashedVO
 from domain.iam.permission_vo import PermissionVO
 from domain.iam.role_entity import RoleEntity
 from domain.iam.session_entity import SessionEntity
-from domain.iam.user_entity import UserEntity
+from domain.iam.user_entity import UserEntity, UserStatus
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,38 @@ class AuthenticationError(IAMError):
 
 
 # ============================================================================
-# IAM Aggregate Root
+# UserAggregate (representasi satu user untuk repository & service)
+# ============================================================================
+
+@dataclass
+class UserAggregate:
+    """Flat aggregate untuk satu user, digunakan oleh repository dan service."""
+    id: UUID
+    username: str
+    email: str
+    full_name: str
+    hashed_password: str  # string hash dari password
+    status: UserStatus
+    created_at: datetime
+    updated_at: datetime
+    is_superuser: bool = False
+    is_active: bool = True
+    last_login_at: datetime | None = None
+    last_login_ip: str | None = None
+    failed_login_count: int = 0
+    locked_until: datetime | None = None
+    must_change_password: bool = False
+    password_changed_at: datetime | None = None
+    created_by: str | None = None
+    version: int = 1
+    legal_entity_ids: list[UUID] = field(default_factory=list)
+    role_ids: list[UUID] = field(default_factory=list)
+    is_locked: bool = False  # convenience, dihitung dari locked_until
+
+
+
+# ============================================================================
+# IAM Aggregate Root (container untuk seluruh konteks IAM per legal entity)
 # ============================================================================
 
 
@@ -1334,14 +1365,7 @@ class IAM:
 
 
 # ============================================================================
-# Alias untuk kompatibilitas
-# ============================================================================
-
-UserAggregate = IAM
-
-
-# ============================================================================
-# Repository Implementation
+# Repository Implementation (in-memory example)
 # ============================================================================
 
 

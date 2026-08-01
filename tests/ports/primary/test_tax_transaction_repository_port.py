@@ -82,33 +82,33 @@ class TestTaxTransaction:
     """Tests for the TaxTransaction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            tax_type=TaxType.PPN_OUT,
-            transaction_date=date.today(),
-            tax_period_month=1,
-            tax_period_year=1,
-            amount=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            rate=Decimal("100.00"),
-            status=TaxTransactionStatus.DRAFT,
-            reference_type="test_value",
-            reference_id=uuid4(),
-            description="test_value",
-            is_credit=True,
-            payment_date=date.today(),
-            payment_amount=Decimal("100.00"),
-            ntpn="test_value",
-            reported_in_spt_id=uuid4(),
-            adjusted_from_id=uuid4(),
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            version=1,
-            deleted_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'tax_type': TaxType.PPN_OUT,
+            'transaction_date': date.today(),
+            'tax_period_month': 1,
+            'tax_period_year': 1,
+            'amount': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'rate': Decimal("100.00"),
+            'status': TaxTransactionStatus.DRAFT,
+            'reference_type': "test_value",
+            'reference_id': uuid4(),
+            'description': "test_value",
+            'is_credit': True,
+            'payment_date': date.today(),
+            'payment_amount': Decimal("100.00"),
+            'ntpn': "test_value",
+            'reported_in_spt_id': uuid4(),
+            'adjusted_from_id': uuid4(),
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'version': 1,
+            'deleted_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """TaxTransaction can be constructed with valid field values."""
@@ -126,25 +126,25 @@ class TestSPTSubmission:
     """Tests for the SPTSubmission value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            legal_entity_id=uuid4(),
-            spt_type=SPTType.PPN_MASA,
-            period_month=1,
-            period_year=1,
-            status="test_value",
-            total_tax_due=Decimal("100.00"),
-            total_tax_paid=Decimal("100.00"),
-            total_tax_credit=Decimal("0"),
-            submission_date=date.today(),
-            approval_code="test_value",
-            rejection_reason="test_value",
-            xml_content="test_value",
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-        )
+        return {
+            'id': uuid4(),
+            'legal_entity_id': uuid4(),
+            'spt_type': SPTType.PPN_MASA,
+            'period_month': 1,
+            'period_year': 1,
+            'status': "test_value",
+            'total_tax_due': Decimal("100.00"),
+            'total_tax_paid': Decimal("100.00"),
+            'total_tax_credit': Decimal("0"),
+            'submission_date': date.today(),
+            'approval_code': "test_value",
+            'rejection_reason': "test_value",
+            'xml_content': "test_value",
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+        }
 
     def test_construction_success(self):
         """SPTSubmission can be constructed with valid field values."""
@@ -177,7 +177,7 @@ class TestTaxTransactionRepositoryPort:
         """Smoke test for TaxTransactionRepositoryPort.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(tax_transaction=MagicMock())
+            await instance.add(tax_transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -188,7 +188,7 @@ class TestTaxTransactionRepositoryPort:
         """Smoke test for TaxTransactionRepositoryPort.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(tax_transaction_id=uuid4())
+            await instance.get_by_id(tax_transaction_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -199,7 +199,7 @@ class TestTaxTransactionRepositoryPort:
         """Smoke test for TaxTransactionRepositoryPort.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(tax_transaction=MagicMock())
+            await instance.update(tax_transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -210,7 +210,7 @@ class TestTaxTransactionRepositoryPort:
         """Smoke test for TaxTransactionRepositoryPort.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(tax_transaction_id=uuid4(), user_id=uuid4(), permanent=True)
+            await instance.delete(tax_transaction_id=uuid4(), user_id=uuid4(), permanent=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

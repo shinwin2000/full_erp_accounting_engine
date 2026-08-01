@@ -35,7 +35,7 @@ class TestSQLAlchemyTaxTransactionRepository:
         """Smoke test for SQLAlchemyTaxTransactionRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(tax_transaction=MagicMock())
+            await instance.add(tax_transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -46,7 +46,7 @@ class TestSQLAlchemyTaxTransactionRepository:
         """Smoke test for SQLAlchemyTaxTransactionRepository.save using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save(tax_transaction=MagicMock())
+            await instance.save(tax_transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return
@@ -57,7 +57,7 @@ class TestSQLAlchemyTaxTransactionRepository:
         """Smoke test for SQLAlchemyTaxTransactionRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(tax_transaction=MagicMock())
+            await instance.update(tax_transaction=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -68,7 +68,7 @@ class TestSQLAlchemyTaxTransactionRepository:
         """Smoke test for SQLAlchemyTaxTransactionRepository.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(tax_transaction_id=uuid4(), user_id=uuid4(), permanent=True)
+            await instance.delete(tax_transaction_id=uuid4(), user_id=uuid4(), permanent=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return

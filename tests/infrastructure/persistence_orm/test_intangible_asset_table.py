@@ -61,32 +61,32 @@ class TestIntangibleAssetTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            asset_code="test_value",
-            asset_name="test_value",
-            asset_type=IntangibleAssetType.PATENT,
-            description="test_value",
-            legal_entity_id=MagicMock(),
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            residual_value=Decimal("100.00"),
-            useful_life_years=1,
-            amortization_method=AmortizationMethod.STRAIGHT_LINE,
-            accumulated_amortization=Decimal("100.00"),
-            last_amortization_date=date.today(),
-            carrying_amount=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            impairment_date=date.today(),
-            revaluation_surplus=Decimal("100.00"),
-            is_active=True,
-            disposed_date=date.today(),
-            disposal_amount=Decimal("100.00"),
-            supporting_document_url="test_value",
-            created_by=MagicMock(),
-            amortization_schedules=[MagicMock()],
-            revaluations=[MagicMock()],
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'asset_code': "test_value",
+            'asset_name': "test_value",
+            'asset_type': IntangibleAssetType.PATENT,
+            'description': "test_value",
+            'legal_entity_id': MagicMock(),
+            'acquisition_date': date.today(),
+            'acquisition_cost': Decimal("100.00"),
+            'residual_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'amortization_method': AmortizationMethod.STRAIGHT_LINE,
+            'accumulated_amortization': Decimal("100.00"),
+            'last_amortization_date': date.today(),
+            'carrying_amount': Decimal("100.00"),
+            'impairment_loss': Decimal("100.00"),
+            'impairment_date': date.today(),
+            'revaluation_surplus': Decimal("100.00"),
+            'is_active': True,
+            'disposed_date': date.today(),
+            'disposal_amount': Decimal("100.00"),
+            'supporting_document_url': "test_value",
+            'created_by': MagicMock(),
+            'amortization_schedules': [MagicMock()],
+            'revaluations': [MagicMock()],
+        }
         try:
             instance = IntangibleAssetTable(**kwargs)
         except (Exception, SystemExit) as e:

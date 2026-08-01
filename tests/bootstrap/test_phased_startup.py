@@ -81,18 +81,18 @@ class TestPhaseResult:
     """Tests for the PhaseResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            phase=MagicMock(),
-            level=PhasedStartupLevel.LEVEL_0_CORE,
-            success=True,
-            duration_ms=1.5,
-            error="test_value",
-            degraded_mode=True,
-            missing_components=["test_value"],
-            _version=1,
-            _audit_trail=[{}],
-            _snapshots=[{}],
-        )
+        return {
+            'phase': MagicMock(),
+            'level': PhasedStartupLevel.LEVEL_0_CORE,
+            'success': True,
+            'duration_ms': 1.5,
+            'error': "test_value",
+            'degraded_mode': True,
+            'missing_components': ["test_value"],
+            '_version': 1,
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+        }
 
     def test_construction_success(self):
         """PhaseResult can be constructed with valid field values."""
@@ -110,17 +110,17 @@ class TestPhasedStartupContext:
     """Tests for the PhasedStartupContext value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            current_level=PhasedStartupLevel.LEVEL_0_CORE,
-            current_stage=StartupStage.INITIALIZING,
-            phase_results=[MagicMock()],
-            degraded_components=set(),
-            started_at=datetime.now(UTC),
-            completed_at=datetime.now(UTC),
-            _version=1,
-            _audit_trail=[{}],
-            _snapshots=[{}],
-        )
+        return {
+            'current_level': PhasedStartupLevel.LEVEL_0_CORE,
+            'current_stage': StartupStage.INITIALIZING,
+            'phase_results': [MagicMock()],
+            'degraded_components': set(),
+            'started_at': datetime.now(UTC),
+            'completed_at': datetime.now(UTC),
+            '_version': 1,
+            '_audit_trail': [{}],
+            '_snapshots': [{}],
+        }
 
     def test_construction_success(self):
         """PhasedStartupContext can be constructed with valid field values."""
@@ -153,7 +153,7 @@ class TestPhasedStartupManager:
         """Smoke test for PhasedStartupManager.startup_to_level using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.startup_to_level(target_level=PhasedStartupLevel.LEVEL_0_CORE, allow_degraded=True, timeout_seconds=1)
+            await instance.startup_to_level(target_level=PhasedStartupLevel.LEVEL_0_CORE, allow_degraded=True, timeout_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"startup_to_level needs specific domain fixtures/data: {e}")
             return
@@ -164,7 +164,7 @@ class TestPhasedStartupManager:
         """Smoke test for PhasedStartupManager.upgrade_to_level using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.upgrade_to_level(new_level=PhasedStartupLevel.LEVEL_0_CORE)
+            await instance.upgrade_to_level(new_level=PhasedStartupLevel.LEVEL_0_CORE)
         except (Exception, SystemExit) as e:
             pytest.skip(f"upgrade_to_level needs specific domain fixtures/data: {e}")
             return
@@ -175,7 +175,7 @@ class TestPhasedStartupManager:
         """Smoke test for PhasedStartupManager.get_current_capabilities using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_current_capabilities()
+            instance.get_current_capabilities()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_current_capabilities needs specific domain fixtures/data: {e}")
             return
@@ -186,7 +186,7 @@ class TestPhasedStartupManager:
         """Smoke test for PhasedStartupManager.get_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_status()
+            instance.get_status()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_status needs specific domain fixtures/data: {e}")
             return
@@ -197,7 +197,7 @@ class TestPhasedStartupManager:
 def test_get_phased_startup_manager_smoke():
     """Smoke test for module-level function get_phased_startup_manager."""
     try:
-        result = get_phased_startup_manager()
+        get_phased_startup_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_phased_startup_manager needs specific input data: {e}")
         return
@@ -207,7 +207,7 @@ def test_get_phased_startup_manager_smoke():
 async def test_startup_core_only_smoke():
     """Smoke test for module-level function startup_core_only."""
     try:
-        result = await startup_core_only()
+        await startup_core_only()
     except (Exception, SystemExit) as e:
         pytest.skip(f"startup_core_only needs specific input data: {e}")
         return
@@ -217,7 +217,7 @@ async def test_startup_core_only_smoke():
 async def test_startup_basic_only_smoke():
     """Smoke test for module-level function startup_basic_only."""
     try:
-        result = await startup_basic_only()
+        await startup_basic_only()
     except (Exception, SystemExit) as e:
         pytest.skip(f"startup_basic_only needs specific input data: {e}")
         return
@@ -227,7 +227,7 @@ async def test_startup_basic_only_smoke():
 async def test_startup_full_smoke():
     """Smoke test for module-level function startup_full."""
     try:
-        result = await startup_full()
+        await startup_full()
     except (Exception, SystemExit) as e:
         pytest.skip(f"startup_full needs specific input data: {e}")
         return
@@ -237,7 +237,7 @@ async def test_startup_full_smoke():
 async def test_startup_all_smoke():
     """Smoke test for module-level function startup_all."""
     try:
-        result = await startup_all()
+        await startup_all()
     except (Exception, SystemExit) as e:
         pytest.skip(f"startup_all needs specific input data: {e}")
         return

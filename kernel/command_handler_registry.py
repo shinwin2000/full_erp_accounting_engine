@@ -333,11 +333,10 @@ class CommandHandlerRegistry(BaseCommandHandlerRegistry):
                 del self._saga_handlers[command_type]
                 logger.info(f"Unregistered saga handler: {command_type}")
                 return True
-        elif handler_type == HandlerType.EVENT:
-            if command_type in self._event_handlers:
-                del self._event_handlers[command_type]
-                logger.info(f"Unregistered event handlers for: {command_type}")
-                return True
+        elif handler_type == HandlerType.EVENT and command_type in self._event_handlers:
+            del self._event_handlers[command_type]
+            logger.info(f"Unregistered event handlers for: {command_type}")
+            return True
         return False
 
     def unregister_event_handler(self, event_type: str, handler: Callable) -> bool:

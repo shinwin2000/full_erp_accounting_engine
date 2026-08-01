@@ -73,7 +73,7 @@ class TestPayrollRunTableModel:
     def test_table_args(self):
         assert hasattr(PayrollRunTable, '__table_args__')
         args = PayrollRunTable.__table_args__
-        assert isinstance(args, tuple) or isinstance(args, dict)
+        assert isinstance(args, tuple | dict)
         # Check that there are constraints (we can just check presence)
         # Since we can't easily inspect all, we'll just verify it's not empty.
         assert len(args) > 0

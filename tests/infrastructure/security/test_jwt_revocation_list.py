@@ -70,7 +70,7 @@ class TestJWTRevocationList:
         """Smoke test for JWTRevocationList.revoke using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.revoke(jti="test_value", user_id=uuid4(), expires_in_seconds=1)
+            await instance.revoke(jti="test_value", user_id=uuid4(), expires_in_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"revoke needs specific domain fixtures/data: {e}")
             return
@@ -81,7 +81,7 @@ class TestJWTRevocationList:
         """Smoke test for JWTRevocationList.revoke_user_tokens using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.revoke_user_tokens(user_id=uuid4())
+            await instance.revoke_user_tokens(user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"revoke_user_tokens needs specific domain fixtures/data: {e}")
             return
@@ -92,7 +92,7 @@ class TestJWTRevocationList:
         """Smoke test for JWTRevocationList.is_revoked using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.is_revoked(jti="test_value", user_id=uuid4(), token_version=1)
+            await instance.is_revoked(jti="test_value", user_id=uuid4(), token_version=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_revoked needs specific domain fixtures/data: {e}")
             return
@@ -103,7 +103,7 @@ class TestJWTRevocationList:
         """Smoke test for JWTRevocationList.remove_revocation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.remove_revocation(jti="test_value")
+            await instance.remove_revocation(jti="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"remove_revocation needs specific domain fixtures/data: {e}")
             return
@@ -114,7 +114,7 @@ class TestJWTRevocationList:
 async def test_get_revocation_list_smoke():
     """Smoke test for module-level function get_revocation_list."""
     try:
-        result = await get_revocation_list()
+        await get_revocation_list()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_revocation_list needs specific input data: {e}")
         return

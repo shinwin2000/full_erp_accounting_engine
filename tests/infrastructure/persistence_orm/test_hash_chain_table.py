@@ -26,19 +26,19 @@ class TestHashChainTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            stream_name="test_value",
-            last_hash="test_value",
-            last_sequence=1,
-            event_count=1,
-            genesis_hash="test_value",
-            status="test_value",
-            last_verified_at=datetime.now(UTC),
-            verified_by=MagicMock(),
-            broken_at_sequence=1,
-            repair_history={},
-        )
+        kwargs = {
+            'id': uuid4(),
+            'stream_name': "test_value",
+            'last_hash': "test_value",
+            'last_sequence': 1,
+            'event_count': 1,
+            'genesis_hash': "test_value",
+            'status': "test_value",
+            'last_verified_at': datetime.now(UTC),
+            'verified_by': MagicMock(),
+            'broken_at_sequence': 1,
+            'repair_history': {},
+        }
         try:
             instance = HashChainTable(**kwargs)
         except (Exception, SystemExit) as e:

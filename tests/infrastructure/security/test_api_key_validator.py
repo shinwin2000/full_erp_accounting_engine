@@ -31,7 +31,7 @@ class TestAPIKeyValidator:
         """Smoke test for APIKeyValidator.validate_and_get_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate_and_get_user(api_key="test_value")
+            await instance.validate_and_get_user(api_key="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_and_get_user needs specific domain fixtures/data: {e}")
             return

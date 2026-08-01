@@ -35,7 +35,7 @@ class TestSQLAlchemyGeneralLedgerRepository:
         """Smoke test for SQLAlchemyGeneralLedgerRepository.get_ledger using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_ledger(legal_entity_id=uuid4(), account_code="test_value", from_date=date.today(), to_date=date.today(), include_journal_details=True)
+            await instance.get_ledger(legal_entity_id=uuid4(), account_code="test_value", from_date=date.today(), to_date=date.today(), include_journal_details=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_ledger needs specific domain fixtures/data: {e}")
             return

@@ -33,7 +33,7 @@ class TestEmailSMTPNotification:
         """Smoke test for EmailSMTPNotification.send_email using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_email(to="test_value", subject="test_value", body="test_value", html_body="test_value", attachments=[{}], priority=MagicMock())
+            await instance.send_email(to="test_value", subject="test_value", body="test_value", html_body="test_value", attachments=[{}], priority=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_email needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class TestEmailSMTPNotification:
         """Smoke test for EmailSMTPNotification.send_sms using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_sms(phone_number="test_value", message="test_value", priority=MagicMock())
+            await instance.send_sms(phone_number="test_value", message="test_value", priority=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_sms needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestEmailSMTPNotification:
         """Smoke test for EmailSMTPNotification.send_whatsapp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_whatsapp(phone_number="test_value", message="test_value", priority=MagicMock())
+            await instance.send_whatsapp(phone_number="test_value", message="test_value", priority=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_whatsapp needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestEmailSMTPNotification:
         """Smoke test for EmailSMTPNotification.send_push_notification using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.send_push_notification(user_id=uuid4(), title="test_value", body="test_value", data={}, priority=MagicMock())
+            await instance.send_push_notification(user_id=uuid4(), title="test_value", body="test_value", data={}, priority=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"send_push_notification needs specific domain fixtures/data: {e}")
             return

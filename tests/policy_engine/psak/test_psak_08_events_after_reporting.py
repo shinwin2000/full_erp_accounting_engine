@@ -115,18 +115,18 @@ class TestAfterReportingPeriodEvent:
     """Tests for the AfterReportingPeriodEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_description="test_value",
-            event_date=date.today(),
-            event_type=EventType.ADJUSTING,
-            category=EventCategory.SETTLEMENT_OF_COURT_CASE,
-            financial_impact=Decimal("100.00"),
-            currency="test_value",
-            disclosure_required=True,
-            adjustment_journal_reference="test_value",
-            notes="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_description': "test_value",
+            'event_date': date.today(),
+            'event_type': EventType.ADJUSTING,
+            'category': EventCategory.SETTLEMENT_OF_COURT_CASE,
+            'financial_impact': Decimal("100.00"),
+            'currency': "test_value",
+            'disclosure_required': True,
+            'adjustment_journal_reference': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """AfterReportingPeriodEvent can be constructed with valid field values."""
@@ -144,18 +144,18 @@ class TestAfterReportingPeriodDisclosure:
     """Tests for the AfterReportingPeriodDisclosure value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            disclosure_id=uuid4(),
-            entity_id=uuid4(),
-            entity_name="test_value",
-            reporting_period_end=date.today(),
-            financial_statements_authorized_date=date.today(),
-            events=[MagicMock()],
-            adjustment_events=[MagicMock()],
-            non_adjustment_events=[MagicMock()],
-            going_concern_assessment_revised=True,
-            going_concern_disclosure="test_value",
-        )
+        return {
+            'disclosure_id': uuid4(),
+            'entity_id': uuid4(),
+            'entity_name': "test_value",
+            'reporting_period_end': date.today(),
+            'financial_statements_authorized_date': date.today(),
+            'events': [MagicMock()],
+            'adjustment_events': [MagicMock()],
+            'non_adjustment_events': [MagicMock()],
+            'going_concern_assessment_revised': True,
+            'going_concern_disclosure': "test_value",
+        }
 
     def test_construction_success(self):
         """AfterReportingPeriodDisclosure can be constructed with valid field values."""
@@ -173,13 +173,13 @@ class TestPSAK8ValidationResult:
     """Tests for the PSAK8ValidationResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            is_compliant=True,
-            compliance_level=PSAK8ComplianceLevel.FULL,
-            errors=["test_value"],
-            warnings=["test_value"],
-            hash_sha256="test_value",
-        )
+        return {
+            'is_compliant': True,
+            'compliance_level': PSAK8ComplianceLevel.FULL,
+            'errors': ["test_value"],
+            'warnings': ["test_value"],
+            'hash_sha256': "test_value",
+        }
 
     def test_construction_success(self):
         """PSAK8ValidationResult can be constructed with valid field values."""
@@ -211,8 +211,8 @@ class TestPSAK8EventClassifier:
     def test_classify_event_smoke(self):
         """Smoke test for PSAK8EventClassifier.classify_event using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8EventClassifier.classify_event(description="test_value", event_date=date.today(), reporting_end=date.today())
+            self._build_instance()
+            PSAK8EventClassifier.classify_event(description="test_value", event_date=date.today(), reporting_end=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"classify_event needs specific domain fixtures/data: {e}")
             return
@@ -238,8 +238,8 @@ class TestPSAK8EventService:
     def test_calculate_adjustment_smoke(self):
         """Smoke test for PSAK8EventService.calculate_adjustment using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8EventService.calculate_adjustment(original_amount=Decimal("100.00"), new_amount=Decimal("100.00"))
+            self._build_instance()
+            PSAK8EventService.calculate_adjustment(original_amount=Decimal("100.00"), new_amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"calculate_adjustment needs specific domain fixtures/data: {e}")
             return
@@ -249,8 +249,8 @@ class TestPSAK8EventService:
     def test_determine_disclosure_requirement_smoke(self):
         """Smoke test for PSAK8EventService.determine_disclosure_requirement using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8EventService.determine_disclosure_requirement(event=MagicMock())
+            self._build_instance()
+            PSAK8EventService.determine_disclosure_requirement(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"determine_disclosure_requirement needs specific domain fixtures/data: {e}")
             return
@@ -276,8 +276,8 @@ class TestPSAK8Rules:
     def test_validate_authorization_date_smoke(self):
         """Smoke test for PSAK8Rules.validate_authorization_date using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8Rules.validate_authorization_date(disclosure=MagicMock())
+            self._build_instance()
+            PSAK8Rules.validate_authorization_date(disclosure=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_authorization_date needs specific domain fixtures/data: {e}")
             return
@@ -287,8 +287,8 @@ class TestPSAK8Rules:
     def test_validate_event_classification_smoke(self):
         """Smoke test for PSAK8Rules.validate_event_classification using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8Rules.validate_event_classification(events=[MagicMock()])
+            self._build_instance()
+            PSAK8Rules.validate_event_classification(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_event_classification needs specific domain fixtures/data: {e}")
             return
@@ -298,8 +298,8 @@ class TestPSAK8Rules:
     def test_validate_adjustment_recording_smoke(self):
         """Smoke test for PSAK8Rules.validate_adjustment_recording using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8Rules.validate_adjustment_recording(adjustment_events=[MagicMock()])
+            self._build_instance()
+            PSAK8Rules.validate_adjustment_recording(adjustment_events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_adjustment_recording needs specific domain fixtures/data: {e}")
             return
@@ -309,8 +309,8 @@ class TestPSAK8Rules:
     def test_validate_going_concern_smoke(self):
         """Smoke test for PSAK8Rules.validate_going_concern using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PSAK8Rules.validate_going_concern(disclosure=MagicMock())
+            self._build_instance()
+            PSAK8Rules.validate_going_concern(disclosure=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_going_concern needs specific domain fixtures/data: {e}")
             return
@@ -337,7 +337,7 @@ class TestPSAK8Validator:
         """Smoke test for PSAK8Validator.create_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_event(description="test_value", event_date=date.today(), category=EventCategory.SETTLEMENT_OF_COURT_CASE, financial_impact=Decimal("100.00"), currency="test_value", notes="test_value", event_type=EventType.ADJUSTING, reporting_end=date.today())
+            instance.create_event(description="test_value", event_date=date.today(), category=EventCategory.SETTLEMENT_OF_COURT_CASE, financial_impact=Decimal("100.00"), currency="test_value", notes="test_value", event_type=EventType.ADJUSTING, reporting_end=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_event needs specific domain fixtures/data: {e}")
             return
@@ -348,7 +348,7 @@ class TestPSAK8Validator:
         """Smoke test for PSAK8Validator.create_disclosure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.create_disclosure(entity_id=uuid4(), entity_name="test_value", reporting_period_end=date.today(), financial_statements_authorized_date=date.today())
+            instance.create_disclosure(entity_id=uuid4(), entity_name="test_value", reporting_period_end=date.today(), financial_statements_authorized_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_disclosure needs specific domain fixtures/data: {e}")
             return
@@ -359,7 +359,7 @@ class TestPSAK8Validator:
         """Smoke test for PSAK8Validator.add_event using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_event(disclosure=MagicMock(), event=MagicMock())
+            instance.add_event(disclosure=MagicMock(), event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_event needs specific domain fixtures/data: {e}")
             return
@@ -370,7 +370,7 @@ class TestPSAK8Validator:
         """Smoke test for PSAK8Validator.set_going_concern using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_going_concern(disclosure=MagicMock(), revised=True, disclosure_text="test_value")
+            instance.set_going_concern(disclosure=MagicMock(), revised=True, disclosure_text="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_going_concern needs specific domain fixtures/data: {e}")
             return
@@ -381,7 +381,7 @@ class TestPSAK8Validator:
 def test_get_psak8_validator_smoke():
     """Smoke test for module-level function get_psak8_validator."""
     try:
-        result = get_psak8_validator()
+        get_psak8_validator()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_psak8_validator needs specific input data: {e}")
         return

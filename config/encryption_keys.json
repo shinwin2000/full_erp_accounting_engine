@@ -17,7 +17,41 @@
       "metadata": {
         "rotated_from": "default"
       }
+    },
+    "test_1785383167": {
+      "key_id": "test_1785383167",
+      "key": "dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q=",
+      "created_at": "2026-07-30T03:46:07.926846+00:00",
+      "version": 1,
+      "metadata": {
+        "test": true
+      }
+    },
+    "key_20260730034607": {
+      "key_id": "key_20260730034607",
+      "key": "GLnT7raKEwBvVfyuPH0JVzZsFLS7rxDZ49UBSNmX1Ck=",
+      "created_at": "2026-07-30T03:46:07.983654+00:00",
+      "version": 1,
+      "metadata": {
+        "rotated_from": "test_value"
+      }
+    },
+    "key_20260730034608": {
+      "key_id": "key_20260730034608",
+      "key": "cPY8UBaxsAefZ7xouSm36xm8yi6C5ndD7vti45FzOLM=",
+      "created_at": "2026-07-30T03:46:08.014265+00:00",
+      "version": 1,
+      "metadata": {
+        "rotated_from": "key_20260730034607"
+      }
+    },
+    "test_1785383168": {
+      "key_id": "test_1785383168",
+      "key": "dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q=",
+      "created_at": "2026-07-30T03:46:08.055858+00:00",
+      "version": 1,
+      "metadata": {}
     }
   },
-  "current": "test_value"
+  "current": "test_1785383168"
 }

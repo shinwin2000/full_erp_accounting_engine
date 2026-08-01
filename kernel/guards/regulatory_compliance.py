@@ -495,7 +495,8 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
             errors.append("checks must be a list of tuples")
         else:
             for i, check in enumerate(checks):
-                if not isinstance(check, (tuple, list)) or len(check) != 2:
+                # FIX: UP038 - use union type in isinstance
+                if not isinstance(check, tuple | list) or len(check) != 2:
                     errors.append(f"check[{i}] must be a tuple of (check_name, params)")
                 else:
                     check_name, params = check

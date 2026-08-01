@@ -108,24 +108,20 @@ class JWTIssuer:
         try:
             return load_yaml_config(config_path)
         except Exception as e:
-            logger.warning("Security config load failed: %s", type(e).__name__)
+            logger.warning(f"Security config load failed: {type(e).__name__}")
             return {}
 
-    def _load_private_key(self) -> rsa.RSAPrivateKey:
-        """Load RSA private key from file or environment."""
+    def _load_private_key(self) -> bytes:
+        """Load RSA private key (raw PEM bytes) from file or environment."""
         key_path = self.config.get("jwt", {}).get("private_key_path", "/secrets/jwt_private.pem")
 
         try:
             with open(key_path, "rb") as f:
                 key_data = f.read()
-
-            private_key = serialization.load_pem_private_key(
-                key_data, password=None, backend=default_backend()
-            )
             logger.info("Signing material initialized")
-            return private_key
+            return key_data
         except Exception as e:
-            logger.error("Failed to initialize signing material: %s", type(e).__name__)
+            logger.error("Failed to initialize signing material")
             raise PrivateKeyNotFoundError("Private key not found") from e
 
     def _load_public_key(self) -> rsa.RSAPublicKey | None:
@@ -140,7 +136,7 @@ class JWTIssuer:
             logger.info("Verification material initialized")
             return public_key
         except Exception as e:
-            logger.warning("Verification material unavailable: %s", type(e).__name__)
+            logger.warning(f"Verification material unavailable: {type(e).__name__}")
             return None
 
     async def _get_revocation_list(self) -> JWTRevocationList:
@@ -215,10 +211,10 @@ class JWTIssuer:
 
         try:
             token = jwt.encode(payload, self._private_key, algorithm=self.algorithm)
-            logger.debug("Access assertion prepared (expires in %dm)", self.access_expire_minutes)
+            logger.debug(f"Access assertion prepared (expires in {self.access_expire_minutes}m)")
             return token
         except Exception as e:
-            logger.error("Failed to prepare access assertion: %s", type(e).__name__)
+            logger.error(f"Failed to prepare access assertion: {type(e).__name__}")
             raise TokenGenerationError("Failed to create access token") from e
 
     async def create_refresh_token(
@@ -247,10 +243,10 @@ class JWTIssuer:
 
         try:
             token = jwt.encode(payload, self._private_key, algorithm=self.algorithm)
-            logger.debug("Refresh assertion prepared (expires in %dd)", self.refresh_expire_days)
+            logger.debug(f"Refresh assertion prepared (expires in {self.refresh_expire_days}d)")
             return token
         except Exception as e:
-            logger.error("Failed to prepare refresh assertion: %s", type(e).__name__)
+            logger.error(f"Failed to prepare refresh assertion: {type(e).__name__}")
             raise TokenGenerationError("Failed to create refresh token") from e
 
     async def create_token_pair(

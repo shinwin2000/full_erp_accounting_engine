@@ -141,14 +141,13 @@ def test_exception_inheritance(exc_class, kwargs, attrs):
     exc = exc_class(**kwargs)
     assert isinstance(exc, SecurityError)
     # Also check specific parent chain for categories
-    if "JWT" in exc_class.__name__ or exc_class.__name__ in [
+    if ("JWT" in exc_class.__name__ or exc_class.__name__ in [
         "JWTIssuerError", "PrivateKeyNotFoundError", "TokenGenerationError",
         "JWTValidatorError", "InvalidTokenError", "ExpiredTokenError",
         "RevokedTokenError", "InvalidIssuerError", "InvalidAudienceError",
         "JWTRevocationError", "RevocationNotFoundError"
-    ]:
-        if exc_class not in (JWTError, JWTIssuerError, JWTValidatorError, JWTRevocationError):
-            assert isinstance(exc, JWTError)
+    ]) and exc_class not in (JWTError, JWTIssuerError, JWTValidatorError, JWTRevocationError):
+        assert isinstance(exc, JWTError)
     if exc_class.__name__ in ["DecryptionError", "KeyNotFoundError"]:
         assert isinstance(exc, FieldEncryptionError)
 

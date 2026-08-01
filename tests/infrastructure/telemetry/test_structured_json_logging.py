@@ -395,10 +395,9 @@ class TestLogContext:
     def test_nested_context(self):
         outer = LogContext(outer="value")
         inner = LogContext(inner="value2")
-        with outer:
-            with inner:
-                # Both contexts active
-                pass
+        with outer, inner:
+            # Both contexts active
+            pass
 
 
 # ============================================================================
@@ -452,7 +451,7 @@ class TestIntegration:
                 logger.info("Test JSON log", {"extra": "data"})
 
                 # Capture output
-                captured = capsys.readouterr()
+                capsys.readouterr()
                 # The logger writes to stdout, but capsys captures it
                 # We need to flush
                 import sys

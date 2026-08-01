@@ -52,22 +52,22 @@ class TestOverrideRequest:
     """Tests for the OverrideRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            request_id="test_value",
-            requester_id="test_value",
-            requester_name="test_value",
-            override_type=OverrideType.POLICY_OVERRIDE,
-            target_policy_id="test_value",
-            target_rule_id="test_value",
-            reason="test_value",
-            justification="test_value",
-            effective_from=datetime.now(UTC),
-            effective_to=datetime.now(UTC),
-            requested_at=datetime.now(UTC),
-            status=OverrideStatus.PENDING,
-            approved_by="test_value",
-            approved_at=datetime.now(UTC),
-        )
+        return {
+            'request_id': "test_value",
+            'requester_id': "test_value",
+            'requester_name': "test_value",
+            'override_type': OverrideType.POLICY_OVERRIDE,
+            'target_policy_id': "test_value",
+            'target_rule_id': "test_value",
+            'reason': "test_value",
+            'justification': "test_value",
+            'effective_from': datetime.now(UTC),
+            'effective_to': datetime.now(UTC),
+            'requested_at': datetime.now(UTC),
+            'status': OverrideStatus.PENDING,
+            'approved_by': "test_value",
+            'approved_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """OverrideRequest can be constructed with valid field values."""
@@ -100,7 +100,7 @@ class TestOverrideAuthorizer:
         """Smoke test for OverrideAuthorizer.add_authorized_user using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.add_authorized_user(role="test_value", user_id="test_value")
+            instance.add_authorized_user(role="test_value", user_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"add_authorized_user needs specific domain fixtures/data: {e}")
             return
@@ -111,7 +111,7 @@ class TestOverrideAuthorizer:
         """Smoke test for OverrideAuthorizer.is_authorized using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_authorized(user_id="test_value", override_type=OverrideType.POLICY_OVERRIDE)
+            instance.is_authorized(user_id="test_value", override_type=OverrideType.POLICY_OVERRIDE)
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_authorized needs specific domain fixtures/data: {e}")
             return
@@ -122,7 +122,7 @@ class TestOverrideAuthorizer:
         """Smoke test for OverrideAuthorizer.request_override using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.request_override(requester_id="test_value", requester_name="test_value", target_policy_id="test_value", reason="test_value", justification="test_value", override_type=OverrideType.POLICY_OVERRIDE, target_rule_id="test_value", effective_days=1)
+            instance.request_override(requester_id="test_value", requester_name="test_value", target_policy_id="test_value", reason="test_value", justification="test_value", override_type=OverrideType.POLICY_OVERRIDE, target_rule_id="test_value", effective_days=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"request_override needs specific domain fixtures/data: {e}")
             return
@@ -133,7 +133,7 @@ class TestOverrideAuthorizer:
         """Smoke test for OverrideAuthorizer.approve_override using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.approve_override(request_id="test_value", approver_id="test_value")
+            instance.approve_override(request_id="test_value", approver_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"approve_override needs specific domain fixtures/data: {e}")
             return
@@ -144,7 +144,7 @@ class TestOverrideAuthorizer:
 def test_get_override_authorizer_smoke():
     """Smoke test for module-level function get_override_authorizer."""
     try:
-        result = get_override_authorizer()
+        get_override_authorizer()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_override_authorizer needs specific input data: {e}")
         return

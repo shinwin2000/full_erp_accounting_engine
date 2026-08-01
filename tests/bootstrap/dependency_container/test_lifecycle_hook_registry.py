@@ -51,7 +51,7 @@ class TestLifecycleHookRegistry:
         """Smoke test for LifecycleHookRegistry.register_startup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_startup(hook=(lambda *a, **kw: None), priority=HookPriority.HIGHEST)
+            instance.register_startup(hook=(lambda *a, **kw: None), priority=HookPriority.HIGHEST)
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_startup needs specific domain fixtures/data: {e}")
             return
@@ -62,7 +62,7 @@ class TestLifecycleHookRegistry:
         """Smoke test for LifecycleHookRegistry.register_shutdown using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_shutdown(hook=(lambda *a, **kw: None), priority=HookPriority.HIGHEST)
+            instance.register_shutdown(hook=(lambda *a, **kw: None), priority=HookPriority.HIGHEST)
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_shutdown needs specific domain fixtures/data: {e}")
             return
@@ -73,7 +73,7 @@ class TestLifecycleHookRegistry:
         """Smoke test for LifecycleHookRegistry.execute_startup using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute_startup()
+            await instance.execute_startup()
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute_startup needs specific domain fixtures/data: {e}")
             return
@@ -84,7 +84,7 @@ class TestLifecycleHookRegistry:
         """Smoke test for LifecycleHookRegistry.execute_shutdown using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute_shutdown()
+            await instance.execute_shutdown()
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute_shutdown needs specific domain fixtures/data: {e}")
             return
@@ -95,7 +95,7 @@ class TestLifecycleHookRegistry:
 def test_get_lifecycle_registry_smoke():
     """Smoke test for module-level function get_lifecycle_registry."""
     try:
-        result = get_lifecycle_registry()
+        get_lifecycle_registry()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_lifecycle_registry needs specific input data: {e}")
         return
@@ -105,7 +105,7 @@ def test_get_lifecycle_registry_smoke():
 async def test_register_default_hooks_smoke():
     """Smoke test for module-level function register_default_hooks."""
     try:
-        result = await register_default_hooks()
+        await register_default_hooks()
     except (Exception, SystemExit) as e:
         pytest.skip(f"register_default_hooks needs specific input data: {e}")
         return

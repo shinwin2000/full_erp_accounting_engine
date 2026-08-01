@@ -89,7 +89,7 @@ class TestPolicyError:
         """Smoke test for PolicyError.original_message using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.original_message()
+            instance.original_message()
         except (Exception, SystemExit) as e:
             pytest.skip(f"original_message needs specific domain fixtures/data: {e}")
             return
@@ -100,7 +100,7 @@ class TestPolicyError:
         """Smoke test for PolicyError.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -111,7 +111,7 @@ class TestPolicyError:
         """Smoke test for PolicyError.is_critical using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.is_critical()
+            instance.is_critical()
         except (Exception, SystemExit) as e:
             pytest.skip(f"is_critical needs specific domain fixtures/data: {e}")
             return
@@ -249,8 +249,8 @@ class TestPolicyExceptionFactory:
     def test_not_found_smoke(self):
         """Smoke test for PolicyExceptionFactory.not_found using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PolicyExceptionFactory.not_found(policy_id="test_value")
+            self._build_instance()
+            PolicyExceptionFactory.not_found(policy_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"not_found needs specific domain fixtures/data: {e}")
             return
@@ -260,8 +260,8 @@ class TestPolicyExceptionFactory:
     def test_validation_failed_smoke(self):
         """Smoke test for PolicyExceptionFactory.validation_failed using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PolicyExceptionFactory.validation_failed(policy_id="test_value", errors=[MagicMock()])
+            self._build_instance()
+            PolicyExceptionFactory.validation_failed(policy_id="test_value", errors=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"validation_failed needs specific domain fixtures/data: {e}")
             return
@@ -271,8 +271,8 @@ class TestPolicyExceptionFactory:
     def test_conflict_smoke(self):
         """Smoke test for PolicyExceptionFactory.conflict using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PolicyExceptionFactory.conflict(policy_id_1="test_value", policy_id_2="test_value", description="test_value")
+            self._build_instance()
+            PolicyExceptionFactory.conflict(policy_id_1="test_value", policy_id_2="test_value", description="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"conflict needs specific domain fixtures/data: {e}")
             return
@@ -282,8 +282,8 @@ class TestPolicyExceptionFactory:
     def test_override_not_authorized_smoke(self):
         """Smoke test for PolicyExceptionFactory.override_not_authorized using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PolicyExceptionFactory.override_not_authorized(policy_id="test_value", user_id="test_value", reason="test_value")
+            self._build_instance()
+            PolicyExceptionFactory.override_not_authorized(policy_id="test_value", user_id="test_value", reason="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"override_not_authorized needs specific domain fixtures/data: {e}")
             return

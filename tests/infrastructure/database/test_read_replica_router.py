@@ -86,7 +86,7 @@ class TestReadReplicaRouter:
         """Smoke test for ReadReplicaRouter.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -97,7 +97,7 @@ class TestReadReplicaRouter:
         """Smoke test for ReadReplicaRouter.get_session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_session(statement="test_value", force_master=True)
+            await instance.get_session(statement="test_value", force_master=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_session needs specific domain fixtures/data: {e}")
             return
@@ -108,7 +108,7 @@ class TestReadReplicaRouter:
         """Smoke test for ReadReplicaRouter.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.session(statement="test_value", force_master=True)
+            await instance.session(statement="test_value", force_master=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -119,7 +119,7 @@ class TestReadReplicaRouter:
         """Smoke test for ReadReplicaRouter.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(statement="test_value")
+            await instance.execute(statement="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestReadReplicaRouter:
 async def test_get_read_replica_router_smoke():
     """Smoke test for module-level function get_read_replica_router."""
     try:
-        result = await get_read_replica_router()
+        await get_read_replica_router()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_read_replica_router needs specific input data: {e}")
         return
@@ -140,7 +140,7 @@ async def test_get_read_replica_router_smoke():
 async def test_get_db_session_smoke():
     """Smoke test for module-level function get_db_session."""
     try:
-        result = await get_db_session(statement="test_value", force_master=True)
+        await get_db_session(statement="test_value", force_master=True)
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_db_session needs specific input data: {e}")
         return

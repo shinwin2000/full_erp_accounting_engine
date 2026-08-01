@@ -26,21 +26,21 @@ class TestAPCreditNoteTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            credit_note_number="test_value",
-            credit_note_date=date.today(),
-            invoice_id=MagicMock(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            reason="test_value",
-            reference_number="test_value",
-            status="test_value",
-            applied_at=datetime.now(UTC),
-            applied_by=MagicMock(),
-            created_by=MagicMock(),
-            invoice=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'credit_note_number': "test_value",
+            'credit_note_date': date.today(),
+            'invoice_id': MagicMock(),
+            'amount': Decimal("100.00"),
+            'currency': "test_value",
+            'reason': "test_value",
+            'reference_number': "test_value",
+            'status': "test_value",
+            'applied_at': datetime.now(UTC),
+            'applied_by': MagicMock(),
+            'created_by': MagicMock(),
+            'invoice': MagicMock(),
+        }
         try:
             instance = APCreditNoteTable(**kwargs)
         except (Exception, SystemExit) as e:

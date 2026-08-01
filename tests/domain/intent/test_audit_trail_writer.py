@@ -574,7 +574,7 @@ class TestAuditTrailWriter:
     def test_get_all_audit_records(self, audit_writer, mock_storage_port, sample_intent_id):
         audit_writer.set_storage_port(mock_storage_port)
         another_id = uuid4()
-        for i in range(2):
+        for _i in range(2):
             audit_writer.write(sample_intent_id, IntentAuditAction.CREATED, "tester")
             audit_writer.write(another_id, IntentAuditAction.CREATED, "tester")
 
@@ -616,7 +616,7 @@ class TestAuditTrailWriter:
 
     def test_verify_hash_chain_corrupted(self, audit_writer, mock_storage_port, sample_intent_id):
         audit_writer.set_storage_port(mock_storage_port)
-        record = audit_writer.write(
+        audit_writer.write(
             intent_id=sample_intent_id,
             action=IntentAuditAction.CREATED,
             changed_by="tester",

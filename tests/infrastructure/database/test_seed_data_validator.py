@@ -456,7 +456,7 @@ class TestSeedDataValidator:
             yaml.dump(data, f)
 
         # Validate
-        with patch("infrastructure.database.seed_data_validator.Path") as mock_path:
+        with patch("infrastructure.database.seed_data_validator.Path"):
             # We'll just call with the actual seed_dir
             # The method uses Path("seeds") as default; we'll override by passing seed_dir
             result = await validator.validate_all_seed_files(seed_dir)

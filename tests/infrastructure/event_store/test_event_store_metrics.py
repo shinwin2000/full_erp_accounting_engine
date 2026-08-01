@@ -36,7 +36,7 @@ class TestEventStoreMetricsCollector:
         """Smoke test for EventStoreMetricsCollector.collect_metrics using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.collect_metrics()
+            await instance.collect_metrics()
         except (Exception, SystemExit) as e:
             pytest.skip(f"collect_metrics needs specific domain fixtures/data: {e}")
             return
@@ -47,7 +47,7 @@ class TestEventStoreMetricsCollector:
         """Smoke test for EventStoreMetricsCollector.check_hash_chain_integrity using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.check_hash_chain_integrity()
+            await instance.check_hash_chain_integrity()
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_hash_chain_integrity needs specific domain fixtures/data: {e}")
             return
@@ -58,7 +58,7 @@ class TestEventStoreMetricsCollector:
         """Smoke test for EventStoreMetricsCollector.start_periodic_collection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_periodic_collection(interval_seconds=1)
+            await instance.start_periodic_collection(interval_seconds=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_periodic_collection needs specific domain fixtures/data: {e}")
             return
@@ -69,7 +69,7 @@ class TestEventStoreMetricsCollector:
         """Smoke test for EventStoreMetricsCollector.stop_periodic_collection using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop_periodic_collection()
+            await instance.stop_periodic_collection()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop_periodic_collection needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestEventStoreMetricsCollector:
 async def test_get_metrics_collector_smoke():
     """Smoke test for module-level function get_metrics_collector."""
     try:
-        result = await get_metrics_collector()
+        await get_metrics_collector()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_metrics_collector needs specific input data: {e}")
         return
@@ -90,7 +90,7 @@ async def test_get_metrics_collector_smoke():
 async def test_get_metrics_collector_dep_smoke():
     """Smoke test for module-level function get_metrics_collector_dep."""
     try:
-        result = await get_metrics_collector_dep()
+        await get_metrics_collector_dep()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_metrics_collector_dep needs specific input data: {e}")
         return

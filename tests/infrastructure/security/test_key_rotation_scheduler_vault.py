@@ -87,7 +87,7 @@ class TestKeyRotationScheduler:
         """Smoke test for KeyRotationScheduler.register_reencryption_handler using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.register_reencryption_handler(key_id="test_value", handler=(lambda *a, **kw: None))
+            instance.register_reencryption_handler(key_id="test_value", handler=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"register_reencryption_handler needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestKeyRotationScheduler:
         """Smoke test for KeyRotationScheduler.rotate_keys using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rotate_keys(force=True)
+            await instance.rotate_keys(force=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"rotate_keys needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestKeyRotationScheduler:
         """Smoke test for KeyRotationScheduler.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestKeyRotationScheduler:
         """Smoke test for KeyRotationScheduler.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestKeyRotationScheduler:
 async def test_get_key_rotation_scheduler_smoke():
     """Smoke test for module-level function get_key_rotation_scheduler."""
     try:
-        result = await get_key_rotation_scheduler()
+        await get_key_rotation_scheduler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_key_rotation_scheduler needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ async def test_get_key_rotation_scheduler_smoke():
 async def test_start_key_rotation_scheduler_smoke():
     """Smoke test for module-level function start_key_rotation_scheduler."""
     try:
-        result = await start_key_rotation_scheduler()
+        await start_key_rotation_scheduler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_key_rotation_scheduler needs specific input data: {e}")
         return
@@ -151,7 +151,7 @@ async def test_start_key_rotation_scheduler_smoke():
 async def test_stop_key_rotation_scheduler_smoke():
     """Smoke test for module-level function stop_key_rotation_scheduler."""
     try:
-        result = await stop_key_rotation_scheduler()
+        await stop_key_rotation_scheduler()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_key_rotation_scheduler needs specific input data: {e}")
         return

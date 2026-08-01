@@ -45,7 +45,7 @@ def _get_movement_type_inbound():
     for name in candidates:
         if hasattr(MovementType, name):
             return getattr(MovementType, name)
-    return list(MovementType)[0]
+    return next(iter(MovementType))
 
 
 def _get_movement_type_outbound():

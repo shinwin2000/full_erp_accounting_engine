@@ -29,15 +29,15 @@ class TestAmortizationRunRequest:
     """Tests for the AmortizationRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            as_of_date=date.today(),
-            asset_ids=[uuid4()],
-            post_to_ledger=True,
-            fiscal_year=1,
-            period=1,
-            run_by=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            "as_of_date": date.today(),
+            "asset_ids": [uuid4()],
+            "post_to_ledger": True,
+            "fiscal_year": 1,
+            "period": 1,
+            "run_by": uuid4(),
+            "legal_entity_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """AmortizationRunRequest can be constructed with valid field values."""
@@ -55,18 +55,18 @@ class TestAmortizationRunResult:
     """Tests for the AmortizationRunResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            run_number="test_value",
-            total_assets=1,
-            total_amortization=Decimal("100.00"),
-            journal_ids=[uuid4()],
-            status="test_value",
-            errors=["test_value"],
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            created_by_name="test_value",
-        )
+        return {
+            "run_id": uuid4(),
+            "run_number": "test_value",
+            "total_assets": 1,
+            "total_amortization": Decimal("100.00"),
+            "journal_ids": [uuid4()],
+            "status": "test_value",
+            "errors": ["test_value"],
+            "created_at": datetime.now(UTC),
+            "created_by": uuid4(),
+            "created_by_name": "test_value",
+        }
 
     def test_construction_success(self):
         """AmortizationRunResult can be constructed with valid field values."""
@@ -131,7 +131,7 @@ class TestAmortizationMonthlyRunCommand:
         """Smoke test for AmortizationMonthlyRunCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -158,7 +158,7 @@ class TestAmortizationMonthlyRunUseCase:
         """Smoke test for AmortizationMonthlyRunUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -169,7 +169,7 @@ class TestAmortizationMonthlyRunUseCase:
         """Smoke test for AmortizationMonthlyRunUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -180,7 +180,7 @@ class TestAmortizationMonthlyRunUseCase:
         """Smoke test for AmortizationMonthlyRunUseCase.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -191,7 +191,7 @@ class TestAmortizationMonthlyRunUseCase:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -201,7 +201,7 @@ def test_audit_smoke():
 async def test_amortization_monthly_run_handler_smoke():
     """Smoke test for module-level function amortization_monthly_run_handler."""
     try:
-        result = await amortization_monthly_run_handler(command=MagicMock(), use_case=MagicMock())
+        await amortization_monthly_run_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"amortization_monthly_run_handler needs specific input data: {e}")
         return

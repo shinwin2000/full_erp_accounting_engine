@@ -218,7 +218,7 @@ class TestSalaryComponentEntityConstruction:
             )
 
     def test_validation_expiry_before_effective(self):
-        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         effective = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         expiry = datetime(2025, 12, 31, 12, 0, 0, tzinfo=UTC)
         with pytest.raises(ValueError, match="expiry_date must be after effective_date"):

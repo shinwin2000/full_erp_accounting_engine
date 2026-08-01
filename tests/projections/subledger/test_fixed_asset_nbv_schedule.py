@@ -54,7 +54,7 @@ class TestFixedAssetNBVSchedule:
         """Smoke test for FixedAssetNBVSchedule.generate_schedule_for_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_schedule_for_asset(asset_id=uuid4(), legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
+            await instance.generate_schedule_for_asset(asset_id=uuid4(), legal_entity_id=uuid4(), start_date=date.today(), end_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_schedule_for_asset needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestFixedAssetNBVSchedule:
         """Smoke test for FixedAssetNBVSchedule.rebuild_for_asset using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_for_asset(asset_id=uuid4(), legal_entity_id=uuid4())
+            await instance.rebuild_for_asset(asset_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_for_asset needs specific domain fixtures/data: {e}")
             return
@@ -76,7 +76,7 @@ class TestFixedAssetNBVSchedule:
         """Smoke test for FixedAssetNBVSchedule.rebuild_all using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rebuild_all(legal_entity_id=uuid4())
+            await instance.rebuild_all(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"rebuild_all needs specific domain fixtures/data: {e}")
             return
@@ -87,7 +87,7 @@ class TestFixedAssetNBVSchedule:
         """Smoke test for FixedAssetNBVSchedule.get_nbv_as_of_date using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_nbv_as_of_date(asset_id=uuid4(), as_of_date=date.today())
+            await instance.get_nbv_as_of_date(asset_id=uuid4(), as_of_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_nbv_as_of_date needs specific domain fixtures/data: {e}")
             return
@@ -106,8 +106,8 @@ class TestFixedAssetNBVScheduleTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = FixedAssetNBVScheduleTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestFixedAssetNBVScheduleTable:
 async def test_get_fixed_asset_nbv_schedule_smoke():
     """Smoke test for module-level function get_fixed_asset_nbv_schedule."""
     try:
-        result = await get_fixed_asset_nbv_schedule()
+        await get_fixed_asset_nbv_schedule()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_fixed_asset_nbv_schedule needs specific input data: {e}")
         return

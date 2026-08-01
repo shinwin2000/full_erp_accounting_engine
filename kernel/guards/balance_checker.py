@@ -108,9 +108,8 @@ class AccountType(Enum):
     def allows_negative_balance(self) -> bool:
         # Assets and expenses typically should not be negative.
         # Contra-liability also should not be negative (it's a debit balance).
-        if self in (AccountType.ASSET, AccountType.EXPENSE, AccountType.CONTRA_LIABILITY):
-            return False
-        return True
+        # Return the negated condition directly (SIM103)
+        return self not in (AccountType.ASSET, AccountType.EXPENSE, AccountType.CONTRA_LIABILITY)
 
     @classmethod
     def from_string(cls, value: str) -> AccountType:

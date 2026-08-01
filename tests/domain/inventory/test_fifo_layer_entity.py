@@ -19,19 +19,19 @@ class TestFIFOLayer:
     """Tests for the FIFOLayer value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            item_id=uuid4(),
-            quantity=Decimal("100.00"),
-            unit_cost=Decimal("100.00"),
-            remaining_quantity=Decimal("100.00"),
-            purchase_date=date.today(),
-            layer_number=1,
-            batch_code="test_value",
-            location_id=uuid4(),
-            currency="test_value",
-            _audit_trail=[{}],
-        )
+        return {
+            "id": uuid4(),
+            "item_id": uuid4(),
+            "quantity": Decimal("100.00"),
+            "unit_cost": Decimal("100.00"),
+            "remaining_quantity": Decimal("100.00"),
+            "purchase_date": date.today(),
+            "layer_number": 1,
+            "batch_code": "test_value",
+            "location_id": uuid4(),
+            "currency": "test_value",
+            "_audit_trail": [{}],
+        }
 
     def test_construction_success(self):
         """FIFOLayer can be constructed with valid field values."""

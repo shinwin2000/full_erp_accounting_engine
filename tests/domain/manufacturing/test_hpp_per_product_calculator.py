@@ -628,13 +628,13 @@ class TestCalculatorWithComponents:
 class TestCalculatorHistory:
     def test_get_calculation_history_default(self, calculator, sample_work_order):
         # Run multiple calculations
-        for i in range(3):
+        for _i in range(3):
             calculator.calculate_job_order(sample_work_order)
         history = calculator.get_calculation_history()
         assert len(history) == 3
 
     def test_get_calculation_history_limit(self, calculator, sample_work_order):
-        for i in range(5):
+        for _i in range(5):
             calculator.calculate_job_order(sample_work_order)
         history = calculator.get_calculation_history(limit=2)
         assert len(history) == 2

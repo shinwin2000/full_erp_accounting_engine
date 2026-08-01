@@ -111,22 +111,21 @@ class TestReconciliationResult:
         assert len(h) == 64  # SHA3-256
 
     def test_hash_mismatch_raises(self):
-        result = ReconciliationResult(
-            reconciliation_id=uuid4(),
-            legal_entity_id=uuid4(),
-            period_id=uuid4(),
-            subledger_type=SubledgerType.ACCOUNTS_RECEIVABLE,
-            gl_balance=Decimal("1000"),
-            subledger_balance=Decimal("1000"),
-            difference=Decimal("0"),
-            tolerance=Decimal("0.01"),
-            status=ReconciliationStatus.MATCHED,
-            reconciled_by="user",
-            reconciled_at=datetime.now(UTC),
-            cryptographic_hash="invalid_hash",
-        )
         with pytest.raises(ValueError, match="Cryptographic hash mismatch"):
-            result.__post_init__()
+            ReconciliationResult(
+                reconciliation_id=uuid4(),
+                legal_entity_id=uuid4(),
+                period_id=uuid4(),
+                subledger_type=SubledgerType.ACCOUNTS_RECEIVABLE,
+                gl_balance=Decimal("1000"),
+                subledger_balance=Decimal("1000"),
+                difference=Decimal("0"),
+                tolerance=Decimal("0.01"),
+                status=ReconciliationStatus.MATCHED,
+                reconciled_by="user",
+                reconciled_at=datetime.now(UTC),
+                cryptographic_hash="invalid_hash",
+            )
 
     def test_is_matched(self):
         result = ReconciliationResult(
@@ -165,6 +164,7 @@ class TestReconciliationResult:
         assert d["subledger_type"] == "AR"
         assert d["gl_balance"] == "1000"
         assert d["status"] == "matched"
+        assert d["is_matched"] is True   # ← sekarang ada
         assert "notes" in d
 
 
@@ -406,7 +406,7 @@ class TestGLSupremacyEnforcer:
         ledger_repo.set_balance(legal_entity_id, period_id, "1.1.01", Decimal("1000"))
         subledger_repo.set_balance(legal_entity_id, period_id, "AR", Decimal("800"))  # diff 200 > 50
 
-        with pytest.raises(GLSupremacyViolation):
+        with pytest.raises(GLSupremacyViolation, match="GL/Subledger mismatch"):
             await enforcer.enforce_gl_supremacy(
                 legal_entity_id, period_id, "1.1.01", user_id="user", auto_correct=True
             )
@@ -570,15 +570,18 @@ class TestGLSupremacyEnforcer:
 
     # ---- get_violations ----
     def test_get_violations(self, enforcer):
+        # Buat violation secara sync tanpa argumen severity/details di constructor
         violation = GLSupremacyViolation(
             message="Test violation",
             account_code="1.1.01",
             gl_balance="1000",
             subledger_balance="500",
-            severity=LawViolationSeverity.CRITICAL,
-            details={"key": "value"},
         )
+        # Set attributes setelah object dibuat
+        violation.severity = LawViolationSeverity.CRITICAL
+        violation.details = {"key": "value"}
         enforcer._violation_history.append(violation)
+
         violations = enforcer.get_violations()
         assert len(violations) == 1
         # Filter by account_code
@@ -796,7 +799,7 @@ class TestIntegration:
 
         # Now create mismatch
         enforcer._subledger_repo.set_balance(legal_entity_id, period_id, "AR", Decimal("800"))
-        with pytest.raises(GLSupremacyViolation):
+        with pytest.raises(GLSupremacyViolation, match="GL/Subledger mismatch"):
             await enforcer.enforce_gl_supremacy(
                 legal_entity_id, period_id, "1.1.01", user_id="user", auto_correct=False
             )

@@ -32,8 +32,8 @@ class TestTaxTransactionTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = TaxTransactionTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -53,8 +53,8 @@ class TestCoretaxBupotTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = CoretaxBupotTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -74,8 +74,8 @@ class TestPPhWithholdingSummaryTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-        )
+        kwargs = {
+        }
         try:
             instance = PPhWithholdingSummaryTable(**kwargs)
         except (Exception, SystemExit) as e:
@@ -119,7 +119,7 @@ class TestPPhWithholdingSummary:
         """Smoke test for PPhWithholdingSummary.compute_withholding_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.compute_withholding_summary(npwp_pemotong="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4(), pph_type="test_value")
+            await instance.compute_withholding_summary(npwp_pemotong="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4(), pph_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"compute_withholding_summary needs specific domain fixtures/data: {e}")
             return
@@ -130,7 +130,7 @@ class TestPPhWithholdingSummary:
         """Smoke test for PPhWithholdingSummary.save_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_summary(summary_data={})
+            await instance.save_summary(summary_data={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_summary needs specific domain fixtures/data: {e}")
             return
@@ -141,7 +141,7 @@ class TestPPhWithholdingSummary:
         """Smoke test for PPhWithholdingSummary.get_summary using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_summary(npwp_pemotong="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4(), pph_type="test_value", session=MagicMock())
+            await instance.get_summary(npwp_pemotong="test_value", masa_pajak=1, tahun_pajak=1, legal_entity_id=uuid4(), pph_type="test_value", session=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_summary needs specific domain fixtures/data: {e}")
             return
@@ -152,7 +152,7 @@ class TestPPhWithholdingSummary:
         """Smoke test for PPhWithholdingSummary.generate_all_periods using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.generate_all_periods(npwp_pemotong="test_value", legal_entity_id=uuid4(), tahun_pajak=1, pph_type="test_value")
+            await instance.generate_all_periods(npwp_pemotong="test_value", legal_entity_id=uuid4(), tahun_pajak=1, pph_type="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"generate_all_periods needs specific domain fixtures/data: {e}")
             return
@@ -163,7 +163,7 @@ class TestPPhWithholdingSummary:
 async def test_get_pph_summary_smoke():
     """Smoke test for module-level function get_pph_summary."""
     try:
-        result = await get_pph_summary()
+        await get_pph_summary()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_pph_summary needs specific input data: {e}")
         return

@@ -31,7 +31,7 @@ class TestKafkaEventConsumer:
         """Smoke test for KafkaEventConsumer.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start(topics=["test_value"], handler=(lambda *a, **kw: None))
+            await instance.start(topics=["test_value"], handler=(lambda *a, **kw: None))
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestKafkaEventConsumer:
         """Smoke test for KafkaEventConsumer.stop using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.stop()
+            await instance.stop()
         except (Exception, SystemExit) as e:
             pytest.skip(f"stop needs specific domain fixtures/data: {e}")
             return

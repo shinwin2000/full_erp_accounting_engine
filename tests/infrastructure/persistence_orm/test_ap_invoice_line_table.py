@@ -25,22 +25,22 @@ class TestAPInvoiceLineTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=MagicMock(),
-            invoice_id=MagicMock(),
-            line_number=1,
-            description="test_value",
-            account_code="test_value",
-            quantity=Decimal("100.00"),
-            unit_price=Decimal("100.00"),
-            amount=Decimal("100.00"),
-            tax_rate=Decimal("100.00"),
-            tax_amount=Decimal("100.00"),
-            total_amount=Decimal("100.00"),
-            cost_center="test_value",
-            project_id=MagicMock(),
-            invoice=MagicMock(),
-        )
+        kwargs = {
+            'id': MagicMock(),
+            'invoice_id': MagicMock(),
+            'line_number': 1,
+            'description': "test_value",
+            'account_code': "test_value",
+            'quantity': Decimal("100.00"),
+            'unit_price': Decimal("100.00"),
+            'amount': Decimal("100.00"),
+            'tax_rate': Decimal("100.00"),
+            'tax_amount': Decimal("100.00"),
+            'total_amount': Decimal("100.00"),
+            'cost_center': "test_value",
+            'project_id': MagicMock(),
+            'invoice': MagicMock(),
+        }
         try:
             instance = APInvoiceLineTable(**kwargs)
         except (Exception, SystemExit) as e:

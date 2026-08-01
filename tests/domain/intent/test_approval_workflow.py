@@ -269,7 +269,7 @@ class TestApprovalRule:
     def test_validate_invalid(self):
         # create invalid rule (min > max) and then validate
         with pytest.raises(ValueError):
-            rule = ApprovalRule(
+            ApprovalRule(
                 min_amount=Decimal("100"),
                 max_amount=Decimal("50"),
                 required_level=ApprovalLevel.LEVEL_1,

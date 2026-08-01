@@ -57,7 +57,7 @@ def sample_tax_rate():
 def registry():
     # Reset singleton before each test
     DynamicRateRegistry._instance = None
-    with patch("policy_engine.tax_indonesia.rate_registry_dynamic.logger") as mock_logger:
+    with patch("policy_engine.tax_indonesia.rate_registry_dynamic.logger"):
         reg = DynamicRateRegistry()
         # Clear default rates for a clean slate
         reg._rates.clear()

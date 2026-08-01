@@ -27,14 +27,14 @@ from domain.bank_cash.bank_transfer_entity import (
 
 
 def _draft_transfer(**overrides) -> BankTransferEntity:
-    defaults = dict(
-        transfer_id=uuid4(), transfer_number="TRF-TEST-0001", transfer_type=TransferType.INTERNAL,
-        from_account_id=uuid4(), from_account_number="1110000111",
-        to_account_id=uuid4(), to_account_number="2220000222",
-        to_bank_code=None, to_bank_name=None, to_account_name="Penerima Test",
-        amount=Decimal("500000"), currency="IDR", transfer_date=date.today(), value_date=None,
-        status=TransferStatus.DRAFT,
-    )
+    defaults = {
+        "transfer_id": uuid4(), "transfer_number": "TRF-TEST-0001", "transfer_type": TransferType.INTERNAL,
+        "from_account_id": uuid4(), "from_account_number": "1110000111",
+        "to_account_id": uuid4(), "to_account_number": "2220000222",
+        "to_bank_code": None, "to_bank_name": None, "to_account_name": "Penerima Test",
+        "amount": Decimal("500000"), "currency": "IDR", "transfer_date": date.today(), "value_date": None,
+        "status": TransferStatus.DRAFT,
+    }
     defaults.update(overrides)
     return BankTransferEntity(**defaults)
 

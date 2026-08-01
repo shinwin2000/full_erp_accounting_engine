@@ -26,13 +26,13 @@ class TestAccountMergeRequest:
     """Tests for the AccountMergeRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            source_account_id=uuid4(),
-            target_account_id=uuid4(),
-            merge_date=datetime.now(UTC),
-            reason="test_value",
-            merged_by=uuid4(),
-        )
+        return {
+            "source_account_id": uuid4(),
+            "target_account_id": uuid4(),
+            "merge_date": datetime.now(UTC),
+            "reason": "test_value",
+            "merged_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """AccountMergeRequest can be constructed with valid field values."""
@@ -50,13 +50,13 @@ class TestAccountSplitRequest:
     """Tests for the AccountSplitRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            source_account_id=uuid4(),
-            target_account_ids=[uuid4()],
-            split_date=datetime.now(UTC),
-            reason="test_value",
-            split_by=uuid4(),
-        )
+        return {
+            "source_account_id": uuid4(),
+            "target_account_ids": [uuid4()],
+            "split_date": datetime.now(UTC),
+            "reason": "test_value",
+            "split_by": uuid4(),
+        }
 
     def test_construction_success(self):
         """AccountSplitRequest can be constructed with valid field values."""
@@ -121,7 +121,7 @@ class TestAccountService:
         """Smoke test for AccountService.merge_accounts using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.merge_accounts(request=MagicMock(), correlation_id="test_value")
+            await instance.merge_accounts(request=MagicMock(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"merge_accounts needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestAccountService:
         """Smoke test for AccountService.split_account using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.split_account(request=MagicMock(), correlation_id="test_value")
+            await instance.split_account(request=MagicMock(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"split_account needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestAccountService:
         """Smoke test for AccountService.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestAccountService:
 async def test_create_account_service_smoke():
     """Smoke test for module-level function create_account_service."""
     try:
-        result = await create_account_service(event_publisher=MagicMock())
+        await create_account_service(event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_account_service needs specific input data: {e}")
         return

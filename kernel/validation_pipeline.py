@@ -705,14 +705,16 @@ class ValidationPipeline(BaseValidationPipeline):
         start = time.time()
         try:
             transaction_type = data.get("transaction_type")
-            if transaction_type in ["LEASE", "FACTORING", "CONSIGNMENT"]:
-                if not data.get("substance_assessment_id"):
-                    return ValidationResult(
-                        stage=ValidationStage.AXIOMS,
-                        status=ValidationStatus.FAIL,
-                        message=f"Transaction type {transaction_type} requires substance over form assessment",
-                        duration_ms=(time.time() - start) * 1000,
-                    )
+            # Gabungkan kondisi sesuai saran ruff (SIM102)
+            if transaction_type in ["LEASE", "FACTORING", "CONSIGNMENT"] and not data.get(
+                "substance_assessment_id"
+            ):
+                return ValidationResult(
+                    stage=ValidationStage.AXIOMS,
+                    status=ValidationStatus.FAIL,
+                    message=f"Transaction type {transaction_type} requires substance over form assessment",
+                    duration_ms=(time.time() - start) * 1000,
+                )
             return ValidationResult(
                 stage=ValidationStage.AXIOMS,
                 status=ValidationStatus.PASS,

@@ -784,7 +784,8 @@ class ReversalConstraintEnforcer(BaseReversalConstraintEnforcer):
                     raise violation
                 return result
         elif requires_reason and not requires_approval:
-            approved_by = [user_id] if not approved_by else approved_by
+            # FIX: SIM212 - gunakan approved_by if approved_by else [user_id]
+            approved_by = approved_by if approved_by else [user_id]
 
         if reason is None:
             reason = ReversalReason.ADJUSTMENT

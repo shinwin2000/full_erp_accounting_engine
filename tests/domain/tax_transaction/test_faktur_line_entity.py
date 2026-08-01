@@ -29,7 +29,6 @@ def sample_line(sample_money) -> FakturLineEntity:
     discount = Decimal("100.00")
     dpp_amount = quantity * unit_price.amount - discount  # 2 * 1000 - 100 = 1900
     ppn_amount = dpp_amount * Decimal("0.11")  # 209
-    ppn_bm = None
 
     return FakturLineEntity(
         line_id=uuid4(),
@@ -123,7 +122,7 @@ class TestFakturLineEntity:
         quantity = Decimal("2")
         unit_price = sample_money
         discount = Decimal("100")
-        expected_dpp = quantity * unit_price.amount - discount  # 1900
+        quantity * unit_price.amount - discount  # 1900
         with pytest.raises(ValueError, match="DPP calculation mismatch"):
             FakturLineEntity(
                 line_id=uuid4(),
@@ -169,7 +168,7 @@ class TestFakturLineEntity:
         assert result["errors"] == []
 
     def test_validate_invalid_quantity(self, sample_money):
-        invalid_line = FakturLineEntity(
+        FakturLineEntity(
             line_id=uuid4(),
             description="Test",
             quantity=Decimal("0"),

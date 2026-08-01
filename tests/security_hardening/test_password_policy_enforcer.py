@@ -701,7 +701,7 @@ class TestPasswordPolicyEnforcer:
         user_id = "user1"
         # Record 3 failed attempts
         for _ in range(3):
-            count = enforcer.record_failed_attempt(user_id)
+            enforcer.record_failed_attempt(user_id)
         assert enforcer.is_account_locked(user_id) is True
         # Pre-login check raises
         with pytest.raises(AccountLockedError):

@@ -71,14 +71,14 @@ class TestDepreciationEntry:
     """Tests for the DepreciationEntry value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_date=date.today(),
-            depreciation_amount=Decimal("100.00"),
-            accumulated_depreciation=Decimal("100.00"),
-            net_book_value=Decimal("100.00"),
-            posted_to_journal=True,
-            journal_id=uuid4(),
-        )
+        return {
+            'period_date': date.today(),
+            'depreciation_amount': Decimal("100.00"),
+            'accumulated_depreciation': Decimal("100.00"),
+            'net_book_value': Decimal("100.00"),
+            'posted_to_journal': True,
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """DepreciationEntry can be constructed with valid field values."""
@@ -96,16 +96,16 @@ class TestRevaluationHistory:
     """Tests for the RevaluationHistory value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            revaluation_date=date.today(),
-            revaluation_type=RevaluationType.INCREASE,
-            old_value=Decimal("100.00"),
-            new_value=Decimal("100.00"),
-            revaluation_surplus=Decimal("100.00"),
-            approved_by=uuid4(),
-            reason="test_value",
-            journal_id=uuid4(),
-        )
+        return {
+            'revaluation_date': date.today(),
+            'revaluation_type': RevaluationType.INCREASE,
+            'old_value': Decimal("100.00"),
+            'new_value': Decimal("100.00"),
+            'revaluation_surplus': Decimal("100.00"),
+            'approved_by': uuid4(),
+            'reason': "test_value",
+            'journal_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """RevaluationHistory can be constructed with valid field values."""
@@ -123,40 +123,40 @@ class TestFixedAsset:
     """Tests for the FixedAsset value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            asset_code="test_value",
-            asset_name="test_value",
-            legal_entity_id=uuid4(),
-            asset_group_id=uuid4(),
-            acquisition_date=date.today(),
-            acquisition_cost=Decimal("100.00"),
-            salvage_value=Decimal("100.00"),
-            useful_life_years=1,
-            depreciation_method=DepreciationMethod.STRAIGHT_LINE,
-            annual_depreciation_rate=Decimal("100.00"),
-            status=AssetStatus.ACTIVE,
-            current_net_book_value=Decimal("100.00"),
-            accumulated_depreciation=Decimal("100.00"),
-            total_units_produced=Decimal("100.00"),
-            estimated_total_units=Decimal("100.00"),
-            revaluation_surplus=Decimal("100.00"),
-            impairment_loss=Decimal("100.00"),
-            disposal_date=date.today(),
-            disposal_proceeds=Decimal("100.00"),
-            disposal_gain_loss=Decimal("100.00"),
-            location="test_value",
-            responsible_party=uuid4(),
-            invoice_reference="test_value",
-            notes="test_value",
-            depreciation_history=[MagicMock()],
-            revaluation_history=[MagicMock()],
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            updated_at=datetime.now(UTC),
-            updated_by=uuid4(),
-            version=1,
-        )
+        return {
+            'id': uuid4(),
+            'asset_code': "test_value",
+            'asset_name': "test_value",
+            'legal_entity_id': uuid4(),
+            'asset_group_id': uuid4(),
+            'acquisition_date': date.today(),
+            'acquisition_cost': Decimal("100.00"),
+            'salvage_value': Decimal("100.00"),
+            'useful_life_years': 1,
+            'depreciation_method': DepreciationMethod.STRAIGHT_LINE,
+            'annual_depreciation_rate': Decimal("100.00"),
+            'status': AssetStatus.ACTIVE,
+            'current_net_book_value': Decimal("100.00"),
+            'accumulated_depreciation': Decimal("100.00"),
+            'total_units_produced': Decimal("100.00"),
+            'estimated_total_units': Decimal("100.00"),
+            'revaluation_surplus': Decimal("100.00"),
+            'impairment_loss': Decimal("100.00"),
+            'disposal_date': date.today(),
+            'disposal_proceeds': Decimal("100.00"),
+            'disposal_gain_loss': Decimal("100.00"),
+            'location': "test_value",
+            'responsible_party': uuid4(),
+            'invoice_reference': "test_value",
+            'notes': "test_value",
+            'depreciation_history': [MagicMock()],
+            'revaluation_history': [MagicMock()],
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'updated_at': datetime.now(UTC),
+            'updated_by': uuid4(),
+            'version': 1,
+        }
 
     def test_construction_success(self):
         """FixedAsset can be constructed with valid field values."""
@@ -197,7 +197,7 @@ class Test_InMemoryFixedAssetRepository:
         """Smoke test for _InMemoryFixedAssetRepository.add using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.add(asset=MagicMock())
+            await instance.add(asset=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -208,7 +208,7 @@ class Test_InMemoryFixedAssetRepository:
         """Smoke test for _InMemoryFixedAssetRepository.update using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.update(asset=MagicMock())
+            await instance.update(asset=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"update needs specific domain fixtures/data: {e}")
             return
@@ -219,7 +219,7 @@ class Test_InMemoryFixedAssetRepository:
         """Smoke test for _InMemoryFixedAssetRepository.delete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.delete(asset_id=uuid4(), user_id=uuid4(), permanent=True)
+            await instance.delete(asset_id=uuid4(), user_id=uuid4(), permanent=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"delete needs specific domain fixtures/data: {e}")
             return
@@ -230,7 +230,7 @@ class Test_InMemoryFixedAssetRepository:
         """Smoke test for _InMemoryFixedAssetRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(asset_id=uuid4())
+            await instance.get_by_id(asset_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return

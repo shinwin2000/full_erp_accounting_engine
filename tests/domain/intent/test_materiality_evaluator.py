@@ -909,7 +909,7 @@ class TestMaterialityEvaluator:
         mock_intent_record.intent_id = intent_id
         evaluator._record_service.get.return_value = mock_intent_record
 
-        evaluation = evaluator.evaluate(intent_id, "user")
+        evaluator.evaluate(intent_id, "user")
         req = evaluator.get_required_approvals(intent_id)
         assert req["materiality_level"] == "MATERIAL"
         assert req["requires_approval"] is True

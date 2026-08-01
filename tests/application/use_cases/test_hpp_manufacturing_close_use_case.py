@@ -35,7 +35,7 @@ class TestHppManufacturingCloseTestHelper:
         """Smoke test for HppManufacturingCloseTestHelper.process using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.process(command=MagicMock())
+            await instance.process(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"process needs specific domain fixtures/data: {e}")
             return
@@ -46,7 +46,7 @@ class TestHppManufacturingCloseTestHelper:
         """Smoke test for HppManufacturingCloseTestHelper.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -57,7 +57,7 @@ class TestHppManufacturingCloseTestHelper:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return

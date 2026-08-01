@@ -413,7 +413,7 @@ class TestSQLAlchemySystemSettingRepository:
         assert entry["details"]["foo"] == "bar"
         # Test log size limit
         repo._audit_log = []
-        for i in range(15000):
+        for _i in range(15000):
             await repo._log_audit("TEST", uuid4(), {})
         assert len(repo._audit_log) <= 5000
 
@@ -804,6 +804,7 @@ class TestSQLAlchemySystemSettingRepository:
     # ---- register_validation_hook ----
 
     def test_register_validation_hook(self, repo):
-        hook = lambda x: True
+        def hook(x):
+            return True
         repo.register_validation_hook("test.key", hook)
         assert repo._validation_hooks["test.key"] == hook

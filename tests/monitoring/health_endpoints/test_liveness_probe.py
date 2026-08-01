@@ -31,7 +31,7 @@ class TestLivenessProbe:
         """Smoke test for LivenessProbe.get_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_status()
+            instance.get_status()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_status needs specific domain fixtures/data: {e}")
             return
@@ -42,7 +42,7 @@ class TestLivenessProbe:
         """Smoke test for LivenessProbe.as_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.as_json()
+            instance.as_json()
         except (Exception, SystemExit) as e:
             pytest.skip(f"as_json needs specific domain fixtures/data: {e}")
             return
@@ -53,7 +53,7 @@ class TestLivenessProbe:
 def test_liveness_probe_smoke():
     """Smoke test for module-level function liveness_probe."""
     try:
-        result = liveness_probe()
+        liveness_probe()
     except (Exception, SystemExit) as e:
         pytest.skip(f"liveness_probe needs specific input data: {e}")
         return

@@ -88,7 +88,7 @@ class TestDatabaseRestorePITR:
         """Smoke test for DatabaseRestorePITR.perform_pitr using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.perform_pitr(target_time=datetime.now(UTC), backup_name="test_value", dry_run=True)
+            await instance.perform_pitr(target_time=datetime.now(UTC), backup_name="test_value", dry_run=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"perform_pitr needs specific domain fixtures/data: {e}")
             return
@@ -99,7 +99,7 @@ class TestDatabaseRestorePITR:
         """Smoke test for DatabaseRestorePITR.get_available_wal_segments using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_available_wal_segments()
+            await instance.get_available_wal_segments()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_available_wal_segments needs specific domain fixtures/data: {e}")
             return
@@ -110,7 +110,7 @@ class TestDatabaseRestorePITR:
         """Smoke test for DatabaseRestorePITR.validate_pitr_readiness using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.validate_pitr_readiness()
+            await instance.validate_pitr_readiness()
         except (Exception, SystemExit) as e:
             pytest.skip(f"validate_pitr_readiness needs specific domain fixtures/data: {e}")
             return
@@ -121,7 +121,7 @@ class TestDatabaseRestorePITR:
 async def test_get_pitr_manager_smoke():
     """Smoke test for module-level function get_pitr_manager."""
     try:
-        result = await get_pitr_manager()
+        await get_pitr_manager()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_pitr_manager needs specific input data: {e}")
         return
@@ -131,7 +131,7 @@ async def test_get_pitr_manager_smoke():
 def test_cli_smoke():
     """Smoke test for module-level function cli."""
     try:
-        result = cli()
+        cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"cli needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ def test_cli_smoke():
 async def test_run_pitr_cli_smoke():
     """Smoke test for module-level function run_pitr_cli."""
     try:
-        result = await run_pitr_cli()
+        await run_pitr_cli()
     except (Exception, SystemExit) as e:
         pytest.skip(f"run_pitr_cli needs specific input data: {e}")
         return

@@ -152,20 +152,20 @@ class TestEventEnvelope:
     """Tests for the EventEnvelope value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event=MagicMock(),
-            event_id=uuid4(),
-            event_type="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-            user_id=uuid4(),
-            tenant_id="test_value",
-            occurred_at=datetime.now(UTC),
-            source_system="test_value",
-            version=1,
-            idempotency_key="test_value",
-            payload={},
-        )
+        return {
+            'event': MagicMock(),
+            'event_id': uuid4(),
+            'event_type': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+            'user_id': uuid4(),
+            'tenant_id': "test_value",
+            'occurred_at': datetime.now(UTC),
+            'source_system': "test_value",
+            'version': 1,
+            'idempotency_key': "test_value",
+            'payload': {},
+        }
 
     def test_construction_success(self):
         """EventEnvelope can be constructed with valid field values."""
@@ -183,16 +183,16 @@ class TestEventPublishStatus:
     """Tests for the EventPublishStatus value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type="test_value",
-            result=PublishResult.SUCCESS,
-            attempt=1,
-            latency_ms=1.5,
-            error_message="test_value",
-            kafka_offset=1,
-            outbox_record_id=1,
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': "test_value",
+            'result': PublishResult.SUCCESS,
+            'attempt': 1,
+            'latency_ms': 1.5,
+            'error_message': "test_value",
+            'kafka_offset': 1,
+            'outbox_record_id': 1,
+        }
 
     def test_construction_success(self):
         """EventPublishStatus can be constructed with valid field values."""
@@ -225,7 +225,7 @@ class TestSimpleCircuitBreaker:
         """Smoke test for SimpleCircuitBreaker.state using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.state()
+            instance.state()
         except (Exception, SystemExit) as e:
             pytest.skip(f"state needs specific domain fixtures/data: {e}")
             return
@@ -236,7 +236,7 @@ class TestSimpleCircuitBreaker:
         """Smoke test for SimpleCircuitBreaker.record_success using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_success()
+            instance.record_success()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_success needs specific domain fixtures/data: {e}")
             return
@@ -247,7 +247,7 @@ class TestSimpleCircuitBreaker:
         """Smoke test for SimpleCircuitBreaker.record_failure using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.record_failure()
+            instance.record_failure()
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_failure needs specific domain fixtures/data: {e}")
             return
@@ -274,7 +274,7 @@ class TestSimpleRetryPolicy:
         """Smoke test for SimpleRetryPolicy.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(func=MagicMock())
+            await instance.execute(func=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -301,7 +301,7 @@ class TestApplicationEventPublisher:
         """Smoke test for ApplicationEventPublisher.publish using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish(event=MagicMock(), correlation_id="test_value", causation_id="test_value", user_id=uuid4(), tenant_id="test_value", idempotency_key="test_value", force_sync=True)
+            await instance.publish(event=MagicMock(), correlation_id="test_value", causation_id="test_value", user_id=uuid4(), tenant_id="test_value", idempotency_key="test_value", force_sync=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -312,7 +312,7 @@ class TestApplicationEventPublisher:
         """Smoke test for ApplicationEventPublisher.publish_many using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.publish_many(events=[MagicMock()], correlation_id="test_value", user_id=uuid4(), tenant_id="test_value")
+            await instance.publish_many(events=[MagicMock()], correlation_id="test_value", user_id=uuid4(), tenant_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -323,7 +323,7 @@ class TestApplicationEventPublisher:
         """Smoke test for ApplicationEventPublisher.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -334,7 +334,7 @@ class TestApplicationEventPublisher:
 def test_exponential_backoff_smoke():
     """Smoke test for module-level function exponential_backoff."""
     try:
-        result = exponential_backoff(attempt=1, base_delay=1.5, max_delay=1.5)
+        exponential_backoff(attempt=1, base_delay=1.5, max_delay=1.5)
     except (Exception, SystemExit) as e:
         pytest.skip(f"exponential_backoff needs specific input data: {e}")
         return
@@ -344,7 +344,7 @@ def test_exponential_backoff_smoke():
 async def test_create_event_publisher_smoke():
     """Smoke test for module-level function create_event_publisher."""
     try:
-        result = await create_event_publisher(message_broker=MagicMock(), outbox=MagicMock(), cache=MagicMock(), mode="test_value", enable_circuit_breaker=True, enable_idempotency=True, max_retries=1, retry_delay_seconds=1.5)
+        await create_event_publisher(message_broker=MagicMock(), outbox=MagicMock(), cache=MagicMock(), mode="test_value", enable_circuit_breaker=True, enable_idempotency=True, max_retries=1, retry_delay_seconds=1.5)
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_event_publisher needs specific input data: {e}")
         return

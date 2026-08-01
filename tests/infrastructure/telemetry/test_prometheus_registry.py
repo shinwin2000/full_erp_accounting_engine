@@ -71,7 +71,7 @@ class TestPrometheusMetricRegistry:
 
     def test_histogram_custom_buckets(self, registry):
         buckets = [0.1, 0.5, 1.0]
-        metric = registry.histogram("custom", "doc", buckets=buckets)
+        registry.histogram("custom", "doc", buckets=buckets)
         assert "test_custom" in registry._metrics
         # kita tidak bisa memeriksa buckets secara langsung, tapi kita assert metric ada
 

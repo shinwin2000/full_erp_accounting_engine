@@ -34,7 +34,7 @@ class TestBankStatementImportAdapter:
         """Smoke test for BankStatementImportAdapter.parse_and_import using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.parse_and_import(file_content="test_value", file_name="test_value", bank_account_id=uuid4(), user_id=uuid4(), statement_date=date.today(), override_format=MagicMock())
+            await instance.parse_and_import(file_content="test_value", file_name="test_value", bank_account_id=uuid4(), user_id=uuid4(), statement_date=date.today(), override_format=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"parse_and_import needs specific domain fixtures/data: {e}")
             return
@@ -45,7 +45,7 @@ class TestBankStatementImportAdapter:
         """Smoke test for BankStatementImportAdapter.health_check using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.health_check()
+            await instance.health_check()
         except (Exception, SystemExit) as e:
             pytest.skip(f"health_check needs specific domain fixtures/data: {e}")
             return
@@ -56,7 +56,7 @@ class TestBankStatementImportAdapter:
         """Smoke test for BankStatementImportAdapter.get_all_imports using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_all_imports(bank_account_id=uuid4(), limit=1, offset=1)
+            await instance.get_all_imports(bank_account_id=uuid4(), limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all_imports needs specific domain fixtures/data: {e}")
             return
@@ -67,7 +67,7 @@ class TestBankStatementImportAdapter:
         """Smoke test for BankStatementImportAdapter.get_audit_log using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_audit_log(import_id=uuid4(), limit=1, offset=1)
+            await instance.get_audit_log(import_id=uuid4(), limit=1, offset=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_log needs specific domain fixtures/data: {e}")
             return

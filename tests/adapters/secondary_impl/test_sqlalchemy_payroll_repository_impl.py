@@ -33,7 +33,7 @@ class TestSQLAlchemyPayrollRepository:
         """Smoke test for SQLAlchemyPayrollRepository.save_payroll_run using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_payroll_run(payroll_run=MagicMock())
+            await instance.save_payroll_run(payroll_run=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_payroll_run needs specific domain fixtures/data: {e}")
             return
@@ -44,7 +44,7 @@ class TestSQLAlchemyPayrollRepository:
         """Smoke test for SQLAlchemyPayrollRepository.get_payroll_run using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_payroll_run(run_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_payroll_run(run_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_payroll_run needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestSQLAlchemyPayrollRepository:
         """Smoke test for SQLAlchemyPayrollRepository.get_payroll_runs_by_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_payroll_runs_by_period(period_year=1, period_month=1, legal_entity_id=uuid4())
+            await instance.get_payroll_runs_by_period(period_year=1, period_month=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_payroll_runs_by_period needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestSQLAlchemyPayrollRepository:
         """Smoke test for SQLAlchemyPayrollRepository.find_payrolls_by_period using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_payrolls_by_period(period_year=1, period_month=1, legal_entity_id=uuid4())
+            await instance.find_payrolls_by_period(period_year=1, period_month=1, legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_payrolls_by_period needs specific domain fixtures/data: {e}")
             return

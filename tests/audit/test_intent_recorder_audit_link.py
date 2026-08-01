@@ -69,7 +69,7 @@ class TestIntentRecorderAuditLink:
         """Smoke test for IntentRecorderAuditLink.record_intent using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.record_intent(intent_id=uuid4(), intent_type="test_value", intent_data={}, created_by=uuid4(), legal_entity_id=uuid4(), source="test_value")
+            await instance.record_intent(intent_id=uuid4(), intent_type="test_value", intent_data={}, created_by=uuid4(), legal_entity_id=uuid4(), source="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"record_intent needs specific domain fixtures/data: {e}")
             return
@@ -80,7 +80,7 @@ class TestIntentRecorderAuditLink:
         """Smoke test for IntentRecorderAuditLink.link_intent_to_outcome using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.link_intent_to_outcome(intent_id=uuid4(), outcome_type="test_value", outcome_id=uuid4(), outcome_data={}, user_id=uuid4(), legal_entity_id=uuid4())
+            await instance.link_intent_to_outcome(intent_id=uuid4(), outcome_type="test_value", outcome_id=uuid4(), outcome_data={}, user_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"link_intent_to_outcome needs specific domain fixtures/data: {e}")
             return
@@ -91,7 +91,7 @@ class TestIntentRecorderAuditLink:
         """Smoke test for IntentRecorderAuditLink.get_intent_info using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_intent_info(intent_id=uuid4())
+            await instance.get_intent_info(intent_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_intent_info needs specific domain fixtures/data: {e}")
             return
@@ -102,7 +102,7 @@ class TestIntentRecorderAuditLink:
         """Smoke test for IntentRecorderAuditLink.find_outcome_by_intent using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.find_outcome_by_intent(intent_id=uuid4())
+            await instance.find_outcome_by_intent(intent_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"find_outcome_by_intent needs specific domain fixtures/data: {e}")
             return
@@ -113,7 +113,7 @@ class TestIntentRecorderAuditLink:
 async def test_get_intent_recorder_smoke():
     """Smoke test for module-level function get_intent_recorder."""
     try:
-        result = await get_intent_recorder()
+        await get_intent_recorder()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_intent_recorder needs specific input data: {e}")
         return

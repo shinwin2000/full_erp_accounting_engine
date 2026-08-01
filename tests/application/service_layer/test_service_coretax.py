@@ -121,7 +121,7 @@ class TestCoretaxService:
         """Smoke test for CoretaxService.request_nsfp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.request_nsfp(legal_entity_id=uuid4(), jumlah=1)
+            await instance.request_nsfp(legal_entity_id=uuid4(), jumlah=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"request_nsfp needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class TestCoretaxService:
         """Smoke test for CoretaxService.get_next_nsfp using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_next_nsfp(legal_entity_id=uuid4())
+            await instance.get_next_nsfp(legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_next_nsfp needs specific domain fixtures/data: {e}")
             return
@@ -143,7 +143,7 @@ class TestCoretaxService:
         """Smoke test for CoretaxService.submit_faktur_keluaran using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.submit_faktur_keluaran(faktur=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+            await instance.submit_faktur_keluaran(faktur=MagicMock(), user_id=uuid4(), correlation_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"submit_faktur_keluaran needs specific domain fixtures/data: {e}")
             return
@@ -154,7 +154,7 @@ class TestCoretaxService:
         """Smoke test for CoretaxService.cancel_faktur_keluaran using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cancel_faktur_keluaran(faktur_id=uuid4(), reason="test_value", user_id=uuid4())
+            await instance.cancel_faktur_keluaran(faktur_id=uuid4(), reason="test_value", user_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"cancel_faktur_keluaran needs specific domain fixtures/data: {e}")
             return
@@ -165,7 +165,7 @@ class TestCoretaxService:
 async def test_create_coretax_service_smoke():
     """Smoke test for module-level function create_coretax_service."""
     try:
-        result = await create_coretax_service(coretax_client=MagicMock(), tax_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
+        await create_coretax_service(coretax_client=MagicMock(), tax_repo=MagicMock(), uow=MagicMock(), event_publisher=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_coretax_service needs specific input data: {e}")
         return

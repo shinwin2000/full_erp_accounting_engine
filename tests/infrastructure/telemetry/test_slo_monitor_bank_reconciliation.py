@@ -38,7 +38,7 @@ class TestSLOMonitorBankReconciliation:
         """Smoke test for SLOMonitorBankReconciliation.start_reconciliation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.start_reconciliation(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today(), started_by=uuid4())
+            instance.start_reconciliation(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today(), started_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_reconciliation needs specific domain fixtures/data: {e}")
             return
@@ -49,7 +49,7 @@ class TestSLOMonitorBankReconciliation:
         """Smoke test for SLOMonitorBankReconciliation.complete_reconciliation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.complete_reconciliation(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today(), completed_by=uuid4(), errors=["test_value"], difference_amount=Decimal("100.00"))
+            instance.complete_reconciliation(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today(), completed_by=uuid4(), errors=["test_value"], difference_amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"complete_reconciliation needs specific domain fixtures/data: {e}")
             return
@@ -60,7 +60,7 @@ class TestSLOMonitorBankReconciliation:
         """Smoke test for SLOMonitorBankReconciliation.fail_reconciliation using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.fail_reconciliation(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today(), error="test_value", failed_by=uuid4())
+            instance.fail_reconciliation(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today(), error="test_value", failed_by=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"fail_reconciliation needs specific domain fixtures/data: {e}")
             return
@@ -71,7 +71,7 @@ class TestSLOMonitorBankReconciliation:
         """Smoke test for SLOMonitorBankReconciliation.check_outstanding_reconciliations using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.check_outstanding_reconciliations(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today())
+            instance.check_outstanding_reconciliations(legal_entity_id=uuid4(), bank_account_id=uuid4(), statement_date=date.today())
         except (Exception, SystemExit) as e:
             pytest.skip(f"check_outstanding_reconciliations needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestBankReconciliationSLAMonitor:
         """Smoke test for BankReconciliationSLAMonitor.complete using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.complete(difference_amount=Decimal("100.00"))
+            instance.complete(difference_amount=Decimal("100.00"))
         except (Exception, SystemExit) as e:
             pytest.skip(f"complete needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestBankReconciliationSLAMonitor:
 def test_get_slo_bank_reconciliation_monitor_smoke():
     """Smoke test for module-level function get_slo_bank_reconciliation_monitor."""
     try:
-        result = get_slo_bank_reconciliation_monitor()
+        get_slo_bank_reconciliation_monitor()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_slo_bank_reconciliation_monitor needs specific input data: {e}")
         return

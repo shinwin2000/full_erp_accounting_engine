@@ -44,7 +44,7 @@ class TestSqlAlchemyUnitOfWork:
         """Smoke test for SqlAlchemyUnitOfWork.session using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.session()
+            instance.session()
         except (Exception, SystemExit) as e:
             pytest.skip(f"session needs specific domain fixtures/data: {e}")
             return
@@ -55,7 +55,7 @@ class TestSqlAlchemyUnitOfWork:
         """Smoke test for SqlAlchemyUnitOfWork.commit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.commit()
+            await instance.commit()
         except (Exception, SystemExit) as e:
             pytest.skip(f"commit needs specific domain fixtures/data: {e}")
             return
@@ -66,7 +66,7 @@ class TestSqlAlchemyUnitOfWork:
         """Smoke test for SqlAlchemyUnitOfWork.rollback using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.rollback()
+            await instance.rollback()
         except (Exception, SystemExit) as e:
             pytest.skip(f"rollback needs specific domain fixtures/data: {e}")
             return
@@ -77,7 +77,7 @@ class TestSqlAlchemyUnitOfWork:
         """Smoke test for SqlAlchemyUnitOfWork.flush using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.flush()
+            await instance.flush()
         except (Exception, SystemExit) as e:
             pytest.skip(f"flush needs specific domain fixtures/data: {e}")
             return
@@ -88,7 +88,7 @@ class TestSqlAlchemyUnitOfWork:
 async def test_create_unit_of_work_smoke():
     """Smoke test for module-level function create_unit_of_work."""
     try:
-        result = await create_unit_of_work(session_factory=(lambda *a, **kw: None), auto_begin=True)
+        await create_unit_of_work(session_factory=(lambda *a, **kw: None), auto_begin=True)
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_unit_of_work needs specific input data: {e}")
         return

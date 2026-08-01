@@ -71,13 +71,11 @@ class _FallbackUserRepository:
         key = (user_id, from_entity, to_entity)
         if key in self._cross_entity_auths:
             return self._cross_entity_auths[key]
-        # Check if user is owner of both entities
-        if (
+        # Check if user is owner of both entities - return condition directly (SIM103)
+        return (
             self._entity_owners.get(from_entity) == user_id
             and self._entity_owners.get(to_entity) == user_id
-        ):
-            return True
-        return False
+        )
 
     async def get_user_details(self, user_id: str) -> dict[str, Any] | None:
         """Mendapatkan detail user."""
@@ -403,9 +401,9 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
                 UUID(str(target_entity_id))
             except Exception:
                 errors.append("target_entity_id must be a valid UUID")
-        if user_id:
-            if not isinstance(user_id, str):
-                errors.append("user_id must be a string")
+        # SIM102: combine nested if using and
+        if user_id and not isinstance(user_id, str):
+            errors.append("user_id must be a string")
         if operation:
             try:
                 EntityAccessOperation(operation.upper())

@@ -32,12 +32,11 @@ import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from application.commands_cqrs.command_bus_unified import Command, CommandResult
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from application.sagas.manufacturing_saga import ManufacturingSagaOrchestrator
     from application.service_layer.service_inventory import InventoryService
     from application.service_layer.service_journal import JournalService
@@ -521,7 +520,6 @@ class ManufacturingCostFlowWorkflow:
 # ============================================================================
 # Factory function
 # ============================================================================
-
 
 def create_manufacturing_cost_flow_workflow(
     inventory_service: InventoryService,

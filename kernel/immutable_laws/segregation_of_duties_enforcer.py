@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_user
@@ -571,7 +571,7 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
     yang memiliki kontrol penuh atas suatu transaksi dari awal hingga akhir.
     """
 
-    ROLE_CONFLICTS = {
+    ROLE_CONFLICTS: ClassVar[dict[str, list[str]]] = {
         "maker": ["checker", "approver", "poster"],
         "checker": ["maker", "poster"],
         "poster": ["maker", "checker"],

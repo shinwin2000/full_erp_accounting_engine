@@ -262,7 +262,6 @@ class TestStatementParser:
     @pytest.mark.asyncio
     async def test_parse_csv_mandiri(self):
         parser = StatementParser()
-        content = "01/01/2025,Deposit,1000.00,\n02/01/2025,Withdrawal,,500.50\n"
         # Actually the Mandiri parser uses csv.reader with fixed columns: date, description, debit, credit, ref
         # We'll adjust the test to match the actual implementation.
         content2 = "01/01/2025,Deposit,1000.00,,\n02/01/2025,Withdrawal,,500.50,\n"

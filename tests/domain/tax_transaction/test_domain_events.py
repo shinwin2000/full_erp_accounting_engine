@@ -52,19 +52,19 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.FAKTUR_SUBMITTED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            _audit_trail=MagicMock(),
-            _snapshots=MagicMock(),
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.FAKTUR_SUBMITTED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+            '_audit_trail': MagicMock(),
+            '_snapshots': MagicMock(),
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -82,8 +82,8 @@ class TestFakturSubmittedEvent:
     """Tests for the FakturSubmittedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """FakturSubmittedEvent can be constructed with valid field values."""
@@ -100,8 +100,8 @@ class TestFakturApprovedEvent:
     """Tests for the FakturApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """FakturApprovedEvent can be constructed with valid field values."""
@@ -118,8 +118,8 @@ class TestFakturRejectedEvent:
     """Tests for the FakturRejectedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """FakturRejectedEvent can be constructed with valid field values."""
@@ -136,8 +136,8 @@ class TestSPTSubmittedEvent:
     """Tests for the SPTSubmittedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SPTSubmittedEvent can be constructed with valid field values."""
@@ -154,8 +154,8 @@ class TestSPTApprovedEvent:
     """Tests for the SPTApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """SPTApprovedEvent can be constructed with valid field values."""
@@ -172,8 +172,8 @@ class TestBupotSubmittedEvent:
     """Tests for the BupotSubmittedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BupotSubmittedEvent can be constructed with valid field values."""
@@ -190,8 +190,8 @@ class TestBupotApprovedEvent:
     """Tests for the BupotApprovedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """BupotApprovedEvent can be constructed with valid field values."""
@@ -208,8 +208,8 @@ class TestMeteraiUsedEvent:
     """Tests for the MeteraiUsedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """MeteraiUsedEvent can be constructed with valid field values."""
@@ -240,8 +240,8 @@ class TestDomainEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -251,8 +251,8 @@ class TestDomainEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await DomainEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -262,8 +262,8 @@ class TestDomainEventPublisher:
     async def test_add_smoke(self):
         """Smoke test for DomainEventPublisher.add using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.add(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.add(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"add needs specific domain fixtures/data: {e}")
             return
@@ -273,8 +273,8 @@ class TestDomainEventPublisher:
     async def test_save_smoke(self):
         """Smoke test for DomainEventPublisher.save using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.save(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.save(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save needs specific domain fixtures/data: {e}")
             return

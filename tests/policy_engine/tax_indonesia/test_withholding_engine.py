@@ -675,7 +675,7 @@ class TestWithholdingEngine:
             transaction_date=fixed_datetime,
             period="2026-07",
         )
-        record2 = engine.withhold_pph22(
+        engine.withhold_pph22(
             transaction_id=sample_transaction_id,
             taxpayer_id=sample_taxpayer_id,
             taxpayer_name="PT Test2",
@@ -685,7 +685,7 @@ class TestWithholdingEngine:
             period="2026-07",
             importer_type="with_api",
         )
-        record3 = engine.withhold_pph23(
+        engine.withhold_pph23(
             transaction_id=sample_transaction_id,
             taxpayer_id=sample_taxpayer_id,
             taxpayer_name="PT Test3",

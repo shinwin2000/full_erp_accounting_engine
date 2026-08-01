@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from constitution.amendment_protocol import get_amendment_protocol
@@ -781,10 +781,10 @@ class EnforcementPipeline:
 
 
 class EnforcementEngine:
-    _instance: EnforcementEngine | None = None
-    _pipeline: EnforcementPipeline | None = None
-    _report_history: list[EnforcementReport] = []
-    _history_lock: threading.Lock = threading.Lock()
+    _instance: ClassVar[EnforcementEngine | None] = None
+    _pipeline: ClassVar[EnforcementPipeline | None] = None
+    _report_history: ClassVar[list[EnforcementReport]] = []
+    _history_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> EnforcementEngine:
         if cls._instance is None:
@@ -1090,12 +1090,13 @@ class EnforcementEngine:
             mode=EnforcementMode.EMERGENCY,
         )
         report = self._pipeline.execute(ctx)
+        # Perbaikan RUF005: menggunakan iterable unpacking
         report = EnforcementReport(
             report_id=report.report_id,
             operation_id=report.operation_id,
             operation_type=report.operation_type,
             timestamp=report.timestamp,
-            stages_passed=report.stages_passed + [EnforcementStage.FINAL_APPROVAL],
+            stages_passed=[*report.stages_passed, EnforcementStage.FINAL_APPROVAL],
             stages_failed=[],
             final_result=EnforcementResult.PASS,
             rejection_reason=None,
@@ -1104,7 +1105,7 @@ class EnforcementEngine:
             constitutional_hash=report.compute_hash(),
             mode=EnforcementMode.EMERGENCY,
             warning_count=report.warning_count + 1,
-            warnings=report.warnings + [f"EMERGENCY BYPASS by {authorized_by}: {reason}"],
+            warnings=[*report.warnings, f"EMERGENCY BYPASS by {authorized_by}: {reason}"],
         )
         with self._history_lock:
             self._report_history.append(report)

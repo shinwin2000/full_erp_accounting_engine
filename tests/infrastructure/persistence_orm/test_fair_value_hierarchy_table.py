@@ -26,20 +26,20 @@ class TestFairValueHierarchyTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            financial_instrument_id=uuid4(),
-            instrument_type="test_value",
-            valuation_date=date.today(),
-            fair_value=Decimal("100.00"),
-            level_input=1,
-            level_description="test_value",
-            unobservable_inputs="test_value",
-            sensitivity_analysis="test_value",
-            valuer_name="test_value",
-            valuation_report_path="test_value",
-            created_at=datetime.now(UTC),
-        )
+        kwargs = {
+            'id': uuid4(),
+            'financial_instrument_id': uuid4(),
+            'instrument_type': "test_value",
+            'valuation_date': date.today(),
+            'fair_value': Decimal("100.00"),
+            'level_input': 1,
+            'level_description': "test_value",
+            'unobservable_inputs': "test_value",
+            'sensitivity_analysis': "test_value",
+            'valuer_name': "test_value",
+            'valuation_report_path': "test_value",
+            'created_at': datetime.now(UTC),
+        }
         try:
             instance = FairValueHierarchyTable(**kwargs)
         except (Exception, SystemExit) as e:

@@ -57,16 +57,16 @@ class TestBulkSubmissionItem:
     """Tests for the BulkSubmissionItem value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            submission_id=uuid4(),
-            tax_type="test_value",
-            period_year=1,
-            period_month=1,
-            status="test_value",
-            approval_code="test_value",
-            error_message="test_value",
-            submitted_at=datetime.now(UTC),
-        )
+        return {
+            'submission_id': uuid4(),
+            'tax_type': "test_value",
+            'period_year': 1,
+            'period_month': 1,
+            'status': "test_value",
+            'approval_code': "test_value",
+            'error_message': "test_value",
+            'submitted_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """BulkSubmissionItem can be constructed with valid field values."""
@@ -84,15 +84,15 @@ class TestBulkSubmissionResult:
     """Tests for the BulkSubmissionResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            batch_id=uuid4(),
-            total_items=1,
-            success_count=1,
-            failed_count=1,
-            items=[MagicMock()],
-            status=BulkSubmissionStatus.PENDING,
-            completed_at=datetime.now(UTC),
-        )
+        return {
+            'batch_id': uuid4(),
+            'total_items': 1,
+            'success_count': 1,
+            'failed_count': 1,
+            'items': [MagicMock()],
+            'status': BulkSubmissionStatus.PENDING,
+            'completed_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """BulkSubmissionResult can be constructed with valid field values."""
@@ -125,7 +125,7 @@ class TestCoretaxBulkSubmissionCommand:
         """Smoke test for CoretaxBulkSubmissionCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -152,7 +152,7 @@ class TestCoretaxBulkSubmissionUseCase:
         """Smoke test for CoretaxBulkSubmissionUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -163,7 +163,7 @@ class TestCoretaxBulkSubmissionUseCase:
         """Smoke test for CoretaxBulkSubmissionUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -174,7 +174,7 @@ class TestCoretaxBulkSubmissionUseCase:
 async def test_coretax_bulk_submission_handler_smoke():
     """Smoke test for module-level function coretax_bulk_submission_handler."""
     try:
-        result = await coretax_bulk_submission_handler(command=MagicMock(), use_case=MagicMock())
+        await coretax_bulk_submission_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"coretax_bulk_submission_handler needs specific input data: {e}")
         return

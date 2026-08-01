@@ -142,8 +142,9 @@ class ComponentHealth:
             "timestamp": self.last_check.isoformat(),
         }
 
-    def version(self) -> int:
-        return 1
+    # FIX: Remove unused `version` method (F811)
+    # def version(self) -> int:
+    #     return 1
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return [self.to_dict()]
@@ -211,8 +212,9 @@ class KernelHealthReport:
             "version": self.version,
         }
 
-    def version(self) -> int:
-        return 1
+    # FIX: Remove unused `version` method (F811)
+    # def version(self) -> int:
+    #     return 1
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return [self.to_dict()]

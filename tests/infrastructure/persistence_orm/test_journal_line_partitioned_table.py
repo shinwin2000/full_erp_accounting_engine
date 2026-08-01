@@ -28,26 +28,26 @@ class TestJournalLinePartitionedTable:
 
     def test_instantiation(self):
         """ORM model can be instantiated in-memory (without a DB session)."""
-        kwargs = dict(
-            id=uuid4(),
-            journal_header_id=uuid4(),
-            line_number=1,
-            account_id=uuid4(),
-            account_code="test_value",
-            debit_amount=Decimal("100.00"),
-            credit_amount=Decimal("0"),
-            currency_code="test_value",
-            exchange_rate=Decimal("100.00"),
-            description="test_value",
-            cost_center="test_value",
-            department_id=uuid4(),
-            project_id=uuid4(),
-            posting_date=date.today(),
-            fiscal_year=1,
-            created_at=datetime.now(UTC),
-            created_by=uuid4(),
-            version=1,
-        )
+        kwargs = {
+            'id': uuid4(),
+            'journal_header_id': uuid4(),
+            'line_number': 1,
+            'account_id': uuid4(),
+            'account_code': "test_value",
+            'debit_amount': Decimal("100.00"),
+            'credit_amount': Decimal("0"),
+            'currency_code': "test_value",
+            'exchange_rate': Decimal("100.00"),
+            'description': "test_value",
+            'cost_center': "test_value",
+            'department_id': uuid4(),
+            'project_id': uuid4(),
+            'posting_date': date.today(),
+            'fiscal_year': 1,
+            'created_at': datetime.now(UTC),
+            'created_by': uuid4(),
+            'version': 1,
+        }
         try:
             instance = JournalLinePartitionedTable(**kwargs)
         except (Exception, SystemExit) as e:

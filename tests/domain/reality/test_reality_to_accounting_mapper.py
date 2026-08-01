@@ -94,7 +94,7 @@ class Test_FallbackAccountRepository:
         """Smoke test for _FallbackAccountRepository.get_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_code(account_code="test_value", legal_entity_id=uuid4())
+            await instance.get_by_code(account_code="test_value", legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_code needs specific domain fixtures/data: {e}")
             return
@@ -105,7 +105,7 @@ class Test_FallbackAccountRepository:
         """Smoke test for _FallbackAccountRepository.get_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_by_id(account_id=uuid4(), legal_entity_id=uuid4())
+            await instance.get_by_id(account_id=uuid4(), legal_entity_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_by_id needs specific domain fixtures/data: {e}")
             return
@@ -132,7 +132,7 @@ class Test_FallbackPolicyInterpreter:
         """Smoke test for _FallbackPolicyInterpreter.evaluate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.evaluate(policy_name="test_value", context={})
+            await instance.evaluate(policy_name="test_value", context={})
         except (Exception, SystemExit) as e:
             pytest.skip(f"evaluate needs specific domain fixtures/data: {e}")
             return
@@ -144,13 +144,13 @@ class TestAccountingMapping:
     """Tests for the AccountingMapping value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            debit_accounts=[()],
-            credit_accounts=[()],
-            description="test_value",
-            reference="test_value",
-            journal_type="test_value",
-        )
+        return {
+            "debit_accounts": [()],
+            "credit_accounts": [()],
+            "description": "test_value",
+            "reference": "test_value",
+            "journal_type": "test_value",
+        }
 
     def test_construction_success(self):
         """AccountingMapping can be constructed with valid field values."""
@@ -168,12 +168,12 @@ class TestJournalLine:
     """Tests for the JournalLine value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            side="test_value",
-            amount=Decimal("100.00"),
-            description="test_value",
-        )
+        return {
+            "account_code": "test_value",
+            "side": "test_value",
+            "amount": Decimal("100.00"),
+            "description": "test_value",
+        }
 
     def test_construction_success(self):
         """JournalLine can be constructed with valid field values."""
@@ -191,19 +191,19 @@ class TestMappedJournal:
     """Tests for the MappedJournal value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_id=uuid4(),
-            journal_number="test_value",
-            journal_type="test_value",
-            transaction_date=datetime.now(UTC),
-            description="test_value",
-            lines=[MagicMock()],
-            reference="test_value",
-            legal_entity_id=uuid4(),
-            created_by="test_value",
-            created_at=datetime.now(UTC),
-            cryptographic_hash="test_value",
-        )
+        return {
+            "journal_id": uuid4(),
+            "journal_number": "test_value",
+            "journal_type": "test_value",
+            "transaction_date": datetime.now(UTC),
+            "description": "test_value",
+            "lines": [MagicMock()],
+            "reference": "test_value",
+            "legal_entity_id": uuid4(),
+            "created_by": "test_value",
+            "created_at": datetime.now(UTC),
+            "cryptographic_hash": "test_value",
+        }
 
     def test_construction_success(self):
         """MappedJournal can be constructed with valid field values."""
@@ -236,7 +236,7 @@ class TestRealityToAccountingMapper:
         """Smoke test for RealityToAccountingMapper.set_dependencies using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.set_dependencies(account_repo=MagicMock(), policy_interpreter=MagicMock())
+            instance.set_dependencies(account_repo=MagicMock(), policy_interpreter=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"set_dependencies needs specific domain fixtures/data: {e}")
             return
@@ -247,7 +247,7 @@ class TestRealityToAccountingMapper:
         """Smoke test for RealityToAccountingMapper.map_to_journal using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.map_to_journal(event=MagicMock(), legal_entity_id=uuid4(), user_id="test_value")
+            await instance.map_to_journal(event=MagicMock(), legal_entity_id=uuid4(), user_id="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"map_to_journal needs specific domain fixtures/data: {e}")
             return
@@ -258,7 +258,7 @@ class TestRealityToAccountingMapper:
         """Smoke test for RealityToAccountingMapper.get_mapping_history using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_mapping_history(limit=1)
+            instance.get_mapping_history(limit=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_mapping_history needs specific domain fixtures/data: {e}")
             return
@@ -269,7 +269,7 @@ class TestRealityToAccountingMapper:
 def test_get_reality_to_accounting_mapper_smoke():
     """Smoke test for module-level function get_reality_to_accounting_mapper."""
     try:
-        result = get_reality_to_accounting_mapper(account_repo=MagicMock(), policy_interpreter=MagicMock())
+        get_reality_to_accounting_mapper(account_repo=MagicMock(), policy_interpreter=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_reality_to_accounting_mapper needs specific input data: {e}")
         return

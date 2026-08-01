@@ -62,7 +62,7 @@ def startup_context():
 def orchestrator():
     # Reset singleton before each test
     StartupOrchestrator._instance = None
-    with patch("bootstrap.orchestrator.logger") as mock_logger:
+    with patch("bootstrap.orchestrator.logger"):
         orch = StartupOrchestrator()
         # Clear any existing components to start fresh
         orch._context.components.clear()
@@ -512,7 +512,7 @@ class TestStartupOrchestrator:
         def repo_factory(module_path, class_name, repo_name):
             return MagicMock()
 
-        with patch.object(orchestrator, "_init_repositories", wraps=orchestrator._init_repositories) as wrapped:
+        with patch.object(orchestrator, "_init_repositories", wraps=orchestrator._init_repositories):
             # Override the repo imports to return mocks
             with patch("bootstrap.orchestrator.importlib.import_module") as mock_import_repo:
                 mock_import_repo.return_value = MagicMock()

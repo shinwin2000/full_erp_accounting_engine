@@ -188,11 +188,11 @@ def test_exception_should_retry(exc_class, kwargs, attrs):
         # For subclasses, retryable is set in __init__
         exc = exc_class(**kwargs)
         # Most validation/business errors are not retryable
-        if issubclass(exc_class, (CoretaxValidationError, CoretaxBusinessError, CoretaxAuthError)):
+        if issubclass(exc_class, CoretaxValidationError | CoretaxBusinessError | CoretaxAuthError):
             assert exc.should_retry() is False
         else:
             # Network, system, rate limit are retryable
-            if issubclass(exc_class, (CoretaxNetworkError, CoretaxRateLimitError, CoretaxSystemError)):
+            if issubclass(exc_class, CoretaxNetworkError | CoretaxRateLimitError | CoretaxSystemError):
                 assert exc.should_retry() is True
             # Others check their own logic
 

@@ -55,7 +55,7 @@ class TestBudgetVsActualCommand:
         """Smoke test for BudgetVsActualCommand.to_dict using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.to_dict()
+            instance.to_dict()
         except (Exception, SystemExit) as e:
             pytest.skip(f"to_dict needs specific domain fixtures/data: {e}")
             return
@@ -67,20 +67,20 @@ class TestBudgetVsActualRow:
     """Tests for the BudgetVsActualRow value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            account_code="test_value",
-            account_name="test_value",
-            account_type="test_value",
-            cost_center="test_value",
-            department="test_value",
-            project="test_value",
-            budget_amount=Decimal("100.00"),
-            actual_amount=Decimal("100.00"),
-            variance_amount=Decimal("100.00"),
-            variance_percent=Decimal("100.00"),
-            variance_direction="test_value",
-            is_material=True,
-        )
+        return {
+            'account_code': "test_value",
+            'account_name': "test_value",
+            'account_type': "test_value",
+            'cost_center': "test_value",
+            'department': "test_value",
+            'project': "test_value",
+            'budget_amount': Decimal("100.00"),
+            'actual_amount': Decimal("100.00"),
+            'variance_amount': Decimal("100.00"),
+            'variance_percent': Decimal("100.00"),
+            'variance_direction': "test_value",
+            'is_material': True,
+        }
 
     def test_construction_success(self):
         """BudgetVsActualRow can be constructed with valid field values."""
@@ -98,17 +98,17 @@ class TestBudgetVsActualResult:
     """Tests for the BudgetVsActualResult value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            rows=[MagicMock()],
-            total_budget=Decimal("100.00"),
-            total_actual=Decimal("100.00"),
-            total_variance=Decimal("100.00"),
-            material_variance_count=1,
-            favorable_variance_count=1,
-            unfavorable_variance_count=1,
-            report_path="test_value",
-            generated_at=datetime.now(UTC),
-        )
+        return {
+            'rows': [MagicMock()],
+            'total_budget': Decimal("100.00"),
+            'total_actual': Decimal("100.00"),
+            'total_variance': Decimal("100.00"),
+            'material_variance_count': 1,
+            'favorable_variance_count': 1,
+            'unfavorable_variance_count': 1,
+            'report_path': "test_value",
+            'generated_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """BudgetVsActualResult can be constructed with valid field values."""
@@ -141,7 +141,7 @@ class TestBudgetVsActualUseCase:
         """Smoke test for BudgetVsActualUseCase.execute using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute(command=MagicMock())
+            await instance.execute(command=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute needs specific domain fixtures/data: {e}")
             return
@@ -152,7 +152,7 @@ class TestBudgetVsActualUseCase:
         """Smoke test for BudgetVsActualUseCase.get_stats using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_stats()
+            instance.get_stats()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_stats needs specific domain fixtures/data: {e}")
             return
@@ -163,7 +163,7 @@ class TestBudgetVsActualUseCase:
         """Smoke test for BudgetVsActualUseCase.get_audit_trail using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_audit_trail()
+            instance.get_audit_trail()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_audit_trail needs specific domain fixtures/data: {e}")
             return
@@ -174,7 +174,7 @@ class TestBudgetVsActualUseCase:
 def test_audit_smoke():
     """Smoke test for module-level function audit."""
     try:
-        result = audit(func=MagicMock())
+        audit(func=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"audit needs specific input data: {e}")
         return
@@ -184,7 +184,7 @@ def test_audit_smoke():
 async def test_budget_vs_actual_handler_smoke():
     """Smoke test for module-level function budget_vs_actual_handler."""
     try:
-        result = await budget_vs_actual_handler(command=MagicMock(), use_case=MagicMock())
+        await budget_vs_actual_handler(command=MagicMock(), use_case=MagicMock())
     except (Exception, SystemExit) as e:
         pytest.skip(f"budget_vs_actual_handler needs specific input data: {e}")
         return

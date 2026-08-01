@@ -32,7 +32,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.save_definition using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.save_definition(definition=MagicMock())
+            await instance.save_definition(definition=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"save_definition needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_definition_by_id using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_definition_by_id(definition_id=MagicMock())
+            await instance.get_definition_by_id(definition_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_definition_by_id needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_definition_by_code using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_definition_by_code(report_code="test_value", legal_entity_id=MagicMock())
+            await instance.get_definition_by_code(report_code="test_value", legal_entity_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_definition_by_code needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSQLAlchemyReportRepository:
         """Smoke test for SQLAlchemyReportRepository.get_all_definitions using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_all_definitions(legal_entity_id=MagicMock())
+            await instance.get_all_definitions(legal_entity_id=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_all_definitions needs specific domain fixtures/data: {e}")
             return

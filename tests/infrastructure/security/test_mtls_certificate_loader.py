@@ -87,7 +87,7 @@ class TestMTLSClientCertificateLoader:
         """Smoke test for MTLSClientCertificateLoader.load_certificate using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.load_certificate(hot_reload=True)
+            await instance.load_certificate(hot_reload=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"load_certificate needs specific domain fixtures/data: {e}")
             return
@@ -98,7 +98,7 @@ class TestMTLSClientCertificateLoader:
         """Smoke test for MTLSClientCertificateLoader.get_ssl_context using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_ssl_context()
+            await instance.get_ssl_context()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_ssl_context needs specific domain fixtures/data: {e}")
             return
@@ -109,7 +109,7 @@ class TestMTLSClientCertificateLoader:
         """Smoke test for MTLSClientCertificateLoader.get_certificate_info using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.get_certificate_info()
+            instance.get_certificate_info()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_certificate_info needs specific domain fixtures/data: {e}")
             return
@@ -120,7 +120,7 @@ class TestMTLSClientCertificateLoader:
         """Smoke test for MTLSClientCertificateLoader.start_expiry_checker using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start_expiry_checker(interval_hours=1)
+            await instance.start_expiry_checker(interval_hours=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"start_expiry_checker needs specific domain fixtures/data: {e}")
             return
@@ -131,7 +131,7 @@ class TestMTLSClientCertificateLoader:
 async def test_get_mtls_certificate_loader_smoke():
     """Smoke test for module-level function get_mtls_certificate_loader."""
     try:
-        result = await get_mtls_certificate_loader()
+        await get_mtls_certificate_loader()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_mtls_certificate_loader needs specific input data: {e}")
         return
@@ -141,7 +141,7 @@ async def test_get_mtls_certificate_loader_smoke():
 async def test_start_certificate_expiry_checker_smoke():
     """Smoke test for module-level function start_certificate_expiry_checker."""
     try:
-        result = await start_certificate_expiry_checker()
+        await start_certificate_expiry_checker()
     except (Exception, SystemExit) as e:
         pytest.skip(f"start_certificate_expiry_checker needs specific input data: {e}")
         return
@@ -151,7 +151,7 @@ async def test_start_certificate_expiry_checker_smoke():
 async def test_stop_certificate_expiry_checker_smoke():
     """Smoke test for module-level function stop_certificate_expiry_checker."""
     try:
-        result = await stop_certificate_expiry_checker()
+        await stop_certificate_expiry_checker()
     except (Exception, SystemExit) as e:
         pytest.skip(f"stop_certificate_expiry_checker needs specific input data: {e}")
         return

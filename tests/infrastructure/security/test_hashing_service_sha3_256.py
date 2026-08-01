@@ -72,7 +72,7 @@ class TestHashingServiceSHA3_256:
         """Smoke test for HashingServiceSHA3_256.hash using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.hash(data="test_value")
+            instance.hash(data="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"hash needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestHashingServiceSHA3_256:
         """Smoke test for HashingServiceSHA3_256.hash_json using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.hash_json(data={}, sort_keys=True)
+            instance.hash_json(data={}, sort_keys=True)
         except (Exception, SystemExit) as e:
             pytest.skip(f"hash_json needs specific domain fixtures/data: {e}")
             return
@@ -94,7 +94,7 @@ class TestHashingServiceSHA3_256:
         """Smoke test for HashingServiceSHA3_256.hash_with_salt using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.hash_with_salt(data="test_value", salt="test_value")
+            instance.hash_with_salt(data="test_value", salt="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"hash_with_salt needs specific domain fixtures/data: {e}")
             return
@@ -105,7 +105,7 @@ class TestHashingServiceSHA3_256:
         """Smoke test for HashingServiceSHA3_256.hmac using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = instance.hmac(key="test_value", message="test_value")
+            instance.hmac(key="test_value", message="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"hmac needs specific domain fixtures/data: {e}")
             return
@@ -116,7 +116,7 @@ class TestHashingServiceSHA3_256:
 def test_get_hashing_service_smoke():
     """Smoke test for module-level function get_hashing_service."""
     try:
-        result = get_hashing_service()
+        get_hashing_service()
     except (Exception, SystemExit) as e:
         pytest.skip(f"get_hashing_service needs specific input data: {e}")
         return
@@ -126,7 +126,7 @@ def test_get_hashing_service_smoke():
 def test_hash_data_smoke():
     """Smoke test for module-level function hash_data."""
     try:
-        result = hash_data(data="test_value")
+        hash_data(data="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"hash_data needs specific input data: {e}")
         return
@@ -136,7 +136,7 @@ def test_hash_data_smoke():
 def test_hash_json_smoke():
     """Smoke test for module-level function hash_json."""
     try:
-        result = hash_json(data={})
+        hash_json(data={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"hash_json needs specific input data: {e}")
         return
@@ -146,7 +146,7 @@ def test_hash_json_smoke():
 def test_hmac_hash_smoke():
     """Smoke test for module-level function hmac_hash."""
     try:
-        result = hmac_hash(key="test_value", message="test_value")
+        hmac_hash(key="test_value", message="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"hmac_hash needs specific input data: {e}")
         return
@@ -156,7 +156,7 @@ def test_hmac_hash_smoke():
 def test_verify_hash_smoke():
     """Smoke test for module-level function verify_hash."""
     try:
-        result = verify_hash(data="test_value", expected_hash="test_value")
+        verify_hash(data="test_value", expected_hash="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"verify_hash needs specific input data: {e}")
         return

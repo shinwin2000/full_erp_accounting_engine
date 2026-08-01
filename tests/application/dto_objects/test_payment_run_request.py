@@ -112,21 +112,21 @@ class TestInvoiceSelectionCriteria:
     """Tests for the InvoiceSelectionCriteria value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            vendor_ids=[uuid4()],
-            customer_ids=[uuid4()],
-            due_date_from=datetime.now(UTC),
-            due_date_to=datetime.now(UTC),
-            invoice_date_from=datetime.now(UTC),
-            invoice_date_to=datetime.now(UTC),
-            min_amount=Decimal("100.00"),
-            max_amount=Decimal("100.00"),
-            include_partially_paid=True,
-            include_fully_paid=True,
-            include_overdue=True,
-            priority=PaymentPriority.CRITICAL,
-            specific_invoice_ids=[uuid4()],
-        )
+        return {
+            'vendor_ids': [uuid4()],
+            'customer_ids': [uuid4()],
+            'due_date_from': datetime.now(UTC),
+            'due_date_to': datetime.now(UTC),
+            'invoice_date_from': datetime.now(UTC),
+            'invoice_date_to': datetime.now(UTC),
+            'min_amount': Decimal("100.00"),
+            'max_amount': Decimal("100.00"),
+            'include_partially_paid': True,
+            'include_fully_paid': True,
+            'include_overdue': True,
+            'priority': PaymentPriority.CRITICAL,
+            'specific_invoice_ids': [uuid4()],
+        }
 
     def test_construction_success(self):
         """InvoiceSelectionCriteria can be constructed with valid field values."""
@@ -144,17 +144,17 @@ class TestPaymentInstruction:
     """Tests for the PaymentInstruction value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            invoice_number="test_value",
-            amount_to_pay=Decimal("100.00"),
-            original_amount=Decimal("100.00"),
-            payment_method="test_value",
-            bank_account_from="test_value",
-            bank_account_to="test_value",
-            reference="test_value",
-            notes="test_value",
-        )
+        return {
+            'invoice_id': uuid4(),
+            'invoice_number': "test_value",
+            'amount_to_pay': Decimal("100.00"),
+            'original_amount': Decimal("100.00"),
+            'payment_method': "test_value",
+            'bank_account_from': "test_value",
+            'bank_account_to': "test_value",
+            'reference': "test_value",
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """PaymentInstruction can be constructed with valid field values."""
@@ -172,20 +172,20 @@ class TestCreatePaymentRunRequest:
     """Tests for the CreatePaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_number="test_value",
-            run_type=PaymentRunType.AP_PAYMENT,
-            legal_entity_id=uuid4(),
-            selection_criteria=MagicMock(),
-            payment_method="test_value",
-            payment_date=datetime.now(UTC),
-            schedule=PaymentRunSchedule.IMMEDIATE,
-            bank_account_from="test_value",
-            currency="test_value",
-            created_by="test_value",
-            notes="test_value",
-            idempotency_key="test_value",
-        )
+        return {
+            'run_number': "test_value",
+            'run_type': PaymentRunType.AP_PAYMENT,
+            'legal_entity_id': uuid4(),
+            'selection_criteria': MagicMock(),
+            'payment_method': "test_value",
+            'payment_date': datetime.now(UTC),
+            'schedule': PaymentRunSchedule.IMMEDIATE,
+            'bank_account_from': "test_value",
+            'currency': "test_value",
+            'created_by': "test_value",
+            'notes': "test_value",
+            'idempotency_key': "test_value",
+        }
 
     def test_construction_success(self):
         """CreatePaymentRunRequest can be constructed with valid field values."""
@@ -203,13 +203,13 @@ class TestUpdatePaymentRunRequest:
     """Tests for the UpdatePaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            payment_date=datetime.now(UTC),
-            bank_account_from="test_value",
-            notes="test_value",
-            status=PaymentRunStatus.DRAFT,
-        )
+        return {
+            'run_id': uuid4(),
+            'payment_date': datetime.now(UTC),
+            'bank_account_from': "test_value",
+            'notes': "test_value",
+            'status': PaymentRunStatus.DRAFT,
+        }
 
     def test_construction_success(self):
         """UpdatePaymentRunRequest can be constructed with valid field values."""
@@ -227,12 +227,12 @@ class TestProcessPaymentRunRequest:
     """Tests for the ProcessPaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            processed_by="test_value",
-            instructions=[MagicMock()],
-            force_process=True,
-        )
+        return {
+            'run_id': uuid4(),
+            'processed_by': "test_value",
+            'instructions': [MagicMock()],
+            'force_process': True,
+        }
 
     def test_construction_success(self):
         """ProcessPaymentRunRequest can be constructed with valid field values."""
@@ -250,12 +250,12 @@ class TestApprovePaymentRunRequest:
     """Tests for the ApprovePaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            approved_by="test_value",
-            approval_level=1,
-            notes="test_value",
-        )
+        return {
+            'run_id': uuid4(),
+            'approved_by': "test_value",
+            'approval_level': 1,
+            'notes': "test_value",
+        }
 
     def test_construction_success(self):
         """ApprovePaymentRunRequest can be constructed with valid field values."""
@@ -273,11 +273,11 @@ class TestRejectPaymentRunRequest:
     """Tests for the RejectPaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            rejected_by="test_value",
-            reason="test_value",
-        )
+        return {
+            'run_id': uuid4(),
+            'rejected_by': "test_value",
+            'reason': "test_value",
+        }
 
     def test_construction_success(self):
         """RejectPaymentRunRequest can be constructed with valid field values."""
@@ -295,11 +295,11 @@ class TestCancelPaymentRunRequest:
     """Tests for the CancelPaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            cancelled_by="test_value",
-            reason="test_value",
-        )
+        return {
+            'run_id': uuid4(),
+            'cancelled_by': "test_value",
+            'reason': "test_value",
+        }
 
     def test_construction_success(self):
         """CancelPaymentRunRequest can be constructed with valid field values."""
@@ -317,10 +317,10 @@ class TestGetPaymentRunRequest:
     """Tests for the GetPaymentRunRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            'run_id': uuid4(),
+            'legal_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """GetPaymentRunRequest can be constructed with valid field values."""
@@ -338,16 +338,16 @@ class TestListPaymentRunsRequest:
     """Tests for the ListPaymentRunsRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            run_type=PaymentRunType.AP_PAYMENT,
-            status=PaymentRunStatus.DRAFT,
-            from_date=datetime.now(UTC),
-            to_date=datetime.now(UTC),
-            created_by="test_value",
-            limit=1,
-            offset=1,
-        )
+        return {
+            'legal_entity_id': uuid4(),
+            'run_type': PaymentRunType.AP_PAYMENT,
+            'status': PaymentRunStatus.DRAFT,
+            'from_date': datetime.now(UTC),
+            'to_date': datetime.now(UTC),
+            'created_by': "test_value",
+            'limit': 1,
+            'offset': 1,
+        }
 
     def test_construction_success(self):
         """ListPaymentRunsRequest can be constructed with valid field values."""
@@ -365,10 +365,10 @@ class TestPaymentRunSummaryRequest:
     """Tests for the PaymentRunSummaryRequest value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_id=uuid4(),
-            legal_entity_id=uuid4(),
-        )
+        return {
+            'run_id': uuid4(),
+            'legal_entity_id': uuid4(),
+        }
 
     def test_construction_success(self):
         """PaymentRunSummaryRequest can be constructed with valid field values."""
@@ -403,17 +403,17 @@ class TestPaymentRunResponseDTO:
     """Tests for the PaymentRunResponseDTO value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            id=uuid4(),
-            run_number="test_value",
-            run_date=date.today(),
-            total_amount=Decimal("100.00"),
-            payment_ids=[uuid4()],
-            status=PaymentRunStatusDTO.DRAFT,
-            created_by=uuid4(),
-            created_at=datetime.now(UTC),
-            completed_at=datetime.now(UTC),
-        )
+        return {
+            'id': uuid4(),
+            'run_number': "test_value",
+            'run_date': date.today(),
+            'total_amount': Decimal("100.00"),
+            'payment_ids': [uuid4()],
+            'status': PaymentRunStatusDTO.DRAFT,
+            'created_by': uuid4(),
+            'created_at': datetime.now(UTC),
+            'completed_at': datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """PaymentRunResponseDTO can be constructed with valid field values."""
@@ -445,8 +445,8 @@ class TestPaymentRunRequestFactory:
     def test_create_ap_payment_run_smoke(self):
         """Smoke test for PaymentRunRequestFactory.create_ap_payment_run using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PaymentRunRequestFactory.create_ap_payment_run(run_number="test_value", legal_entity_id=uuid4(), vendor_ids=[uuid4()], due_date_to=datetime.now(UTC), created_by="test_value", payment_date=datetime.now(UTC))
+            self._build_instance()
+            PaymentRunRequestFactory.create_ap_payment_run(run_number="test_value", legal_entity_id=uuid4(), vendor_ids=[uuid4()], due_date_to=datetime.now(UTC), created_by="test_value", payment_date=datetime.now(UTC))
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_ap_payment_run needs specific domain fixtures/data: {e}")
             return
@@ -456,8 +456,8 @@ class TestPaymentRunRequestFactory:
     def test_create_ar_collection_run_smoke(self):
         """Smoke test for PaymentRunRequestFactory.create_ar_collection_run using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = PaymentRunRequestFactory.create_ar_collection_run(run_number="test_value", legal_entity_id=uuid4(), customer_ids=[uuid4()], due_date_to=datetime.now(UTC), created_by="test_value")
+            self._build_instance()
+            PaymentRunRequestFactory.create_ar_collection_run(run_number="test_value", legal_entity_id=uuid4(), customer_ids=[uuid4()], due_date_to=datetime.now(UTC), created_by="test_value")
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_ar_collection_run needs specific domain fixtures/data: {e}")
             return

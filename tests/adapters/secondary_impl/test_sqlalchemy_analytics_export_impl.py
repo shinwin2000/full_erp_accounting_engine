@@ -32,7 +32,7 @@ class TestSQLAlchemyAnalyticsExport:
         """Smoke test for SQLAlchemyAnalyticsExport.create_export_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.create_export_job()
+            await instance.create_export_job()
         except (Exception, SystemExit) as e:
             pytest.skip(f"create_export_job needs specific domain fixtures/data: {e}")
             return
@@ -43,7 +43,7 @@ class TestSQLAlchemyAnalyticsExport:
         """Smoke test for SQLAlchemyAnalyticsExport.execute_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.execute_job(job_id=uuid4())
+            await instance.execute_job(job_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"execute_job needs specific domain fixtures/data: {e}")
             return
@@ -54,7 +54,7 @@ class TestSQLAlchemyAnalyticsExport:
         """Smoke test for SQLAlchemyAnalyticsExport.cancel_job using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.cancel_job(job_id=uuid4())
+            await instance.cancel_job(job_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"cancel_job needs specific domain fixtures/data: {e}")
             return
@@ -65,7 +65,7 @@ class TestSQLAlchemyAnalyticsExport:
         """Smoke test for SQLAlchemyAnalyticsExport.get_job_status using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.get_job_status(job_id=uuid4())
+            await instance.get_job_status(job_id=uuid4())
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_job_status needs specific domain fixtures/data: {e}")
             return

@@ -41,14 +41,14 @@ class TestCommand:
     """Tests for the Command value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            command_id=uuid4(),
-            command_type="test_value",
-            correlation_id="test_value",
-            occurred_at=datetime.now(UTC),
-            user_id=uuid4(),
-            idempotency_key="test_value",
-        )
+        return {
+            "command_id": uuid4(),
+            "command_type": "test_value",
+            "correlation_id": "test_value",
+            "occurred_at": datetime.now(UTC),
+            "user_id": uuid4(),
+            "idempotency_key": "test_value",
+        }
 
     def test_construction_success(self):
         """Command can be constructed with valid field values."""
@@ -66,14 +66,14 @@ class TestPostJournalEntryCommand:
     """Tests for the PostJournalEntryCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            journal_date=date.today(),
-            period="test_value",
-            description="test_value",
-            lines=[{}],
-            source_system="test_value",
-            attachment_ids=[uuid4()],
-        )
+        return {
+            "journal_date": date.today(),
+            "period": "test_value",
+            "description": "test_value",
+            "lines": [{}],
+            "source_system": "test_value",
+            "attachment_ids": [uuid4()],
+        }
 
     def test_construction_success(self):
         """PostJournalEntryCommand can be constructed with valid field values."""
@@ -91,16 +91,16 @@ class TestCreateARInvoiceCommand:
     """Tests for the CreateARInvoiceCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            customer_id=uuid4(),
-            invoice_date=date.today(),
-            due_date=date.today(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            description="test_value",
-            tax_code="test_value",
-            sales_order_id=uuid4(),
-        )
+        return {
+            "customer_id": uuid4(),
+            "invoice_date": date.today(),
+            "due_date": date.today(),
+            "amount": Decimal("100.00"),
+            "currency": "test_value",
+            "description": "test_value",
+            "tax_code": "test_value",
+            "sales_order_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """CreateARInvoiceCommand can be constructed with valid field values."""
@@ -118,14 +118,14 @@ class TestRecordARPaymentCommand:
     """Tests for the RecordARPaymentCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            payment_date=date.today(),
-            amount=Decimal("100.00"),
-            payment_method="test_value",
-            reference_number="test_value",
-            bank_account_id=uuid4(),
-        )
+        return {
+            "invoice_id": uuid4(),
+            "payment_date": date.today(),
+            "amount": Decimal("100.00"),
+            "payment_method": "test_value",
+            "reference_number": "test_value",
+            "bank_account_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """RecordARPaymentCommand can be constructed with valid field values."""
@@ -143,17 +143,17 @@ class TestCreateAPInvoiceCommand:
     """Tests for the CreateAPInvoiceCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            vendor_id=uuid4(),
-            invoice_date=date.today(),
-            due_date=date.today(),
-            amount=Decimal("100.00"),
-            currency="test_value",
-            description="test_value",
-            tax_code="test_value",
-            po_reference="test_value",
-            grn_reference="test_value",
-        )
+        return {
+            "vendor_id": uuid4(),
+            "invoice_date": date.today(),
+            "due_date": date.today(),
+            "amount": Decimal("100.00"),
+            "currency": "test_value",
+            "description": "test_value",
+            "tax_code": "test_value",
+            "po_reference": "test_value",
+            "grn_reference": "test_value",
+        }
 
     def test_construction_success(self):
         """CreateAPInvoiceCommand can be constructed with valid field values."""
@@ -171,14 +171,14 @@ class TestRecordAPPaymentCommand:
     """Tests for the RecordAPPaymentCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            invoice_id=uuid4(),
-            payment_date=date.today(),
-            amount=Decimal("100.00"),
-            payment_method="test_value",
-            reference_number="test_value",
-            bank_account_id=uuid4(),
-        )
+        return {
+            "invoice_id": uuid4(),
+            "payment_date": date.today(),
+            "amount": Decimal("100.00"),
+            "payment_method": "test_value",
+            "reference_number": "test_value",
+            "bank_account_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """RecordAPPaymentCommand can be constructed with valid field values."""
@@ -196,12 +196,12 @@ class TestExecutePaymentRunCommand:
     """Tests for the ExecutePaymentRunCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            run_date=date.today(),
-            invoice_ids=[uuid4()],
-            payment_method="test_value",
-            bank_account_id=uuid4(),
-        )
+        return {
+            "run_date": date.today(),
+            "invoice_ids": [uuid4()],
+            "payment_method": "test_value",
+            "bank_account_id": uuid4(),
+        }
 
     def test_construction_success(self):
         """ExecutePaymentRunCommand can be constructed with valid field values."""
@@ -219,11 +219,11 @@ class TestExecutePeriodCloseCommand:
     """Tests for the ExecutePeriodCloseCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            period_year=1,
-            period_month=1,
-            dry_run=True,
-        )
+        return {
+            "period_year": 1,
+            "period_month": 1,
+            "dry_run": True,
+        }
 
     def test_construction_success(self):
         """ExecutePeriodCloseCommand can be constructed with valid field values."""
@@ -241,13 +241,13 @@ class TestGenerateFinancialStatementCommand:
     """Tests for the GenerateFinancialStatementCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            legal_entity_id=uuid4(),
-            statement_type="test_value",
-            period_start=date.today(),
-            period_end=date.today(),
-            currency_code="test_value",
-        )
+        return {
+            "legal_entity_id": uuid4(),
+            "statement_type": "test_value",
+            "period_start": date.today(),
+            "period_end": date.today(),
+            "currency_code": "test_value",
+        }
 
     def test_construction_success(self):
         """GenerateFinancialStatementCommand can be constructed with valid field values."""
@@ -265,10 +265,10 @@ class TestSubmitCoretaxCommand:
     """Tests for the SubmitCoretaxCommand value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            submission_type="test_value",
-            payload={},
-        )
+        return {
+            "submission_type": "test_value",
+            "payload": {},
+        }
 
     def test_construction_success(self):
         """SubmitCoretaxCommand can be constructed with valid field values."""
@@ -285,7 +285,7 @@ class TestSubmitCoretaxCommand:
 def test_dto_to_post_journal_command_smoke():
     """Smoke test for module-level function dto_to_post_journal_command."""
     try:
-        result = dto_to_post_journal_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_post_journal_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_post_journal_command needs specific input data: {e}")
         return
@@ -295,7 +295,7 @@ def test_dto_to_post_journal_command_smoke():
 def test_dto_to_create_ar_invoice_command_smoke():
     """Smoke test for module-level function dto_to_create_ar_invoice_command."""
     try:
-        result = dto_to_create_ar_invoice_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_create_ar_invoice_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_create_ar_invoice_command needs specific input data: {e}")
         return
@@ -305,7 +305,7 @@ def test_dto_to_create_ar_invoice_command_smoke():
 def test_dto_to_record_ar_payment_command_smoke():
     """Smoke test for module-level function dto_to_record_ar_payment_command."""
     try:
-        result = dto_to_record_ar_payment_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_record_ar_payment_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_record_ar_payment_command needs specific input data: {e}")
         return
@@ -315,7 +315,7 @@ def test_dto_to_record_ar_payment_command_smoke():
 def test_dto_to_create_ap_invoice_command_smoke():
     """Smoke test for module-level function dto_to_create_ap_invoice_command."""
     try:
-        result = dto_to_create_ap_invoice_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_create_ap_invoice_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_create_ap_invoice_command needs specific input data: {e}")
         return
@@ -325,7 +325,7 @@ def test_dto_to_create_ap_invoice_command_smoke():
 def test_dto_to_record_ap_payment_command_smoke():
     """Smoke test for module-level function dto_to_record_ap_payment_command."""
     try:
-        result = dto_to_record_ap_payment_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_record_ap_payment_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_record_ap_payment_command needs specific input data: {e}")
         return
@@ -335,7 +335,7 @@ def test_dto_to_record_ap_payment_command_smoke():
 def test_dto_to_execute_payment_run_command_smoke():
     """Smoke test for module-level function dto_to_execute_payment_run_command."""
     try:
-        result = dto_to_execute_payment_run_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_execute_payment_run_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_execute_payment_run_command needs specific input data: {e}")
         return
@@ -345,7 +345,7 @@ def test_dto_to_execute_payment_run_command_smoke():
 def test_dto_to_execute_period_close_command_smoke():
     """Smoke test for module-level function dto_to_execute_period_close_command."""
     try:
-        result = dto_to_execute_period_close_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_execute_period_close_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_execute_period_close_command needs specific input data: {e}")
         return
@@ -355,7 +355,7 @@ def test_dto_to_execute_period_close_command_smoke():
 def test_dto_to_generate_financial_statement_command_smoke():
     """Smoke test for module-level function dto_to_generate_financial_statement_command."""
     try:
-        result = dto_to_generate_financial_statement_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_generate_financial_statement_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_generate_financial_statement_command needs specific input data: {e}")
         return
@@ -365,7 +365,7 @@ def test_dto_to_generate_financial_statement_command_smoke():
 def test_dto_to_submit_coretax_command_smoke():
     """Smoke test for module-level function dto_to_submit_coretax_command."""
     try:
-        result = dto_to_submit_coretax_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        dto_to_submit_coretax_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"dto_to_submit_coretax_command needs specific input data: {e}")
         return
@@ -375,7 +375,7 @@ def test_dto_to_submit_coretax_command_smoke():
 def test_map_dto_to_command_smoke():
     """Smoke test for module-level function map_dto_to_command."""
     try:
-        result = map_dto_to_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
+        map_dto_to_command(dto=MagicMock(), user_id=uuid4(), correlation_id="test_value")
     except (Exception, SystemExit) as e:
         pytest.skip(f"map_dto_to_command needs specific input data: {e}")
         return

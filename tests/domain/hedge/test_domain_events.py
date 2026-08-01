@@ -45,18 +45,18 @@ class TestDomainEvent:
     """Tests for the DomainEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            event_id=uuid4(),
-            event_type=DomainEventType.HEDGE_DESIGNATED,
-            aggregate_id=uuid4(),
-            aggregate_type="test_value",
-            aggregate_version=1,
-            occurred_at=datetime.now(UTC),
-            event_data={},
-            user_id="test_value",
-            correlation_id="test_value",
-            causation_id="test_value",
-        )
+        return {
+            'event_id': uuid4(),
+            'event_type': DomainEventType.HEDGE_DESIGNATED,
+            'aggregate_id': uuid4(),
+            'aggregate_type': "test_value",
+            'aggregate_version': 1,
+            'occurred_at': datetime.now(UTC),
+            'event_data': {},
+            'user_id': "test_value",
+            'correlation_id': "test_value",
+            'causation_id': "test_value",
+        }
 
     def test_construction_success(self):
         """DomainEvent can be constructed with valid field values."""
@@ -74,8 +74,8 @@ class TestHedgeDesignatedEvent:
     """Tests for the HedgeDesignatedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """HedgeDesignatedEvent can be constructed with valid field values."""
@@ -92,8 +92,8 @@ class TestHedgeDiscontinuedEvent:
     """Tests for the HedgeDiscontinuedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """HedgeDiscontinuedEvent can be constructed with valid field values."""
@@ -110,8 +110,8 @@ class TestHedgeEffectivenessTestedEvent:
     """Tests for the HedgeEffectivenessTestedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """HedgeEffectivenessTestedEvent can be constructed with valid field values."""
@@ -128,8 +128,8 @@ class TestHedgeFairValueAdjustedEvent:
     """Tests for the HedgeFairValueAdjustedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """HedgeFairValueAdjustedEvent can be constructed with valid field values."""
@@ -146,8 +146,8 @@ class TestHedgeAmountReclassifiedEvent:
     """Tests for the HedgeAmountReclassifiedEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """HedgeAmountReclassifiedEvent can be constructed with valid field values."""
@@ -164,8 +164,8 @@ class TestHedgeCancelledEvent:
     """Tests for the HedgeCancelledEvent value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-        )
+        return {
+        }
 
     def test_construction_success(self):
         """HedgeCancelledEvent can be constructed with valid field values."""
@@ -196,8 +196,8 @@ class TestDomainEventPublisher:
     async def test_publish_smoke(self):
         """Smoke test for DomainEventPublisher.publish using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish(event=MagicMock())
+            self._build_instance()
+            await DomainEventPublisher.publish(event=MagicMock())
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish needs specific domain fixtures/data: {e}")
             return
@@ -207,8 +207,8 @@ class TestDomainEventPublisher:
     async def test_publish_many_smoke(self):
         """Smoke test for DomainEventPublisher.publish_many using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = await DomainEventPublisher.publish_many(events=[MagicMock()])
+            self._build_instance()
+            await DomainEventPublisher.publish_many(events=[MagicMock()])
         except (Exception, SystemExit) as e:
             pytest.skip(f"publish_many needs specific domain fixtures/data: {e}")
             return
@@ -218,8 +218,8 @@ class TestDomainEventPublisher:
     def test_get_published_events_smoke(self):
         """Smoke test for DomainEventPublisher.get_published_events using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.get_published_events()
+            self._build_instance()
+            DomainEventPublisher.get_published_events()
         except (Exception, SystemExit) as e:
             pytest.skip(f"get_published_events needs specific domain fixtures/data: {e}")
             return
@@ -229,8 +229,8 @@ class TestDomainEventPublisher:
     def test_clear_smoke(self):
         """Smoke test for DomainEventPublisher.clear using mocked collaborators."""
         try:
-            instance = self._build_instance()
-            result = DomainEventPublisher.clear()
+            self._build_instance()
+            DomainEventPublisher.clear()
         except (Exception, SystemExit) as e:
             pytest.skip(f"clear needs specific domain fixtures/data: {e}")
             return

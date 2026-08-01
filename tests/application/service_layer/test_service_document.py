@@ -58,7 +58,7 @@ def create_document(
 
 
 def create_paginated_result(
-    items: list = None,
+    items: list | None = None,
     total: int = 0,
     page: int = 1,
     page_size: int = 20,

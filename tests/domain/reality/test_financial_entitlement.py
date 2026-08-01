@@ -528,7 +528,7 @@ class TestFinancialEntitlementService:
             description="Overdue",
         )
         # Create not overdue
-        e2 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -575,7 +575,7 @@ class TestFinancialEntitlementService:
         )
         # Create for another customer
         other_customer = uuid4()
-        e3 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -602,7 +602,7 @@ class TestFinancialEntitlementService:
         # 60 days overdue
         due_60 = datetime(2024, 4, 15, 12, 0, 0, tzinfo=UTC)  # 61 days overdue
 
-        e1 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -611,7 +611,7 @@ class TestFinancialEntitlementService:
             due_date=due_future,
             description="Current",
         )
-        e2 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -620,7 +620,7 @@ class TestFinancialEntitlementService:
             due_date=due_30,
             description="30 days overdue",
         )
-        e3 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -662,7 +662,7 @@ class TestFinancialEntitlementService:
             due_date=due,
             description="E1",
         )
-        e2 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -693,7 +693,7 @@ class TestFinancialEntitlementService:
         due_60 = datetime(2024, 4, 20, 12, 0, 0, tzinfo=UTC)   # ~56 days
         due_90 = datetime(2024, 3, 20, 12, 0, 0, tzinfo=UTC)   # ~87 days
 
-        e1 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -702,7 +702,7 @@ class TestFinancialEntitlementService:
             due_date=due_30,
             description="E1",
         )
-        e2 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -711,7 +711,7 @@ class TestFinancialEntitlementService:
             due_date=due_60,
             description="E2",
         )
-        e3 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -761,7 +761,7 @@ class TestFinancialEntitlementService:
         now = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
         due = datetime(2024, 7, 1, 12, 0, 0, tzinfo=UTC)
 
-        e1 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,
@@ -771,7 +771,7 @@ class TestFinancialEntitlementService:
             description="E1",
             risk=CollectionRisk.LOW,
         )
-        e2 = service.create_entitlement(
+        service.create_entitlement(
             entitlement_type=EntitlementType.ACCOUNTS_RECEIVABLE,
             source_event_id=uuid4(),
             legal_entity_id=legal_id,

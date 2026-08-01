@@ -443,7 +443,7 @@ class TestWorkOrderEntityQueries:
             # Better: create a fresh instance with the desired state.
             # Use object.__setattr__ to bypass validation.
         # We'll just use a fresh object and set attributes directly using object.__setattr__
-        new_wo = WorkOrderEntity(
+        WorkOrderEntity(
             work_order_id=uuid4(),
             work_order_number="WO-TEST",
             product_id=uuid4(),

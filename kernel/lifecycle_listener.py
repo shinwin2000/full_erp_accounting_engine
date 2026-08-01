@@ -210,7 +210,7 @@ class BaseLifecycleListener(ABC):
         self,
         event_type: LifecycleEventType,
         source: str = "system",
-        details: dict[str, Any] = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """Emit a lifecycle event (async)."""
         pass
@@ -220,7 +220,7 @@ class BaseLifecycleListener(ABC):
         self,
         event_type: LifecycleEventType,
         source: str = "system",
-        details: dict[str, Any] = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """Emit a lifecycle event (sync)."""
         pass
@@ -326,7 +326,7 @@ class LifecycleListener(BaseLifecycleListener):
             self.register(event_type, callback, priority, name)
 
     async def emit(
-        self, event_type: LifecycleEventType, source: str = "system", details: dict[str, Any] = None
+        self, event_type: LifecycleEventType, source: str = "system", details: dict[str, Any] | None = None
     ) -> None:
         event = LifecycleEvent(
             event_type=event_type,
@@ -372,7 +372,7 @@ class LifecycleListener(BaseLifecycleListener):
         self._record_audit("EMIT", "system", {"event_type": event_type.name})
 
     def emit_sync(
-        self, event_type: LifecycleEventType, source: str = "system", details: dict[str, Any] = None
+        self, event_type: LifecycleEventType, source: str = "system", details: dict[str, Any] | None = None
     ) -> None:
         event = LifecycleEvent(
             event_type=event_type,
@@ -438,7 +438,9 @@ class LifecycleListener(BaseLifecycleListener):
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(self.emit(LifecycleEventType.SHUTTING_DOWN, "signal"))
+                    # Suppress RUF006: we intentionally don't need to keep the task alive
+                    # because the process is shutting down anyway.
+                    _ = asyncio.create_task(self.emit(LifecycleEventType.SHUTTING_DOWN, "signal"))  # noqa: RUF006
                 else:
                     self.emit_sync(LifecycleEventType.SHUTTING_DOWN, "signal")
             except Exception as e:

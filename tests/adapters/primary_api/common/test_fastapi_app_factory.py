@@ -35,7 +35,7 @@ class TestApplicationFactory:
         """Smoke test for ApplicationFactory.initialize using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.initialize()
+            await instance.initialize()
         except (Exception, SystemExit) as e:
             pytest.skip(f"initialize needs specific domain fixtures/data: {e}")
             return
@@ -46,7 +46,7 @@ class TestApplicationFactory:
         """Smoke test for ApplicationFactory.shutdown using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.shutdown()
+            await instance.shutdown()
         except (Exception, SystemExit) as e:
             pytest.skip(f"shutdown needs specific domain fixtures/data: {e}")
             return
@@ -57,7 +57,7 @@ class TestApplicationFactory:
 async def test_create_app_smoke():
     """Smoke test for module-level function create_app."""
     try:
-        result = await create_app(config={})
+        await create_app(config={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"create_app needs specific input data: {e}")
         return
@@ -67,7 +67,7 @@ async def test_create_app_smoke():
 async def test_shutdown_app_smoke():
     """Smoke test for module-level function shutdown_app."""
     try:
-        result = await shutdown_app(container={})
+        await shutdown_app(container={})
     except (Exception, SystemExit) as e:
         pytest.skip(f"shutdown_app needs specific input data: {e}")
         return

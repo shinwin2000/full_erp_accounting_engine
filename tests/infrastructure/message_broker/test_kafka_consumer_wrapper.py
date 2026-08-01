@@ -21,14 +21,14 @@ class TestConsumerMessage:
     """Tests for the ConsumerMessage value object / model."""
 
     def _build_kwargs(self):
-        return dict(
-            topic="test_value",
-            partition=1,
-            offset=1,
-            key="test_value",
-            value=MagicMock(),
-            timestamp=datetime.now(UTC),
-        )
+        return {
+            "topic": "test_value",
+            "partition": 1,
+            "offset": 1,
+            "key": "test_value",
+            "value": MagicMock(),
+            "timestamp": datetime.now(UTC),
+        }
 
     def test_construction_success(self):
         """ConsumerMessage can be constructed with valid field values."""
@@ -61,7 +61,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.start using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.start()
+            await instance.start()
         except (Exception, SystemExit) as e:
             pytest.skip(f"start needs specific domain fixtures/data: {e}")
             return
@@ -72,7 +72,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.subscribe using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.subscribe(topics=["test_value"])
+            await instance.subscribe(topics=["test_value"])
         except (Exception, SystemExit) as e:
             pytest.skip(f"subscribe needs specific domain fixtures/data: {e}")
             return
@@ -83,7 +83,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.poll using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.poll(timeout_ms=1, max_records=1)
+            await instance.poll(timeout_ms=1, max_records=1)
         except (Exception, SystemExit) as e:
             pytest.skip(f"poll needs specific domain fixtures/data: {e}")
             return
@@ -94,7 +94,7 @@ class TestKafkaConsumerWrapper:
         """Smoke test for KafkaConsumerWrapper.commit using mocked collaborators."""
         try:
             instance = self._build_instance()
-            result = await instance.commit()
+            await instance.commit()
         except (Exception, SystemExit) as e:
             pytest.skip(f"commit needs specific domain fixtures/data: {e}")
             return
