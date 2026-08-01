@@ -1215,7 +1215,7 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
 
         # Konversi UserAggregate ke UserEntity
         users = {u.id: self._to_user_entity(u) for u in users_list}
-        roles = {r.id: self._to_role_entity(r) for r in roles_list}
+        roles = {r.role_id: r for r in roles_list}
 
         iam = IAM(
             iam_id=UUID("00000000-0000-0000-0000-000000000001"),
