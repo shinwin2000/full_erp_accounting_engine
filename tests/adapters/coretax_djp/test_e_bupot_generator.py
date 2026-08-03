@@ -569,10 +569,10 @@ class TestEBupotMethods:
 
         # Test with reportlab available (can't easily mock reportlab, but we can test the branch)
         with patch("adapters.coretax_djp.e_bupot_generator.REPORTLAB_AVAILABLE", True):
-            with patch("adapters.coretax_djp.e_bupot_generator.SimpleDocTemplate") as mock_doc:
+            with patch("adapters.coretax_djp.e_bupot_generator.SimpleDocTemplate"):
                 with patch("adapters.coretax_djp.e_bupot_generator.getSampleStyleSheet") as mock_styles:
-                    with patch("adapters.coretax_djp.e_bupot_generator.Paragraph") as mock_para:
-                        with patch("adapters.coretax_djp.e_bupot_generator.Table") as mock_table:
+                    with patch("adapters.coretax_djp.e_bupot_generator.Paragraph"):
+                        with patch("adapters.coretax_djp.e_bupot_generator.Table"):
                             mock_styles.return_value = {"Title": MagicMock()}
                             pdf = sample_bupot._create_pdf()
                             assert isinstance(pdf, bytes)

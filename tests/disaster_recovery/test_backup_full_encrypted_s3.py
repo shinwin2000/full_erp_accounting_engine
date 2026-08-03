@@ -758,7 +758,7 @@ class TestS3EncryptedBackup:
         # Ensure temp files are cleaned up even if exception occurs
         mock_temp_file = MagicMock()
         mock_temp_file.name = "/tmp/dump.dump"
-        with patch("tempfile.NamedTemporaryFile", return_value=mock_temp_file) as mock_temp:
+        with patch("tempfile.NamedTemporaryFile", return_value=mock_temp_file):
             # Simulate exception after creating temp files
             with patch("subprocess.run", side_effect=Exception("subprocess error")):
                 with pytest.raises(BackupError):

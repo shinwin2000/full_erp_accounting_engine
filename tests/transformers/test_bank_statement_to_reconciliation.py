@@ -360,7 +360,7 @@ class TestBankTransactionMatcher:
         matcher = BankTransactionMatcher(amount_tolerance=Decimal("100"))
         stmt_tx = {"amount": Decimal("1000"), "transaction_date": date(2025, 1, 1), "reference": "", "description": ""}
         book_tx = {"amount": Decimal("1050"), "transaction_date": date(2025, 1, 1), "reference_number": "", "description": ""}
-        matched, unmatched_stmt, unmatched_book = await matcher.match_transactions(
+        matched, _unmatched_stmt, _unmatched_book = await matcher.match_transactions(
             [stmt_tx], [book_tx]
         )
         # Within tolerance, should match
@@ -372,7 +372,7 @@ class TestBankTransactionMatcher:
         matcher = BankTransactionMatcher()
         stmt_tx = {"amount": Decimal("1000"), "transaction_date": date(2025, 1, 1), "reference": "", "description": ""}
         book_tx = {"amount": Decimal("1000"), "transaction_date": date(2025, 1, 4), "reference_number": "", "description": ""}
-        matched, unmatched_stmt, unmatched_book = await matcher.match_transactions(
+        matched, _unmatched_stmt, _unmatched_book = await matcher.match_transactions(
             [stmt_tx], [book_tx]
         )
         # 3 days difference => score includes 0.2 for date

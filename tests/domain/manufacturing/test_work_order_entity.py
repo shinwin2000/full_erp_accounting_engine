@@ -430,7 +430,7 @@ class TestWorkOrderEntityQueries:
         ("cancelled", WorkOrderStatus.CANCELLED, Decimal("0"), False),
     ])
     def test_is_completed(self, scenario, sample_work_order):
-        status_name, status, completed_qty, expected = scenario
+        _status_name, status, completed_qty, _expected = scenario
         # Create a work order with given status and completed quantity
         # Use object.__setattr__ to bypass validation for status/quantity combinations
         # that might be invalid (e.g., PARTIALLY_COMPLETED with full qty is valid)

@@ -1,0 +1,20 @@
+{
+  "scores": {
+    "overall": 42.4
+  },
+  "results": [],
+  "sync_issues": [],
+  "business_flows": [
+    {
+      "flow_name": "Create Invoice \u2192 Approve \u2192 Posting",
+      "success": false,
+      "steps_executed": 0,
+      "total_steps": 3,
+      "error_step": null,
+      "error_message": "Cannot ensure entity customer_id, flow aborted.",
+      "duration_ms": 0.0,
+      "context": {},
+      "timestamp": "2026-08-03T01:03:34.596703+00:00"
+    }
+  ]
+}

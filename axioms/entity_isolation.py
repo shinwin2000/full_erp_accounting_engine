@@ -547,9 +547,7 @@ class InterEntityAuthorization:
         check = at_date or datetime.now(UTC)
         if self.revoked:
             return False
-        if self.expires_at and check > self.expires_at:
-            return False
-        return True
+        return not (self.expires_at and check > self.expires_at)
 
     def allows_operation(self, operation: str) -> bool:
         return operation.upper() in [op.upper() for op in self.allowed_operations]
@@ -883,7 +881,8 @@ class EntityIsolationValidator:
     def _notify_constitution(cls, violation: EntityIsolationViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 EntityIsolationViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 EntityIsolationViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 EntityIsolationViolationSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -904,12 +903,8 @@ class EntityIsolationValidator:
 
 
 class EntityIsolationAxiom:
-    _instance: EntityIsolationAxiom | None = None
-    _entities: dict[UUID, LegalEntityDefinition] = {}
-    _authorizations: dict[tuple[UUID, UUID], list[InterEntityAuthorization]] = {}
-    _violation_history: list[EntityIsolationViolation] = []
-    _check_level: EntityIsolationCheckLevel = EntityIsolationCheckLevel.STRICT
-    _lock = threading.Lock()
+    _instance: ClassVar[EntityIsolationAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> EntityIsolationAxiom:
         if cls._instance is None:
@@ -923,10 +918,10 @@ class EntityIsolationAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._entities = {}
-        self._authorizations = {}
-        self._violation_history = []
-        self._check_level = EntityIsolationCheckLevel.STRICT
+        self._entities: dict[UUID, LegalEntityDefinition] = {}
+        self._authorizations: dict[tuple[UUID, UUID], list[InterEntityAuthorization]] = {}
+        self._violation_history: list[EntityIsolationViolation] = []
+        self._check_level: EntityIsolationCheckLevel = EntityIsolationCheckLevel.STRICT
 
     # ==================== REPOSITORY METHODS ====================
     def save_entity(self, entity: LegalEntityDefinition) -> None:
@@ -1104,13 +1099,11 @@ class EntityIsolationAxiom:
             return False
         if ent1.parent_entity_id == entity_id2 or ent2.parent_entity_id == entity_id1:
             return True
-        if (
+        return (
             ent1.consolidation_group
             and ent2.consolidation_group
             and ent1.consolidation_group == ent2.consolidation_group
-        ):
-            return True
-        return False
+        )
 
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:

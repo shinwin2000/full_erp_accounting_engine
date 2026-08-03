@@ -70,11 +70,10 @@ class SanctionListChecker:
             )
 
         # Pencocokan alias (untuk test)
-        if check_aliases:
-            if "USAMAH" in normalized and "BIN LADEN" in normalized:
-                return SanctionCheckResult(
-                    is_matched=True, sanction_reason="UNSC 1267", matched_name="OSAMA BIN LADEN"
-                )
+        if check_aliases and "USAMAH" in normalized and "BIN LADEN" in normalized:
+            return SanctionCheckResult(
+                is_matched=True, sanction_reason="UNSC 1267", matched_name="OSAMA BIN LADEN"
+            )
 
         return SanctionCheckResult(is_matched=False)
 

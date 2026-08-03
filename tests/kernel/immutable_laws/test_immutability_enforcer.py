@@ -714,7 +714,7 @@ class TestImmutabilityEnforcer:
                 created_at=datetime.now(UTC),
             )
             mock_repo.get_by_id.return_value = journal
-            result, violation = enforcer.enforce_immutability(
+            _result, violation = enforcer.enforce_immutability(
                 journal.journal_id, uuid4(), operation="UPDATE", raise_on_violation=False
             )
             assert violation is not None

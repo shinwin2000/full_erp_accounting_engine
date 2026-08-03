@@ -303,7 +303,6 @@ class IntentRecorderAuditLink:
                 data.get("intent_id") == str(intent_id)
                 and event.get("event_type") == "intent.recorded"
             ):
-                original_hash = data.get("intent_hash")
                 # Recompute hash from current data (if we have it)
                 # For verification, we would need current intent data
                 # This is a placeholder; actual implementation would fetch current intent

@@ -142,7 +142,7 @@ class IAS36CashGeneratingUnit:
             cgu_code=self.cgu_code,
             name=self.name,
             cgu_type=self.cgu_type,
-            assets=self.assets + [asset_id],
+            assets=[*self.assets, asset_id],
             goodwill_allocated=self.goodwill_allocated,
             carrying_amount=self.carrying_amount,
             recoverable_amount=self.recoverable_amount,
@@ -377,7 +377,7 @@ __all__ = [
     "IAS36ImpairmentIndicator",
     "IAS36ImpairmentLoss",
     "IAS36ImpairmentService",
-    "IAS36ImpairmentTest",  # alias untuk kompatibilitas
+    "IAS36ImpairmentTest",
     "IAS36RecoverableAmount",
     "IAS36Rules",
     "IAS36ValidationResult",

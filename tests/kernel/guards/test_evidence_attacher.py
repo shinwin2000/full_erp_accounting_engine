@@ -425,7 +425,7 @@ class TestEvidenceAttacherGuard:
         with patch("kernel.guards.evidence_attacher.get_current_user", return_value="user1"):
             with patch("kernel.guards.evidence_attacher.get_current_legal_entity", return_value=uuid4()):
                 with patch.object(enforcer, "verify_evidence", AsyncMock(return_value=MagicMock(spec=Evidence))):
-                    evidence = await enforcer.upload_evidence(
+                    await enforcer.upload_evidence(
                         file_content=b"test",
                         filename="test.txt",
                         mime_type="text/plain",
@@ -574,7 +574,7 @@ class TestEvidenceAttacherGuard:
 
     @pytest.mark.asyncio
     async def test_validate_evidence_no_requirement(self, enforcer):
-        is_valid, error, warnings = await enforcer.validate_evidence("UNKNOWN", [])
+        is_valid, error, _warnings = await enforcer.validate_evidence("UNKNOWN", [])
         assert is_valid is True
         assert error is None
 
@@ -614,7 +614,7 @@ class TestEvidenceAttacherGuard:
             min_evidence_count=1,
         )
         enforcer.register_requirement(req)
-        is_valid, error, warnings = await enforcer.validate_evidence("MANDATORY_REQ", [])
+        is_valid, error, _warnings = await enforcer.validate_evidence("MANDATORY_REQ", [])
         assert is_valid is False
         assert "requires at least 1 evidence" in error
 
@@ -641,7 +641,7 @@ class TestEvidenceAttacherGuard:
             storage_path="path",
         )
         enforcer._evidences[eid] = ev
-        is_valid, error, warnings = await enforcer.validate_evidence("REQ_TYPES", [eid])
+        is_valid, error, _warnings = await enforcer.validate_evidence("REQ_TYPES", [eid])
         assert is_valid is False
         assert "requires evidence of type(s): ['invoice']" in error
 
@@ -668,7 +668,7 @@ class TestEvidenceAttacherGuard:
             verification_status=EvidenceVerificationStatus.PENDING,
         )
         enforcer._evidences[eid] = ev
-        is_valid, error, warnings = await enforcer.validate_evidence("VERIFY_REQ", [eid])
+        is_valid, error, _warnings = await enforcer.validate_evidence("VERIFY_REQ", [eid])
         assert is_valid is False
         assert "not verified" in error
 
@@ -698,7 +698,7 @@ class TestEvidenceAttacherGuard:
         assert is_valid is False
         assert "expired" in error
         # with check_expiry=False
-        is_valid, error, warnings = await enforcer.validate_evidence("EXP_REQ", [eid], check_expiry=False)
+        is_valid, error, _warnings = await enforcer.validate_evidence("EXP_REQ", [eid], check_expiry=False)
         assert is_valid is True
 
     @pytest.mark.asyncio
@@ -709,7 +709,7 @@ class TestEvidenceAttacherGuard:
             amount_threshold=Decimal("1000"),
         )
         enforcer.register_requirement(req)
-        is_valid, error, warnings = await enforcer.validate_evidence(
+        is_valid, error, _warnings = await enforcer.validate_evidence(
             "COND_REQ", [], amount=Decimal("500")
         )
         assert is_valid is True
@@ -724,7 +724,7 @@ class TestEvidenceAttacherGuard:
             amount_threshold=Decimal("1000"),
         )
         enforcer.register_requirement(req)
-        is_valid, error, warnings = await enforcer.validate_evidence(
+        is_valid, error, _warnings = await enforcer.validate_evidence(
             "COND_REQ", [], amount=Decimal("1500")
         )
         assert is_valid is False

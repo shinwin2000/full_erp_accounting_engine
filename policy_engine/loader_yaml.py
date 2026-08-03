@@ -134,10 +134,7 @@ class PolicyFileInfo:
         if not self.path.exists():
             return True
         current_mtime = self.path.stat().st_mtime
-        if current_mtime != self.last_modified:
-            return True
-        # Optional: periksa hash konten
-        return False
+        return current_mtime != self.last_modified
 
     def update(self):
         self.last_modified = self.path.stat().st_mtime
@@ -468,7 +465,7 @@ class PolicyLoader:
             self._policies_by_jurisdiction.clear()
             self._policies_by_domain_jurisdiction.clear()
             # Reload semua file yang tersisa
-            for path, info in remaining_infos.items():
+            for path in remaining_infos:
                 try:
                     self.load_from_file(path, reload_on_change=True)
                 except Exception as e:
@@ -525,8 +522,7 @@ class PolicyLoader:
             "reload_support": self._running,
         }
 
-        # ========================================================================
-
+    # ========================================================================
     # TEST COMPATIBILITY METHODS
     # ========================================================================
 

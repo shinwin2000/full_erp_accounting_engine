@@ -35,7 +35,7 @@ class AuditSamplingEngine:
         materiality: Decimal = Decimal("1000000"),
     ) -> list[Any]:
         """
-        Monetary Unit Sampling (MUS) – PPS sampling.
+        Monetary Unit Sampling (MUS) - PPS sampling.
         """
         if not population:
             return []

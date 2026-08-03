@@ -693,7 +693,7 @@ class TestTraceabilityEnforcer:
             {"transaction_id": "b", "source_type": "SYSTEM", "source_id": "s1", "causation_id": "c"},  # broken
         ]
         with patch.object(enforcer, "get_traceability_chain", AsyncMock(return_value=chain)):
-            is_valid, msg, issues = await enforcer.verify_chain_integrity(uuid4(), uuid4())
+            is_valid, _msg, issues = await enforcer.verify_chain_integrity(uuid4(), uuid4())
             assert is_valid is False
             assert "Chain break" in issues[0]
 
@@ -703,7 +703,7 @@ class TestTraceabilityEnforcer:
             {"transaction_id": "a", "source_type": None, "source_id": None, "causation_id": None},
         ]
         with patch.object(enforcer, "get_traceability_chain", AsyncMock(return_value=chain)):
-            is_valid, msg, issues = await enforcer.verify_chain_integrity(uuid4(), uuid4())
+            is_valid, _msg, issues = await enforcer.verify_chain_integrity(uuid4(), uuid4())
             assert is_valid is False
             assert any("Missing source_type" in i for i in issues)
             assert any("Missing source_id" in i for i in issues)

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 Event Gateway Package
 =====================
 Pusat routing event dari domain ke seluruh sistem.
 """
+
+from __future__ import annotations
 
 from event_gateway.event_dead_letter_queue_manager import DeadLetterQueueManager
 from event_gateway.event_deduplicator_idempotency import EventDeduplicator
@@ -37,7 +37,6 @@ __all__ = [
     "EventEnvelope",
     "EventGate",
     "EventGateError",
-    # exceptions
     "EventGatewayException",
     "EventNormalizer",
     "EventPriority",

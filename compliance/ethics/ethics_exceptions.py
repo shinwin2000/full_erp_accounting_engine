@@ -24,7 +24,7 @@ import logging
 import traceback
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -220,8 +220,8 @@ class WhistleblowerError(EthicsError):
 class EthicsExceptionRegistry:
     """Registry untuk mencatat semua exception yang terjadi (audit trail)."""
 
-    _instance = None
-    _exceptions: list[dict] = []
+    _instance: ClassVar[EthicsExceptionRegistry | None] = None
+    _exceptions: ClassVar[list[dict]] = []
 
     def __new__(cls):
         if cls._instance is None:

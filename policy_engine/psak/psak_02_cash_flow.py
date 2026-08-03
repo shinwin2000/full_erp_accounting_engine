@@ -373,8 +373,9 @@ class PSAK2Validator:
         is_inflow: bool,
         tax_effect: Decimal | None = None,
     ) -> CashFlowStatement:
-        new_items = statement.items + [
-            CashFlowItem(description, amount, activity, is_inflow, tax_effect)
+        new_items = [
+            *statement.items,
+            CashFlowItem(description, amount, activity, is_inflow, tax_effect),
         ]
         return CashFlowStatement(
             statement_id=statement.statement_id,
@@ -425,7 +426,7 @@ class PSAK2Validator:
     def add_non_cash_transaction(
         self, statement: CashFlowStatement, transaction: str
     ) -> CashFlowStatement:
-        new_list = statement.non_cash_transactions + [transaction]
+        new_list = [*statement.non_cash_transactions, transaction]
         return CashFlowStatement(
             statement_id=statement.statement_id,
             entity_id=statement.entity_id,

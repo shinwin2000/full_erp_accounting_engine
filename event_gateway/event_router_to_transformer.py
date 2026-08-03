@@ -14,6 +14,7 @@ Metode yang ditambahkan:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import heapq
 import logging
 import time
@@ -353,10 +354,8 @@ class EventRouter:
                 if not task.done():
                     task.cancel()
             # Tunggu hingga semua task selesai
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.gather(*self._pending_tasks, return_exceptions=True)
-            except asyncio.CancelledError:
-                pass
             self._pending_tasks.clear()
         self._worker_task = None
         self._record_audit("STOP", "system", {})

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ï»¿#!/usr/bin/env python3
 """
 Module: forensic_replayer.py
 Layer: Audit
@@ -27,8 +27,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
-
-import aiofiles  # <-- Tambahan untuk async file I/O
 
 from audit.hash_chain_builder import AuditHashChainBuilder, get_audit_hash_builder
 
@@ -301,7 +299,7 @@ class ForensicReplayer:
         }
 
     # ========================================================================
-    # PERBAIKAN: export_replay menggunakan aiofiles dan asyncio.to_thread
+    # export_replay using asyncio.to_thread for blocking I/O
     # ========================================================================
     async def export_replay(
         self, events: list[dict[str, Any]], filename: str, format: str = "json"
@@ -320,7 +318,6 @@ class ForensicReplayer:
         if format == "json":
             file_path = self._export_dir / f"{filename}.json"
 
-            # JSON serialization bisa blocking untuk data besar, jalankan di thread pool
             def _dump_json():
                 with open(file_path, "w") as f:
                     json.dump(events, f, indent=2, default=str)
@@ -443,7 +440,7 @@ async def get_forensic_replayer() -> ForensicReplayer:
 
 
 # ============================================================================
-# CLI COMMAND — DIPERBAIKI (tanpa unsafe create_task)
+# CLI COMMAND
 # ============================================================================
 
 
@@ -508,19 +505,8 @@ def cli():
             events = await replayer.replay_stream(args.stream, limit=args.limit)
             await replayer.export_replay(events, args.output or "export", args.format)
 
-    # Eksekusi dengan aman, tanpa unsafe create_task
-    try:
-        loop = asyncio.get_running_loop()
-        # Jika ada loop berjalan, kita jalankan di thread terpisah
-        import threading
-        def _run_in_thread():
-            asyncio.run(run())
-        thread = threading.Thread(target=_run_in_thread)
-        thread.start()
-        thread.join()
-    except RuntimeError:
-        # Tidak ada loop aktif, jalankan langsung
-        asyncio.run(run())
+    # Eksekusi CLI dengan aman menggunakan asyncio.run()
+    asyncio.run(run())
 
 
 # ============================================================================

@@ -148,7 +148,7 @@ class IAS37ProvisionsRegister:
             register_id=self.register_id,
             entity_id=self.entity_id,
             reporting_date=self.reporting_date,
-            provisions=self.provisions + [provision],
+            provisions=[*self.provisions, provision],
             contingent_liabilities=self.contingent_liabilities,
             contingent_assets=self.contingent_assets,
         )

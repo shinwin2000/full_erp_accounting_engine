@@ -605,7 +605,7 @@ class TestSubstanceOverFormValidator:
             control_transferred=True,
             effective_ownership="Lessee",
         )
-        is_valid, violation, hint = SubstanceOverFormValidator.validate_lease(
+        is_valid, violation, _hint = SubstanceOverFormValidator.validate_lease(
             legal, economic, uuid.uuid4()
         )
         assert is_valid
@@ -623,7 +623,7 @@ class TestSubstanceOverFormValidator:
             effective_ownership="Lessor",
         )
         with patch("axioms.substance_over_form.SubstanceOverFormValidator._notify_constitution"):
-            is_valid, violation, hint = SubstanceOverFormValidator.validate_lease(
+            is_valid, violation, _hint = SubstanceOverFormValidator.validate_lease(
                 legal, economic, uuid.uuid4()
             )
         assert not is_valid
@@ -642,7 +642,7 @@ class TestSubstanceOverFormValidator:
             control_transferred=False,
             effective_ownership="Lessor",
         )
-        is_valid, violation, hint = SubstanceOverFormValidator.validate_lease(
+        is_valid, violation, _hint = SubstanceOverFormValidator.validate_lease(
             legal, economic, uuid.uuid4()
         )
         assert is_valid
@@ -659,7 +659,7 @@ class TestSubstanceOverFormValidator:
             control_transferred=False,
             effective_ownership="Lessor",
         )
-        is_valid, violation, hint = SubstanceOverFormValidator.validate_lease(
+        is_valid, violation, _hint = SubstanceOverFormValidator.validate_lease(
             legal, economic, uuid.uuid4()
         )
         assert is_valid
@@ -856,7 +856,7 @@ class TestSubstanceOverFormAxiom:
             control_transferred=True,
             effective_ownership="Factor",
         )
-        is_valid, violation = axiom.enforce_factoring(
+        is_valid, _violation = axiom.enforce_factoring(
             transaction_id=uuid.uuid4(),
             legal_form=legal,
             economic_substance=economic,
@@ -898,7 +898,7 @@ class TestSubstanceOverFormAxiom:
             control_transferred=False,
             effective_ownership="consignor",
         )
-        is_valid, violation = axiom.enforce_consignment(
+        is_valid, _violation = axiom.enforce_consignment(
             transaction_id=uuid.uuid4(),
             legal_form=legal,
             economic_substance=economic,
@@ -937,7 +937,7 @@ class TestSubstanceOverFormAxiom:
             transaction_type=SubstanceOverrideType.RELATED_PARTY,
             economic_amount=Decimal("102000"),
         )
-        is_valid, violation = axiom.enforce_related_party(
+        is_valid, _violation = axiom.enforce_related_party(
             transaction_id=uuid.uuid4(),
             legal_form=legal,
             economic_substance=economic,

@@ -367,7 +367,7 @@ class PSAK19IntangibleService:
                 performed_by=performed_by,
                 effective_date=valuation_date,
             )
-            new_history = asset.revaluation_surplus_history + [new_surplus]
+            new_history = [*asset.revaluation_surplus_history, new_surplus]
             new_current_surplus = asset.current_revaluation_surplus + increase
             return PSAK19IntangibleAsset(
                 asset_id=asset.asset_id,
@@ -475,9 +475,11 @@ class PSAK19Rules:
             result.add_error(
                 "Aset tak berwujud dengan masa manfaat terbatas harus memiliki estimasi masa manfaat"
             )
-        if asset.useful_life_type == PSAK19UsefulLifeType.INDEFINITE:
-            if asset.amortization_method != PSAK19AmortizationMethod.STRAIGHT_LINE:
-                result.add_warning("Aset dengan masa manfaat tidak terbatas tidak diamortisasi")
+        if (
+            asset.useful_life_type == PSAK19UsefulLifeType.INDEFINITE
+            and asset.amortization_method != PSAK19AmortizationMethod.STRAIGHT_LINE
+        ):
+            result.add_warning("Aset dengan masa manfaat tidak terbatas tidak diamortisasi")
         return result
 
     @staticmethod
@@ -573,7 +575,7 @@ class PSAK19Validator:
     def add_asset(
         self, register: PSAK19IntangibleRegister, asset: PSAK19IntangibleAsset
     ) -> PSAK19IntangibleRegister:
-        new_assets = register.assets + [asset]
+        new_assets = [*register.assets, asset]
         return PSAK19IntangibleRegister(
             register_id=register.register_id,
             entity_id=register.entity_id,

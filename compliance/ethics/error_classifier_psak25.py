@@ -67,7 +67,7 @@ class ErrorClassification:
         accounting_impact: str = "",
         disclosure_required: bool = True,
         quantitative_threshold_met: bool = False,
-        qualitative_factors: list[str] = None,
+        qualitative_factors: list[str] | None = None,
     ):
         self.error_type = error_type
         self.description = description

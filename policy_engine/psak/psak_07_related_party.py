@@ -318,9 +318,7 @@ class PSAK7RelatedPartyService:
     def requires_disclosure(transaction: RelatedPartyTransaction) -> bool:
         """Semua transaksi dengan pihak berelasi harus diungkapkan, kecuali yang tidak material."""
         # Contoh threshold materialitas sederhana
-        if transaction.amount < Decimal("1000000"):
-            return False
-        return True
+        return transaction.amount >= Decimal("1000000")
 
 
 # ============================================================================
@@ -474,7 +472,7 @@ class PSAK7Validator:
     def add_related_party(
         self, disclosure: RelatedPartyDisclosure, party: RelatedParty
     ) -> RelatedPartyDisclosure:
-        new_parties = disclosure.related_parties + [party]
+        new_parties = [*disclosure.related_parties, party]
         return RelatedPartyDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -492,7 +490,7 @@ class PSAK7Validator:
     def add_transaction(
         self, disclosure: RelatedPartyDisclosure, transaction: RelatedPartyTransaction
     ) -> RelatedPartyDisclosure:
-        new_transactions = disclosure.transactions + [transaction]
+        new_transactions = [*disclosure.transactions, transaction]
         return RelatedPartyDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -510,7 +508,7 @@ class PSAK7Validator:
     def add_compensation(
         self, disclosure: RelatedPartyDisclosure, compensation: KeyManagementCompensation
     ) -> RelatedPartyDisclosure:
-        new_comp = disclosure.key_management_compensation + [compensation]
+        new_comp = [*disclosure.key_management_compensation, compensation]
         return RelatedPartyDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,

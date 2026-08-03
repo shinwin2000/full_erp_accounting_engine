@@ -85,6 +85,11 @@ class LoginWindow(QWidget):
         self.mfa_edit.setMaxLength(6)
         form.addRow("Kode MFA", self.mfa_edit)
 
+        self.legal_entity_edit = QLineEdit()
+        self.legal_entity_edit.setPlaceholderText("Legal Entity ID")
+        self.legal_entity_edit.setText("d4785e85-a647-46dc-8fe2-fc64b5188f37")
+        form.addRow("Legal Entity", self.legal_entity_edit)
+
         card_layout.addLayout(form)
 
         self.error_label = QLabel("")
@@ -123,6 +128,7 @@ class LoginWindow(QWidget):
         username = self.username_edit.text().strip()
         password = self.password_edit.text()
         mfa = self.mfa_edit.text().strip() or None
+        legal_entity_id = self.legal_entity_edit.text().strip() or None
 
         self.error_label.setVisible(False)
         if not username or not password:
@@ -137,6 +143,7 @@ class LoginWindow(QWidget):
             username=username,
             password=password,
             mfa_code=mfa,
+            legal_entity_id=legal_entity_id,
         )
 
     def _on_login_success(self, _data) -> None:

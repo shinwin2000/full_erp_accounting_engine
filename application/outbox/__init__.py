@@ -1,7 +1,3 @@
-# __init__.py - Complete exports for application.outbox package
-
-from __future__ import annotations
-
 """
 Package: application.outbox
 
@@ -24,6 +20,9 @@ Features:
 - Health check endpoints
 - Comprehensive statistics
 """
+
+# __init__.py - Complete exports for application.outbox package
+from __future__ import annotations
 
 # Exceptions
 from application.outbox.outbox_exceptions import (
@@ -67,6 +66,11 @@ from application.outbox.outbox_relay_service import (
 )
 
 __all__ = [
+    # Poller
+    "DatabaseLockPort",
+    "MemoryLockPort",
+    # Relay Service
+    "MessageBrokerPort",
     # Exceptions
     "OutboxCircuitBreakerOpenError",
     "OutboxConfigurationError",
@@ -76,27 +80,22 @@ __all__ = [
     "OutboxIdempotencyError",
     "OutboxInsertError",
     "OutboxLockError",
+    "OutboxPoller",
+    "OutboxPollerConfig",
     "OutboxPollerError",
     "OutboxPollerStoppedError",
     "OutboxPublishError",
     "OutboxPublishFatalError",
     "OutboxPublishRetryableError",
     "OutboxRecordNotFoundError",
+    "OutboxRecordStatus",
+    "OutboxRelayConfig",
     "OutboxRelayError",
+    "OutboxRelayService",
     "OutboxRelayStoppedError",
+    "OutboxRepositoryPort",
     "OutboxStorageError",
     "OutboxUpdateError",
     "OutboxValidationError",
-    # Poller
-    "DatabaseLockPort",
-    "MemoryLockPort",
-    "OutboxPoller",
-    "OutboxPollerConfig",
     "run_outbox_poller_simple",
-    # Relay Service
-    "MessageBrokerPort",
-    "OutboxRecordStatus",
-    "OutboxRelayConfig",
-    "OutboxRelayService",
-    "OutboxRepositoryPort",
 ]

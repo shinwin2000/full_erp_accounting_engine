@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-"""
-Package: application.use_cases
-Layer: Application - Use Cases
-"""
-
 import logging
+import types
 
 # Import semua command, use case, handler
 from application.use_cases.aml_screening_transaction import (
@@ -161,6 +157,11 @@ from application.use_cases.year_end_closing import (
     year_end_closing_handler,
 )
 
+"""
+Package: application.use_cases
+Layer: Application - Use Cases
+"""
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -175,7 +176,6 @@ except ImportError:
     # If handlers.py doesn't exist yet, we define a fallback.
     # In practice, we will create the handlers.py file.
     # For now, we define handlers as a module-like object.
-    import types
     handlers = types.ModuleType("handlers")
     # Populate with the imported items
     handlers.__dict__.update({
@@ -239,102 +239,101 @@ for cmd_cls, handler, use_case_cls in _command_mapping:
         logger.error(f"Failed to register handler for {cmd_cls.__name__}: {e}")
 
 # ============================================================================
-# Export semua symbols
+# Export semua symbols (diurutkan alfabetis)
 # ============================================================================
 
 __all__ = [
     # Commands, Use Cases, Handlers
     "AMLScreeningCommand",
     "AMLScreeningUseCase",
-    "aml_screening_handler",
     "APPaymentRunCommand",
     "APPaymentRunUseCase",
-    "ap_payment_run_handler",
-    "ApproveJournalCommand",
-    "ApproveJournalUseCase",
-    "approve_journal_handler",
     "ARCollectionWorkflowCommand",
     "ARCollectionWorkflowUseCase",
-    "ar_collection_workflow_handler",
+    "ApproveJournalCommand",
+    "ApproveJournalUseCase",
     "BankReconciliationCommand",
     "BankReconciliationUseCase",
-    "bank_reconciliation_handler",
     "BudgetVsActualCommand",
     "BudgetVsActualUseCase",
-    "budget_vs_actual_handler",
     "COGSCalculationCommand",
     "COGSCalculationUseCase",
-    "cogs_calculation_handler",
     "ConsolidationGroupReportCommand",
     "ConsolidationGroupReportUseCase",
-    "consolidation_group_report_handler",
     "CoretaxBulkSubmissionCommand",
     "CoretaxBulkSubmissionUseCase",
-    "coretax_bulk_submission_handler",
     "DepreciationMonthlyRunCommand",
     "DepreciationMonthlyRunUseCase",
-    "depreciation_monthly_run_handler",
     "DisasterRecoveryReplayCommand",
     "DisasterRecoveryReplayUseCase",
-    "disaster_recovery_replay_handler",
     "FinancialStatementGenerationCommand",
     "FinancialStatementGenerationUseCase",
-    "financial_statement_generation_handler",
     "FiscalReconciliationCommand",
     "FiscalReconciliationUseCase",
-    "fiscal_reconciliation_handler",
     "ForexRevaluationCommand",
     "ForexRevaluationUseCase",
-    "forex_revaluation_handler",
-    "HedgeAccountingCommand",
-    "HedgeAccountingUseCase",
-    "hedge_accounting_handler",
     "HPPManufacturingCloseCommand",
     "HPPManufacturingCloseUseCase",
-    "hpp_manufacturing_close_handler",
+    "HedgeAccountingCommand",
+    "HedgeAccountingUseCase",
     "ImpairmentTestingCommand",
     "ImpairmentTestingUseCase",
-    "impairment_testing_handler",
     "IntercompanyEliminationCommand",
     "IntercompanyEliminationUseCase",
-    "intercompany_elimination_handler",
     "PayrollMonthlyRunCommand",
     "PayrollMonthlyRunUseCase",
-    "payroll_monthly_run_handler",
     "PeriodCloseCommand",
     "PeriodCloseUseCase",
-    "period_close_handler",
     "PeriodReopenWithAuditCommand",
     "PeriodReopenWithAuditUseCase",
-    "period_reopen_handler",
     "PostAdjustingJournalCommand",
     "PostAdjustingJournalUseCase",
-    "post_adjusting_journal_handler",
     "PostClosingJournalCommand",
     "PostClosingJournalUseCase",
-    "post_closing_journal_handler",
     "PostJournalEntryCommand",
     "PostJournalEntryUseCase",
-    "post_journal_entry_handler",
     "ReverseJournalCommand",
     "ReverseJournalUseCase",
-    "reverse_journal_handler",
     "StockOpnameCycleCommand",
     "StockOpnameCycleUseCase",
-    "stock_opname_cycle_handler",
     "TaxFilingSubmissionCommand",
     "TaxFilingSubmissionUseCase",
-    "tax_filing_submission_handler",
     "YearEndClosingCommand",
     "YearEndClosingUseCase",
-    "year_end_closing_handler",
+    "aml_screening_handler",
+    "ap_payment_run_handler",
+    "approve_journal_handler",
+    "ar_collection_workflow_handler",
+    "bank_reconciliation_handler",
+    "budget_vs_actual_handler",
+    "cogs_calculation_handler",
+    "consolidation_group_report_handler",
+    "coretax_bulk_submission_handler",
+    "depreciation_monthly_run_handler",
+    "disaster_recovery_replay_handler",
+    "financial_statement_generation_handler",
+    "fiscal_reconciliation_handler",
+    "forex_revaluation_handler",
     # Registry functions
     "get_command_registry",
     "get_query_registry",
+    "get_use_case",
+    "handlers",
+    "hedge_accounting_handler",
+    "hpp_manufacturing_close_handler",
+    "impairment_testing_handler",
+    "intercompany_elimination_handler",
+    "payroll_monthly_run_handler",
+    "period_close_handler",
+    "period_reopen_handler",
+    "post_adjusting_journal_handler",
+    "post_closing_journal_handler",
+    "post_journal_entry_handler",
     "register_command_handler",
     "register_query_handler",
+    "reverse_journal_handler",
     "set_use_case_container",
-    "get_use_case",
-    # Handlers module (for test compatibility)
-    "handlers",
+    "stock_opname_cycle_handler",
+    "tax_filing_submission_handler",
+    "year_end_closing_handler",
 ]

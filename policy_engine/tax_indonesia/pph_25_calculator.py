@@ -310,7 +310,7 @@ class PPh25Calculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         # Mengembalikan tarif 0 (tidak relevan untuk PPh 25)
         return Decimal(0)
 

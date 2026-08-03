@@ -268,15 +268,15 @@ class JurisdictionDefinition:
             return False, ["One or both jurisdictions not recognized"]
 
         # Rule: Data pribadi ke luar negeri memerlukan kepatuhan khusus
-        if data_type == "personal_data" and from_code == "ID":
-            if to_code not in ["SG", "US"]:  # contoh restricted
-                warnings.append(
-                    f"Transfer of personal data from {from_code} to {to_code} may require special approval (UU PDP)"
-                )
+        if data_type == "personal_data" and from_code == "ID" and to_code not in ["SG", "US"]:
+            warnings.append(
+                f"Transfer of personal data from {from_code} to {to_code} may require special approval (UU PDP)"
+            )
+
         # Rule: Financial transaction ke negara non-treaty
-        if data_type == "financial_transaction":
-            if not to_jur.is_treaty_member:
-                warnings.append("Tax treaty may not apply, withholding tax at higher rate")
+        if data_type == "financial_transaction" and not to_jur.is_treaty_member:
+            warnings.append("Tax treaty may not apply, withholding tax at higher rate")
+
         # Jika tidak ada larangan eksplisit, dianggap diizinkan dengan catatan
         return True, warnings
 

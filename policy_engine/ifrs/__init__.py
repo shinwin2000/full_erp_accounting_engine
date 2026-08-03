@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 Package: policy_engine.ifrs
 Responsibility: Implementasi standar IFRS (International Financial Reporting Standards)
                yang diadopsi penuh. Setiap modul menyediakan validator dan aturan
                untuk standar tertentu, identik dengan PSAK yang setara.
 """
+from __future__ import annotations
 
 from .ias_01_presentation import (
     IAS1PresentationStandard,
@@ -79,59 +78,45 @@ from .ifrs_for_smes import (
 )
 
 __all__ = [
-    # IAS 1
     "IAS1PresentationStandard",
     "IAS1Validator",
-    "get_ias1_validator",
-    # IAS 2
     "IAS2InventoryMeasurement",
     "IAS2Validator",
-    "get_ias2_validator",
-    # IAS 12
     "IAS12TaxBase",
     "IAS12Validator",
-    "get_ias12_validator",
-    # IAS 16
     "IAS16PPEMeasurement",
     "IAS16Validator",
-    "get_ias16_validator",
-    # IAS 19
     "IAS19BenefitType",
     "IAS19Validator",
-    "get_ias19_validator",
-    # IAS 21
     "IAS21FunctionalCurrency",
     "IAS21Validator",
-    "get_ias21_validator",
-    # IAS 36
     "IAS36ImpairmentTest",
     "IAS36Validator",
-    "get_ias36_validator",
-    # IAS 37
     "IAS37ProvisionType",
     "IAS37Validator",
-    "get_ias37_validator",
-    # IFRS 9
     "IFRS9Validator",
-    "get_ifrs9_validator",
-    # IFRS 10
     "IFRS10ControlAssessment",
     "IFRS10Validator",
-    "get_ifrs10_validator",
-    # IFRS 15
     "IFRS15Validator",
-    "get_ifrs15_validator",
-    # IFRS 16
     "IFRS16Validator",
-    "get_ifrs16_validator",
-    # IFRS for SMEs
-    "IFRSForSMESection",
-    "IFRSForSMESValidator",
-    "get_ifrs_for_smes_validator",
-    # Aggregator
-    "IFRSStandard",
+    "IFRSAggregator",
     "IFRSComplianceLevel",
     "IFRSComplianceReport",
-    "IFRSAggregator",
+    "IFRSForSMESValidator",
+    "IFRSForSMESection",
+    "IFRSStandard",
+    "get_ias1_validator",
+    "get_ias2_validator",
+    "get_ias12_validator",
+    "get_ias16_validator",
+    "get_ias19_validator",
+    "get_ias21_validator",
+    "get_ias36_validator",
+    "get_ias37_validator",
+    "get_ifrs9_validator",
+    "get_ifrs10_validator",
+    "get_ifrs15_validator",
+    "get_ifrs16_validator",
     "get_ifrs_aggregator",
+    "get_ifrs_for_smes_validator",
 ]

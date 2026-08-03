@@ -4,13 +4,15 @@ create_admin_fresh.py - Hapus user admin lama dan buat baru dengan hash bcrypt y
 """
 
 import asyncio
+import json
 import os
 import uuid
-import json
-import bcrypt
 from datetime import datetime
+
+import bcrypt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
 
 async def main():
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:palapapls88@localhost/erp_db")

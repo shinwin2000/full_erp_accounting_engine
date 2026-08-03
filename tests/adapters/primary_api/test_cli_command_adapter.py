@@ -318,7 +318,7 @@ def test_period_close_success(runner, mock_buses, mock_auth):
 # generate_report command
 # ----------------------------------------------------------------------------
 def test_generate_report_success(runner, mock_buses, mock_auth, tmp_path):
-    mock_cmd, mock_query = mock_buses
+    _mock_cmd, mock_query = mock_buses
     mock_query.dispatch.return_value = {"success": True, "file_path": str(tmp_path / "report.pdf")}
 
     output_file = tmp_path / "report.pdf"
@@ -397,7 +397,7 @@ def test_reconcile_bank_success(runner, mock_buses, mock_auth, tmp_path):
 # show_trial_balance command
 # ----------------------------------------------------------------------------
 def test_show_trial_balance_success(runner, mock_buses, mock_auth):
-    mock_cmd, mock_query = mock_buses
+    _mock_cmd, mock_query = mock_buses
     mock_query.dispatch.return_value = {
         "success": True,
         "lines": [
@@ -451,7 +451,7 @@ def test_check_integrity_failure(runner, mock_buses, mock_auth):
 # export_audit_log command
 # ----------------------------------------------------------------------------
 def test_export_audit_log_success(runner, mock_buses, mock_auth, tmp_path):
-    mock_cmd, mock_query = mock_buses
+    _mock_cmd, mock_query = mock_buses
     mock_query.dispatch.return_value = {"success": True, "data": [{"event": "test"}]}
 
     out_file = tmp_path / "audit.json"

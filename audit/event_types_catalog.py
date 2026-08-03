@@ -14,7 +14,7 @@ Audit: Katalog event type digunakan untuk standardisasi audit event.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 # ============================================================================
 # AUDIT EVENT TYPES
@@ -136,7 +136,7 @@ class AuditSeverity(str, Enum):
 class EventMetadataSchema:
     """Schema untuk metadata setiap event type."""
 
-    SCHEMAS: dict[str, dict[str, Any]] = {
+    SCHEMAS: ClassVar[dict[str, dict[str, Any]]] = {
         AuditEventType.AUTH_LOGIN_SUCCESS: {
             "required_fields": ["username", "ip_address"],
             "recommended_fields": ["user_agent", "method"],
@@ -196,7 +196,7 @@ class EventTypeCatalog:
     - Mendapatkan deskripsi event type
     """
 
-    _descriptions: dict[str, str] = {
+    _descriptions: ClassVar[dict[str, str]] = {
         AuditEventType.AUTH_LOGIN_SUCCESS: "User login successful",
         AuditEventType.AUTH_LOGIN_FAILURE: "User login failed",
         AuditEventType.AUTH_LOGOUT: "User logged out",
@@ -214,7 +214,7 @@ class EventTypeCatalog:
         AuditEventType.COMPLIANCE_AUDIT: "Compliance audit event",
     }
 
-    _default_severity: dict[str, str] = {
+    _default_severity: ClassVar[dict[str, str]] = {
         AuditEventType.AUTH_LOGIN_SUCCESS: AuditSeverity.INFO,
         AuditEventType.AUTH_LOGIN_FAILURE: AuditSeverity.WARNING,
         AuditEventType.DATA_DELETE: AuditSeverity.WARNING,

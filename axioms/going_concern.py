@@ -782,7 +782,8 @@ class GoingConcernValidator:
     def _notify_constitution(cls, violation: GoingConcernViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 GoingConcernSeverity.CRITICAL: ConstitutionalSeverity.CRITICAL,
                 GoingConcernSeverity.HIGH: ConstitutionalSeverity.HIGH,
                 GoingConcernSeverity.MEDIUM: ConstitutionalSeverity.MEDIUM,
@@ -802,12 +803,8 @@ class GoingConcernValidator:
 
 
 class GoingConcernAxiom:
-    _instance: GoingConcernAxiom | None = None
-    _assessments: dict[UUID, GoingConcernAssessment] = {}
-    _assessment_history: list[GoingConcernAssessment] = []
-    _events: list[GoingConcernEvent] = []
-    _violations: list[GoingConcernViolation] = []
-    _lock = threading.Lock()
+    _instance: ClassVar[GoingConcernAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> GoingConcernAxiom:
         if cls._instance is None:
@@ -821,10 +818,10 @@ class GoingConcernAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._assessments = {}
-        self._assessment_history = []
-        self._events = []
-        self._violations = []
+        self._assessments: dict[UUID, GoingConcernAssessment] = {}
+        self._assessment_history: list[GoingConcernAssessment] = []
+        self._events: list[GoingConcernEvent] = []
+        self._violations: list[GoingConcernViolation] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_assessment(self, assessment: GoingConcernAssessment) -> None:
@@ -1011,7 +1008,7 @@ class GoingConcernAxiom:
         raise_on_violation: bool = True,
     ) -> tuple[bool, GoingConcernViolation | None]:
         latest = self.get_assessment(legal_entity_id)
-        is_timely, violation, hint = GoingConcernValidator.validate_assessment_timeliness(
+        _, violation, _ = GoingConcernValidator.validate_assessment_timeliness(
             legal_entity_id, latest
         )
         if violation:
@@ -1037,21 +1034,22 @@ class GoingConcernAxiom:
                         violation.message, legal_entity_id, violation.severity, False
                     )
                 return False, violation
-        if transaction_type in ("MAJOR_ASSET_ACQUISITION", "NEW_LOAN", "DIVESTITURE"):
-            if not latest or latest.is_expired():
-                violation = GoingConcernValidator._create_violation(
-                    legal_entity_id,
-                    "STALE_ASSESSMENT_FOR_MAJOR_TRANSACTION",
-                    GoingConcernSeverity.HIGH,
-                    f"Major transaction {transaction_type} requires current assessment",
-                    "axiom",
+        if transaction_type in ("MAJOR_ASSET_ACQUISITION", "NEW_LOAN", "DIVESTITURE") and (
+            not latest or latest.is_expired()
+        ):
+            violation = GoingConcernValidator._create_violation(
+                legal_entity_id,
+                "STALE_ASSESSMENT_FOR_MAJOR_TRANSACTION",
+                GoingConcernSeverity.HIGH,
+                f"Major transaction {transaction_type} requires current assessment",
+                "axiom",
+            )
+            self.save_violation(violation)
+            if raise_on_violation:
+                raise GoingConcernViolationError(
+                    violation.message, legal_entity_id, violation.severity, True
                 )
-                self.save_violation(violation)
-                if raise_on_violation:
-                    raise GoingConcernViolationError(
-                        violation.message, legal_entity_id, violation.severity, True
-                    )
-                return False, violation
+            return False, violation
         return True, None
 
     def get_statistics(self) -> dict[str, Any]:

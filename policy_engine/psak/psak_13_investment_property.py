@@ -245,15 +245,11 @@ class PSAK13InvestmentPropertyService:
         justification: str,
     ) -> bool:
         """Perubahan model hanya diperbolehkan jika menghasilkan penyajian yang lebih relevan."""
-        if current_model == new_model:
-            return False
-        if (
+        # Dari cost ke fair value diperbolehkan; dari fair value ke cost tidak
+        return current_model != new_model and (
             current_model == PSAK13MeasurementModel.COST
             and new_model == PSAK13MeasurementModel.FAIR_VALUE
-        ):
-            return True  # Selalu diperbolehkan (tidak dapat kembali ke cost model)
-        # Dari fair value ke cost tidak diperbolehkan
-        return False
+        )
 
 
 # ============================================================================
@@ -364,7 +360,7 @@ class PSAK13Validator:
     def add_property(
         self, register: PSAK13InvestmentPropertyRegister, prop: PSAK13InvestmentProperty
     ) -> PSAK13InvestmentPropertyRegister:
-        new_props = register.properties + [prop]
+        new_props = [*register.properties, prop]
         return PSAK13InvestmentPropertyRegister(
             register_id=register.register_id,
             entity_id=register.entity_id,

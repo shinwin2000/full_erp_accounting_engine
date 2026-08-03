@@ -300,7 +300,7 @@ class PSAK26BorrowingCostService:
             total_days = 365
         for i in range(1, len(expenditures)):
             prev_date, prev_amt = expenditures[i - 1]
-            cur_date, cur_amt = expenditures[i]
+            cur_date, _ = expenditures[i]
             days = (cur_date - prev_date).days
             total_weighted += prev_amt * Decimal(days)
         # Tambahkan pengeluaran terakhir sampai akhir periode (asumsikan sisa)
@@ -401,7 +401,7 @@ class PSAK26Validator:
     def link_specific_borrowing(
         self, asset: PSAK26QualifyingAsset, borrowing_id: UUID
     ) -> PSAK26QualifyingAsset:
-        new_list = asset.specific_borrowings + [borrowing_id]
+        new_list = [*asset.specific_borrowings, borrowing_id]
         return PSAK26QualifyingAsset(
             asset_id=asset.asset_id,
             asset_name=asset.asset_name,

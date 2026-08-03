@@ -165,7 +165,7 @@ class AuditStatisticalSampling:
 
         # Sample size formula (infinite population)
         sample_size_infinite = (z**2 * p * (1 - p)) / (d**2)
-        sample_size = int(math.ceil(sample_size_infinite))
+        sample_size = math.ceil(sample_size_infinite)
 
         # Finite population correction
         if (
@@ -173,7 +173,7 @@ class AuditStatisticalSampling:
             and sample_size > 0
             and population_size < DEFAULT_POPULATION_SIZE_FOR_INFINITE
         ):
-            sample_size = int(math.ceil(sample_size / (1 + (sample_size - 1) / population_size)))
+            sample_size = math.ceil(sample_size / (1 + (sample_size - 1) / population_size))
 
         self._sampling_params = {
             "population_size": population_size,
@@ -233,7 +233,7 @@ class AuditStatisticalSampling:
             raise SamplingError("Tolerable misstatement must exceed expected misstatement")
 
         # Convert to float only for ceil (then back to int)
-        sample_size = int(math.ceil(float(sample_size_numerator / sample_size_denominator)))
+        sample_size = math.ceil(float(sample_size_numerator / sample_size_denominator))
 
         self._sampling_params = {
             "population_value": str(population_value),
@@ -340,10 +340,10 @@ class AuditStatisticalSampling:
         for stratum in strata:
             stratum_size = len(stratum["items"])
             if allocation_method == "proportional":
-                allocated = int(round(sample_size * stratum_size / total_population))
+                allocated = round(sample_size * stratum_size / total_population)
             else:  # optimal - alokasi lebih besar ke stratum dengan variansi tinggi
                 weight = stratum.get("weight", 1.0)
-                allocated = int(round(sample_size * weight * stratum_size / total_population))
+                allocated = round(sample_size * weight * stratum_size / total_population)
             allocation[stratum["name"]] = max(1, allocated) if stratum_size > 0 else 0
 
         # Adjust for rounding
@@ -483,7 +483,7 @@ class AuditStatisticalSampling:
         elif confidence_level == 99:
             z = Decimal(SamplingConfidenceLevel.CONFIDENCE_99)
         else:
-            z = Decimal(1.96)
+            z = Decimal('1.96')
 
         # Margin of error (semua Decimal)
         margin = z * std_error * Decimal(population_size) / Decimal(sample_size)
@@ -554,7 +554,7 @@ class AuditStatisticalSampling:
         projected_error = avg_tainting * population_value
 
         # Basic precision (reliability factor at 95% confidence = 3.0)
-        reliability_factor = Decimal(3.0)
+        reliability_factor = Decimal('3.0')
         sampling_interval = population_value / Decimal(sample_size)
         basic_precision = reliability_factor * sampling_interval
 

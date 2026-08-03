@@ -13,7 +13,6 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Import domain
 from domain.fiscal_period.aggregate_root import FiscalPeriod
 from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 from ports.primary.fiscal_period_repository_port import FiscalPeriodRepositoryPort
@@ -68,7 +67,7 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
             reopen_reason=period.reopen_reason,
         )
 
-    # ---- Port methods ----
+    # ---- Core methods ----
     async def save(self, fiscal_period: FiscalPeriod) -> None:
         session = await self._get_session()
         table = self._from_domain(fiscal_period)
@@ -86,9 +85,7 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
         stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
         result = await session.execute(stmt)
         table = result.scalar_one_or_none()
-        if table is None:
-            return None
-        return self._to_domain(table)
+        return self._to_domain(table) if table else None
 
     async def find_by_date(self, target_date: date) -> FiscalPeriod | None:
         legal_entity_id = self._get_legal_entity_id()
@@ -100,9 +97,7 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
         )
         result = await session.execute(stmt)
         table = result.scalar_one_or_none()
-        if table is None:
-            return None
-        return self._to_domain(table)
+        return self._to_domain(table) if table else None
 
     async def find_active_period(self) -> FiscalPeriod | None:
         legal_entity_id = self._get_legal_entity_id()
@@ -118,9 +113,7 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
         )
         result = await session.execute(stmt)
         table = result.scalar_one_or_none()
-        if table is None:
-            return None
-        return self._to_domain(table)
+        return self._to_domain(table) if table else None
 
     async def find_all_ordered(self) -> list[FiscalPeriod]:
         legal_entity_id = self._get_legal_entity_id()
@@ -133,11 +126,48 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
         return [self._to_domain(t) for t in tables]
 
     async def is_period_locked_for_module(self, target_date: date, module_name: str) -> bool:
-        """Cek apakah periode pada tanggal tersebut terkunci untuk modul tertentu."""
         # Stub: selalu False karena belum implementasi lock per modul
         return False
 
-    # ---- Internal methods (for backward compatibility) ----
+    # ---- Additional methods for service ----
+    async def list_by_legal_entity(
+        self,
+        legal_entity_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+        from_year: int | None = None,
+        to_year: int | None = None,
+    ) -> list[FiscalPeriod]:
+        session = await self._get_session()
+        stmt = select(FiscalPeriodTable).where(
+            FiscalPeriodTable.legal_entity_id == legal_entity_id
+        )
+        if from_year is not None:
+            stmt = stmt.where(FiscalPeriodTable.fiscal_year >= from_year)
+        if to_year is not None:
+            stmt = stmt.where(FiscalPeriodTable.fiscal_year <= to_year)
+        stmt = stmt.order_by(FiscalPeriodTable.period_number).offset(offset).limit(limit)
+        result = await session.execute(stmt)
+        tables = result.scalars().all()
+        return [self._to_domain(t) for t in tables]
+
+    async def list_by_fiscal_year(
+        self, legal_entity_id: UUID, fiscal_year: int
+    ) -> list[FiscalPeriod]:
+        session = await self._get_session()
+        stmt = (
+            select(FiscalPeriodTable)
+            .where(
+                FiscalPeriodTable.legal_entity_id == legal_entity_id,
+                FiscalPeriodTable.fiscal_year == fiscal_year,
+            )
+            .order_by(FiscalPeriodTable.period_number)
+        )
+        result = await session.execute(stmt)
+        tables = result.scalars().all()
+        return [self._to_domain(t) for t in tables]
+
+    # ---- Legacy internal methods (for backward compatibility) ----
     async def get_by_fiscal_year(
         self, fiscal_year: int, legal_entity_id: UUID | None = None
     ) -> list[FiscalPeriodTable]:

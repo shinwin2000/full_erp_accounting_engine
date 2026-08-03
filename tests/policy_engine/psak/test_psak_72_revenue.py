@@ -946,7 +946,7 @@ class TestValidator:
         assert allocation[ob1_id] + allocation[ob2_id] == Decimal("525000000")
 
     def test_allocate_prices_residual_method(self, validator, sample_contract_with_obs):
-        contract, allocation = validator.allocate_prices(
+        contract, _allocation = validator.allocate_prices(
             sample_contract_with_obs,
             method=PSAK72TransactionPriceAllocationMethod.RESIDUAL_APPROACH
         )

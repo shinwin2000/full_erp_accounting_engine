@@ -12,9 +12,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, AsyncGenerator
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status

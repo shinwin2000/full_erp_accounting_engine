@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ class BeaMeteraiCalculator:
     STANDARD_RATE = Decimal("10000")  # Rp10.000
 
     # Dokumen yang dibebaskan (exempt)
-    EXEMPT_DOCUMENT_TYPES = [
+    EXEMPT_DOCUMENT_TYPES: ClassVar[list[BeaMeteraiType]] = [
         BeaMeteraiType.RECEIPT,  # Kecuali > Rp1.000.000
         BeaMeteraiType.BANK_STATEMENT,  # Untuk nasabah tertentu
     ]
@@ -136,7 +136,7 @@ class BeaMeteraiCalculator:
     RECEIPT_THRESHOLD = Decimal("1000000")
 
     # Multiplier untuk dokumen dalam jumlah banyak (misal saham)
-    MULTIPLIER_TYPES = {
+    MULTIPLIER_TYPES: ClassVar[dict[BeaMeteraiType, int]] = {
         BeaMeteraiType.SHARE_CERTIFICATE: 1,  # per sertifikat
         BeaMeteraiType.AGREEMENT: 1,  # per dokumen
     }
@@ -163,9 +163,11 @@ class BeaMeteraiCalculator:
 
     def is_exempt(self, document: BeaMeteraiDocument) -> bool:
         """Memeriksa apakah dokumen dibebaskan dari Bea Meterai."""
-        if document.document_type == BeaMeteraiType.RECEIPT:
-            if document.amount_mentioned <= self.RECEIPT_THRESHOLD:
-                return True
+        if (
+            document.document_type == BeaMeteraiType.RECEIPT
+            and document.amount_mentioned <= self.RECEIPT_THRESHOLD
+        ):
+            return True
         if document.document_type == BeaMeteraiType.BANK_STATEMENT:
             # Asumsi: bank statement untuk nasabah perorangan dibebaskan
             return True
@@ -279,7 +281,7 @@ class BeaMeteraiCalculator:
         """Validasi data input untuk Bea Meterai."""
         return True  # stub
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         """Mengembalikan tarif Bea Meterai yang berlaku."""
         return self._rate
 

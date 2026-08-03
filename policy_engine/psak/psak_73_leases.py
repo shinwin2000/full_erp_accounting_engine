@@ -477,7 +477,6 @@ class PSAK73Validator:
         contract: PSAK73LeaseContract,
         payment_date: datetime,
     ) -> tuple[PSAK73LeaseLiability, Decimal, Decimal]:
-        is_advance = contract.payment_timing == PSAK73PaymentTiming.IN_ADVANCE
         interest, principal = self._service.allocate_lease_payment(
             liability.outstanding_balance,
             contract.payments[0].amount,  # assuming constant annual payment
@@ -571,8 +570,10 @@ class PSAK73Validator:
             payment_timing=contract.payment_timing,
             short_term_exemption=contract.short_term_exemption,
             low_value_exemption=contract.low_value_exemption,
-            modification_history=contract.modification_history
-            + [{"date": effective_date.isoformat(), "type": modification_type.value}],
+            modification_history=[
+                *contract.modification_history,
+                {"date": effective_date.isoformat(), "type": modification_type.value},
+            ],
         )
         modification = PSAK73LeaseModification(
             modification_id=uuid4(),

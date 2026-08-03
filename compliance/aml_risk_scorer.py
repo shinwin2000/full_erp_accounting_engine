@@ -540,7 +540,7 @@ class AMLRiskScorer:
     # EDD (Enhanced Due Diligence)
     # ------------------------------------------------------------------------
     def evaluate_edd_requirement(
-        self, customer: CustomerProfile, score: int, amount: Decimal = None
+        self, customer: CustomerProfile, score: int, amount: Decimal | None = None
     ) -> bool:
         """Tentukan apakah EDD diperlukan."""
         if amount is None:
@@ -552,9 +552,7 @@ class AMLRiskScorer:
         if customer.previous_str_count >= 2:
             return True
         # New customer with large amount triggers EDD
-        if customer.age_in_years() < 1 and amount >= Decimal("500000000"):
-            return True
-        return False
+        return customer.age_in_years() < 1 and amount >= Decimal("500000000")
 
     def start_edd(self, customer_id: UUID, initiated_by: UUID) -> dict:
         """Mulai proses Enhanced Due Diligence."""

@@ -703,7 +703,7 @@ class TestAuditTrailWriter:
                     changed_by="tester",
                 )
                 mock_thread.assert_called_once()
-                args, kwargs = mock_thread.call_args
+                _args, kwargs = mock_thread.call_args
                 assert kwargs.get("daemon") is True
 
 

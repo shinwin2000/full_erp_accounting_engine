@@ -968,7 +968,8 @@ class PeriodBoundValidator:
     def _notify_constitution(cls, violation: PeriodBoundViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 PeriodBoundViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 PeriodBoundViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 PeriodBoundViolationSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -990,11 +991,8 @@ class PeriodBoundValidator:
 
 
 class PeriodBoundAxiom:
-    _instance: PeriodBoundAxiom | None = None
-    _fiscal_years: dict[UUID, FiscalYearDefinition] = {}
-    _periods: dict[UUID, AccountingPeriod] = {}
-    _violation_history: list[PeriodBoundViolation] = []
-    _lock = threading.Lock()
+    _instance: ClassVar[PeriodBoundAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> PeriodBoundAxiom:
         if cls._instance is None:
@@ -1008,9 +1006,9 @@ class PeriodBoundAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._fiscal_years = {}
-        self._periods = {}
-        self._violation_history = []
+        self._fiscal_years: dict[UUID, FiscalYearDefinition] = {}
+        self._periods: dict[UUID, AccountingPeriod] = {}
+        self._violation_history: list[PeriodBoundViolation] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_fiscal_year(self, fiscal_year: FiscalYearDefinition) -> None:
@@ -1119,7 +1117,7 @@ class PeriodBoundAxiom:
             fy = self._fiscal_years.get(fiscal_year_id)
             if not fy:
                 raise PeriodBoundError(f"Fiscal year {fiscal_year_id} not found")
-            new_periods = fy.periods + [period]
+            new_periods = [*fy.periods, period]
             new_fy = fy.update("system", periods=new_periods)
             self._fiscal_years[fiscal_year_id] = new_fy
             self._periods[period.period_id] = period
@@ -1234,7 +1232,7 @@ class PeriodBoundAxiom:
                     violation.severity,
                 )
             return False, violation, None
-        is_valid, violation, hint = PeriodBoundValidator.validate_transaction_period(
+        is_valid, violation, _ = PeriodBoundValidator.validate_transaction_period(
             transaction_date,
             target_period,
             transaction_id,

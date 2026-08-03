@@ -7,6 +7,8 @@ Responsibility: Menerapkan pemisahan tugas (Segregation of Duties) sesuai SOX.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 
 class SodEnforcer:
     """
@@ -15,7 +17,7 @@ class SodEnforcer:
     """
 
     # Daftar konflik tugas (role yang tidak boleh dimiliki oleh user yang sama)
-    CONFLICTING_ACTIONS: dict[str, set[str]] = {
+    CONFLICTING_ACTIONS: ClassVar[dict[str, set[str]]] = {
         "journal.create": {"journal.approve", "journal.post"},
         "journal.approve": {"journal.create", "journal.post"},
         "journal.post": {"journal.create", "journal.approve"},

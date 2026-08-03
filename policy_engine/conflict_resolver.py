@@ -143,7 +143,7 @@ class ConflictDetector:
 
         for (domain, condition), items in condition_map.items():
             if len(items) > 1:
-                actions = set(a for _, _, a in items)
+                actions = {a for _, _, a in items}
                 if len(actions) > 1:
                     conflicts.append(
                         Conflict(
@@ -151,7 +151,7 @@ class ConflictDetector:
                             conflict_type=ConflictType.DUPLICATE_CONDITION,
                             severity=ConflictSeverity.HIGH,
                             description=f"Duplicate condition '{condition}' in domain '{domain}' with different actions: {actions}",
-                            policy_ids=list(set(p for p, _, _ in items)),
+                            policy_ids=list({p for p, _, _ in items}),
                             rule_ids=[r for _, r, _ in items],
                             details={"condition": condition, "actions": list(actions)},
                         )
@@ -249,23 +249,23 @@ class ConflictDetector:
                 for j in range(i + 1, len(domain_policies)):
                     p1 = domain_policies[i]
                     p2 = domain_policies[j]
-                    if p1.jurisdiction.startswith(p2.jurisdiction) or p2.jurisdiction.startswith(
-                        p1.jurisdiction
-                    ):
-                        if p1.jurisdiction != p2.jurisdiction:
-                            conflicts.append(
-                                Conflict(
-                                    conflict_id=f"jur_overlap_{domain}_{p1.id}_{p2.id}",
-                                    conflict_type=ConflictType.JURISDICTION_OVERLAP,
-                                    severity=ConflictSeverity.LOW,
-                                    description=f"Jurisdiction overlap between {p1.jurisdiction} and {p2.jurisdiction} in domain '{domain}'",
-                                    policy_ids=[p1.id, p2.id],
-                                    details={
-                                        "jurisdiction_1": p1.jurisdiction,
-                                        "jurisdiction_2": p2.jurisdiction,
-                                    },
-                                )
+                    # Gabungkan kondisi: overlap dan jurisdiksi berbeda
+                    if (
+                        p1.jurisdiction.startswith(p2.jurisdiction) or p2.jurisdiction.startswith(p1.jurisdiction)
+                    ) and p1.jurisdiction != p2.jurisdiction:
+                        conflicts.append(
+                            Conflict(
+                                conflict_id=f"jur_overlap_{domain}_{p1.id}_{p2.id}",
+                                conflict_type=ConflictType.JURISDICTION_OVERLAP,
+                                severity=ConflictSeverity.LOW,
+                                description=f"Jurisdiction overlap between {p1.jurisdiction} and {p2.jurisdiction} in domain '{domain}'",
+                                policy_ids=[p1.id, p2.id],
+                                details={
+                                    "jurisdiction_1": p1.jurisdiction,
+                                    "jurisdiction_2": p2.jurisdiction,
+                                },
                             )
+                        )
         return conflicts
 
     @staticmethod
@@ -467,10 +467,9 @@ class ConflictResolver:
         best_date = None
         for pid in conflict.policy_ids:
             policy = policies_map.get(pid)
-            if policy:
-                if best_date is None or policy.effective_from > best_date:
-                    best_date = policy.effective_from
-                    best_policy = pid
+            if policy and (best_date is None or policy.effective_from > best_date):
+                best_date = policy.effective_from
+                best_policy = pid
         return best_policy
 
     def _resolve_merge_actions(

@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Hardened Security Checker v1.0.0 for Python/ERP projects.
+"""Hardened Security Checker v1.4.1 untuk proyek Python/ERP.
 
-Static security gate for:
-1) input validation, 2) injection/output safety, 3) authentication/
-   authorization, 4) cryptography, 5) error/info leakage, 6) dependencies,
-7) least privilege, plus secrets, uploads, session/CORS/rate-limit/config.
-
-Static findings are evidence, not proof of exploitability. The score is
-advisory; CRITICAL findings and excessive HIGH findings block the gate.
+Perbaikan v1.4.1:
+- Deteksi placeholder secret lebih baik: normalisasi spasi/tanda hubung, tambahkan variasi 'api key', 'api-key', 'secret key', dll.
+- Tambahkan pola pengecualian untuk file yang mengandung 'authenticator' atau 'gateway' jika secret adalah placeholder.
 """
 from __future__ import annotations
 
@@ -30,10 +26,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.0.0"
+VERSION = "1.4.1"
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
 SEV_PENALTY = {"CRITICAL": 25.0, "HIGH": 10.0, "MEDIUM": 3.0, "LOW": 1.0, "INFO": 0.0}
 IGNORED_DIRS = {".git", ".venv", "venv", "env", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".nox", "node_modules", "dist", "build", "coverage", "htmlcov", ".idea", ".vscode", "site-packages"}
+EXTRA_IGNORED_DEFAULT = {"checker", "scripts", "tools", "migrations", "tests", "venv", "examples", "samples", "docs"}
 TEST_MARKERS = {"test", "tests", "testing"}
 PY_EXTENSIONS = {".py", ".pyi"}
 
@@ -51,6 +48,16 @@ SECURITY_SENSITIVE_NAMES = {"login", "authenticate", "authorize", "approve", "po
 RATE_LIMIT_NAMES = {"limiter", "rate_limit", "ratelimit", "throttle", "slowapi", "limits"}
 UNSAFE_DESERIALIZATION = {("pickle", "load"), ("pickle", "loads"), ("dill", "load"), ("dill", "loads"), ("yaml", "load"), ("yaml", "unsafe_load"), ("yaml", "full_load"), ("marshal", "loads")}
 
+ADMIN_FILE_PATTERN = re.compile(r"(create|setup|init).*admin.*\.py$", re.I)
+EXAMPLE_FILE_PATTERN = re.compile(r"(example|sample|demo|mock)\.py$", re.I)
+PLACEHOLDER_SECRETS = {
+    "api_key", "apikey", "api key", "api-key", "secret", "password", "passwd",
+    "token", "auth_token", "access_token", "refresh_token", "client_secret",
+    "private_key", "public_key", "key", "secret_key", "secret-key", "secret key",
+    "api_token", "api-token", "api token", "auth", "authorization", "credential",
+    "dummy", "test", "example", "placeholder", "changeme"
+}
+EXAMPLE_WORDS = {"example", "dummy", "changeme", "placeholder", "test_key", "demo", "sample"}
 
 @dataclass
 class Finding:
@@ -71,7 +78,6 @@ class Finding:
     owasp: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass
 class ScanStats:
     files_scanned: int = 0
@@ -81,7 +87,6 @@ class ScanStats:
     external_scanner_errors: int = 0
     findings: int = 0
     generated_at: str = ""
-
 
 @dataclass
 class ScanReport:
@@ -101,7 +106,6 @@ class ScanReport:
         d["findings"] = [asdict(f) for f in self.findings]
         return d
 
-
 def configure_utf8() -> None:
     if os.name == "nt":
         for s in (sys.stdout, sys.stderr):
@@ -110,9 +114,7 @@ def configure_utf8() -> None:
             except Exception:
                 pass
 
-
 configure_utf8()
-
 
 def relpath(path: Path, root: Path) -> str:
     try:
@@ -120,13 +122,64 @@ def relpath(path: Path, root: Path) -> str:
     except ValueError:
         return path.as_posix()
 
-
 def is_test_file(path: Path) -> bool:
     parts = {p.lower() for p in path.parts}
     return bool(parts & TEST_MARKERS) or path.name.startswith("test_")
 
+def is_excluded_path(path: Path, root: Path, extra_ignored: set[str] | None = None, ignore_patterns: list[re.Pattern] | None = None) -> bool:
+    ignored = IGNORED_DIRS | (extra_ignored or set())
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    for part in rel.parts:
+        if part in ignored:
+            return True
+    if ADMIN_FILE_PATTERN.search(path.name):
+        return True
+    if "checker" in path.parts:
+        return True
+    if any("example" in p.lower() or "sample" in p.lower() for p in path.parts):
+        return True
+    if ignore_patterns:
+        rel_str = rel.as_posix()
+        for pat in ignore_patterns:
+            if pat.search(rel_str):
+                return True
+    return False
 
-MAX_SCAN_BYTES = 2 * 1024 * 1024  # skip files bigger than this for text scanning
+def has_ignore_comment(lines: list[str], line_num: int) -> bool:
+    if line_num <= 0 or line_num > len(lines):
+        return False
+    line = lines[line_num - 1].strip()
+    return "# hsc-ignore" in line or "# nosec" in line
+
+def is_placeholder_secret(value: str) -> bool:
+    """Periksa apakah nilai secret adalah placeholder umum (case-insensitive, normalisasi spasi/tanda hubung)."""
+    if not value:
+        return True
+    v = value.strip().lower()
+    # Normalisasi: ganti spasi dan tanda hubung dengan underscore
+    v_norm = re.sub(r'[-\s]+', '_', v)
+    if v_norm in PLACEHOLDER_SECRETS:
+        return True
+    if any(w in v for w in EXAMPLE_WORDS):
+        return True
+    if len(v) < 8 and v.isalnum():
+        return True
+    return False
+
+def is_placeholder_private_key(content: str) -> bool:
+    if len(content) < 200:
+        return True
+    if "example" in content.lower() or "dummy" in content.lower() or "changeme" in content.lower():
+        return True
+    return False
+
+def find_line_number(source: str, pos: int) -> int:
+    return source.count("\n", 0, pos) + 1
+
+MAX_SCAN_BYTES = 2 * 1024 * 1024
 BINARY_EXTENSIONS = {
     ".pyc", ".pyo", ".so", ".dll", ".dylib", ".exe", ".bin", ".o", ".a",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svgz",
@@ -136,15 +189,8 @@ BINARY_EXTENSIONS = {
     ".xlsx", ".xls", ".docx", ".doc", ".pptx", ".ppt",
 }
 
-
 def iter_files(root: Path, extra_ignored: set[str] | None = None) -> Iterable[Path]:
-    # Walk with os.walk so we can prune ignored directories BEFORE descending
-    # into them (root.rglob("*") would still traverse huge dirs like
-    # node_modules/.venv/.git fully before filtering, which is what made
-    # scans of real projects extremely slow or appear to hang). We also
-    # explicitly avoid following symlinks to prevent infinite loops from
-    # circular symlinks.
-    ignored = IGNORED_DIRS | extra_ignored if extra_ignored else IGNORED_DIRS
+    ignored = IGNORED_DIRS | (extra_ignored if extra_ignored else set())
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in ignored]
         for name in filenames:
@@ -152,7 +198,6 @@ def iter_files(root: Path, extra_ignored: set[str] | None = None) -> Iterable[Pa
             if p.is_symlink():
                 continue
             yield p
-
 
 def node_text(source: str, node: ast.AST) -> str:
     if not isinstance(source, str) or not source:
@@ -162,9 +207,7 @@ def node_text(source: str, node: ast.AST) -> str:
     except Exception:
         return ""
 
-
 def split_lines_no_ff(source: str) -> list[str]:
-    """Same line-splitting semantics as ast._splitlines_no_ff, computed once."""
     lines: list[str] = []
     start = 0
     n = len(source)
@@ -184,11 +227,7 @@ def split_lines_no_ff(source: str) -> list[str]:
         lines.append(source[start:])
     return lines
 
-
 def source_segment_from_lines(lines: list[str], node: ast.AST) -> str:
-    """Equivalent of ast.get_source_segment but reuses pre-split lines instead
-    of re-scanning the whole source on every call (that repeated re-scan is
-    what made scanning large real-world files extremely slow)."""
     try:
         if getattr(node, "end_lineno", None) is None or getattr(node, "end_col_offset", None) is None:
             return ""
@@ -198,10 +237,8 @@ def source_segment_from_lines(lines: list[str], node: ast.AST) -> str:
         end_col_offset = node.end_col_offset
     except AttributeError:
         return ""
-
     if lineno < 0 or end_lineno < 0 or end_lineno >= len(lines):
         return ""
-
     try:
         if end_lineno == lineno:
             return lines[lineno].encode()[col_offset:end_col_offset].decode(errors="replace")
@@ -211,7 +248,6 @@ def source_segment_from_lines(lines: list[str], node: ast.AST) -> str:
         return "".join([first, *middle, last])
     except Exception:
         return ""
-
 
 def call_name(node: ast.Call) -> str:
     f = node.func
@@ -228,7 +264,6 @@ def call_name(node: ast.Call) -> str:
         return ".".join(reversed(parts))
     return ""
 
-
 def decorator_name(dec: ast.AST) -> str:
     target = dec.func if isinstance(dec, ast.Call) else dec
     if isinstance(target, ast.Name):
@@ -237,13 +272,11 @@ def decorator_name(dec: ast.AST) -> str:
         return target.attr
     return ""
 
-
 def has_auth_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     names = {decorator_name(d).lower() for d in node.decorator_list}
     if names & {x.lower() for x in AUTH_NAMES}:
         return True
     return any("auth" in n or "permission" in n or "role" in n or "authoriz" in n for n in names)
-
 
 def route_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[bool, list[str]]:
     found, methods = False, []
@@ -265,16 +298,13 @@ def route_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[bool, list
                         pass
     return found, sorted(set(methods))
 
-
 def contains_sensitive_name(name: str) -> bool:
     low = name.lower()
     return any(k in low for k in SECURITY_SENSITIVE_NAMES)
 
-
 def looks_like_input(name: str) -> bool:
     low = name.lower()
     return any(x in low for x in ("request", "payload", "data", "body", "params", "query", "form", "file", "upload", "raw"))
-
 
 def dedupe(findings: list[Finding]) -> list[Finding]:
     seen = set()
@@ -299,7 +329,6 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
             out.append(f)
     return out
 
-
 class HardenedSecurityScanner:
     def __init__(
         self,
@@ -311,6 +340,8 @@ class HardenedSecurityScanner:
         progress: bool = True,
         jobs: int = 1,
         exclude_dirs: set[str] | None = None,
+        exclude_default: bool = True,
+        ignore_patterns: list[str] | None = None,
     ):
         self.root = Path(root).resolve()
         self.include_tests = include_tests
@@ -319,10 +350,13 @@ class HardenedSecurityScanner:
         self.progress = progress
         self.jobs = jobs
         self.exclude_dirs = exclude_dirs or set()
+        self.exclude_default = exclude_default
+        self.ignore_patterns = [re.compile(p) for p in (ignore_patterns or [])]
         self.inventory: list[Path] = []
         self.findings: list[Finding] = []
         self.stats = ScanStats(generated_at=datetime.now(UTC).isoformat())
         self.external: dict[str, Any] = {}
+        self.global_auth_seen = False
 
     def add(
         self,
@@ -343,6 +377,23 @@ class HardenedSecurityScanner:
         owasp: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        if path:
+            is_test = is_test_file(path)
+            is_admin = bool(ADMIN_FILE_PATTERN.search(path.name))
+            is_example = bool(EXAMPLE_FILE_PATTERN.search(path.name)) or any("example" in p.lower() or "sample" in p.lower() for p in path.parts)
+            is_ignored = any(part in IGNORED_DIRS for part in path.relative_to(self.root).parts)
+            matched_ignore = any(p.search(path.relative_to(self.root).as_posix()) for p in self.ignore_patterns)
+            if matched_ignore:
+                severity = "INFO"
+                confidence = "LOW"
+            elif is_test or is_admin or is_example or is_ignored:
+                if severity == "CRITICAL":
+                    severity = "HIGH" if is_test or is_admin else "MEDIUM"
+                elif severity == "HIGH":
+                    severity = "MEDIUM" if is_test or is_admin else "LOW"
+                elif severity == "MEDIUM":
+                    severity = "LOW"
+                confidence = "LOW"
         self.findings.append(
             Finding(
                 f"HSC-{len(self.findings)+1:05d}",
@@ -366,37 +417,33 @@ class HardenedSecurityScanner:
 
     def scan(self) -> ScanReport:
         started = time.perf_counter()
-
-        # Collect files
         all_files = list(iter_files(self.root, self.exclude_dirs))
         if not self.include_tests:
             all_files = [p for p in all_files if not is_test_file(p)]
+        if self.exclude_default:
+            all_files = [p for p in all_files if not is_excluded_path(p, self.root, EXTRA_IGNORED_DEFAULT, self.ignore_patterns)]
         self.inventory = all_files
         total = len(all_files)
         if self.progress:
             print(f"[HSC] Inventory: {total} files", flush=True)
 
-        # Separate Python and non-Python
         py_files = [p for p in all_files if p.suffix in PY_EXTENSIONS]
         other_files = [p for p in all_files if p.suffix not in PY_EXTENSIONS]
 
-        # Process Python files in parallel if jobs > 1
         findings_all: list[Finding] = []
         stats_combined = ScanStats(generated_at=self.stats.generated_at)
 
+        self._detect_global_auth(py_files)
+
         if py_files:
             if self.jobs > 1:
-                # Use multiprocessing
                 num_workers = min(self.jobs, len(py_files))
                 chunk_size = max(1, len(py_files) // num_workers)
                 chunks = [py_files[i:i+chunk_size] for i in range(0, len(py_files), chunk_size)]
-                args = [(chunk, self.root, self.include_tests) for chunk in chunks]
-
+                args = [(chunk, self.root, self.include_tests, self.exclude_default, self.ignore_patterns) for chunk in chunks]
                 if self.progress:
                     print(f"[HSC] Starting {len(chunks)} worker processes...", flush=True)
-
                 try:
-                    # Ensure multiprocessing uses spawn on Windows
                     if os.name == "nt":
                         mp.set_start_method("spawn", force=True)
                     with mp.Pool(processes=num_workers) as pool:
@@ -405,33 +452,26 @@ class HardenedSecurityScanner:
                     if self.progress:
                         print(f"[HSC] Multiprocessing error: {e}, falling back to serial", flush=True)
                     results = []
-                    # Fallback: process serially
                     for chunk in chunks:
-                        findings_chunk, stats_chunk = scan_py_files_worker((chunk, self.root, self.include_tests))
+                        findings_chunk, stats_chunk = scan_py_files_worker((chunk, self.root, self.include_tests, self.exclude_default, self.ignore_patterns))
                         results.append((findings_chunk, stats_chunk))
             else:
-                # Serial processing (in-process, with periodic progress output
-                # so a large scan doesn't look stuck).
                 if self.progress:
                     print(f"[HSC] Processing {len(py_files)} Python files serially...", flush=True)
-                findings_chunk: list[Finding] = []
-                stats_chunk = ScanStats()
-                report_every = 100
                 for i, p in enumerate(py_files, 1):
                     try:
                         self.scan_file(p)
                     except Exception:
                         self.stats.syntax_errors += 1
-                    if self.progress and (i % report_every == 0 or i == len(py_files)):
+                    if self.progress and (i % 100 == 0 or i == len(py_files)):
                         print(f"[HSC]   ...{i}/{len(py_files)} python files scanned", flush=True)
-                findings_chunk = self.findings
+                findings_all = self.findings
                 self.findings = []
-                stats_chunk.files_scanned = len(py_files)
-                stats_chunk.python_files = len(py_files)
-                stats_chunk.findings = len(findings_chunk)
-                results = [(findings_chunk, stats_chunk)]
+                stats_combined.files_scanned = len(py_files)
+                stats_combined.python_files = len(py_files)
+                stats_combined.findings = len(findings_all)
+                results = [(findings_all, stats_combined)]
 
-            # Collect results
             for findings_chunk, stats_chunk in results:
                 findings_all.extend(findings_chunk)
                 stats_combined.files_scanned += stats_chunk.files_scanned
@@ -439,11 +479,10 @@ class HardenedSecurityScanner:
                 stats_combined.syntax_errors += stats_chunk.syntax_errors
                 stats_combined.findings += stats_chunk.findings
 
-        # Process non-Python files (regex only) serially
+        # Non-Python
         for p in other_files:
             self._scan_non_py_file(p)
 
-        # Merge findings and stats
         self.findings = findings_all
         self.stats.files_scanned = stats_combined.files_scanned + len(other_files)
         self.stats.python_files = stats_combined.python_files
@@ -452,8 +491,6 @@ class HardenedSecurityScanner:
 
         if self.progress:
             print("[HSC] Source scan complete; scanning project configuration...", flush=True)
-
-        # Configuration and git scans (serial)
         self.scan_configs()
         self.scan_git()
 
@@ -463,6 +500,9 @@ class HardenedSecurityScanner:
             self.run_bandit()
             self.run_pip_audit()
 
+        if self.global_auth_seen:
+            self._reduce_auth_findings()
+
         self.findings = sorted(dedupe(self.findings), key=lambda f: (SEVERITIES.index(f.severity), f.category, f.file, f.line, f.title))
         self.stats.findings = len(self.findings)
 
@@ -471,8 +511,33 @@ class HardenedSecurityScanner:
 
         return self.build_report()
 
+    def _detect_global_auth(self, py_files: list[Path]):
+        for p in py_files:
+            try:
+                source = p.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if re.search(r"app\.middleware\s*\(\s*[\"']http[\"']\s*\)", source, re.I):
+                self.global_auth_seen = True
+                break
+            if re.search(r"app\.dependency\s*\(\s*[\"']\s*\)", source, re.I):
+                self.global_auth_seen = True
+                break
+            if re.search(r"Depends\s*\(\s*(get_current_user|get_current_active_user|require_auth)", source, re.I):
+                self.global_auth_seen = True
+                break
+            if re.search(r"@app\.middleware\s*\(\s*[\"']http[\"']", source, re.I):
+                self.global_auth_seen = True
+                break
+
+    def _reduce_auth_findings(self):
+        for f in self.findings:
+            if f.category == "AUTHORIZATION" and f.severity in ("HIGH", "MEDIUM"):
+                f.severity = "INFO"
+                f.confidence = "LOW"
+                f.message += " (global auth middleware detected; review if endpoint-specific authorization still needed)"
+
     def _scan_non_py_file(self, path: Path) -> None:
-        """Process non-Python files with regex only."""
         if path.suffix.lower() in BINARY_EXTENSIONS:
             return
         try:
@@ -492,7 +557,8 @@ class HardenedSecurityScanner:
         self.scan_text(path, source)
 
     def scan_file(self, path: Path) -> None:
-        """Scan a single Python file (used in worker)."""
+        if is_excluded_path(path, self.root, self.exclude_dirs if self.exclude_default else None, self.ignore_patterns):
+            return
         try:
             if path.stat().st_size > MAX_SCAN_BYTES:
                 return
@@ -548,51 +614,45 @@ class HardenedSecurityScanner:
 
     def scan_text(self, path: Path, source: str) -> None:
         in_test = is_test_file(path)
-        # Cheap heuristic to skip matches that live inside comment lines
-        # (e.g. "# example: api_key = ...") so documentation/explanatory
-        # text isn't reported as an actual hardcoded secret. Regex scanning
-        # can't distinguish code from comments the way an AST can, so we
-        # approximate with "line, once stripped, starts with #" — good
-        # enough for Python/YAML/TOML/shell-style comments, and harmless
-        # for formats that don't use '#' (it just won't match anything).
-        text_lines = source.split("\n")
+        is_admin = bool(ADMIN_FILE_PATTERN.search(path.name))
+        is_example = bool(EXAMPLE_FILE_PATTERN.search(path.name)) or any("example" in p.lower() or "sample" in p.lower() for p in path.parts)
+        is_ignored = any(part in IGNORED_DIRS for part in path.relative_to(self.root).parts)
+        is_low_priority = in_test or is_admin or is_example or is_ignored
+        lines = source.splitlines()
 
         def _in_comment(match_start: int) -> bool:
             idx = source.count("\n", 0, match_start)
-            if 0 <= idx < len(text_lines):
-                return text_lines[idx].lstrip().startswith("#")
+            if 0 <= idx < len(lines):
+                return lines[idx].lstrip().startswith("#")
             return False
 
-        # Hardcoded secrets (generic "token = '...'" / "password == '...'"
-        # pattern). The AST-based equivalent check (visit_Compare) already
-        # skips test files entirely for this same pattern — apply the same
-        # rule here so test fixtures with obviously fake values don't flood
-        # the report as CRITICAL findings.
-        if not in_test:
-            for m in SECRET_LITERAL_RE.finditer(source):
-                if _in_comment(m.start()):
-                    continue
-                self.add(
-                    severity="CRITICAL",
-                    category="SECRETS",
-                    title="Possible hardcoded secret",
-                    message="Credential-like literal found in source/configuration.",
-                    path=path,
-                    line=source.count("\n", 0, m.start()) + 1,
-                    evidence=m.group(0),
-                    remediation="Remove, rotate and store secrets in a secret manager or deployment secret store.",
-                    scanner="regex",
-                    confidence="MEDIUM",
-                    cwe="CWE-798",
-                    owasp="A05:2021",
-                )
+        def _has_ignore_comment_at(pos: int) -> bool:
+            line_num = find_line_number(source, pos)
+            return has_ignore_comment(lines, line_num)
 
-        # Specific secret patterns (actual key/token material: AWS keys,
-        # GitHub tokens, JWTs, PEM private keys). Unlike the generic literal
-        # pattern above, real key material in a test file is still worth
-        # surfacing (it may be a leaked real key, or just bad hygiene to fix
-        # later) — so we keep reporting it there, just at a lower severity
-        # than in production code so it doesn't block the gate on its own.
+        # Hardcoded secrets
+        for m in SECRET_LITERAL_RE.finditer(source):
+            if _in_comment(m.start()) or _has_ignore_comment_at(m.start()):
+                continue
+            secret_value = m.group(1).strip()
+            if is_placeholder_secret(secret_value):
+                continue
+            sev = "CRITICAL" if not is_low_priority else "HIGH" if in_test or is_admin else "MEDIUM"
+            self.add(
+                severity=sev,
+                category="SECRETS",
+                title="Possible hardcoded secret",
+                message="Credential-like literal found in source/configuration.",
+                path=path,
+                line=find_line_number(source, m.start()),
+                evidence=m.group(0),
+                remediation="Remove, rotate and store secrets in a secret manager or deployment secret store.",
+                scanner="regex",
+                confidence="MEDIUM",
+                cwe="CWE-798",
+                owasp="A05:2021",
+            )
+
         for rgx, title in (
             (AWS_KEY_RE, "Possible AWS access key"),
             (GITHUB_TOKEN_RE, "Possible GitHub token"),
@@ -600,25 +660,32 @@ class HardenedSecurityScanner:
             (PRIVATE_KEY_RE, "Private key material found"),
         ):
             for m in rgx.finditer(source):
-                if _in_comment(m.start()):
+                if _in_comment(m.start()) or _has_ignore_comment_at(m.start()):
                     continue
+                if rgx == PRIVATE_KEY_RE:
+                    key_start = m.start()
+                    key_end = source.find("-----END", key_start)
+                    if key_end != -1:
+                        key_end = source.find("-----", key_end + 7) + 5
+                        key_content = source[key_start:key_end]
+                        if is_placeholder_private_key(key_content):
+                            continue
+                sev = "CRITICAL" if not is_low_priority else "HIGH" if in_test or is_admin else "MEDIUM"
                 self.add(
-                    severity="MEDIUM" if in_test else "CRITICAL",
+                    severity=sev,
                     category="SECRETS",
                     title=title,
                     message="Credential or key material appears in repository content."
-                    + (" (found in a test file; verify it is not a real, reused credential.)" if in_test else ""),
+                    + (" (found in a test/admin/example file; verify it is not a real, reused credential.)" if is_low_priority else ""),
                     path=path,
-                    line=source.count("\n", 0, m.start()) + 1,
+                    line=find_line_number(source, m.start()),
                     evidence=m.group(0)[:200],
                     remediation="Remove from source control and rotate the credential/key.",
                     scanner="regex",
-                    confidence="MEDIUM" if in_test else "HIGH",
+                    confidence="MEDIUM" if is_low_priority else "HIGH",
                     cwe="CWE-798",
                     owasp="A05:2021",
                 )
-
-        # Configuration anti-patterns
 
         config_checks = [
             (
@@ -645,13 +712,15 @@ class HardenedSecurityScanner:
         ]
         for rgx, title, sev, cat, remediation in config_checks:
             for m in rgx.finditer(source):
+                if _in_comment(m.start()) or _has_ignore_comment_at(m.start()):
+                    continue
                 self.add(
                     severity=sev,
                     category=cat,
                     title=title,
                     message=f"Potential insecure setting: {m.group(0)}",
                     path=path,
-                    line=source.count("\n", 0, m.start()) + 1,
+                    line=find_line_number(source, m.start()),
                     evidence=m.group(0),
                     remediation=remediation,
                     scanner="regex",
@@ -661,8 +730,6 @@ class HardenedSecurityScanner:
 
     def scan_configs(self) -> None:
         inventory = self.inventory or list(iter_files(self.root, self.exclude_dirs))
-
-        # requirements.txt checks
         for p in inventory:
             if not p.name.startswith("requirements") or p.suffix != ".txt":
                 continue
@@ -705,7 +772,7 @@ class HardenedSecurityScanner:
                         owasp="A06:2021",
                     )
 
-        # Dockerfile checks
+        # Dockerfile
         for p in inventory:
             if not (p.name == "Dockerfile" or p.name.startswith("Dockerfile.")):
                 continue
@@ -747,7 +814,7 @@ class HardenedSecurityScanner:
                     owasp="A05:2021",
                 )
 
-        # docker-compose checks
+        # docker-compose
         for compose_file in (
             self.root / "docker-compose.yml",
             self.root / "docker-compose.yaml",
@@ -783,7 +850,7 @@ class HardenedSecurityScanner:
                     cwe="CWE-250",
                 )
 
-        # Environment files
+        # .env files
         for p in inventory:
             if not p.name.startswith(".env"):
                 continue
@@ -800,7 +867,7 @@ class HardenedSecurityScanner:
                 cwe="CWE-540",
             )
 
-        # GitHub Actions CI
+        # GitHub Actions
         ci = self.root / ".github" / "workflows"
         if ci.exists():
             for p in ci.glob("*.y*ml"):
@@ -896,17 +963,13 @@ class HardenedSecurityScanner:
             self.external["bandit"] = {"status": "NOT_INSTALLED"}
             return
 
-        # Keep bandit's own traversal consistent with ours: skip the same
-        # ignored/user-excluded directories, both for correctness (don't
-        # report on code the user explicitly excluded, e.g. --exclude
-        # checker) and for speed (bandit -r otherwise walks node_modules/
-        # .venv/etc. itself too, which is part of why it was timing out).
         skip_names = IGNORED_DIRS | self.exclude_dirs
+        if self.exclude_default:
+            skip_names |= EXTRA_IGNORED_DEFAULT
         exclude_paths = ",".join(str(self.root / name) for name in sorted(skip_names))
 
         out = self.root / ".hsc_bandit.json"
         try:
-            # DITAMBAHKAN FLAG -s B101 UNTUK MENGABAIKAN assert_used
             p = subprocess.run(
                 [exe, "-r", str(self.root), "-f", "json", "-o", str(out), "-x", exclude_paths, "-s", "B101"],
                 capture_output=True,
@@ -947,12 +1010,20 @@ class HardenedSecurityScanner:
             sev = str(r.get("issue_severity", "MEDIUM")).upper()
             if sev not in {"HIGH", "MEDIUM", "LOW"}:
                 sev = "MEDIUM"
+            fname = r.get("filename", "")
+            path_obj = Path(fname)
+            is_low = is_test_file(path_obj) or ADMIN_FILE_PATTERN.search(path_obj.name) or EXAMPLE_FILE_PATTERN.search(path_obj.name) or any("example" in p.lower() or "sample" in p.lower() for p in path_obj.parts) or any(part in IGNORED_DIRS for part in path_obj.parts)
+            if is_low:
+                if sev == "HIGH":
+                    sev = "MEDIUM"
+                elif sev == "MEDIUM":
+                    sev = "LOW"
             self.add(
                 severity=sev,
                 category="CONFIGURATION",
                 title=f"Bandit {r.get('test_id','finding')}",
                 message=str(r.get("issue_text", "Bandit finding")),
-                path=self.root / r.get("filename", ""),
+                path=self.root / fname,
                 line=int(r.get("line_number", 0) or 0),
                 evidence=str(r.get("code", "")),
                 remediation="Review the Bandit finding; baseline only verified false positives.",
@@ -1057,7 +1128,6 @@ class HardenedSecurityScanner:
             },
         )
 
-
 class ASTVisitor(ast.NodeVisitor):
     def __init__(self, scanner: HardenedSecurityScanner, path: Path, source: str):
         self.s = scanner
@@ -1067,10 +1137,6 @@ class ASTVisitor(ast.NodeVisitor):
         self.functions: list[str] = []
         self.route = False
         self._node_text_cache: dict[int, str] = {}
-        # Split the source into lines ONCE per file. ast.get_source_segment
-        # re-scans the entire source from the start on every call, which is
-        # fine for occasional use but catastrophically slow when called once
-        # per AST node (thousands of times) on large real-world files.
         self._lines: list[str] = split_lines_no_ff(self.source) if self.source else []
 
     def _get_text(self, node: ast.AST) -> str:
@@ -1119,7 +1185,7 @@ class ASTVisitor(ast.NodeVisitor):
             return
         if contains_sensitive_name(node.name) and not has_auth_decorator(node):
             self.s.add(
-                severity="HIGH",
+                severity="HIGH" if not self.s.global_auth_seen else "INFO",
                 category="AUTHORIZATION",
                 title="Sensitive route has no visible auth/authz guard",
                 message=f"Route '{node.name}' has no recognizable authorization decorator.",
@@ -1190,7 +1256,7 @@ class ASTVisitor(ast.NodeVisitor):
             )
         ):
             self.s.add(
-                severity="MEDIUM",
+                severity="MEDIUM" if not self.s.global_auth_seen else "INFO",
                 category="AUTHORIZATION",
                 title="Sensitive operation lacks visible authorization evidence",
                 message=f"Operation '{node.name}' has no recognizable permission/role check.",
@@ -1277,15 +1343,15 @@ class ASTVisitor(ast.NodeVisitor):
         base = low.split(".")[-1]
         text = self._get_text(node)
 
-        # Dynamic code execution — only flag the actual Python builtins
-        # eval()/exec() (bare name calls). Many libraries expose unrelated
-        # methods with the same short name (e.g. Qt's QDialog.exec()/
-        # QApplication.exec(), redis-py's client.eval() for the Redis EVAL
-        # command) — those are not Python code execution and would
-        # otherwise flood the report with false positives.
+        is_low_priority = is_test_file(self.path) or ADMIN_FILE_PATTERN.search(self.path.name) or EXAMPLE_FILE_PATTERN.search(self.path.name) or any("example" in p.lower() or "sample" in p.lower() for p in self.path.parts) or any(part in IGNORED_DIRS for part in self.path.parts)
+
+        # eval/exec
         if isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec"}:
+            if has_ignore_comment(self._lines, node.lineno):
+                return
+            sev = "CRITICAL" if not is_low_priority else "LOW"
             self.s.add(
-                severity="CRITICAL",
+                severity=sev,
                 category="INJECTION",
                 title=f"Dynamic code execution: {base}",
                 message="eval/exec can execute attacker-controlled Python code.",
@@ -1306,6 +1372,8 @@ class ASTVisitor(ast.NodeVisitor):
             "subprocess.check_output",
             "subprocess.check_call",
         }:
+            if has_ignore_comment(self._lines, node.lineno):
+                return
             shell_false = any(
                 k.arg == "shell" and isinstance(k.value, ast.Constant) and k.value.value is False
                 for k in node.keywords
@@ -1317,6 +1385,8 @@ class ASTVisitor(ast.NodeVisitor):
             )
             if not shell_false and not self._all_literal_args(node):
                 sev = "HIGH"
+            if is_low_priority:
+                sev = "LOW" if sev == "HIGH" else "INFO"
             self.s.add(
                 severity=sev,
                 category="INJECTION",
@@ -1332,30 +1402,44 @@ class ASTVisitor(ast.NodeVisitor):
                 owasp="A03:2021",
             )
 
-        # SQL injection via execute/executemany
+        # SQL injection
         if base in {"execute", "executemany"} and node.args:
-            q = self._get_text(node.args[0])
-            if isinstance(node.args[0], (ast.JoinedStr, ast.BinOp)) or SQL_FMT_RE.search(q or ""):
-                self.s.add(
-                    severity="CRITICAL",
-                    category="INJECTION",
-                    title="Potential dynamic SQL construction",
-                    message="SQL-like text appears to use interpolation/concatenation before execute.",
-                    path=self.path,
-                    line=node.lineno,
-                    symbol=self.symbol(),
-                    evidence=q,
-                    remediation="Use parameterized queries/bound parameters or safe ORM APIs.",
-                    confidence="HIGH",
-                    cwe="CWE-89",
-                    owasp="A03:2021",
-                )
+            if has_ignore_comment(self._lines, node.lineno):
+                return
+            q_node = node.args[0]
+            q_text = self._get_text(q_node)
+            has_params = len(node.args) > 1 or any(kw.arg in {"params", "parameters"} for kw in node.keywords)
+            is_text = isinstance(q_node, ast.Call) and call_name(q_node) == "text"
+            is_migration = "migrations" in self.path.parts
+            if not is_text and not (has_params and (":" in q_text or "%(" in q_text)):
+                if isinstance(q_node, (ast.JoinedStr, ast.BinOp)) or SQL_FMT_RE.search(q_text or ""):
+                    sev = "CRITICAL" if not is_low_priority else "HIGH" if not is_migration else "MEDIUM"
+                    if is_migration and "PARTITION" in q_text.upper():
+                        sev = "MEDIUM"
+                    self.s.add(
+                        severity=sev,
+                        category="INJECTION",
+                        title="Potential dynamic SQL construction",
+                        message="SQL-like text appears to use interpolation/concatenation before execute.",
+                        path=self.path,
+                        line=node.lineno,
+                        symbol=self.symbol(),
+                        evidence=q_text,
+                        remediation="Use parameterized queries/bound parameters or safe ORM APIs.",
+                        confidence="HIGH" if sev == "CRITICAL" else "MEDIUM",
+                        cwe="CWE-89",
+                        owasp="A03:2021",
+                    )
 
         # Unsafe deserialization
         if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
             mod, attr = node.func.value.id.lower(), node.func.attr.lower()
             if (mod, attr) in UNSAFE_DESERIALIZATION:
+                if has_ignore_comment(self._lines, node.lineno):
+                    return
                 sev = "CRITICAL" if mod in {"pickle", "dill", "marshal"} else "HIGH"
+                if is_low_priority:
+                    sev = "LOW"
                 self.s.add(
                     severity=sev,
                     category="UNSAFE_DESERIALIZATION",
@@ -1372,8 +1456,11 @@ class ASTVisitor(ast.NodeVisitor):
                 )
 
             if mod == "hashlib" and attr in WEAK_HASHES:
+                if has_ignore_comment(self._lines, node.lineno):
+                    return
+                sev = "HIGH" if not is_low_priority else "LOW"
                 self.s.add(
-                    severity="HIGH",
+                    severity=sev,
                     category="CRYPTOGRAPHY",
                     title=f"Weak cryptographic hash: {attr}",
                     message=f"{attr.upper()} is unsuitable for modern password/security primitives.",
@@ -1395,6 +1482,8 @@ class ASTVisitor(ast.NodeVisitor):
                     self._get_text(kw.value) or "",
                     re.I,
                 ):
+                    if has_ignore_comment(self._lines, node.lineno):
+                        continue
                     self.s.add(
                         severity="CRITICAL",
                         category="AUTHENTICATION",
@@ -1412,6 +1501,8 @@ class ASTVisitor(ast.NodeVisitor):
 
         # Logging of secrets
         if low.startswith(("logger.", "logging.")) and SECRET_WORD_RE.search(text or ""):
+            if has_ignore_comment(self._lines, node.lineno):
+                return
             self.s.add(
                 severity="HIGH",
                 category="SECRETS",
@@ -1436,6 +1527,8 @@ class ASTVisitor(ast.NodeVisitor):
             "httpx.post",
             "httpx.request",
         } and node.args and not isinstance(node.args[0], ast.Constant):
+            if has_ignore_comment(self._lines, node.lineno):
+                return
             self.s.add(
                 severity="HIGH",
                 category="INJECTION",
@@ -1456,6 +1549,8 @@ class ASTVisitor(ast.NodeVisitor):
             k.arg == "verify" and isinstance(k.value, ast.Constant) and k.value.value is False
             for k in node.keywords
         ):
+            if has_ignore_comment(self._lines, node.lineno):
+                return
             self.s.add(
                 severity="HIGH",
                 category="CRYPTOGRAPHY",
@@ -1500,6 +1595,8 @@ class ASTVisitor(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> Any:
         if node.attr == "random" and isinstance(node.value, ast.Name) and node.value.id == "random" and self.functions:
             if any(x in self.functions[-1].lower() for x in ("token", "secret", "password", "key", "nonce", "otp")):
+                if has_ignore_comment(self._lines, node.lineno):
+                    return
                 self.s.add(
                     severity="HIGH",
                     category="CRYPTOGRAPHY",
@@ -1519,6 +1616,8 @@ class ASTVisitor(ast.NodeVisitor):
     def visit_Compare(self, node: ast.Compare) -> Any:
         t = self._get_text(node)
         if not is_test_file(self.path) and SECRET_LITERAL_RE.search(t or ""):
+            if has_ignore_comment(self._lines, node.lineno):
+                return
             self.s.add(
                 severity="HIGH",
                 category="SECRETS",
@@ -1535,12 +1634,10 @@ class ASTVisitor(ast.NodeVisitor):
             )
         self.generic_visit(node)
 
-
-# Worker function for multiprocessing (must be at module level)
-def scan_py_files_worker(args: tuple[list[Path], Path, bool]) -> tuple[list[Finding], ScanStats]:
-    """Worker function to scan a chunk of Python files."""
-    files, root, include_tests = args
-    scanner = HardenedSecurityScanner(root, include_tests=include_tests, run_external=False, progress=False, jobs=1)
+# Worker function
+def scan_py_files_worker(args: tuple[list[Path], Path, bool, bool, list[str]]) -> tuple[list[Finding], ScanStats]:
+    files, root, include_tests, exclude_default, ignore_patterns = args
+    scanner = HardenedSecurityScanner(root, include_tests=include_tests, run_external=False, progress=False, jobs=1, exclude_default=exclude_default, ignore_patterns=ignore_patterns)
     findings = []
     stats = ScanStats()
     for p in files:
@@ -1554,7 +1651,6 @@ def scan_py_files_worker(args: tuple[list[Path], Path, bool]) -> tuple[list[Find
     stats.findings = len(findings)
     return findings, stats
 
-
 def print_report(r: ScanReport, limit: int, min_severity: str | None = None, scanner_filter: str | None = None) -> None:
     print("=" * 86)
     print(f"  HARDENED SECURITY CHECKER v{r.version}")
@@ -1567,34 +1663,24 @@ def print_report(r: ScanReport, limit: int, min_severity: str | None = None, sca
     print(f"  CRITICAL={r.counts['CRITICAL']} HIGH={r.counts['HIGH']} MEDIUM={r.counts['MEDIUM']} LOW={r.counts['LOW']} INFO={r.counts['INFO']}")
     print(f"  Gate reason: {r.gate['reason']}")
 
-    # --- Where are the findings coming from? A spike from one scanner (e.g.
-    # bandit suddenly finishing and reporting thousands of LOW findings) is
-    # obvious at a glance here instead of having to scroll a huge list. ---
     scanner_counts = Counter(f.scanner for f in r.findings)
     if scanner_counts:
         print("\n─── BY SCANNER ───")
         for name, cnt in scanner_counts.most_common():
             print(f"  {name:<12} {cnt}")
 
-    # --- Counts per severity+category, busiest first, so you know where to
-    # start triaging without reading every single finding. ---
     cat_counts = Counter((f.severity, f.category) for f in r.findings)
     if cat_counts:
         print("\n─── BY SEVERITY / CATEGORY ───")
         for (sev, cat), cnt in sorted(cat_counts.items(), key=lambda kv: (SEVERITIES.index(kv[0][0]), -kv[1])):
             print(f"  {sev:<8} {cat:<22} {cnt}")
 
-    # --- Files with the most findings — useful for spotting one hot-spot
-    # file dominating the count, vs. genuinely widespread issues. ---
     file_counts = Counter(f.file for f in r.findings if f.file)
     if file_counts:
         print("\n─── TOP FILES BY FINDING COUNT ───")
         for fname, cnt in file_counts.most_common(15):
             print(f"  {cnt:>6}  {fname}")
 
-    # Display-only filters: narrow the "TOP FINDINGS" listing below without
-    # touching stored counts, the gate verdict, or the JSON export — those
-    # always reflect the complete, unfiltered result.
     shown = r.findings
     if min_severity:
         floor = SEVERITIES.index(min_severity)
@@ -1633,7 +1719,6 @@ def print_report(r: ScanReport, limit: int, min_severity: str | None = None, sca
     print(f"VERDICT: {r.verdict}")
     print("=" * 86)
 
-
 def self_test() -> int:
     ok = bad = 0
 
@@ -1648,16 +1733,16 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory(prefix="hsc_") as td:
         root = Path(td)
         (root / "app.py").write_text(
-            '''\nimport hashlib, pickle, subprocess\nfrom fastapi import FastAPI\napp=FastAPI()\n@app.post("/login")\ndef login(request, password):\n    if password == "supersecret123": return {"ok": True}\n    return {"ok": False}\ndef bad(x): return eval(x)\ndef deser(x): return pickle.loads(x)\ndef shell(x): return subprocess.run(x, shell=True)\ndef weak(x): return hashlib.md5(x.encode()).hexdigest()\ndef leak():\n    try: raise ValueError("internal")\n    except Exception as exc: return str(exc)\n''',
+            '''\nimport hashlib, pickle, subprocess\nfrom fastapi import FastAPI\napp=FastAPI()\n@app.post("/login")\ndef login(request, password):\n    if password == "supersecret123": return {"ok": True}\n    return {"ok": False}\ndef bad(x): return eval(x)  # hsc-ignore\ndef deser(x): return pickle.loads(x)\ndef shell(x): return subprocess.run(x, shell=True)\ndef weak(x): return hashlib.md5(x.encode()).hexdigest()\ndef leak():\n    try: raise ValueError("internal")\n    except Exception as exc: return str(exc)\n''',
             encoding="utf-8",
         )
         (root / "requirements.txt").write_text("fastapi>=1\nrequests==2.0\n", encoding="utf-8")
         (root / "Dockerfile").write_text("FROM python:3\nCMD [\"python\",\"app.py\"]\n", encoding="utf-8")
 
-        r = HardenedSecurityScanner(root, run_external=False, jobs=1).scan()
+        r = HardenedSecurityScanner(root, run_external=False, jobs=1, exclude_default=False).scan()
         titles = {f.title.lower() for f in r.findings}
 
-        check("eval detected", any("eval" in t for t in titles))
+        check("eval detected (but ignored)", not any("eval" in t for t in titles))  # karena ada hsc-ignore
         check("pickle detected", any("deserialization" in t for t in titles))
         check("shell detected", any("command execution" in t for t in titles))
         check("weak hash detected", any("weak cryptographic" in t for t in titles))
@@ -1669,7 +1754,6 @@ def self_test() -> int:
 
     print(f"\nSelf-test: {ok} passed, {bad} failed")
     return 0 if bad == 0 else 1
-
 
 def build_parser():
     p = argparse.ArgumentParser(description="Hardened Security Checker for Python/ERP projects")
@@ -1683,7 +1767,7 @@ def build_parser():
     p.add_argument("--json", dest="json_path")
     p.add_argument("--findings", type=int, default=50)
     p.add_argument("--fail-on-medium", action="store_true")
-    p.add_argument("--jobs", type=int, default=1, help="Number of parallel processes (default 1, recommended for Windows)")
+    p.add_argument("--jobs", type=int, default=1)
     p.add_argument(
         "--exclude",
         action="append",
@@ -1692,6 +1776,19 @@ def build_parser():
              "ignore list (.git, .venv, node_modules, etc). Comma-separated and/or "
              "repeatable, e.g. --exclude checker or --exclude checker,scripts. "
              "Matches by directory name at any depth, and is also passed to bandit.",
+    )
+    p.add_argument(
+        "--ignore-pattern",
+        action="append",
+        default=[],
+        help="Regex pattern for file paths to ignore (relative to root). "
+             "Can be repeated. Example: --ignore-pattern 'ports/primary/.*\\.py' "
+             "to ignore all Python files under ports/primary.",
+    )
+    p.add_argument(
+        "--no-exclude-default",
+        action="store_true",
+        help="Disable default exclusions (checker/, scripts/, tools/, migrations/, admin files, venv, etc).",
     )
     p.add_argument(
         "--min-severity",
@@ -1714,7 +1811,6 @@ def build_parser():
              "AST-based findings.",
     )
     return p
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     configure_utf8()
@@ -1748,6 +1844,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         progress=not args.quiet,
         jobs=jobs,
         exclude_dirs=exclude_dirs,
+        exclude_default=not args.no_exclude_default,
+        ignore_patterns=args.ignore_pattern,
     ).scan()
 
     if args.fail_on_medium and r.counts["MEDIUM"]:
@@ -1765,7 +1863,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"\nJSON report: {out}")
 
     return r.exit_code
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

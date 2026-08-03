@@ -12,6 +12,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum, auto
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -562,9 +563,8 @@ class SubstanceOverFormViolation(AxiomViolationError):
 
 
 class AxiomViolationHandler:
-    _instance: AxiomViolationHandler | None = None
-    _violations: list[AxiomViolationRecord] = []
-    _lock = threading.Lock()
+    _instance: ClassVar[AxiomViolationHandler | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> AxiomViolationHandler:
         if cls._instance is None:
@@ -578,7 +578,7 @@ class AxiomViolationHandler:
         if self._initialized:
             return
         self._initialized = True
-        self._violations = []
+        self._violations: list[AxiomViolationRecord] = []
 
     def handle(
         self, exception: AxiomViolationError, record: bool = True, notify: bool = True
@@ -757,31 +757,25 @@ def handle_axiom_violation(exc: Exception) -> AxiomViolationRecord | None:
 # === 8. EXPORTS ===
 
 __all__ = [
-    # Enums
+    "AccrualBasisViolation",
     "AxiomType",
-    "AxiomViolationSeverity",
-    # Record
-    "AxiomViolationRecord",
-    # Base exception
     "AxiomViolationError",
-    # Concrete exceptions
+    "AxiomViolationHandler",
+    "AxiomViolationRecord",
+    "AxiomViolationSeverity",
+    "CausalityChainViolation",
     "ConservationOfValueViolation",
     "DoubleEntryViolation",
-    "TimeIrreversibilityViolation",
-    "ImmutabilityViolation",
-    "CausalityChainViolation",
-    "MonetaryUnitViolation",
     "EntityIsolationViolation",
-    "PeriodBoundViolation",
     "GoingConcernViolation",
-    "AccrualBasisViolation",
+    "ImmutabilityViolation",
     "MaterialityViolation",
+    "MonetaryUnitViolation",
+    "PeriodBoundViolation",
     "SubstanceOverFormViolation",
-    # Handler
-    "AxiomViolationHandler",
+    "TimeIrreversibilityViolation",
     "get_axiom_violation_handler",
-    # Convenience
+    "handle_axiom_violation",
     "raise_conservation_violation",
     "raise_double_entry_violation",
-    "handle_axiom_violation",
 ]

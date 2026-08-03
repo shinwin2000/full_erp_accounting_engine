@@ -408,9 +408,7 @@ class AccrualEntry:
             return False
         if self.reversal_date and check > self.reversal_date:
             return False
-        if self.deleted_at:
-            return False
-        return True
+        return not self.deleted_at
 
 
 # ==================== ENTITY: ACCRUAL BASIS VIOLATION ====================
@@ -807,13 +805,9 @@ class AccrualBasisValidator:
 
 
 class AccrualBasisAxiom:
-    _instance: AccrualBasisAxiom | None = None
+    _instance: ClassVar[AccrualBasisAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
     _validator = AccrualBasisValidator
-    _accruals: dict[UUID, AccrualEntry] = {}
-    _violations: list[AccrualBasisViolation] = []
-    _revenue_criteria_cache: dict[UUID, RevenueRecognitionCriteria] = {}
-    _expense_criteria_cache: dict[UUID, ExpenseRecognitionCriteria] = {}
-    _lock = threading.Lock()
 
     def __new__(cls) -> AccrualBasisAxiom:
         if cls._instance is None:
@@ -827,10 +821,10 @@ class AccrualBasisAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._accruals = {}
-        self._violations = []
-        self._revenue_criteria_cache = {}
-        self._expense_criteria_cache = {}
+        self._accruals: dict[UUID, AccrualEntry] = {}
+        self._violations: list[AccrualBasisViolation] = []
+        self._revenue_criteria_cache: dict[UUID, RevenueRecognitionCriteria] = {}
+        self._expense_criteria_cache: dict[UUID, ExpenseRecognitionCriteria] = {}
 
     # ==================== REPOSITORY METHODS ====================
     def save_accrual(self, accrual: AccrualEntry) -> None:
@@ -1140,10 +1134,13 @@ __all__ = [
     "AccrualBasisViolationError",
     "AccrualEntry",
     "AccrualType",
+    "ExpenseMatchingMethod",
     "ExpenseRecognitionCriteria",
     "InvalidExpenseCriteriaError",
     "InvalidRevenueCriteriaError",
+    "RecognitionTiming",
     "RevenueRecognitionCriteria",
+    "RevenueRecognitionModel",
     "create_accrual",
     "create_expense_criteria",
     "create_revenue_criteria",

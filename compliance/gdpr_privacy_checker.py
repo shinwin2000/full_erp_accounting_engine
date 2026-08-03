@@ -361,12 +361,12 @@ class GDPRChecker:
         for record in records:
             if (purpose is None or record.purpose == purpose) and record.is_active():
                 return True
-        if not require_explicit and purpose in [
+
+        # If we reach here, no active consent found
+        return not require_explicit and purpose in [
             ProcessingPurpose.LEGAL_COMPLIANCE,
             ProcessingPurpose.AUDIT,
-        ]:
-            return True
-        return False
+        ]
 
     def get_all_consents(self, user_id: UUID) -> list[ConsentRecord]:
         return self._consents.get(user_id, [])
@@ -460,8 +460,6 @@ class GDPRChecker:
         """Request erasure of personal data. Returns ErasureResult for test compatibility."""
         if ignore_legal_hold is not None and not ignore_legal_hold and not force:
             raise PermissionError("Tax retention period still active")
-
-        legal_hold_data = ["tax_records", "audit_logs_anonymized"]
 
         try:
             uid = UUID(user_id) if isinstance(user_id, str) else user_id

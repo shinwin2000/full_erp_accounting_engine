@@ -222,7 +222,7 @@ class TestEthicsTrainingCertificateTracker:
         EthicsTrainingCertificateTracker(enable_expiry_monitor=True, expiry_check_interval_hours=12)
         mock_thread.assert_called_once()
         # Thread should be daemon
-        args, kwargs = mock_thread.call_args
+        _args, kwargs = mock_thread.call_args
         assert kwargs.get("daemon") is True
 
     # --- add_certificate ---
@@ -758,7 +758,7 @@ class TestEthicsTrainingCertificateTracker:
         tracker = EthicsTrainingCertificateTracker(enable_expiry_monitor=True, expiry_check_interval_hours=12)
         mock_thread.assert_called_once()
         # The thread should be daemon
-        args, kwargs = mock_thread.call_args
+        _args, kwargs = mock_thread.call_args
         assert kwargs.get("daemon") is True
         # The target should be the monitor function
         target = kwargs.get("target")

@@ -490,7 +490,7 @@ class TestSODEnforcer:
         assert ok is True
         assert violation is None
         # amount above threshold with correct role
-        ok, violation, roles = await enforcer.check_transaction_approval_limit(
+        ok, violation, _roles = await enforcer.check_transaction_approval_limit(
             Decimal("2000000000"), ["cfo"], "JOURNAL"
         )
         assert ok is True
@@ -874,7 +874,7 @@ class TestModuleFunctions:
             mock_enforcer = AsyncMock()
             mock_enforcer.enforce.return_value = (True, [])
             mock_get.return_value = mock_enforcer
-            ok, violations = await enforce_sod(
+            ok, _violations = await enforce_sod(
                 transaction_type="JOURNAL",
                 amount=Decimal("100"),
                 creator_user_id="maker",
@@ -889,7 +889,7 @@ class TestModuleFunctions:
             mock_enforcer = AsyncMock()
             mock_enforcer.check_maker_checker.return_value = (True, None)
             mock_get.return_value = mock_enforcer
-            ok, violation = await check_segregation(
+            ok, _violation = await check_segregation(
                 transaction_type="JOURNAL",
                 creator_user_id="maker",
                 approver_user_id="checker",

@@ -235,7 +235,7 @@ class PSAK5SegmentService:
         if len(segments) <= 1:
             return True
         # Contoh sederhana: jika semua segmen memiliki tipe yang sama, boleh diagregasi
-        types = set(s.segment_type for s in segments)
+        types = {s.segment_type for s in segments}
         return len(types) == 1
 
     @staticmethod
@@ -426,7 +426,7 @@ class PSAK5Validator:
     def add_segment(
         self, disclosure: PSAK5SegmentDisclosure, segment: PSAK5Segment
     ) -> PSAK5SegmentDisclosure:
-        new_segments = disclosure.segments + [segment]
+        new_segments = [*disclosure.segments, segment]
         return PSAK5SegmentDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,

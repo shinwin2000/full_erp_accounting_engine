@@ -425,9 +425,10 @@ class S3EncryptedBackup:
         return "unknown"
 
     def _compress_file(self, input_path: str, output_path: str) -> None:
-        with open(input_path, "rb") as f_in:
-            with gzip.open(output_path, "wb", compresslevel=self.compression_level) as f_out:
-                shutil.copyfileobj(f_in, f_out, length=65536)
+        with open(input_path, "rb") as f_in, gzip.open(
+            output_path, "wb", compresslevel=self.compression_level
+        ) as f_out:
+            shutil.copyfileobj(f_in, f_out, length=65536)
 
     def _calculate_checksum(self, file_path: str, chunk_size: int = CHUNK_SIZE) -> str:
         sha256 = hashlib.sha256()
@@ -666,9 +667,8 @@ class S3EncryptedBackup:
             else:
                 shutil.copy2(encrypted_local, decrypted_local)
 
-            with gzip.open(decrypted_local, "rb") as f_in:
-                with open(uncompressed_local, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            with gzip.open(decrypted_local, "rb") as f_in, open(uncompressed_local, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
 
             self._record_audit("RESTORE_BACKUP", "system", {"backup_id": backup_metadata.backup_id})
             logger.info(f"Restore completed to {uncompressed_local}")

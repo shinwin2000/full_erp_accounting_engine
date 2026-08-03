@@ -204,7 +204,7 @@ class SalesToARFullWorkflow:
                 saga_context.set_invoice_number(invoice_result["invoice_number"])
 
                 if command.auto_approve:
-                    approve_result = await self._approve_invoice(invoice_result["invoice_id"])
+                    approve_result = await self._approve_invoice(invoice_result["invoice_id"], command.user_id)
                     if not approve_result.get("success"):
                         await self._saga.compensate(saga_context.saga_id, "approval_failed")
                         raise ValueError(f"Invoice approval failed: {approve_result.get('error')}")
@@ -310,8 +310,8 @@ class SalesToARFullWorkflow:
             "amount": total_amount,
         }
 
-    async def _approve_invoice(self, invoice_id: UUID) -> dict[str, Any]:
-        await self._ar_service.approve_invoice(invoice_id, command.user_id)
+    async def _approve_invoice(self, invoice_id: UUID, user_id: UUID | None) -> dict[str, Any]:
+        await self._ar_service.approve_invoice(invoice_id, user_id)
         return {"success": True}
 
     async def _record_payment(

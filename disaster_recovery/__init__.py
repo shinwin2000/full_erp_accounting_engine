@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 Package: disaster_recovery
 Responsibility: Disaster Recovery untuk ERP Accounting Engine.
@@ -16,6 +14,8 @@ Submodules:
     - pitr_point_in_time_recovery: Point-in-Time Recovery
     - standby_replica_promotion: Promosi standby replica
 """
+
+from __future__ import annotations
 
 from .backup_full_encrypted_s3 import BackupMetadata, BackupStatus, S3EncryptedBackup
 from .dr_exceptions import (

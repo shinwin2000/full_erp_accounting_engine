@@ -357,7 +357,7 @@ class TestGoingConcernValidator:
         assessment = create_test_assessment(legal_entity_id=legal_entity_id)
         assessment.next_assessment_due = fixed_now - timedelta(days=10)
         with patch("axioms.going_concern.GoingConcernValidator._notify_constitution"):
-            is_valid, violation, hint = GoingConcernValidator.validate_assessment_timeliness(
+            is_valid, violation, _hint = GoingConcernValidator.validate_assessment_timeliness(
                 legal_entity_id=legal_entity_id,
                 last_assessment=assessment,
                 current_date=fixed_now,
@@ -383,7 +383,7 @@ class TestGoingConcernValidator:
         assessment = create_test_assessment(legal_entity_id=legal_entity_id)
         assessment.next_assessment_due = fixed_now + timedelta(days=15)
         with caplog.at_level("WARNING"):
-            is_valid, violation, hint = GoingConcernValidator.validate_assessment_timeliness(
+            is_valid, violation, _hint = GoingConcernValidator.validate_assessment_timeliness(
                 legal_entity_id=legal_entity_id,
                 last_assessment=assessment,
                 current_date=fixed_now,

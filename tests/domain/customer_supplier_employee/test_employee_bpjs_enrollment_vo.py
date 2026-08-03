@@ -407,7 +407,7 @@ def test_calculate_contributions_employment(valid_employment_enrollment):
 
 def test_calculate_contributions_employment_with_override_risk(valid_employment_enrollment):
     salary = Decimal("10000000")
-    emp, er = valid_employment_enrollment.calculate_contributions(salary, risk_level=1)
+    _emp, er = valid_employment_enrollment.calculate_contributions(salary, risk_level=1)
     # JKK rate for risk 1: 0.24% => 24,000
     # JHT: emp 200,000, er 370,000
     assert er == Decimal("394000")  # 24,000 + 370,000

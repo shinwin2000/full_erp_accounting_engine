@@ -395,7 +395,7 @@ class PSAK8Validator:
     def add_event(
         self, disclosure: AfterReportingPeriodDisclosure, event: AfterReportingPeriodEvent
     ) -> AfterReportingPeriodDisclosure:
-        new_events = disclosure.events + [event]
+        new_events = [*disclosure.events, event]
         return AfterReportingPeriodDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,

@@ -345,7 +345,7 @@ class PSAK38Validator:
     def add_transaction(
         self, register: PSAK38CommonControlRegister, transaction: PSAK38Transaction
     ) -> PSAK38CommonControlRegister:
-        new_transactions = register.transactions + [transaction]
+        new_transactions = [*register.transactions, transaction]
         return PSAK38CommonControlRegister(
             register_id=register.register_id,
             entity_id=register.entity_id,

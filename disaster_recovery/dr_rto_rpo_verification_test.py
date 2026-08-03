@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Optional Prometheus metrics
 try:
-    from prometheus_client import Counter, Gauge, Histogram
+    from prometheus_client import Gauge
 
     HAS_PROMETHEUS = True
 except ImportError:

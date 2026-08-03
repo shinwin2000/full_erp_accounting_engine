@@ -289,17 +289,17 @@ class PPh26Calculator:
             description=desc,
         )
 
-    def calculate_dividend(self, *args, **kwargs):
-        return self._calculate_full(income_type=PPh26IncomeType.DIVIDEND, *args, **kwargs)
+    def calculate_dividend(self, **kwargs):
+        return self._calculate_full(income_type=PPh26IncomeType.DIVIDEND, **kwargs)
 
-    def calculate_interest(self, *args, **kwargs):
-        return self._calculate_full(income_type=PPh26IncomeType.INTEREST, *args, **kwargs)
+    def calculate_interest(self, **kwargs):
+        return self._calculate_full(income_type=PPh26IncomeType.INTEREST, **kwargs)
 
-    def calculate_royalty(self, *args, **kwargs):
-        return self._calculate_full(income_type=PPh26IncomeType.ROYALTY, *args, **kwargs)
+    def calculate_royalty(self, **kwargs):
+        return self._calculate_full(income_type=PPh26IncomeType.ROYALTY, **kwargs)
 
-    def calculate_service(self, *args, **kwargs):
-        return self._calculate_full(income_type=PPh26IncomeType.SERVICE, *args, **kwargs)
+    def calculate_service(self, **kwargs):
+        return self._calculate_full(income_type=PPh26IncomeType.SERVICE, **kwargs)
 
     def add_treaty_rate(self, rate: TreatyRate) -> None:
         self._treaty_registry.add_treaty_rate(rate)
@@ -341,7 +341,7 @@ class PPh26Calculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         return self._get_default_rate()
 
     def calculate_tax(
@@ -387,6 +387,8 @@ def get_pph26_calculator() -> PPh26Calculator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     calc = get_pph26_calculator()
     result = calc.calculate_dividend(
         transaction_id=uuid4(),

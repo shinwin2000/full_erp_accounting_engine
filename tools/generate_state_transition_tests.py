@@ -133,10 +133,14 @@ def discover(only_filter: str | None) -> list[DiscoveredStateMachine]:
             for n in cls_node.body:
                 if isinstance(n, ast.FunctionDef) and n.name == "can_transition":
                     for arg in n.args.args:
-                        if arg.annotation is not None and isinstance(arg.annotation, ast.Name):
-                            if arg.annotation.id.endswith("Status") and arg.annotation.id in enum_classes:
-                                target_enum = arg.annotation.id
-                                break
+                        if (
+                            arg.annotation is not None
+                            and isinstance(arg.annotation, ast.Name)
+                            and arg.annotation.id.endswith("Status")
+                            and arg.annotation.id in enum_classes
+                        ):
+                            target_enum = arg.annotation.id
+                            break
             if target_enum:
                 found.append(DiscoveredStateMachine(
                     module_path=_dotted(rel), file_rel=rel, status_enum_name=target_enum,
@@ -149,6 +153,18 @@ def _import_module(dotted: str):
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     return importlib.import_module(dotted)
+
+
+def _make_enum_classmethod(enum_cls, a, b):
+    return enum_cls.can_transition(a, b)
+
+
+def _make_instance_method(a, b):
+    return a.can_transition_to(b)
+
+
+def _make_external_staticmethod(owner, a, b):
+    return owner.can_transition(a, b)
 
 
 def build_matrix(dsm: DiscoveredStateMachine) -> tuple[list[str], dict[tuple[str, str], bool]] | None:
@@ -169,15 +185,18 @@ def build_matrix(dsm: DiscoveredStateMachine) -> tuple[list[str], dict[tuple[str
     member_names = [m.name for m in members]
 
     if dsm.call_style == "enum_classmethod":
-        fn = lambda a, b: enum_cls.can_transition(a, b)
+        def fn(a, b):
+            return _make_enum_classmethod(enum_cls, a, b)
     elif dsm.call_style == "instance_method":
-        fn = lambda a, b: a.can_transition_to(b)
+        def fn(a, b):
+            return _make_instance_method(a, b)
     else:
         owner = getattr(mod, dsm.transition_owner, None)
         if owner is None:
             print(f"  ⚠️  SKIP {dsm.file_rel}: {dsm.transition_owner} tidak ditemukan setelah import")
             return None
-        fn = lambda a, b: owner.can_transition(a, b)
+        def fn(a, b):
+            return _make_external_staticmethod(owner, a, b)
 
     matrix: dict[tuple[str, str], bool] = {}
     for a in members:

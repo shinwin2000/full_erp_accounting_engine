@@ -519,40 +519,31 @@ class ComplianceExceptionAggregator:
 # Export
 # ============================================================================
 __all__ = [
-    # Base
-    "ComplianceError",
-    "ErrorSeverity",
-    "ErrorCategory",
-    # AML
     "AMLViolationError",
-    "SanctionListHitError",
-    "STRRequiredError",
-    "EDDRequiredError",
-    "SuspiciousTransactionReported",  # added
-    # GDPR
-    "GDPRViolationError",
-    "ConsentMissingError",
-    "DataSubjectRequestError",
-    "DataBreachNotificationError",
-    # SOX
-    "SOXViolationError",
-    "ControlTestFailureError",
-    "SegregationOfDutyError",
-    # Tax
-    "TaxComplianceError",
-    "CoretaxAPIError",
-    "FakturValidationError",
-    "SPTSubmissionError",
-    # Reporting
-    "ReportingError",
-    "ReportGenerationError",
-    # Ethics
-    "EthicsError",
-    "ProfessionalJudgmentError",
-    "ConflictOfInterestError",
-    # Legal
-    "LegalError",
-    "JurisdictionError",
-    # Utility
+    "ComplianceError",
     "ComplianceExceptionAggregator",
+    "ConflictOfInterestError",
+    "ConsentMissingError",
+    "ControlTestFailureError",
+    "CoretaxAPIError",
+    "DataBreachNotificationError",
+    "DataSubjectRequestError",
+    "EDDRequiredError",
+    "ErrorCategory",
+    "ErrorSeverity",
+    "EthicsError",
+    "FakturValidationError",
+    "GDPRViolationError",
+    "JurisdictionError",
+    "LegalError",
+    "ProfessionalJudgmentError",
+    "ReportGenerationError",
+    "ReportingError",
+    "SOXViolationError",
+    "SPTSubmissionError",
+    "STRRequiredError",
+    "SanctionListHitError",
+    "SegregationOfDutyError",
+    "SuspiciousTransactionReported",
+    "TaxComplianceError",
 ]

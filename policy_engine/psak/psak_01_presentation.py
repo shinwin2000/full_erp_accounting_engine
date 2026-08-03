@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
+from typing import ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -282,7 +283,7 @@ class PSAK1PresentationService:
 class PSAK1Rules:
     """Aturan-aturan PSAK 1."""
 
-    REQUIRED_COMPONENTS = [
+    REQUIRED_COMPONENTS: ClassVar[list[PSAK1FinancialStatementComponent]] = [
         PSAK1FinancialStatementComponent.STATEMENT_OF_FINANCIAL_POSITION,
         PSAK1FinancialStatementComponent.STATEMENT_OF_PROFIT_OR_LOSS,
         PSAK1FinancialStatementComponent.STATEMENT_OF_CHANGES_IN_EQUITY,

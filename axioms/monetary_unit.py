@@ -941,10 +941,8 @@ class MonetaryUnitViolation:
 
 
 class CurrencyRegistry:
-    _instance: CurrencyRegistry | None = None
-    _currencies: dict[str, CurrencyDefinition] = {}
-    _exchange_rates: dict[tuple[str, str], list[ExchangeRate]] = {}
-    _lock = threading.Lock()
+    _instance: ClassVar[CurrencyRegistry | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> CurrencyRegistry:
         if cls._instance is None:
@@ -958,6 +956,8 @@ class CurrencyRegistry:
         if self._initialized:
             return
         self._initialized = True
+        self._currencies: dict[str, CurrencyDefinition] = {}
+        self._exchange_rates: dict[tuple[str, str], list[ExchangeRate]] = {}
         self._load_default_currencies()
         self._load_default_exchange_rates()
 
@@ -1183,7 +1183,8 @@ class MonetaryUnitValidator:
     def _notify_constitution(cls, violation: MonetaryUnitViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 MonetaryUnitViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 MonetaryUnitViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 MonetaryUnitViolationSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -1204,11 +1205,10 @@ class MonetaryUnitValidator:
 
 
 class MonetaryUnitAxiom:
-    _instance: MonetaryUnitAxiom | None = None
+    _instance: ClassVar[MonetaryUnitAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
     _validator = MonetaryUnitValidator
     _registry = CurrencyRegistry()
-    _violation_history: list[MonetaryUnitViolation] = []
-    _lock = threading.Lock()
 
     def __new__(cls) -> MonetaryUnitAxiom:
         if cls._instance is None:
@@ -1222,7 +1222,7 @@ class MonetaryUnitAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._violation_history = []
+        self._violation_history: list[MonetaryUnitViolation] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_violation(self, violation: MonetaryUnitViolation) -> None:
@@ -1321,7 +1321,7 @@ class MonetaryUnitAxiom:
         auto_correct: bool = True,
         raise_on_violation: bool = True,
     ) -> tuple[bool, MonetaryUnitViolation | None]:
-        is_valid, violation, hint = self._validator.validate_currency(
+        is_valid, violation, _ = self._validator.validate_currency(
             amount.currency,
             transaction_id,
             functional_currency,

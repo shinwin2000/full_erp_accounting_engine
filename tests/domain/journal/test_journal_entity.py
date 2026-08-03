@@ -278,7 +278,7 @@ class TestJournalStateMachine:
         assert "Approval required" in msg
 
     def test_validate_transition_approval_allowed_role(self):
-        valid, msg = JournalStateMachine.validate_transition(
+        valid, _msg = JournalStateMachine.validate_transition(
             from_status=JournalStatus.SUBMITTED,
             to_status=JournalStatus.APPROVED,
             user_role="approver",
@@ -298,7 +298,7 @@ class TestJournalStateMachine:
         assert "Reason is required" in msg
 
     def test_validate_transition_reason_provided(self):
-        valid, msg = JournalStateMachine.validate_transition(
+        valid, _msg = JournalStateMachine.validate_transition(
             from_status=JournalStatus.SUBMITTED,
             to_status=JournalStatus.REJECTED,
             user_role="approver",
@@ -322,7 +322,7 @@ class TestJournalStateMachine:
         # Dual control rule exists for POSTED->REVERSED with threshold 1B
         # But the rule for APPROVED->POSTED does not have dual_control.
         # Test with POSTED->REVERSED which has dual_control
-        valid, msg = JournalStateMachine.validate_transition(
+        valid, _msg = JournalStateMachine.validate_transition(
             from_status=JournalStatus.POSTED,
             to_status=JournalStatus.REVERSED,
             user_role="manager",

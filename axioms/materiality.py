@@ -865,7 +865,8 @@ class MaterialityValidator:
     def _notify_constitution(cls, violation: MaterialityViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 MaterialitySeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 MaterialitySeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 MaterialitySeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -886,11 +887,8 @@ class MaterialityValidator:
 
 
 class MaterialityAxiom:
-    _instance: MaterialityAxiom | None = None
-    _thresholds: dict[tuple[UUID, int], MaterialityThreshold] = {}
-    _judgments: list[MaterialityJudgment] = []
-    _violations: list[MaterialityViolation] = []
-    _lock = threading.Lock()
+    _instance: ClassVar[MaterialityAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> MaterialityAxiom:
         if cls._instance is None:
@@ -904,9 +902,9 @@ class MaterialityAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._thresholds = {}
-        self._judgments = []
-        self._violations = []
+        self._thresholds: dict[tuple[UUID, int], MaterialityThreshold] = {}
+        self._judgments: list[MaterialityJudgment] = []
+        self._violations: list[MaterialityViolation] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_threshold(self, threshold: MaterialityThreshold) -> None:
@@ -1128,7 +1126,7 @@ class MaterialityAxiom:
                 },
                 "by_failure_type": {
                     ft: len([v for v in self._violations if v.failure_type == ft])
-                    for ft in set(v.failure_type for v in self._violations)
+                    for ft in {v.failure_type for v in self._violations}
                 },
             }
 

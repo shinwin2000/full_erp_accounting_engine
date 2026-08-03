@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ class IAS2Inventory:
             inventory_id=self.inventory_id,
             entity_id=self.entity_id,
             valuation_method=self.valuation_method,
-            items=self.items + [item],
+            items=[*self.items, item],
             as_of_date=self.as_of_date,
         )
 
@@ -225,11 +225,11 @@ class IAS2ValidationResult:
 
 
 class IAS2Rules:
-    ALLOWED_METHODS = [
+    ALLOWED_METHODS: ClassVar[list[IAS2InventoryValuationMethod]] = [
         IAS2InventoryValuationMethod.FIFO,
         IAS2InventoryValuationMethod.WEIGHTED_AVERAGE,
     ]
-    DISALLOWED_METHODS = ["lifo"]
+    DISALLOWED_METHODS: ClassVar[list[str]] = ["lifo"]
 
     @staticmethod
     def validate_valuation_method(method: IAS2InventoryValuationMethod) -> IAS2ValidationResult:

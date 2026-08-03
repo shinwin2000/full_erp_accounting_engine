@@ -188,7 +188,7 @@ class TestCoretaxFormatValidator:
         assert msg is None
 
     def test_validate_faktur_pajak_valid_raw(self):
-        valid, msg = CoretaxFormatValidator.validate_faktur_pajak("1234567890123456")
+        valid, _msg = CoretaxFormatValidator.validate_faktur_pajak("1234567890123456")
         assert valid is True
 
     def test_validate_faktur_pajak_empty(self):
@@ -202,7 +202,7 @@ class TestCoretaxFormatValidator:
         assert "Format nomor faktur pajak tidak valid" in msg
 
     def test_validate_faktur_pajak_with_valid_kode(self):
-        valid, msg = CoretaxFormatValidator.validate_faktur_pajak("123", kode="010")
+        valid, _msg = CoretaxFormatValidator.validate_faktur_pajak("123", kode="010")
         # Faktur string "123" doesn't match pattern, so invalid regardless of kode
         assert valid is False
 
@@ -228,7 +228,7 @@ class TestCoretaxFormatValidator:
         assert "Format masa pajak tidak valid" in msg
 
     def test_validate_masa_pajak_invalid_month(self):
-        valid, msg = CoretaxFormatValidator.validate_masa_pajak("13/2025")
+        valid, _msg = CoretaxFormatValidator.validate_masa_pajak("13/2025")
         assert valid is False
 
     # ---- validate_tahun_pajak ----
@@ -270,7 +270,7 @@ class TestCoretaxFormatValidator:
         assert msg is None
 
     def test_validate_nilai_ppn_with_float(self):
-        valid, msg = CoretaxFormatValidator.validate_nilai_ppn(110.0, 1000.0)
+        valid, _msg = CoretaxFormatValidator.validate_nilai_ppn(110.0, 1000.0)
         assert valid is True
 
     def test_validate_nilai_ppn_invalid(self):
@@ -284,7 +284,7 @@ class TestCoretaxFormatValidator:
         assert "Nilai PPN dan DPP harus positif" in msg
 
     def test_validate_nilai_ppn_zero_dpp(self):
-        valid, msg = CoretaxFormatValidator.validate_nilai_ppn(Decimal("100"), Decimal("0"))
+        valid, _msg = CoretaxFormatValidator.validate_nilai_ppn(Decimal("100"), Decimal("0"))
         assert valid is False
 
     # ---- validate_kode_efaktur ----
@@ -318,11 +318,11 @@ class TestCoretaxFormatValidator:
         assert msg is None
 
     def test_validate_tarif_pph_valid_26(self):
-        valid, msg = CoretaxFormatValidator.validate_tarif_pph(Decimal("0.20"), "26")
+        valid, _msg = CoretaxFormatValidator.validate_tarif_pph(Decimal("0.20"), "26")
         assert valid is True
 
     def test_validate_tarif_pph_with_float(self):
-        valid, msg = CoretaxFormatValidator.validate_tarif_pph(0.05, "21")
+        valid, _msg = CoretaxFormatValidator.validate_tarif_pph(0.05, "21")
         assert valid is True
 
     def test_validate_tarif_pph_invalid_21(self):
@@ -331,7 +331,7 @@ class TestCoretaxFormatValidator:
         assert "tidak wajar" in msg
 
     def test_validate_tarif_pph_negative(self):
-        valid, msg = CoretaxFormatValidator.validate_tarif_pph(Decimal("-0.05"), "21")
+        valid, _msg = CoretaxFormatValidator.validate_tarif_pph(Decimal("-0.05"), "21")
         assert valid is False
 
     # ---- validate_spt_type ----

@@ -103,7 +103,7 @@ class TestSlidingWindowRateLimiter:
 
         # Add requests with time manipulation
         limiter._memory_store[key] = [time.time() - 2]  # older than window
-        allowed, remaining, reset_time = limiter._check_memory(key, limit, window_seconds)
+        allowed, _remaining, _reset_time = limiter._check_memory(key, limit, window_seconds)
         # The old entry should be removed, and we should have space
         assert allowed is True
         assert len(limiter._memory_store[key]) == 1  # only the new request
@@ -115,7 +115,7 @@ class TestSlidingWindowRateLimiter:
         # Actually _check_memory is only called if fallback_to_memory is True.
         # If False, the is_allowed method will go to the else branch and allow without calling _check_memory.
         # So we test is_allowed directly.
-        allowed, remaining, reset_time = asyncio.run(
+        allowed, remaining, _reset_time = asyncio.run(
             limiter.is_allowed("key", 1, 60)
         )
         assert allowed is True
@@ -160,7 +160,7 @@ class TestFixedWindowRateLimiter:
         limiter._memory_store[key] = (limit, window_start)  # full
         # Now simulate a new window by advancing time beyond window
         with patch('time.time', return_value=now + window_seconds + 1):
-            allowed, remaining, reset_time = limiter._check_memory(key, limit, window_seconds)
+            allowed, remaining, _reset_time = limiter._check_memory(key, limit, window_seconds)
             assert allowed is True
             assert remaining == limit - 1
             # counter should be reset to 1
@@ -168,7 +168,7 @@ class TestFixedWindowRateLimiter:
 
     def test_check_memory_fallback_disabled(self):
         limiter = FixedWindowRateLimiter(redis_client=None, fallback_to_memory=False)
-        allowed, remaining, reset_time = asyncio.run(
+        allowed, _remaining, _reset_time = asyncio.run(
             limiter.is_allowed("key", 1, 60)
         )
         assert allowed is True
@@ -199,7 +199,7 @@ class TestTokenBucketRateLimiter:
             assert allowed is True
             assert remaining == capacity - (i + 2)
         # Exceed capacity
-        allowed, remaining, reset_time = limiter._check_memory(key, capacity, refill_rate, interval)
+        allowed, remaining, _reset_time = limiter._check_memory(key, capacity, refill_rate, interval)
         assert allowed is False
         assert remaining == 0
 
@@ -214,14 +214,14 @@ class TestTokenBucketRateLimiter:
         # Now advance time to refill
         now = time.time()
         with patch('time.time', return_value=now + interval + 0.1):
-            allowed, remaining, reset_time = limiter._check_memory(key, capacity, refill_rate, interval)
+            allowed, remaining, _reset_time = limiter._check_memory(key, capacity, refill_rate, interval)
             assert allowed is True
             # tokens should be refilled by 1 (since elapsed=1 interval)
             assert remaining == 1  # capacity - 2 (one consumed, one left)
 
     def test_check_memory_fallback_disabled(self):
         limiter = TokenBucketRateLimiter(redis_client=None, fallback_to_memory=False)
-        allowed, remaining, reset_time = asyncio.run(
+        allowed, _remaining, _reset_time = asyncio.run(
             limiter.is_allowed("key", 1, 1, 1)
         )
         assert allowed is True

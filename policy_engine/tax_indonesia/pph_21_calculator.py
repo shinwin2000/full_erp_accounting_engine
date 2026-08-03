@@ -77,85 +77,89 @@ PTKP_AMOUNTS = {
 
 # TER (Tarif Efektif Rata-rata) bulanan untuk PPh 21 (mulai 2024)
 # Sumber: PER-32/PJ/2024
-TER_MONTHLY = {
-    # Kategori A (Penghasilan bruto <= 10.2 jt, status TK/0, TK/1, K/0, K/1, KB/0)
-    (0, 5400000): Decimal("0.00"),
-    (5400000, 5600000): Decimal("0.25"),
-    (5600000, 5800000): Decimal("0.50"),
-    (5800000, 6000000): Decimal("0.75"),
-    (6000000, 6200000): Decimal("1.00"),
-    (6200000, 6400000): Decimal("1.25"),
-    (6400000, 6600000): Decimal("1.50"),
-    (6600000, 6800000): Decimal("1.75"),
-    (6800000, 7000000): Decimal("2.00"),
-    (7000000, 7200000): Decimal("2.25"),
-    (7200000, 7400000): Decimal("2.50"),
-    (7400000, 7600000): Decimal("2.75"),
-    (7600000, 7800000): Decimal("3.00"),
-    (7800000, 8000000): Decimal("3.25"),
-    (8000000, 8200000): Decimal("3.50"),
-    (8200000, 8400000): Decimal("3.75"),
-    (8400000, 8600000): Decimal("4.00"),
-    (8600000, 8800000): Decimal("4.25"),
-    (8800000, 9000000): Decimal("4.50"),
-    (9000000, 9200000): Decimal("4.75"),
-    (9200000, 9400000): Decimal("5.00"),
-    (9400000, 9600000): Decimal("5.25"),
-    (9600000, 9800000): Decimal("5.50"),
-    (9800000, 10000000): Decimal("5.75"),
-    (10000000, 10200000): Decimal("6.00"),
-    # Kategori B (status TK/2, TK/3, K/2, K/3, KB/1, KB/2)
-    (0, 5500000): Decimal("0.00"),
-    (5500000, 5700000): Decimal("0.25"),
-    (5700000, 5900000): Decimal("0.50"),
-    (5900000, 6100000): Decimal("0.75"),
-    (6100000, 6300000): Decimal("1.00"),
-    (6300000, 6500000): Decimal("1.25"),
-    (6500000, 6700000): Decimal("1.50"),
-    (6700000, 6900000): Decimal("1.75"),
-    (6900000, 7100000): Decimal("2.00"),
-    (7100000, 7300000): Decimal("2.25"),
-    (7300000, 7500000): Decimal("2.50"),
-    (7500000, 7700000): Decimal("2.75"),
-    (7700000, 7900000): Decimal("3.00"),
-    (7900000, 8100000): Decimal("3.25"),
-    (8100000, 8300000): Decimal("3.50"),
-    (8300000, 8500000): Decimal("3.75"),
-    (8500000, 8700000): Decimal("4.00"),
-    (8700000, 8900000): Decimal("4.25"),
-    (8900000, 9100000): Decimal("4.50"),
-    (9100000, 9300000): Decimal("4.75"),
-    (9300000, 9500000): Decimal("5.00"),
-    (9500000, 9700000): Decimal("5.25"),
-    (9700000, 9900000): Decimal("5.50"),
-    (9900000, 10100000): Decimal("5.75"),
-    (10100000, 10300000): Decimal("6.00"),
-    # Kategori C (status KB/3, K/I/0, K/I/1, K/I/2, K/I/3, DT)
-    (0, 5600000): Decimal("0.00"),
-    (5600000, 5800000): Decimal("0.25"),
-    (5800000, 6000000): Decimal("0.50"),
-    (6000000, 6200000): Decimal("0.75"),
-    (6200000, 6400000): Decimal("1.00"),
-    (6400000, 6600000): Decimal("1.25"),
-    (6600000, 6800000): Decimal("1.50"),
-    (6800000, 7000000): Decimal("1.75"),
-    (7000000, 7200000): Decimal("2.00"),
-    (7200000, 7400000): Decimal("2.25"),
-    (7400000, 7600000): Decimal("2.50"),
-    (7600000, 7800000): Decimal("2.75"),
-    (7800000, 8000000): Decimal("3.00"),
-    (8000000, 8200000): Decimal("3.25"),
-    (8200000, 8400000): Decimal("3.50"),
-    (8400000, 8600000): Decimal("3.75"),
-    (8600000, 8800000): Decimal("4.00"),
-    (8800000, 9000000): Decimal("4.25"),
-    (9000000, 9200000): Decimal("4.50"),
-    (9200000, 9400000): Decimal("4.75"),
-    (9400000, 9600000): Decimal("5.00"),
-    (9600000, 9800000): Decimal("5.25"),
-    (9800000, 10000000): Decimal("5.50"),
-    (10000000, 10200000): Decimal("5.75"),
-    (10200000, 10400000): Decimal("6.00"),
+# Struktur: category -> list of (low, high, rate)
+TER_MONTHLY_CATEGORIES = {
+    "A": [
+        (0, 5400000, Decimal("0.00")),
+        (5400000, 5600000, Decimal("0.25")),
+        (5600000, 5800000, Decimal("0.50")),
+        (5800000, 6000000, Decimal("0.75")),
+        (6000000, 6200000, Decimal("1.00")),
+        (6200000, 6400000, Decimal("1.25")),
+        (6400000, 6600000, Decimal("1.50")),
+        (6600000, 6800000, Decimal("1.75")),
+        (6800000, 7000000, Decimal("2.00")),
+        (7000000, 7200000, Decimal("2.25")),
+        (7200000, 7400000, Decimal("2.50")),
+        (7400000, 7600000, Decimal("2.75")),
+        (7600000, 7800000, Decimal("3.00")),
+        (7800000, 8000000, Decimal("3.25")),
+        (8000000, 8200000, Decimal("3.50")),
+        (8200000, 8400000, Decimal("3.75")),
+        (8400000, 8600000, Decimal("4.00")),
+        (8600000, 8800000, Decimal("4.25")),
+        (8800000, 9000000, Decimal("4.50")),
+        (9000000, 9200000, Decimal("4.75")),
+        (9200000, 9400000, Decimal("5.00")),
+        (9400000, 9600000, Decimal("5.25")),
+        (9600000, 9800000, Decimal("5.50")),
+        (9800000, 10000000, Decimal("5.75")),
+        (10000000, 10200000, Decimal("6.00")),
+    ],
+    "B": [
+        (0, 5500000, Decimal("0.00")),
+        (5500000, 5700000, Decimal("0.25")),
+        (5700000, 5900000, Decimal("0.50")),
+        (5900000, 6100000, Decimal("0.75")),
+        (6100000, 6300000, Decimal("1.00")),
+        (6300000, 6500000, Decimal("1.25")),
+        (6500000, 6700000, Decimal("1.50")),
+        (6700000, 6900000, Decimal("1.75")),
+        (6900000, 7100000, Decimal("2.00")),
+        (7100000, 7300000, Decimal("2.25")),
+        (7300000, 7500000, Decimal("2.50")),
+        (7500000, 7700000, Decimal("2.75")),
+        (7700000, 7900000, Decimal("3.00")),
+        (7900000, 8100000, Decimal("3.25")),
+        (8100000, 8300000, Decimal("3.50")),
+        (8300000, 8500000, Decimal("3.75")),
+        (8500000, 8700000, Decimal("4.00")),
+        (8700000, 8900000, Decimal("4.25")),
+        (8900000, 9100000, Decimal("4.50")),
+        (9100000, 9300000, Decimal("4.75")),
+        (9300000, 9500000, Decimal("5.00")),
+        (9500000, 9700000, Decimal("5.25")),
+        (9700000, 9900000, Decimal("5.50")),
+        (9900000, 10100000, Decimal("5.75")),
+        (10100000, 10300000, Decimal("6.00")),
+    ],
+    "C": [
+        (0, 5600000, Decimal("0.00")),
+        (5600000, 5800000, Decimal("0.25")),
+        (5800000, 6000000, Decimal("0.50")),
+        (6000000, 6200000, Decimal("0.75")),
+        (6200000, 6400000, Decimal("1.00")),
+        (6400000, 6600000, Decimal("1.25")),
+        (6600000, 6800000, Decimal("1.50")),
+        (6800000, 7000000, Decimal("1.75")),
+        (7000000, 7200000, Decimal("2.00")),
+        (7200000, 7400000, Decimal("2.25")),
+        (7400000, 7600000, Decimal("2.50")),
+        (7600000, 7800000, Decimal("2.75")),
+        (7800000, 8000000, Decimal("3.00")),
+        (8000000, 8200000, Decimal("3.25")),
+        (8200000, 8400000, Decimal("3.50")),
+        (8400000, 8600000, Decimal("3.75")),
+        (8600000, 8800000, Decimal("4.00")),
+        (8800000, 9000000, Decimal("4.25")),
+        (9000000, 9200000, Decimal("4.50")),
+        (9200000, 9400000, Decimal("4.75")),
+        (9400000, 9600000, Decimal("5.00")),
+        (9600000, 9800000, Decimal("5.25")),
+        (9800000, 10000000, Decimal("5.50")),
+        (10000000, 10200000, Decimal("5.75")),
+        (10200000, 10400000, Decimal("6.00")),
+    ],
 }
 
 
@@ -503,16 +507,13 @@ class PPh21Calculator:
         return tax.quantize(Decimal(1), rounding=ROUND_DOWN)
 
     @classmethod
-    def monthly_ter(cls, gross_monthly: Decimal) -> Decimal:
+    def monthly_ter(cls, gross_monthly: Decimal, category: str = "A") -> Decimal:
         """
         Menghitung PPh 21 bulanan menggunakan TER (Tarif Efektif Rata-rata).
-        Untuk test, asumsikan kategori A (TK/0) dan gunakan tarif 2% untuk penghasilan 10jt.
+        category: "A", "B", atau "C" sesuai status PTKP.
         """
-        # Sesuai test: gross_monthly 10.000.000 -> 2%
-        if gross_monthly == Decimal("10000000"):
-            return Decimal("200000")
-        # Default: cari di TER_MONTHLY
-        for (low, high), rate in TER_MONTHLY.items():
+        rates = TER_MONTHLY_CATEGORIES.get(category, TER_MONTHLY_CATEGORIES["A"])
+        for low, high, rate in rates:
             if low < gross_monthly <= high:
                 return (gross_monthly * rate / cls.PERCENT_FACTOR).quantize(
                     Decimal(1), rounding=ROUND_DOWN
@@ -557,7 +558,7 @@ class PPh21Calculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         # Mengembalikan 0 karena PPh 21 progresif, tidak ada tarif tunggal
         return Decimal(0)
 

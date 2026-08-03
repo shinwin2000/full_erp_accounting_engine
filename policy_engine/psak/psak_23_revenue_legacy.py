@@ -551,7 +551,7 @@ class PSAK23Validator:
     def add_goods_sale(
         self, summary: PSAK23RevenueSummary, sale: PSAK23GoodsSale
     ) -> PSAK23RevenueSummary:
-        new_sales = summary.goods_sales + [sale]
+        new_sales = [*summary.goods_sales, sale]
         return PSAK23RevenueSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,
@@ -566,7 +566,7 @@ class PSAK23Validator:
     def add_service_contract(
         self, summary: PSAK23RevenueSummary, contract: PSAK23ServiceContract
     ) -> PSAK23RevenueSummary:
-        new_contracts = summary.service_contracts + [contract]
+        new_contracts = [*summary.service_contracts, contract]
         return PSAK23RevenueSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,
@@ -581,7 +581,7 @@ class PSAK23Validator:
     def add_passive_income(
         self, summary: PSAK23RevenueSummary, income: PSAK23PassiveIncome
     ) -> PSAK23RevenueSummary:
-        new_incomes = summary.passive_incomes + [income]
+        new_incomes = [*summary.passive_incomes, income]
         return PSAK23RevenueSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,

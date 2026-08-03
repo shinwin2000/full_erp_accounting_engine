@@ -234,7 +234,7 @@ class PSAK60FinancialInstrumentsDisclosure:
             "risk_exposures": [r.to_dict() for r in self.risk_exposures],
             "fair_value": [f.to_dict() for f in self.fair_value_disclosures],
             "credit_risk": [c.to_dict() for c in self.credit_risk_disclosures],
-            "liquidity_risk": [l.to_dict() for l in self.liquidity_risk_disclosures],
+            "liquidity_risk": [liq.to_dict() for liq in self.liquidity_risk_disclosures],
             "market_risk": [m.to_dict() for m in self.market_risk_sensitivities],
             "total_credit_exposure": str(self.total_credit_exposure()),
             "total_loss_allowance": str(self.total_loss_allowance()),
@@ -498,7 +498,7 @@ class PSAK60Validator:
     def add_risk_exposure(
         self, disclosure: PSAK60FinancialInstrumentsDisclosure, exposure: PSAK60RiskExposure
     ) -> PSAK60FinancialInstrumentsDisclosure:
-        new_list = disclosure.risk_exposures + [exposure]
+        new_list = [*disclosure.risk_exposures, exposure]
         return PSAK60FinancialInstrumentsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -517,7 +517,7 @@ class PSAK60Validator:
     def add_fair_value(
         self, disclosure: PSAK60FinancialInstrumentsDisclosure, fv: PSAK60FairValueDisclosure
     ) -> PSAK60FinancialInstrumentsDisclosure:
-        new_list = disclosure.fair_value_disclosures + [fv]
+        new_list = [*disclosure.fair_value_disclosures, fv]
         return PSAK60FinancialInstrumentsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -536,7 +536,7 @@ class PSAK60Validator:
     def add_credit_risk(
         self, disclosure: PSAK60FinancialInstrumentsDisclosure, cr: PSAK60CreditRiskDisclosure
     ) -> PSAK60FinancialInstrumentsDisclosure:
-        new_list = disclosure.credit_risk_disclosures + [cr]
+        new_list = [*disclosure.credit_risk_disclosures, cr]
         return PSAK60FinancialInstrumentsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -555,7 +555,7 @@ class PSAK60Validator:
     def add_liquidity_risk(
         self, disclosure: PSAK60FinancialInstrumentsDisclosure, liq: PSAK60LiquidityRiskDisclosure
     ) -> PSAK60FinancialInstrumentsDisclosure:
-        new_list = disclosure.liquidity_risk_disclosures + [liq]
+        new_list = [*disclosure.liquidity_risk_disclosures, liq]
         return PSAK60FinancialInstrumentsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -574,7 +574,7 @@ class PSAK60Validator:
     def add_market_risk(
         self, disclosure: PSAK60FinancialInstrumentsDisclosure, sens: PSAK60MarketRiskSensitivity
     ) -> PSAK60FinancialInstrumentsDisclosure:
-        new_list = disclosure.market_risk_sensitivities + [sens]
+        new_list = [*disclosure.market_risk_sensitivities, sens]
         return PSAK60FinancialInstrumentsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,

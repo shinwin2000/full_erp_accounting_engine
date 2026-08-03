@@ -437,13 +437,13 @@ class TestEnforcementPipelineChecks:
 
     def test_check_preflight_unknown_operation_type(self, pipeline, sample_context):
         sample_context.operation_type = "UNKNOWN"
-        valid, msg, warnings = pipeline._check_preflight(sample_context)
+        valid, _msg, warnings = pipeline._check_preflight(sample_context)
         assert valid is True
         assert any("Unknown operation type" in w for w in warnings)
 
     def test_check_preflight_idempotency_key_too_long(self, pipeline, sample_context):
         sample_context.idempotency_key = "a" * 300
-        valid, msg, warnings = pipeline._check_preflight(sample_context)
+        valid, _msg, warnings = pipeline._check_preflight(sample_context)
         assert valid is True
         assert any("exceeds 255" in w for w in warnings)
 
@@ -474,7 +474,7 @@ class TestEnforcementPipelineChecks:
             mock_law = MagicMock()
             mock_law.enforce.side_effect = Exception("warning")
             mock_get.return_value = mock_law
-            valid, msg, warnings = pipeline._check_constitution(sample_context)
+            valid, _msg, warnings = pipeline._check_constitution(sample_context)
             assert valid is True
             assert any("warning" in w for w in warnings)
 
@@ -514,7 +514,7 @@ class TestEnforcementPipelineChecks:
             mock_service.get_status.return_value = {"current_state": "FROZEN"}
             mock_get.return_value = mock_service
             sample_context.operation_type = "AUDIT_CORRECTION"
-            valid, msg, warnings = pipeline._check_version_lock(sample_context)
+            valid, _msg, warnings = pipeline._check_version_lock(sample_context)
             assert valid is True
             assert any("FROZEN" in w for w in warnings)
 
@@ -535,7 +535,7 @@ class TestEnforcementPipelineChecks:
             mock_get.return_value = mock_service
             sample_context.is_amendment = True
             sample_context.operation_type = "CONSTITUTION_AMENDMENT"
-            valid, msg, _ = pipeline._check_version_lock(sample_context)
+            valid, _msg, _ = pipeline._check_version_lock(sample_context)
             assert valid is True
 
     def test_check_version_lock_locked_blocks_other(self, pipeline, sample_context):
@@ -630,7 +630,7 @@ class TestEnforcementPipelineChecks:
             violation.message = "Warning"
             mock_service.validate.return_value = (False, violation)
             mock_get.return_value = mock_service
-            valid, msg, warnings = pipeline._check_invariants(sample_context)
+            valid, _msg, warnings = pipeline._check_invariants(sample_context)
             assert valid is True
             assert any("Warning" in w for w in warnings)
 
@@ -640,7 +640,7 @@ class TestEnforcementPipelineChecks:
             mock_service = MagicMock()
             mock_service.get_registry.return_value.check.return_value = (False, None, None)
             mock_get.return_value = mock_service
-            valid, msg, _ = pipeline._check_forbidden_states(sample_context)
+            valid, _msg, _ = pipeline._check_forbidden_states(sample_context)
             assert valid is True
 
     def test_check_forbidden_critical(self, pipeline, sample_context):
@@ -678,7 +678,7 @@ class TestEnforcementPipelineChecks:
             from constitution.forbidden_states import ForbiddenStateAction
             mock_service.get_registry.return_value.check.return_value = (True, detection, ForbiddenStateAction.REJECT)
             mock_get.return_value = mock_service
-            valid, msg, warnings = pipeline._check_forbidden_states(sample_context)
+            valid, msg, _warnings = pipeline._check_forbidden_states(sample_context)
             assert valid is False
             assert "Forbidden state:" in msg
 
@@ -686,7 +686,7 @@ class TestEnforcementPipelineChecks:
     def test_check_dual_approval_large_amount(self, pipeline, sample_context):
         sample_context.data["amount"] = Decimal("1500000000")
         sample_context.data["approvers"] = ["CFO", "CEO"]
-        valid, msg, _ = pipeline._check_dual_approval(sample_context)
+        valid, _msg, _ = pipeline._check_dual_approval(sample_context)
         assert valid is True
 
     def test_check_dual_approval_large_amount_no_approvers(self, pipeline, sample_context):
@@ -699,7 +699,7 @@ class TestEnforcementPipelineChecks:
     def test_check_dual_approval_period_close(self, pipeline, sample_context):
         sample_context.operation_type = "PERIOD_CLOSE"
         sample_context.data["approvers"] = ["FINANCE_MANAGER", "AUDITOR"]
-        valid, msg, _ = pipeline._check_dual_approval(sample_context)
+        valid, _msg, _ = pipeline._check_dual_approval(sample_context)
         assert valid is True
 
     def test_check_dual_approval_period_close_missing(self, pipeline, sample_context):
@@ -721,7 +721,7 @@ class TestEnforcementPipelineChecks:
     def test_check_final_approval(self, pipeline, sample_context, amount, roles, expected_valid):
         sample_context.user_roles = list(roles)
         sample_context.data["amount"] = amount
-        valid, msg, warnings = pipeline._check_final_approval(sample_context)
+        valid, msg, _warnings = pipeline._check_final_approval(sample_context)
         assert valid == expected_valid
         if not expected_valid:
             assert "requires" in msg
@@ -729,7 +729,7 @@ class TestEnforcementPipelineChecks:
     def test_check_final_approval_maker_approver_warning(self, pipeline, sample_context):
         sample_context.user_roles = ["MAKER"]
         sample_context.data["amount"] = Decimal("1e8")
-        valid, msg, warnings = pipeline._check_final_approval(sample_context)
+        valid, _msg, warnings = pipeline._check_final_approval(sample_context)
         assert valid is True
         assert any("Maker-approver conflict" in w for w in warnings)
 

@@ -201,7 +201,7 @@ class TestValidateTransition:
 
     def test_super_admin_bypasses_role_check(self):
         account = StubAccount(status=AccountStatus.DRAFT)
-        valid, error = AccountStateMachine.validate_transition(
+        valid, _error = AccountStateMachine.validate_transition(
             account, AccountStatus.ACTIVE, user_role="super_admin",
         )
         assert valid is True
@@ -250,7 +250,7 @@ class TestValidateTransition:
 
     def test_close_with_balance_allowed_with_override(self):
         account = StubAccount(status=AccountStatus.ACTIVE)
-        valid, error = AccountStateMachine.validate_transition(
+        valid, _error = AccountStateMachine.validate_transition(
             account, AccountStatus.CLOSED, user_role="admin", has_balance=True, override_reason="reconciled",
         )
         assert valid is True
@@ -267,7 +267,7 @@ class TestValidateTransition:
         class LegacyAccount:
             is_active = True
 
-        valid, error = AccountStateMachine.validate_transition(
+        valid, _error = AccountStateMachine.validate_transition(
             LegacyAccount(), AccountStatus.SUSPENDED, user_role="admin",
         )
         assert valid is True  # ACTIVE -> SUSPENDED is allowed for admin
@@ -476,7 +476,7 @@ class TestCOAStateMachine:
         assert COAStateMachine.can_transition(COAStatus.ARCHIVED, COAStatus.ACTIVE) is False
 
     def test_validate_transition_authorized(self):
-        valid, error = COAStateMachine.validate_transition(COAStatus.ACTIVE, COAStatus.LOCKED, user_role="admin")
+        valid, _error = COAStateMachine.validate_transition(COAStatus.ACTIVE, COAStatus.LOCKED, user_role="admin")
         assert valid is True
 
     def test_validate_transition_unauthorized_role(self):
@@ -485,7 +485,7 @@ class TestCOAStateMachine:
         assert "Required roles" in error
 
     def test_validate_transition_super_admin_bypass(self):
-        valid, error = COAStateMachine.validate_transition(COAStatus.ACTIVE, COAStatus.ARCHIVED, user_role="super_admin")
+        valid, _error = COAStateMachine.validate_transition(COAStatus.ACTIVE, COAStatus.ARCHIVED, user_role="super_admin")
         assert valid is True
 
     def test_validate_transition_not_allowed(self):

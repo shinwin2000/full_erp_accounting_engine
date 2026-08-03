@@ -538,7 +538,6 @@ class TestPrivateMethods:
     def test_copy_used_in_all_mutations(self, sample_journal):
         # We can't directly test _copy, but every mutation method uses it.
         # We'll verify that mutations don't mutate the original.
-        original_version = sample_journal.version
         sample_journal.update("admin", description="changed")
         assert sample_journal.description == "changed"
         # original version unchanged? Actually update returns new instance, so original is unchanged.

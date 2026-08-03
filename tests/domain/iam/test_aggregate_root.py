@@ -145,7 +145,7 @@ def iam_with_role(iam, role_entity):
 @pytest.fixture
 def session_entity(active_user):
     """Create a session entity."""
-    iam, user = active_user
+    _iam, user = active_user
     return SessionEntity(
         session_id=uuid4(),
         user_id=user.user_id,
@@ -464,7 +464,7 @@ class TestIAMAggregateRootMethods:
         assert role_entity.role_id in result.roles
 
     def test_add_child_session(self, iam, session_entity, active_user):
-        iam, user = active_user
+        iam, _user = active_user
         result = iam.add_child(session_entity, "system")
         assert isinstance(result, IAM)
         assert session_entity.session_id in result.sessions
@@ -486,7 +486,7 @@ class TestIAMAggregateRootMethods:
         assert role_entity.role_id not in result.roles
 
     def test_remove_child_session(self, iam, session_entity, active_user):
-        iam, user = active_user
+        iam, _user = active_user
         iam = iam.add_session(session_entity, "system")
         result = iam.remove_child(session_entity.session_id, "session", "admin")
         assert isinstance(result, IAM)
@@ -932,7 +932,7 @@ class TestIAMRoleManagement:
 
 class TestIAMSessionManagement:
     def test_add_session(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         new_iam = iam.add_session(session_entity, "system")
         assert session_entity.session_id in new_iam.sessions
         assert new_iam.version == iam.version + 1
@@ -940,7 +940,7 @@ class TestIAMSessionManagement:
         assert any(isinstance(e, SessionCreatedEvent) for e in events)
 
     def test_add_session_duplicate(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         iam = iam.add_session(session_entity, "system")
         with pytest.raises(IAMError, match="already exists"):
             iam.add_session(session_entity, "system")
@@ -956,7 +956,7 @@ class TestIAMSessionManagement:
             iam.add_session(session_entity, "system")
 
     def test_revoke_session(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         iam = iam.add_session(session_entity, "system")
         new_iam = iam.revoke_session(session_entity.session_id, "admin")
         assert new_iam.sessions[session_entity.session_id].status == SessionStatus.REVOKED
@@ -992,7 +992,7 @@ class TestIAMSessionManagement:
         assert new_iam.version == iam.version + 1
 
     def test_refresh_session(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         iam = iam.add_session(session_entity, "system")
         # Set refresh_expires_at to future
         # Already set in fixture
@@ -1006,7 +1006,7 @@ class TestIAMSessionManagement:
             iam.refresh_session(uuid4(), "system")
 
     def test_refresh_session_expired(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         # Set refresh token expired
         expired_session = SessionEntity(
             session_id=session_entity.session_id,
@@ -1066,7 +1066,7 @@ class TestIAMAuthentication:
         iam = iam.add_user(user_entity, "system")
         # User is PENDING_ACTIVATION, not active
         with patch.object(PasswordHashedVO, 'verify', return_value=True):
-            new_iam, user = iam.authenticate(
+            _new_iam, user = iam.authenticate(
                 username=user_entity.username,
                 password="password",
                 ip_address="192.168.1.1",
@@ -1082,7 +1082,7 @@ class TestIAMAuthentication:
         locked_user = user.lock("admin", "Reason")
         iam = iam.update_user(locked_user, "admin")
         with patch.object(PasswordHashedVO, 'verify', return_value=True):
-            new_iam, authenticated_user = iam.authenticate(
+            _new_iam, authenticated_user = iam.authenticate(
                 username=user.username,
                 password="password",
                 ip_address="192.168.1.1",
@@ -1219,13 +1219,13 @@ class TestIAMQueryMethods:
         assert role.role_name == "admin"
 
     def test_get_session(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         iam = iam.add_session(session_entity, "system")
         retrieved = iam.get_session(session_entity.session_id)
         assert retrieved == session_entity
 
     def test_get_session_by_token(self, active_user, session_entity, iam):
-        iam, user = active_user
+        iam, _user = active_user
         iam = iam.add_session(session_entity, "system")
         retrieved = iam.get_session_by_token(session_entity.token)
         assert retrieved == session_entity
@@ -1284,7 +1284,7 @@ class TestIAMQueryMethods:
 
 class TestIAMStatistics:
     def test_get_statistics(self, active_user, iam):
-        iam, user = active_user
+        iam, _user = active_user
         stats = iam.get_statistics()
         assert stats["total_users"] == 1
         assert stats["active_users"] == 1

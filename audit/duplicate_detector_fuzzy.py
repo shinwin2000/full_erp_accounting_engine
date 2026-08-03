@@ -181,7 +181,7 @@ class DuplicateDetectorFuzzy:
             hash_groups[content_hash].append(event)
 
         # For each group, check if events are within time window and similar enough
-        for content_hash, group_events in hash_groups.items():
+        for _content_hash, group_events in hash_groups.items():
             if len(group_events) < 2:
                 continue
 
@@ -191,7 +191,7 @@ class DuplicateDetectorFuzzy:
 
             # Check for duplicates within time window
             duplicate_group = []
-            for i, event in enumerate(sorted_events):
+            for _i, event in enumerate(sorted_events):
                 try:
                     ts = datetime.fromisoformat(event.get("timestamp"))
                     if ts > window_start:

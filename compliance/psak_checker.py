@@ -769,7 +769,7 @@ class PsakChecker:
         self.assess_psak_48(True, True, True, True, True)
         self.assess_psak_71(True, True, True, True)
         self.assess_psak_101(True, True, True)
-        all_standards = [s for s in PSAKStandard]
+        all_standards = list(PSAKStandard)
         for std in all_standards:
             if std not in self._results:
                 self._results[std] = PSAKComplianceResult(

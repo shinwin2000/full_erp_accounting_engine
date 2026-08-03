@@ -693,7 +693,7 @@ class TestForbiddenStateDetector:
     ])
     def test_detect_negative_inventory(self, current, change, backorder,
                                         expected_forbidden, expected_action):
-        is_forbidden, details, action = ForbiddenStateDetector.detect_negative_inventory(
+        is_forbidden, _details, action = ForbiddenStateDetector.detect_negative_inventory(
             current_quantity=current,
             proposed_change=change,
             allow_backorder=backorder,
@@ -1123,7 +1123,7 @@ class TestForbiddenStatesRegistry:
         state = create_test_state(override_allowed=True, override_roles=["admin"])
         registry.save_state(state)
         # Use the category of the new state
-        is_forbidden, detection, action = registry.check(
+        is_forbidden, detection, _action = registry.check(
             category=state.category,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-150")},
             override=True,
@@ -1138,7 +1138,7 @@ class TestForbiddenStatesRegistry:
         registry = ForbiddenStatesRegistry()
         state = create_test_state(override_allowed=True, override_roles=["admin"])
         registry.save_state(state)
-        is_forbidden, detection, action = registry.check(
+        is_forbidden, detection, _action = registry.check(
             category=state.category,
             context={"current_balance": Decimal("100"), "proposed_change": Decimal("-150")},
             override=True,
@@ -1157,7 +1157,7 @@ class TestForbiddenStatesRegistry:
         )
         registry.save_state(state)
         with patch.object(registry, "_handle_catastrophic_detection") as mock_handle:
-            is_forbidden, detection, action = registry.check(
+            is_forbidden, detection, _action = registry.check(
                 category=ForbiddenStateCategory.BROKEN_HASH_CHAIN,
                 context={"expected_previous_hash": "abc", "actual_previous_hash": "def"},
             )
@@ -1301,7 +1301,7 @@ class TestForbiddenStatesService:
     # ----- Convenience check methods -----
     def test_check_negative_cash(self):
         svc = ForbiddenStatesService()
-        is_forbidden, detection, action = svc.check_negative_cash(
+        is_forbidden, detection, _action = svc.check_negative_cash(
             current_balance=Decimal("100"),
             proposed_change=Decimal("-150"),
         )
@@ -1311,7 +1311,7 @@ class TestForbiddenStatesService:
 
     def test_check_negative_inventory(self):
         svc = ForbiddenStatesService()
-        is_forbidden, detection, action = svc.check_negative_inventory(
+        is_forbidden, detection, _action = svc.check_negative_inventory(
             current_quantity=Decimal("10"),
             proposed_change=Decimal("-15"),
         )
@@ -1321,7 +1321,7 @@ class TestForbiddenStatesService:
 
     def test_check_negative_receivable(self):
         svc = ForbiddenStatesService()
-        is_forbidden, detection, action = svc.check_negative_receivable(
+        is_forbidden, detection, _action = svc.check_negative_receivable(
             current_balance=Decimal("1000"),
             proposed_payment=Decimal("1500"),
         )
@@ -1331,7 +1331,7 @@ class TestForbiddenStatesService:
 
     def test_check_imbalanced_journal(self):
         svc = ForbiddenStatesService()
-        is_forbidden, detection, action = svc.check_imbalanced_journal(
+        is_forbidden, detection, _action = svc.check_imbalanced_journal(
             total_debit=Decimal("100"),
             total_credit=Decimal("100.1"),
         )
@@ -1342,7 +1342,7 @@ class TestForbiddenStatesService:
     def test_check_backdated_transaction(self):
         now = FIXED_DATETIME
         period_start = now - timedelta(days=10)
-        is_forbidden, detection, action = svc.check_backdated_transaction(
+        is_forbidden, detection, _action = svc.check_backdated_transaction(
             transaction_date=now - timedelta(days=40),
             current_period_start=period_start,
             max_backdate_days=30,
@@ -1356,7 +1356,7 @@ class TestForbiddenStatesService:
         other_entity = uuid.uuid4()
         unauthorized_entity = uuid.uuid4()
         authorized = {frozenset([tx_entity, other_entity])}
-        is_forbidden, detection, action = svc.check_cross_entity_posting(
+        is_forbidden, detection, _action = svc.check_cross_entity_posting(
             transaction_legal_entity_id=tx_entity,
             journal_line_legal_entity_ids=[other_entity, unauthorized_entity],
             authorized_inter_entities=authorized,
@@ -1369,7 +1369,7 @@ class TestForbiddenStatesService:
         now = FIXED_DATETIME
         period_start = now - timedelta(days=10)
         period_end = now + timedelta(days=10)
-        is_forbidden, detection, action = svc.check_period_closure(
+        is_forbidden, detection, _action = svc.check_period_closure(
             period_status="CLOSED",
             transaction_date=now,
             period_start=period_start,
@@ -1380,7 +1380,7 @@ class TestForbiddenStatesService:
         assert detection.category == ForbiddenStateCategory.PERIOD_CLOSURE_VIOLATION
 
     def test_check_broken_hash_chain(self):
-        is_forbidden, detection, action = svc.check_broken_hash_chain(
+        is_forbidden, detection, _action = svc.check_broken_hash_chain(
             expected_previous_hash="abc",
             actual_previous_hash="def",
         )
@@ -1474,7 +1474,7 @@ class TestAdditionalCoverage:
         assert detection.override_authorized_by == "admin"
 
     def test_detector_negative_cash_with_zero_overdraft_limit(self):
-        is_forbidden, details, action = ForbiddenStateDetector.detect_negative_cash(
+        is_forbidden, _details, action = ForbiddenStateDetector.detect_negative_cash(
             current_balance=Decimal("0"),
             proposed_change=Decimal("-1"),
             allow_overdraft=True,
@@ -1484,7 +1484,7 @@ class TestAdditionalCoverage:
         assert action == ForbiddenStateAction.REJECT
 
     def test_detector_negative_cash_with_overdraft_limit(self):
-        is_forbidden, details, action = ForbiddenStateDetector.detect_negative_cash(
+        is_forbidden, _details, _action = ForbiddenStateDetector.detect_negative_cash(
             current_balance=Decimal("0"),
             proposed_change=Decimal("-5"),
             allow_overdraft=True,
@@ -1496,7 +1496,7 @@ class TestAdditionalCoverage:
         now = FIXED_DATETIME
         dates = [now, now + timedelta(days=15)]
         period_boundaries = [(now - timedelta(days=5), now - timedelta(days=1))]
-        is_forbidden, details, action = ForbiddenStateDetector.detect_period_mixing(
+        is_forbidden, _details, _action = ForbiddenStateDetector.detect_period_mixing(
             transaction_dates=dates,
             period_boundaries=period_boundaries,
         )

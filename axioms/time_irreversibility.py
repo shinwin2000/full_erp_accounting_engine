@@ -86,8 +86,8 @@ class TimeBoundary:
     deleted_at: datetime | None = None
     deleted_by: str | None = None
 
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
+    _snapshots: ClassVar[list[dict[str, Any]]]
+    _audit_trail: ClassVar[list[dict[str, Any]]]
 
     def __post_init__(self) -> None:
         self._validate()
@@ -302,6 +302,11 @@ class TimeBoundary:
         )
 
 
+# Inisialisasi ClassVar
+TimeBoundary._snapshots = []
+TimeBoundary._audit_trail = []
+
+
 @dataclass(kw_only=True)
 class TransactionTimestamp:
     transaction_id: UUID
@@ -316,8 +321,8 @@ class TransactionTimestamp:
     deleted_at: datetime | None = None
     deleted_by: str | None = None
 
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
+    _snapshots: ClassVar[list[dict[str, Any]]]
+    _audit_trail: ClassVar[list[dict[str, Any]]]
 
     def __post_init__(self) -> None:
         self._validate()
@@ -547,6 +552,11 @@ class TransactionTimestamp:
         )
 
 
+# Inisialisasi ClassVar
+TransactionTimestamp._snapshots = []
+TransactionTimestamp._audit_trail = []
+
+
 @dataclass(kw_only=True)
 class TimeIrreversibilityViolation:
     violation_id: UUID
@@ -569,8 +579,8 @@ class TimeIrreversibilityViolation:
     cryptographic_hash: str = ""
     version: int = 1
 
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
+    _snapshots: ClassVar[list[dict[str, Any]]]
+    _audit_trail: ClassVar[list[dict[str, Any]]]
 
     def __post_init__(self) -> None:
         self._validate()
@@ -781,6 +791,11 @@ class TimeIrreversibilityViolation:
         )
 
 
+# Inisialisasi ClassVar
+TimeIrreversibilityViolation._snapshots = []
+TimeIrreversibilityViolation._audit_trail = []
+
+
 # === 4. VALIDATOR ===
 
 
@@ -803,28 +818,27 @@ class TimeIrreversibilityValidator:
     ) -> tuple[bool, TimeIrreversibilityViolation | None]:
         eff = effective_date if effective_date.tzinfo else effective_date.replace(tzinfo=UTC)
         now = datetime.now(UTC)
-        if current_period.is_closed:
-            if eff < current_period.end_date:
-                violation = cls._create_violation(
-                    transaction_id or uuid4(),
-                    eff,
-                    current_period.start_date,
-                    current_period.end_date,
-                    last_transaction_date,
-                    "CLOSED",
-                    cls._calc_backdate(eff, current_period.start_date),
-                    TimeIrreversibilityViolationSeverity.CATASTROPHIC,
-                    f"Period closed. Cannot post with date {eff}",
-                    user_id,
-                    module,
-                    True,
-                    False,
-                    None,
-                    None,
-                )
-                cls._log_violation(violation)
-                cls._notify_constitution(violation)
-                return False, violation
+        if current_period.is_closed and eff < current_period.end_date:
+            violation = cls._create_violation(
+                transaction_id or uuid4(),
+                eff,
+                current_period.start_date,
+                current_period.end_date,
+                last_transaction_date,
+                "CLOSED",
+                cls._calc_backdate(eff, current_period.start_date),
+                TimeIrreversibilityViolationSeverity.CATASTROPHIC,
+                f"Period closed. Cannot post with date {eff}",
+                user_id,
+                module,
+                True,
+                False,
+                None,
+                None,
+            )
+            cls._log_violation(violation)
+            cls._notify_constitution(violation)
+            return False, violation
         if current_period.is_locked and not current_period.is_closed:
             violation = cls._create_violation(
                 transaction_id or uuid4(),
@@ -1035,7 +1049,8 @@ class TimeIrreversibilityValidator:
     def _notify_constitution(cls, violation: TimeIrreversibilityViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 TimeIrreversibilityViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 TimeIrreversibilityViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 TimeIrreversibilityViolationSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -1057,12 +1072,8 @@ class TimeIrreversibilityValidator:
 
 
 class TimeIrreversibilityAxiom:
-    _instance: TimeIrreversibilityAxiom | None = None
-    _time_boundaries: dict[UUID, TimeBoundary] = {}
-    _transaction_timestamps: dict[UUID, TransactionTimestamp] = {}
-    _violation_history: list[TimeIrreversibilityViolation] = []
-    _last_transaction_date_by_entity: dict[UUID, datetime] = {}
-    _lock = threading.Lock()
+    _instance: ClassVar[TimeIrreversibilityAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> TimeIrreversibilityAxiom:
         if cls._instance is None:
@@ -1076,10 +1087,10 @@ class TimeIrreversibilityAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._time_boundaries = {}
-        self._transaction_timestamps = {}
-        self._violation_history = []
-        self._last_transaction_date_by_entity = {}
+        self._time_boundaries: dict[UUID, TimeBoundary] = {}
+        self._transaction_timestamps: dict[UUID, TransactionTimestamp] = {}
+        self._violation_history: list[TimeIrreversibilityViolation] = []
+        self._last_transaction_date_by_entity: dict[UUID, datetime] = {}
 
     # ==================== REPOSITORY METHODS ====================
     def save_time_boundary(self, boundary: TimeBoundary) -> None:

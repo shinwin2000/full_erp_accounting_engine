@@ -31,7 +31,7 @@ except ImportError:
 
 try:
     from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 except ImportError:
     print("[X] Modul 'sqlalchemy' tidak ditemukan. Pastikan venv backend aktif & requirements terpasang.")
     sys.exit(1)
@@ -48,13 +48,13 @@ def hash_password_safely(password: str) -> str:
 
 async def main(args: argparse.Namespace) -> int:
     try:
+        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SqlAlchemyUnitOfWork
         from infrastructure.persistence_orm.iam_user_table import (
             IAMPermissionTable,
             IAMRoleTable,
             IAMUserTable,
         )
         from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
-        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SqlAlchemyUnitOfWork
     except ImportError as exc:
         print(f"[X] Gagal import modul backend: {exc}")
         print("    Pastikan script ini dijalankan dari root folder backend")

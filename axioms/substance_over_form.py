@@ -953,22 +953,21 @@ class SubstanceOverFormValidator:
     ) -> tuple[bool, SubstanceViolation | None, str | None]:
         lease_term = legal_form.contract_terms.get("lease_term_months", 0)
         is_low_value = legal_form.contract_terms.get("is_low_value", False)
-        if lease_term > 12 and not is_low_value:
-            if economic_substance.transaction_type != SubstanceOverrideType.LEASE:
-                severity = SubstanceAssessmentSeverity.HIGH
-                violation = cls._create_violation(
-                    transaction_id,
-                    f"Lease term {lease_term} months, but recorded as operating lease",
-                    "Economic substance indicates finance lease",
-                    "Operating lease (off-balance)",
-                    "Finance lease (right-of-use asset and liability)",
-                    severity,
-                    "Lease should be recorded as finance lease per PSAK 73/IFRS 16",
-                    "substance_validator",
-                )
-                cls._log_violation(violation)
-                cls._notify_constitution(violation)
-                return False, violation, "Reclassify as finance lease"
+        if lease_term > 12 and not is_low_value and economic_substance.transaction_type != SubstanceOverrideType.LEASE:
+            severity = SubstanceAssessmentSeverity.HIGH
+            violation = cls._create_violation(
+                transaction_id,
+                f"Lease term {lease_term} months, but recorded as operating lease",
+                "Economic substance indicates finance lease",
+                "Operating lease (off-balance)",
+                "Finance lease (right-of-use asset and liability)",
+                severity,
+                "Lease should be recorded as finance lease per PSAK 73/IFRS 16",
+                "substance_validator",
+            )
+            cls._log_violation(violation)
+            cls._notify_constitution(violation)
+            return False, violation, "Reclassify as finance lease"
         return True, None, None
 
     @classmethod
@@ -976,42 +975,40 @@ class SubstanceOverFormValidator:
         cls, legal_form: LegalForm, economic_substance: EconomicSubstance, transaction_id: UUID
     ) -> tuple[bool, SubstanceViolation | None]:
         recourse = legal_form.contract_terms.get("recourse", True)
-        if recourse and legal_form.legal_ownership_transfer:
-            if economic_substance.transaction_type != SubstanceOverrideType.FACTORING:
-                violation = cls._create_violation(
-                    transaction_id,
-                    "Legal sale with recourse",
-                    "Economic substance is secured borrowing",
-                    "Sale of receivables (derecognition)",
-                    "Secured borrowing (liability)",
-                    SubstanceAssessmentSeverity.HIGH,
-                    "Factoring with recourse should be recorded as borrowing",
-                    "substance_validator",
-                )
-                cls._log_violation(violation)
-                cls._notify_constitution(violation)
-                return False, violation
+        if recourse and legal_form.legal_ownership_transfer and economic_substance.transaction_type != SubstanceOverrideType.FACTORING:
+            violation = cls._create_violation(
+                transaction_id,
+                "Legal sale with recourse",
+                "Economic substance is secured borrowing",
+                "Sale of receivables (derecognition)",
+                "Secured borrowing (liability)",
+                SubstanceAssessmentSeverity.HIGH,
+                "Factoring with recourse should be recorded as borrowing",
+                "substance_validator",
+            )
+            cls._log_violation(violation)
+            cls._notify_constitution(violation)
+            return False, violation
         return True, None
 
     @classmethod
     def validate_consignment(
         cls, legal_form: LegalForm, economic_substance: EconomicSubstance, transaction_id: UUID
     ) -> tuple[bool, SubstanceViolation | None]:
-        if not legal_form.legal_ownership_transfer:
-            if economic_substance.effective_ownership != "consignor":
-                violation = cls._create_violation(
-                    transaction_id,
-                    "Goods on consignment, legal ownership with consignor",
-                    "Effective ownership still with consignor",
-                    "Recorded as inventory of consignee",
-                    "Not inventory of consignee, off-balance sheet",
-                    SubstanceAssessmentSeverity.MEDIUM,
-                    "Consignment goods not inventory of consignee",
-                    "substance_validator",
-                )
-                cls._log_violation(violation)
-                cls._notify_constitution(violation)
-                return False, violation
+        if not legal_form.legal_ownership_transfer and economic_substance.effective_ownership != "consignor":
+            violation = cls._create_violation(
+                transaction_id,
+                "Goods on consignment, legal ownership with consignor",
+                "Effective ownership still with consignor",
+                "Recorded as inventory of consignee",
+                "Not inventory of consignee, off-balance sheet",
+                SubstanceAssessmentSeverity.MEDIUM,
+                "Consignment goods not inventory of consignee",
+                "substance_validator",
+            )
+            cls._log_violation(violation)
+            cls._notify_constitution(violation)
+            return False, violation
         return True, None
 
     @classmethod
@@ -1083,7 +1080,8 @@ class SubstanceOverFormValidator:
     def _notify_constitution(cls, violation: SubstanceViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 SubstanceAssessmentSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 SubstanceAssessmentSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 SubstanceAssessmentSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -1104,10 +1102,8 @@ class SubstanceOverFormValidator:
 
 
 class SubstanceOverFormAxiom:
-    _instance: SubstanceOverFormAxiom | None = None
-    _assessments: list[SubstanceOverFormAssessment] = []
-    _violations: list[SubstanceViolation] = []
-    _lock = threading.Lock()
+    _instance: ClassVar[SubstanceOverFormAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> SubstanceOverFormAxiom:
         if cls._instance is None:
@@ -1121,8 +1117,8 @@ class SubstanceOverFormAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._assessments = []
-        self._violations = []
+        self._assessments: list[SubstanceOverFormAssessment] = []
+        self._violations: list[SubstanceViolation] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_assessment(self, assessment: SubstanceOverFormAssessment) -> None:
@@ -1214,7 +1210,7 @@ class SubstanceOverFormAxiom:
         economic_substance: EconomicSubstance,
         raise_on_violation: bool = True,
     ) -> tuple[bool, SubstanceViolation | None]:
-        is_valid, violation, hint = SubstanceOverFormValidator.validate_lease(
+        is_valid, violation, _ = SubstanceOverFormValidator.validate_lease(
             legal_form, economic_substance, transaction_id
         )
         if violation:

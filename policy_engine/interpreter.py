@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 from .loader_yaml import PolicyRule, PolicySet, get_policy_loader
 
@@ -59,7 +59,7 @@ class ConditionEvaluator:
     """
 
     # Operator mapping
-    _operators = {
+    _operators: ClassVar[dict[str, Callable]] = {
         "==": operator.eq,
         "!=": operator.ne,
         ">": operator.gt,
@@ -75,7 +75,7 @@ class ConditionEvaluator:
     }
 
     # Built-in functions
-    _functions = {
+    _functions: ClassVar[dict[str, Callable]] = {
         "now": lambda: datetime.now(UTC),
         "today": lambda: datetime.now(UTC).date(),
         "year": lambda dt=None: (dt or datetime.now(UTC)).year,
@@ -321,8 +321,8 @@ class ActionExecutor:
     Mendukung built-in actions dan custom actions registration.
     """
 
-    _builtin_actions: dict[str, Callable] = {}
-    _custom_actions: dict[str, Callable] = {}
+    _builtin_actions: ClassVar[dict[str, Callable]] = {}
+    _custom_actions: ClassVar[dict[str, Callable]] = {}
 
     @classmethod
     def _init_builtin(cls):
@@ -581,10 +581,9 @@ class ActionExecutor:
                 current = ""
             else:
                 current += ch
-        if current.strip():
-            if "=" in current:
-                k, v = current.split("=", 1)
-                params[k.strip()] = ConditionEvaluator._resolve_value(v.strip(), context)
+        if current.strip() and "=" in current:
+            k, v = current.split("=", 1)
+            params[k.strip()] = ConditionEvaluator._resolve_value(v.strip(), context)
         return params
 
     @classmethod
@@ -614,7 +613,7 @@ class PolicyInterpreter:
     _instance: PolicyInterpreter | None = None
     _cache_enabled: bool = True
     _cache_ttl: int = 300
-    _evaluation_cache: dict[str, tuple[bool, float]] = {}  # condition hash -> (result, timestamp)
+    _evaluation_cache: ClassVar[dict[str, tuple[bool, float]]] = {}  # condition hash -> (result, timestamp)
 
     def __new__(cls) -> PolicyInterpreter:
         if cls._instance is None:
@@ -773,7 +772,7 @@ class PolicyInterpreter:
         rule_id: str,
         condition: bool,
         action_result: Any = None,
-        error: str = None,
+        error: str | None = None,
     ):
         """Catat evaluasi untuk audit."""
         entry = {

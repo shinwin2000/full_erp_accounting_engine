@@ -413,12 +413,14 @@ class ComplianceScopeDeterminer:
             for req in req_list:
                 # Cek berdasarkan regulator dan yurisdiksi (sederhana)
                 if (
-                    (jurisdiction_code == "ID" and req.regulatory_body in ["OJK", "DJP", "BI"])
-                    or (jurisdiction_code == "SG" and req.regulatory_body in ["MAS", "IRAS"])
-                    or (jurisdiction_code == "US" and req.regulatory_body in ["SEC", "IRS"])
+                    (
+                        (jurisdiction_code == "ID" and req.regulatory_body in ["OJK", "DJP", "BI"])
+                        or (jurisdiction_code == "SG" and req.regulatory_body in ["MAS", "IRAS"])
+                        or (jurisdiction_code == "US" and req.regulatory_body in ["SEC", "IRS"])
+                    )
+                    and (not req.applicable_to or entity_type in req.applicable_to)
                 ):
-                    if not req.applicable_to or entity_type in req.applicable_to:
-                        applicable.append(req)
+                    applicable.append(req)
         return applicable
 
     def _determine_accounting_standards(
@@ -520,6 +522,19 @@ class ComplianceScopeDeterminer:
             "total_requirements": total,
             "by_regulator": {reg: len(reqs) for reg, reqs in self._requirements_cache.items()},
         }
+
+    def export_to_json(self, file_path: str) -> None:
+        """Export compliance scope definition to JSON (for demo)."""
+        data = {
+            "jurisdictions": self.get_available_jurisdictions(),
+            "requirements_summary": self.get_requirements_summary(),
+            "requirements": [
+                req.to_dict() for req_list in self._requirements_cache.values() for req in req_list
+            ],
+        }
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+        logger.info(f"Exported compliance scope definitions to {file_path}")
 
 
 # ============================================================================

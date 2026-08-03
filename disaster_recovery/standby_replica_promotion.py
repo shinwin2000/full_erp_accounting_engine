@@ -447,7 +447,7 @@ class StandbyReplicaPromoter:
     # Replica Information
     # ------------------------------------------------------------------------
     def _init_replicas(self) -> None:
-        all_hosts = [self.primary_host] + self.standby_hosts
+        all_hosts = [self.primary_host, *self.standby_hosts]
         for host in all_hosts:
             role = ReplicaRole.PRIMARY if host == self.primary_host else ReplicaRole.STANDBY
             port = self.primary_port if host == self.primary_host else self.standby_port
@@ -492,10 +492,9 @@ class StandbyReplicaPromoter:
         best = None
         best_lag = float("inf")
         for host, info in self._replicas.items():
-            if info.role == ReplicaRole.STANDBY and info.is_healthy:
-                if info.replication_lag_seconds < best_lag:
-                    best_lag = info.replication_lag_seconds
-                    best = host
+            if info.role == ReplicaRole.STANDBY and info.is_healthy and info.replication_lag_seconds < best_lag:
+                best_lag = info.replication_lag_seconds
+                best = host
         return best
 
     # ------------------------------------------------------------------------

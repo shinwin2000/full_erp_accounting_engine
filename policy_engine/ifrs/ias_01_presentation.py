@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 from domain.coa.account_entity import AccountType
@@ -182,7 +182,7 @@ class IAS1ValidationResult:
 
 
 class IAS1Rules:
-    REQUIRED_COMPONENTS = [
+    REQUIRED_COMPONENTS: ClassVar[list[IAS1FinancialStatementComponent]] = [
         IAS1FinancialStatementComponent.STATEMENT_OF_FINANCIAL_POSITION,
         IAS1FinancialStatementComponent.STATEMENT_OF_PROFIT_OR_LOSS,
         IAS1FinancialStatementComponent.STATEMENT_OF_CHANGES_IN_EQUITY,
@@ -296,7 +296,7 @@ __all__ = [
     "IAS1FinancialStatementSet",
     "IAS1PresentationFormat",
     "IAS1PresentationService",
-    "IAS1PresentationStandard",  # alias
+    "IAS1PresentationStandard",
     "IAS1Rules",
     "IAS1ValidationResult",
     "IAS1Validator",

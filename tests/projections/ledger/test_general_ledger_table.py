@@ -137,7 +137,7 @@ class TestGeneralLedgerTable:
         mock_result.first = MagicMock(return_value=(uuid4(), 42))
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        event_id, seq = await general_ledger_table._get_checkpoint()
+        _event_id, seq = await general_ledger_table._get_checkpoint()
         assert seq == 42
 
     @pytest.mark.asyncio

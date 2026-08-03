@@ -765,7 +765,7 @@ class TestNegativePaths:
         assert event.currency == ""
         assert event.amount == Decimal(0)
         # Validation should pass (no amount)
-        valid, errors = service.validate_event(event.event_id)
+        valid, _errors = service.validate_event(event.event_id)
         assert valid is True
 
     def test_mark_as_validated_not_found(self, service):

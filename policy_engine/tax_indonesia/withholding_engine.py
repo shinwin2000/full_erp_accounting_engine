@@ -629,7 +629,7 @@ class WithholdingEngine:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         # Mengembalikan rate default (misal 0.02 untuk 2%)
         return Decimal("0.02")
 

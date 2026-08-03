@@ -356,7 +356,7 @@ class TestHedgeEffectivenessTester:
 
     def test_critical_terms_match_notional_diff_exact_boundary(self, tester):
         # Difference = 10% exactly, should match
-        is_match, msg = tester.critical_terms_match_test(
+        is_match, _msg = tester.critical_terms_match_test(
             hedge_notional=Decimal("1100000"),
             hedged_notional=Decimal("1000000"),
             hedge_currency="USD",
@@ -369,7 +369,7 @@ class TestHedgeEffectivenessTester:
 
     def test_critical_terms_match_maturity_mismatch_small(self, tester):
         # 15 days diff should be okay (<=30)
-        is_match, msg = tester.critical_terms_match_test(
+        is_match, _msg = tester.critical_terms_match_test(
             hedge_notional=Decimal("1000000"),
             hedged_notional=Decimal("1000000"),
             hedge_currency="USD",

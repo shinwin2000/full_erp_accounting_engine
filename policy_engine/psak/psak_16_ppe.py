@@ -365,7 +365,7 @@ class PSAK16AssetService:
                 performed_by=performed_by,
                 effective_date=valuation_date,
             )
-            new_history = asset.revaluation_surplus_history + [new_surplus]
+            new_history = [*asset.revaluation_surplus_history, new_surplus]
             new_current_surplus = asset.current_revaluation_surplus + increase
             # Reset accumulated depreciation and impairment after revaluation
             return PSAK16Asset(
@@ -428,7 +428,7 @@ class PSAK16Rules:
         result = PSAK16ValidationResult(
             is_compliant=True, compliance_level=PSAK16ComplianceLevel.FULL
         )
-        models = set(a.measurement_model for a in register.assets)
+        models = {a.measurement_model for a in register.assets}
         if len(models) > 1:
             result.add_warning("Beberapa aset menggunakan model pengukuran berbeda")
         return result
@@ -503,7 +503,7 @@ class PSAK16Rules:
         elif method == PSAK16DepreciationMethod.DECLINING_BALANCE:
             rate = Decimal(2) / Decimal(useful_life_years)
             book_value = cost
-            for year in range(1, current_year):
+            for _ in range(1, current_year):
                 dep = book_value * rate
                 book_value -= dep
             dep_current = book_value * rate
@@ -583,7 +583,7 @@ class PSAK16Validator:
             residual_value=residual_value,
             depreciation_method=depreciation_method,
         )
-        new_components = asset.components + [new_component]
+        new_components = [*asset.components, new_component]
         return PSAK16Asset(
             asset_id=asset.asset_id,
             asset_code=asset.asset_code,
@@ -620,7 +620,7 @@ class PSAK16Validator:
         )
 
     def add_asset(self, register: PSAK16AssetRegister, asset: PSAK16Asset) -> PSAK16AssetRegister:
-        new_assets = register.assets + [asset]
+        new_assets = [*register.assets, asset]
         return PSAK16AssetRegister(
             register_id=register.register_id,
             entity_id=register.entity_id,

@@ -15,6 +15,38 @@ from application.commands_cqrs.command_bus_unified import BaseCommand
 from application.commands_cqrs.command_result_envelope import CommandResult
 from application.commands_cqrs.query_bus_unified import BaseQuery
 
+# ============================================================================
+# USE CASE HANDLERS (STATIC IMPORTS dari masing-masing modul)
+# ============================================================================
+from .aml_screening_transaction import AMLScreeningUseCase
+from .ap_payment_run import APPaymentRunUseCase
+from .approve_journal_four_eyes import ApproveJournalFourEyesUseCase
+from .ar_collection_workflow import ARCollectionWorkflowUseCase
+from .bank_reconciliation import BankReconciliationUseCase
+from .budget_vs_actual_analysis import BudgetVsActualUseCase
+from .cogs_calculation import COGSCalculationUseCase
+from .consolidation_group_report import ConsolidationGroupReportUseCase
+from .coretax_bulk_submission import CoretaxBulkSubmissionUseCase
+from .depreciation_monthly_run import DepreciationMonthlyRunUseCase
+from .disaster_recovery_replay import DisasterRecoveryReplayUseCase
+from .financial_statement_generation import FinancialStatementGenerationUseCase
+from .fiscal_reconciliation import FiscalReconciliationUseCase
+from .forex_revaluation import ForexRevaluationUseCase
+from .hedge_accounting_execution import HedgeAccountingUseCase
+from .hpp_manufacturing_close import HppManufacturingCloseUseCase  # langsung import
+from .impairment_testing_annual import ImpairmentTestingUseCase
+from .intercompany_elimination import IntercompanyEliminationUseCase
+from .payroll_monthly_run import PayrollMonthlyRunUseCase
+from .period_close import PeriodCloseUseCase
+from .period_reopen_with_audit import PeriodReopenWithAuditUseCase
+from .post_adjusting_journal import PostAdjustingJournalUseCase
+from .post_closing_journal import PostClosingJournalUseCase
+from .post_journal_entry import PostJournalEntryUseCase
+from .reverse_journal import ReverseJournalUseCase
+from .stock_opname_cycle import StockOpnameCycleUseCase
+from .tax_filing_submission import TaxFilingSubmissionUseCase
+from .year_end_closing import YearEndClosingUseCase
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,39 +142,6 @@ class BaseQueryHandler:
 
 
 # ============================================================================
-# USE CASE HANDLERS (STATIC IMPORTS dari masing-masing modul)
-# ============================================================================
-
-from .aml_screening_transaction import AMLScreeningUseCase
-from .ap_payment_run import APPaymentRunUseCase
-from .approve_journal_four_eyes import ApproveJournalFourEyesUseCase
-from .ar_collection_workflow import ARCollectionWorkflowUseCase
-from .bank_reconciliation import BankReconciliationUseCase
-from .budget_vs_actual_analysis import BudgetVsActualUseCase
-from .cogs_calculation import COGSCalculationUseCase
-from .consolidation_group_report import ConsolidationGroupReportUseCase
-from .coretax_bulk_submission import CoretaxBulkSubmissionUseCase
-from .depreciation_monthly_run import DepreciationMonthlyRunUseCase
-from .disaster_recovery_replay import DisasterRecoveryReplayUseCase
-from .financial_statement_generation import FinancialStatementGenerationUseCase
-from .fiscal_reconciliation import FiscalReconciliationUseCase
-from .forex_revaluation import ForexRevaluationUseCase
-from .hedge_accounting_execution import HedgeAccountingUseCase
-from .hpp_manufacturing_close import HppManufacturingCloseUseCase  # langsung import
-from .impairment_testing_annual import ImpairmentTestingUseCase
-from .intercompany_elimination import IntercompanyEliminationUseCase
-from .payroll_monthly_run import PayrollMonthlyRunUseCase
-from .period_close import PeriodCloseUseCase
-from .period_reopen_with_audit import PeriodReopenWithAuditUseCase
-from .post_adjusting_journal import PostAdjustingJournalUseCase
-from .post_closing_journal import PostClosingJournalUseCase
-from .post_journal_entry import PostJournalEntryUseCase
-from .reverse_journal import ReverseJournalUseCase
-from .stock_opname_cycle import StockOpnameCycleUseCase
-from .tax_filing_submission import TaxFilingSubmissionUseCase
-from .year_end_closing import YearEndClosingUseCase
-
-# ============================================================================
 # ALIAS UNTUK KENYAMANAN (semua handler juga memiliki alias "xxxHandler")
 # ============================================================================
 
@@ -190,14 +189,7 @@ def __getattr__(name: str) -> Any:
         return globals().get(name)
 
     # Jika ada nama lain yang belum diimport, coba load dari file yang sesuai
-    # (misalnya untuk backward compatibility)
-    if name.endswith("UseCase") and name != "HppManufacturingCloseUseCase":
-        # Coba import dari modul dengan nama yang sama (snake_case)
-        module_name = name[:-7]  # hilangkan "UseCase"
-        # konversi CamelCase ke snake_case: misal AMLScreeningUseCase -> aml_screening_transaction
-        # tapi ini tidak praktis, jadi kita lewati
-        pass
-
+    # (misalnya untuk backward compatibility) - tidak diimplementasikan di sini
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -210,11 +202,11 @@ __all__ = [
     "BaseCommandHandler",
     "BaseQueryHandler",
 
-    # Use case classes (diimpor langsung)
+    # Use case classes (diimpor langsung) - diurutkan alfabetis
     "AMLScreeningUseCase",
     "APPaymentRunUseCase",
-    "ApproveJournalFourEyesUseCase",
     "ARCollectionWorkflowUseCase",
+    "ApproveJournalFourEyesUseCase",
     "BankReconciliationUseCase",
     "BudgetVsActualUseCase",
     "COGSCalculationUseCase",
@@ -240,7 +232,7 @@ __all__ = [
     "TaxFilingSubmissionUseCase",
     "YearEndClosingUseCase",
 
-    # Alias handler (untuk konsistensi naming)
+    # Alias handler (untuk konsistensi naming) - diurutkan alfabetis
     "AmlScreeningTransactionHandler",
     "ApPaymentRunHandler",
     "ApproveJournalFourEyesHandler",

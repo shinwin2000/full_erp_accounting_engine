@@ -160,7 +160,7 @@ class PolicyVersionManager:
 
     def get_snapshot(self, snapshot_id: str) -> PolicyVersionSnapshot | None:
         """Mendapatkan snapshot berdasarkan ID."""
-        for policy_id, snapshots in self._snapshots.items():
+        for _policy_id, snapshots in self._snapshots.items():
             for snap in snapshots:
                 if snap.version_id == snapshot_id:
                     return snap

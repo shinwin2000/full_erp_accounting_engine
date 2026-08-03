@@ -707,7 +707,7 @@ class TestCoretaxWebhookToTaxCommandTransformer:
             with pytest.raises(Exception, match="DB error"):
                 await transformer.transform(mock_envelope)
             mock_alert.assert_called_once()
-            args, kwargs = mock_alert.call_args
+            _args, kwargs = mock_alert.call_args
             assert kwargs["title"] == "Coretax Webhook Transformation Failed"
 
     def test_reset(self, transformer):

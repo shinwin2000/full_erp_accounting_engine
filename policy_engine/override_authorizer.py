@@ -142,10 +142,7 @@ class OverrideAuthorizer:
         else:
             required_roles = ["policy_admin", "supervisor", "manager"]
 
-        for role in required_roles:
-            if user_id in self._authorized_users.get(role, set()):
-                return True
-        return False
+        return any(user_id in self._authorized_users.get(role, set()) for role in required_roles)
 
     def request_override(
         self,
@@ -241,10 +238,13 @@ class OverrideAuthorizer:
         """Memeriksa apakah ada override aktif untuk kebijakan tertentu."""
         check_date = as_of or datetime.now(UTC)
         for req in self._requests:
-            if req.status == OverrideStatus.APPROVED and req.target_policy_id == policy_id:
-                if req.effective_from <= check_date:
-                    if req.effective_to is None or req.effective_to >= check_date:
-                        return True
+            if (
+                req.status == OverrideStatus.APPROVED
+                and req.target_policy_id == policy_id
+                and req.effective_from <= check_date
+                and (req.effective_to is None or req.effective_to >= check_date)
+            ):
+                return True
         return False
 
     def get_active_overrides(self) -> list[OverrideRequest]:

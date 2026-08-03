@@ -362,7 +362,7 @@ class PSAK14Rules:
         result = PSAK14ValidationResult(
             is_compliant=True, compliance_level=PSAK14ComplianceLevel.FULL
         )
-        formulas = set(i.cost_formula for i in inventory.items)
+        formulas = {i.cost_formula for i in inventory.items}
         if len(formulas) > 1:
             result.add_warning(
                 f"Beberapa item menggunakan formula biaya yang berbeda: {[f.value for f in formulas]}"
@@ -414,7 +414,7 @@ class PSAK14Validator:
         )
 
     def add_item(self, inventory: PSAK14Inventory, item: PSAK14InventoryItem) -> PSAK14Inventory:
-        new_items = inventory.items + [item]
+        new_items = [*inventory.items, item]
         return PSAK14Inventory(
             inventory_id=inventory.inventory_id,
             entity_id=inventory.entity_id,
@@ -483,23 +483,21 @@ class PSAK14Validator:
                     )
                     new_items = inventory.items.copy()
                     new_items[i] = updated_item
+                    new_transaction = self._create_transaction(
+                        item_id,
+                        PSAK14MovementType.PURCHASE,
+                        quantity,
+                        unit_cost,
+                        transaction_date,
+                        reference,
+                    )
                     return PSAK14Inventory(
                         inventory_id=inventory.inventory_id,
                         entity_id=inventory.entity_id,
                         entity_name=inventory.entity_name,
                         reporting_date=inventory.reporting_date,
                         items=new_items,
-                        transactions=inventory.transactions
-                        + [
-                            self._create_transaction(
-                                item_id,
-                                PSAK14MovementType.PURCHASE,
-                                quantity,
-                                unit_cost,
-                                transaction_date,
-                                reference,
-                            )
-                        ],
+                        transactions=[*inventory.transactions, new_transaction],
                         fifo_layers=new_fifo_layers,
                     )
                 else:
@@ -520,23 +518,21 @@ class PSAK14Validator:
                     )
                 new_items = inventory.items.copy()
                 new_items[i] = updated_item
+                new_transaction = self._create_transaction(
+                    item_id,
+                    PSAK14MovementType.PURCHASE,
+                    quantity,
+                    unit_cost,
+                    transaction_date,
+                    reference,
+                )
                 return PSAK14Inventory(
                     inventory_id=inventory.inventory_id,
                     entity_id=inventory.entity_id,
                     entity_name=inventory.entity_name,
                     reporting_date=inventory.reporting_date,
                     items=new_items,
-                    transactions=inventory.transactions
-                    + [
-                        self._create_transaction(
-                            item_id,
-                            PSAK14MovementType.PURCHASE,
-                            quantity,
-                            unit_cost,
-                            transaction_date,
-                            reference,
-                        )
-                    ],
+                    transactions=[*inventory.transactions, new_transaction],
                     fifo_layers=inventory.fifo_layers,
                 )
         raise PSAK14Error(f"Item {item_id} not found")
@@ -579,7 +575,7 @@ class PSAK14Validator:
                     new_fifo_layers = inventory.fifo_layers.copy()
                     new_fifo_layers[item_id] = new_layers
                     new_quantity = item.quantity_on_hand - quantity
-                    new_total_cost = sum(l.remaining_value for l in new_layers)
+                    new_total_cost = sum(layer.remaining_value for layer in new_layers)
                     updated_item = PSAK14InventoryItem(
                         item_id=item.item_id,
                         item_code=item.item_code,
@@ -594,6 +590,14 @@ class PSAK14Validator:
                     )
                     new_items = inventory.items.copy()
                     new_items[i] = updated_item
+                    new_transaction = self._create_transaction(
+                        item_id,
+                        PSAK14MovementType.SALE,
+                        quantity,
+                        cogs / quantity,
+                        transaction_date,
+                        reference,
+                    )
                     return (
                         PSAK14Inventory(
                             inventory_id=inventory.inventory_id,
@@ -601,17 +605,7 @@ class PSAK14Validator:
                             entity_name=inventory.entity_name,
                             reporting_date=inventory.reporting_date,
                             items=new_items,
-                            transactions=inventory.transactions
-                            + [
-                                self._create_transaction(
-                                    item_id,
-                                    PSAK14MovementType.SALE,
-                                    quantity,
-                                    cogs / quantity,
-                                    transaction_date,
-                                    reference,
-                                )
-                            ],
+                            transactions=[*inventory.transactions, new_transaction],
                             fifo_layers=new_fifo_layers,
                         ),
                         cogs,
@@ -636,6 +630,14 @@ class PSAK14Validator:
                     )
                 new_items = inventory.items.copy()
                 new_items[i] = updated_item
+                new_transaction = self._create_transaction(
+                    item_id,
+                    PSAK14MovementType.SALE,
+                    quantity,
+                    cogs / quantity,
+                    transaction_date,
+                    reference,
+                )
                 return (
                     PSAK14Inventory(
                         inventory_id=inventory.inventory_id,
@@ -643,17 +645,7 @@ class PSAK14Validator:
                         entity_name=inventory.entity_name,
                         reporting_date=inventory.reporting_date,
                         items=new_items,
-                        transactions=inventory.transactions
-                        + [
-                            self._create_transaction(
-                                item_id,
-                                PSAK14MovementType.SALE,
-                                quantity,
-                                cogs / quantity,
-                                transaction_date,
-                                reference,
-                            )
-                        ],
+                        transactions=[*inventory.transactions, new_transaction],
                         fifo_layers=inventory.fifo_layers,
                     ),
                     cogs,

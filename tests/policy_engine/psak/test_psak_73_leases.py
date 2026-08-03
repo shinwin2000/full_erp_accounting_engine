@@ -629,7 +629,7 @@ class TestCompatibilityMethods:
 
     def test_record_lease_payment_compat_with_contract(self, validator, sample_lease_contract, sample_liability):
         payment_date = datetime(2026, 12, 31, tzinfo=UTC)
-        new_liability, interest, principal = validator.record_lease_payment(
+        new_liability, interest, _principal = validator.record_lease_payment(
             sample_liability, sample_lease_contract, payment_date
         )
         assert isinstance(new_liability, PSAK73LeaseLiability)
@@ -709,7 +709,7 @@ class TestCompatibilityMethods:
         payment_date = datetime(2026, 12, 31, tzinfo=UTC)
         # Make the liability balance match the contract's PV for more realistic test
         sample_liability.outstanding_balance = sample_lease_contract.present_value_of_lease_payments()
-        new_liability, interest, principal = _record_lease_payment_compat(
+        new_liability, interest, _principal = _record_lease_payment_compat(
             validator, sample_liability, sample_lease_contract, payment_date
         )
         assert isinstance(new_liability, PSAK73LeaseLiability)

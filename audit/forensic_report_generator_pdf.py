@@ -33,13 +33,10 @@ from audit.tamper_alert_trigger import TamperAlertTrigger, get_tamper_alert_trig
 # Try to import reportlab for PDF generation
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import cm, inch
-    from reportlab.pdfgen import canvas
-    from reportlab.platypus import Image as RLImage
+    from reportlab.lib.units import inch
     from reportlab.platypus import (
-        KeepTogether,
         PageBreak,
         Paragraph,
         SimpleDocTemplate,
@@ -555,15 +552,8 @@ def cli():
         )
         print(f"Forensic report generated: {path}")
 
-    try:
-        asyncio.get_running_loop()
-        asyncio.create_task(run())
-    except RuntimeError:
-        sub_loop = asyncio.new_event_loop()
-        try:
-            sub_loop.run_until_complete(run())
-        finally:
-            sub_loop.close()
+    # Use asyncio.run() to handle the event loop properly
+    asyncio.run(run())
 
 
 # ============================================================================

@@ -366,7 +366,7 @@ class JournalEntry:
 
     def compute_hash(self) -> str:
         lines_hash = hashlib.sha3_256(
-            "".join(str(l.line_id) for l in self.lines).encode()
+            "".join(str(line.line_id) for line in self.lines).encode()
         ).hexdigest()
         content = f"{self.journal_id}|{self.journal_number}|{self.journal_type.value}|{self.transaction_date.isoformat()}|{self.total_debit}|{self.total_credit}|{self.difference}|{self.status.value}|{self.version}|{lines_hash}"
         return hashlib.sha3_256(content.encode()).hexdigest()
@@ -486,7 +486,7 @@ class JournalEntry:
             "transaction_date": self.transaction_date.isoformat(),
             "posting_date": self.posting_date.isoformat() if self.posting_date else None,
             "description": self.description,
-            "lines": [l.to_dict() for l in self.lines],
+            "lines": [line.to_dict() for line in self.lines],
             "created_by": self.created_by,
             "created_at": self.created_at.isoformat(),
             "approved_by": self.approved_by,
@@ -512,7 +512,7 @@ class JournalEntry:
             if data.get("posting_date")
             else None,
             description=data["description"],
-            lines=[JournalLine.from_dict(l) for l in data.get("lines", [])],
+            lines=[JournalLine.from_dict(line) for line in data.get("lines", [])],
             created_by=data["created_by"],
             created_at=datetime.fromisoformat(data["created_at"]),
             approved_by=data.get("approved_by", []),
@@ -538,7 +538,7 @@ class JournalEntry:
             transaction_date=self.transaction_date,
             posting_date=None,
             description=f"Copy of {self.journal_number}: {self.description}",
-            lines=[l.clone() for l in self.lines],
+            lines=[line.clone() for line in self.lines],
             created_by=self.created_by,
             created_at=datetime.now(UTC),
             approved_by=[],
@@ -799,12 +799,8 @@ class DoubleEntryVerificationRecord:
 
 
 class DoubleEntryAxiom:
-    _instance: DoubleEntryAxiom | None = None
-    _journals: dict[UUID, JournalEntry] = {}
-    _verification_history: list[DoubleEntryVerificationRecord] = []
-    _violation_history: list[DoubleEntryVerificationRecord] = []
-    _journal_sequence: dict[str, int] = {}
-    _lock = threading.Lock()
+    _instance: ClassVar[DoubleEntryAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> DoubleEntryAxiom:
         if cls._instance is None:
@@ -818,10 +814,10 @@ class DoubleEntryAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._journals = {}
-        self._verification_history = []
-        self._violation_history = []
-        self._journal_sequence = {}
+        self._journals: dict[UUID, JournalEntry] = {}
+        self._verification_history: list[DoubleEntryVerificationRecord] = []
+        self._violation_history: list[DoubleEntryVerificationRecord] = []
+        self._journal_sequence: dict[str, int] = {}
 
     # ==================== REPOSITORY METHODS ====================
     def save_journal(self, journal: JournalEntry) -> None:
@@ -945,7 +941,7 @@ class DoubleEntryAxiom:
             journal = self._journals.get(journal_id)
             if not journal or journal.status != JournalStatus.SUBMITTED:
                 return None
-            new_approvers = journal.approved_by + [approved_by]
+            new_approvers = [*journal.approved_by, approved_by]
             updated = journal.update(
                 approved_by, status=JournalStatus.APPROVED, approved_by=new_approvers
             )

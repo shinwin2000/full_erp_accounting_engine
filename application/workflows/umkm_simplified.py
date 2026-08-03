@@ -386,7 +386,7 @@ class UMKMWorkflow:
         try:
             import openpyxl
             import openpyxl.utils
-            from openpyxl.styles import Alignment, Font, PatternFill
+            from openpyxl.styles import Font, PatternFill
 
             def _create_excel_sync():
                 wb = openpyxl.Workbook()

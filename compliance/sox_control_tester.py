@@ -15,6 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -330,7 +331,7 @@ class SoxControlTester:
     # -------------------- Reporting --------------------
     def generate_test_report(self, period: str) -> dict:
         total_controls = len(self._controls)
-        tested_controls = len(set(t.control_id for t in self._tests))
+        tested_controls = len({t.control_id for t in self._tests})
         passed_tests = [t for t in self._tests if t.result == ControlTestResult.PASS]
         failed_tests = [t for t in self._tests if t.result == ControlTestResult.FAIL]
         remediated_tests = [t for t in self._tests if t.result == ControlTestResult.REMEDIATED]

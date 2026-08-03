@@ -86,9 +86,10 @@ class TemporalResolver:
         timeline = self._build_timeline(domain, jurisdiction)
 
         for policy in reversed(timeline):  # Cari dari yang terbaru
-            if policy.effective_from <= target_date:
-                if policy.effective_to is None or policy.effective_to >= target_date:
-                    return policy
+            if policy.effective_from <= target_date and (
+                policy.effective_to is None or policy.effective_to >= target_date
+            ):
+                return policy
 
         return None
 
@@ -157,11 +158,9 @@ class TemporalResolver:
         policy = self._loader.get_policy_set(policy_id)
         if not policy:
             return False
-        if policy.effective_from > target_date:
-            return False
-        if policy.effective_to and policy.effective_to < target_date:
-            return False
-        return True
+        return policy.effective_from <= target_date and (
+            policy.effective_to is None or policy.effective_to >= target_date
+        )
 
     def get_next_policy_change(
         self,
@@ -246,9 +245,8 @@ class TemporalResolver:
             elif isinstance(end, datetime):
                 end = end.date()
 
-            if eff <= as_of:
-                if end is None or end >= as_of:
-                    applicable.append(policy)
+            if eff <= as_of and (end is None or end >= as_of):
+                applicable.append(policy)
 
         if not applicable:
             return None

@@ -17,18 +17,20 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from passlib.hash import bcrypt
-from sqlalchemy import and_, cast as sa_cast, delete, func, select, String as SA_String, update
-from sqlalchemy.dialects.postgresql import array as pg_array, ARRAY as PG_ARRAY
+from sqlalchemy import String as SA_String
+from sqlalchemy import and_, delete, func, select, update
+from sqlalchemy import cast as sa_cast
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Domain
 from domain.iam.aggregate_root import IAM, IAMStatus, UserAggregate
+from domain.iam.password_hashed_vo import PasswordHashedVO
 from domain.iam.permission_vo import Permission
 from domain.iam.role_entity import Role, RoleEntity, RoleStatus
-from domain.iam.user_entity import UserEntity, UserStatus, UserProfile, UserAudit
-from domain.iam.password_hashed_vo import PasswordHashedVO
-
+from domain.iam.user_entity import UserAudit, UserEntity, UserProfile, UserStatus
 
 # Infrastructure ORM
 from infrastructure.persistence_orm.iam_user_table import (
@@ -58,7 +60,6 @@ from infrastructure.security.field_encryption_aes256_gcm import FieldEncryption
 # Ports
 from ports.primary.iam_repository_port import IAMRepositoryPort
 from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
-
 
 # ============================================================================
 # LOCAL DEFINITIONS

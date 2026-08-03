@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -119,24 +119,24 @@ class PPh22Calculator:
     """
 
     # Tarif PPh 22
-    IMPORT_RATES = {
+    IMPORT_RATES: ClassVar[dict[ImporterType, Decimal]] = {
         ImporterType.WITH_API: Decimal("2.5"),
         ImporterType.WITHOUT_API: Decimal("7.5"),
         ImporterType.DIRECT: Decimal("7.5"),
     }
 
-    GOVERNMENT_PURCHASE_RATES = {
+    GOVERNMENT_PURCHASE_RATES: ClassVar[dict[GovernmentPurchaserType, Decimal]] = {
         GovernmentPurchaserType.GENERAL_GOVERNMENT: Decimal("1.5"),  # 1.5% untuk non-PKP
         GovernmentPurchaserType.BUMN: Decimal("1.5"),
         GovernmentPurchaserType.OTHER_PURCHASER: Decimal("1.5"),
     }
 
-    PRODUCER_SALES_RATES = {
+    PRODUCER_SALES_RATES: ClassVar[dict[str, Decimal]] = {
         "general": Decimal("1.5"),  # Penjualan umum
         "luxury": Decimal("5"),  # Barang mewah tertentu
     }
 
-    AUCTION_RATE = Decimal("3")
+    AUCTION_RATE: ClassVar[Decimal] = Decimal("3")
 
     # Konstanta untuk konversi persen
     PERCENT_FACTOR = 100
@@ -387,7 +387,7 @@ class PPh22Calculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         # Mengembalikan tarif default untuk PPh 22 (misal import with API)
         return self.IMPORT_RATES.get(ImporterType.WITH_API, Decimal("2.5"))
 

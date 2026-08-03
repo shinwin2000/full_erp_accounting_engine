@@ -5,7 +5,7 @@ Layer: Infrastructure (Security)
 Responsibility: Enforcer untuk Role-Based Access Control (RBAC) yang terintegrasi
                dengan kernel guards dan authority matrix.
 Dependencies:
-- asyncio, logging
+- asyncio, logging, ast
 - domain.iam.user_entity (UserStatus)
 - infrastructure.security.authority_matrix (AuthorityMatrix)
 - infrastructure.caching.redis_manager (RedisManager)
@@ -19,6 +19,7 @@ Audit: Setiap keputusan akses (allow/deny) dicatat untuk audit trail.
 
 from __future__ import annotations
 
+import ast  # <-- tambahan untuk safe eval
 import asyncio
 import json
 import logging
@@ -128,45 +129,77 @@ class RBACEnforcer:
         cache_key = self._get_cache_key(user_id)
         cached = await redis.get(cache_key)
 
-        if cached:
-            permissions = set(json.loads(cached))
-            self._permission_cache[user_id_str] = permissions
-            return permissions
+        if cached is not None:
+            try:
+                # Handle different possible types returned from Redis
+                if isinstance(cached, bytes):
+                    cached = cached.decode('utf-8')
+                if isinstance(cached, str):
+                    # Try JSON parse
+                    try:
+                        permissions = set(json.loads(cached))
+                    except json.JSONDecodeError:
+                        # Maybe it's a string representation of a list, try ast.literal_eval
+                        try:
+                            permissions = set(ast.literal_eval(cached))
+                        except (ValueError, SyntaxError):
+                            # If it's a plain string, treat as single permission
+                            permissions = {cached} if cached else set()
+                elif isinstance(cached, list):
+                    permissions = set(cached)
+                elif isinstance(cached, set):
+                    permissions = cached
+                else:
+                    # Fallback: convert to string and try to parse
+                    permissions = set(str(cached).split(',')) if cached else set()
+                self._permission_cache[user_id_str] = permissions
+                return permissions
+            except Exception as e:
+                self._logger.warning(f"Error reading cache for {cache_key}: {e}")
+                # Fall through to load from DB
 
         # Load user from repository
         user_repo = await self._get_user_repo()
-        user = await user_repo.get_by_id(user_id)
+        from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
+        _session_maker = await get_async_session_factory()
+        _db_session = _session_maker()
+        user_repo.set_session(_db_session)
+        try:
+            user = await user_repo.get_by_id(user_id)
 
-        if not user:
-            raise UserNotFoundError(f"User {user_id} not found")
+            if not user:
+                raise UserNotFoundError(f"User {user_id} not found")
 
-        # Check if user is active
-        if user.status != UserStatus.ACTIVE:
-            self._logger.warning(f"User {user_id} is not active (status: {user.status})")
-            return set()
+            # Check if user is active
+            if user.status != UserStatus.ACTIVE:
+                self._logger.warning(f"User {user_id} is not active (status: {user.status})")
+                return set()
 
-        # Collect all permissions from user's roles
-        permissions = set()
+            # Collect all permissions from user's roles
+            permissions = set()
 
-        if user.is_superuser:
-            permissions.add(SUPERUSER_PERMISSION)
-        else:
-            for role in await user_repo.get_user_roles(user_id):
-                role_permissions = await user_repo.get_role_permissions(role.id)
-                for perm in role_permissions:
-                    if (
-                        legal_entity_id is None
-                        or perm.legal_entity_id is None
-                        or perm.legal_entity_id == legal_entity_id
-                    ):
-                        permissions.add(perm.permission_key)
+            if getattr(user, "is_superuser", False):
+                permissions.add(SUPERUSER_PERMISSION)
+            else:
+                for role in await user_repo.get_user_roles(user_id):
+                    role_id = getattr(role, "role_id", None) or getattr(role, "id", None)
+                    role_permissions = await user_repo.get_role_permissions(role_id)
+                    for perm in role_permissions:
+                        if (
+                            legal_entity_id is None
+                            or perm.legal_entity_id is None
+                            or perm.legal_entity_id == legal_entity_id
+                        ):
+                            permissions.add(perm.permission_key)
 
-        # Cache permissions
-        await redis.setex(cache_key, PERMISSION_CACHE_TTL_SECONDS, json.dumps(list(permissions)))
-        self._permission_cache[user_id_str] = permissions
+            # Cache permissions as JSON string
+            await redis.set(cache_key, json.dumps(list(permissions)), PERMISSION_CACHE_TTL_SECONDS)
+            self._permission_cache[user_id_str] = permissions
 
-        self._logger.debug(f"Cached {len(permissions)} permissions for user {user_id}")
-        return permissions
+            self._logger.debug(f"Cached {len(permissions)} permissions for user {user_id}")
+            return permissions
+        finally:
+            await _db_session.close()
 
     async def check_permission(
         self, user_id: UUID, resource: str, action: str, legal_entity_id: UUID | None = None

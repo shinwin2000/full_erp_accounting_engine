@@ -409,7 +409,7 @@ class TestAPService:
 
         # Event published
         assert len(service._event_publisher.published_events) >= 1
-        event, corr = service._event_publisher.published_events[0]
+        _event, corr = service._event_publisher.published_events[0]
         assert corr == "corr-123"
 
     @pytest.mark.asyncio

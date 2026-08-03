@@ -250,7 +250,7 @@ class PSAK25ChangeService:
     def calculate_retrospective_adjustment(
         previous_amount: Decimal,
         corrected_amount: Decimal,
-        tax_rate: Decimal = Decimal(0.22),
+        tax_rate: Decimal = Decimal("0.22"),
     ) -> Decimal:
         """Menghitung penyesuaian retrospektif (net of tax)."""
         difference = corrected_amount - previous_amount
@@ -278,17 +278,25 @@ class PSAK25Rules:
         result = PSAK25ValidationResult(
             is_compliant=True, compliance_level=PSAK25ComplianceLevel.FULL
         )
-        if change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY:
-            if not change.justification and not change.is_mandatory:
-                result.add_error(
-                    "Perubahan kebijakan akuntansi sukarela harus memiliki justifikasi"
-                )
-        if change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_ESTIMATE:
-            if change.application_method != PSAK25ApplicationMethod.PROSPECTIVE_APPLICATION:
-                result.add_error("Perubahan estimasi harus diterapkan secara prospektif")
-        if change.change_type == PSAK25ChangeType.CORRECTION_OF_PRIOR_PERIOD_ERROR:
-            if change.is_impracticable and not change.impracticable_reason:
-                result.add_error("Ketidakpraktisan harus dijelaskan")
+        if (
+            change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY
+            and not change.justification
+            and not change.is_mandatory
+        ):
+            result.add_error(
+                "Perubahan kebijakan akuntansi sukarela harus memiliki justifikasi"
+            )
+        if (
+            change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_ESTIMATE
+            and change.application_method != PSAK25ApplicationMethod.PROSPECTIVE_APPLICATION
+        ):
+            result.add_error("Perubahan estimasi harus diterapkan secara prospektif")
+        if (
+            change.change_type == PSAK25ChangeType.CORRECTION_OF_PRIOR_PERIOD_ERROR
+            and change.is_impracticable
+            and not change.impracticable_reason
+        ):
+            result.add_error("Ketidakpraktisan harus dijelaskan")
         return result
 
     @staticmethod
@@ -297,14 +305,18 @@ class PSAK25Rules:
             is_compliant=True, compliance_level=PSAK25ComplianceLevel.FULL
         )
         for change in register.changes:
-            if change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY:
-                if not change.justification:
-                    result.add_warning("Pengungkapan alasan perubahan kebijakan tidak lengkap")
-            if change.change_type == PSAK25ChangeType.CORRECTION_OF_PRIOR_PERIOD_ERROR:
-                if not change.effected_accounts:
-                    result.add_warning(
-                        "Akun-akun yang terpengaruh oleh koreksi kesalahan tidak diungkapkan"
-                    )
+            if (
+                change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY
+                and not change.justification
+            ):
+                result.add_warning("Pengungkapan alasan perubahan kebijakan tidak lengkap")
+            if (
+                change.change_type == PSAK25ChangeType.CORRECTION_OF_PRIOR_PERIOD_ERROR
+                and not change.effected_accounts
+            ):
+                result.add_warning(
+                    "Akun-akun yang terpengaruh oleh koreksi kesalahan tidak diungkapkan"
+                )
         return result
 
 
@@ -337,14 +349,16 @@ class PSAK25Validator:
             has_retrospective_effect=True,
         )
         impact = Decimal(0)
-        if change_type in (
-            PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY,
-            PSAK25ChangeType.CORRECTION_OF_PRIOR_PERIOD_ERROR,
+        if (
+            change_type in (
+                PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY,
+                PSAK25ChangeType.CORRECTION_OF_PRIOR_PERIOD_ERROR,
+            )
+            and application_method == PSAK25ApplicationMethod.RETROSPECTIVE_RESTATEMENT
         ):
-            if application_method == PSAK25ApplicationMethod.RETROSPECTIVE_RESTATEMENT:
-                impact = self._service.calculate_retrospective_adjustment(
-                    previous_amount, corrected_amount
-                )
+            impact = self._service.calculate_retrospective_adjustment(
+                previous_amount, corrected_amount
+            )
         return PSAK25ChangeDetail(
             change_id=uuid4(),
             entity_id=entity_id,
@@ -378,7 +392,7 @@ class PSAK25Validator:
     def add_change(
         self, register: PSAK25ChangeRegister, change: PSAK25ChangeDetail
     ) -> PSAK25ChangeRegister:
-        new_changes = register.changes + [change]
+        new_changes = [*register.changes, change]
         return PSAK25ChangeRegister(
             register_id=register.register_id,
             entity_id=register.entity_id,

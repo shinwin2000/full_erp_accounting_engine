@@ -24,7 +24,7 @@ import json
 import logging
 import traceback
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -270,8 +270,8 @@ class OverrideNotAllowedError(LegalError):
 class LegalExceptionRegistry:
     """Registry untuk mencatat semua exception yang terjadi di modul legal."""
 
-    _instance = None
-    _exceptions: list[dict] = []
+    _instance: ClassVar[LegalExceptionRegistry | None] = None
+    _exceptions: ClassVar[list[dict]] = []
 
     def __new__(cls):
         if cls._instance is None:

@@ -843,7 +843,7 @@ class TestIntegration:
             # Consolidation with cross auth
             child = uuid4()
             repo.add_cross_entity_auth(user_id, entity1, child)
-            allowed, results = await guard.enforce_consolidation(entity1, [child])
+            allowed, _results = await guard.enforce_consolidation(entity1, [child])
             assert allowed is True
 
         stats = guard.get_statistics()

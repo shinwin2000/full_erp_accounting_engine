@@ -139,8 +139,12 @@ class ServiceRegistrar:
             from application.service_layer.service_ap import APService
             from application.service_layer.service_ar import ARService
             from application.service_layer.service_bank_cash import BankCashService
+
+            # Service Capital & Fiscal Period
+            from application.service_layer.service_capital import CapitalService
             from application.service_layer.service_coa import COAService
             from application.service_layer.service_coretax import CoretaxService
+            from application.service_layer.service_fiscal_period import FiscalPeriodService
             from application.service_layer.service_fixed_asset import FixedAssetService
             from application.service_layer.service_inventory import InventoryService
             from application.service_layer.service_journal import JournalService
@@ -163,6 +167,55 @@ class ServiceRegistrar:
             container.register_singleton(PayrollService, PayrollService)
             container.register_singleton(ManufacturingService, ManufacturingService)
             container.register_singleton(ReportService, ReportService)
+
+            # ----- Registrasi CapitalService dengan factory yang aman -----
+            async def _create_capital_service():
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return CapitalService(event_publisher=event_publisher)
+
+            container.register_singleton(CapitalService, factory=_create_capital_service)
+            logger.info("CapitalService registered")
+
+            # ----- Registrasi FiscalPeriodService dengan dependensi lengkap -----
+            # Daftarkan repository dan port-nya terlebih dahulu
+            from adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl import (
+                SQLAlchemyFiscalPeriodRepository,
+            )
+            from ports.primary.fiscal_period_repository_port import FiscalPeriodRepositoryPort
+            from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+            container.register_singleton(SQLAlchemyFiscalPeriodRepository, SQLAlchemyFiscalPeriodRepository)
+            container.register_singleton(FiscalPeriodRepositoryPort, SQLAlchemyFiscalPeriodRepository)
+            # UnitOfWorkPort sudah terdaftar di bagian IAM, tapi kita pastikan ada
+            if not container.has_registration(UnitOfWorkPort):
+                from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import (
+                    SQLAlchemyUnitOfWork,
+                )
+                container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
+                logger.info("UnitOfWorkPort registered (from fiscal period)")
+
+            async def _create_fiscal_period_service():
+                # Ambil dependensi dari container
+                period_repo = await container.resolve_async(FiscalPeriodRepositoryPort)
+                uow = await container.resolve_async(UnitOfWorkPort)
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return FiscalPeriodService(
+                    period_repo=period_repo,
+                    uow=uow,
+                    event_publisher=event_publisher,
+                )
+
+            container.register_singleton(FiscalPeriodService, factory=_create_fiscal_period_service)
+            logger.info("FiscalPeriodService registered with dependencies")
+
             logger.info("Application services registered")
         except ImportError as e:
             logger.warning(f"Some application services could not be imported: {e}")
@@ -250,6 +303,7 @@ class ServiceRegistrar:
 
             try:
                 from infrastructure.event_publisher.event_publisher import EventPublisher
+
                 from ports.primary.event_publisher_port import EventPublisherPort
                 container.register_singleton(EventPublisher, EventPublisher)
                 container.register_singleton(EventPublisherPort, EventPublisher)
@@ -270,6 +324,7 @@ class ServiceRegistrar:
 
             try:
                 from infrastructure.caching.redis_cache import RedisCache
+
                 from ports.primary.cache_port import CachePort
                 container.register_singleton(RedisCache, RedisCache)
                 container.register_singleton(CachePort, RedisCache)

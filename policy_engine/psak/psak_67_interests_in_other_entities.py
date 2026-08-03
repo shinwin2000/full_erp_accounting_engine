@@ -443,7 +443,7 @@ class PSAK67Validator:
     def add_ownership_interest(
         self, disclosure: PSAK67InterestsDisclosure, oi: PSAK67OwnershipInterest
     ) -> PSAK67InterestsDisclosure:
-        new_list = disclosure.ownership_interests + [oi]
+        new_list = [*disclosure.ownership_interests, oi]
         return PSAK67InterestsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -461,7 +461,7 @@ class PSAK67Validator:
     def add_nci(
         self, disclosure: PSAK67InterestsDisclosure, nci: PSAK67NonControllingInterest
     ) -> PSAK67InterestsDisclosure:
-        new_list = disclosure.non_controlling_interests + [nci]
+        new_list = [*disclosure.non_controlling_interests, nci]
         return PSAK67InterestsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -479,7 +479,7 @@ class PSAK67Validator:
     def add_structured_entity(
         self, disclosure: PSAK67InterestsDisclosure, se: PSAK67StructuredEntity
     ) -> PSAK67InterestsDisclosure:
-        new_list = disclosure.structured_entities + [se]
+        new_list = [*disclosure.structured_entities, se]
         return PSAK67InterestsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -497,7 +497,7 @@ class PSAK67Validator:
     def add_restriction(
         self, disclosure: PSAK67InterestsDisclosure, restriction: PSAK67SignificantRestriction
     ) -> PSAK67InterestsDisclosure:
-        new_list = disclosure.restrictions + [restriction]
+        new_list = [*disclosure.restrictions, restriction]
         return PSAK67InterestsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,
@@ -515,7 +515,7 @@ class PSAK67Validator:
     def add_risk(
         self, disclosure: PSAK67InterestsDisclosure, risk_type: PSAK67RiskType, description: str
     ) -> PSAK67InterestsDisclosure:
-        new_list = disclosure.risks_from_structured_entities + [(risk_type, description)]
+        new_list = [*disclosure.risks_from_structured_entities, (risk_type, description)]
         return PSAK67InterestsDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,

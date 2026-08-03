@@ -286,7 +286,7 @@ class TestCoreOperations:
         engine.set("key1", "value1", ttl_seconds=10)
         # Check Redis setex called
         redis_client.setex.assert_called_once()
-        args, kwargs = redis_client.setex.call_args
+        args, _kwargs = redis_client.setex.call_args
         assert args[0] == "test:key1"
         assert args[1] == 10
         data = json.loads(args[2])

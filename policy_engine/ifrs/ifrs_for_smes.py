@@ -127,7 +127,7 @@ class IFRSForSMESEntityStatus:
             is_sme=self.is_sme,
             adoption_date=self.adoption_date,
             applied_sections=self.applied_sections,
-            elected_options=self.elected_options + [option],
+            elected_options=[*self.elected_options, option],
             exemptions_taken=self.exemptions_taken,
         )
 
@@ -300,6 +300,6 @@ __all__ = [
     "IFRSForSMESService",
     "IFRSForSMESValidationResult",
     "IFRSForSMESValidator",
-    "IFRSForSMESection",  # tambahkan alias
+    "IFRSForSMESection",
     "get_ifrs_for_smes_validator",
 ]

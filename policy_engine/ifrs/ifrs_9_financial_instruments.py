@@ -385,7 +385,6 @@ class IFRS9:
             return HedgeEffectivenessStatus.EFFECTIVE, ratio
         elif ratio < acceptable_range[0] or ratio > acceptable_range[1]:
             # Ineffective sebagian
-            ineffectiveness = abs(change_in_hedged_item - change_in_hedging_instrument)
             return HedgeEffectivenessStatus.PARTIALLY_EFFECTIVE, ratio
         return HedgeEffectivenessStatus.INEFFECTIVE, ratio
 

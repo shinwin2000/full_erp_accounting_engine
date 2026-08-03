@@ -1,11 +1,12 @@
 # fix_admin_password.py
 import asyncio
-import os
-import uuid
 import json
+import os
+
 import bcrypt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
 
 async def main():
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:palapapls88@localhost/erp_db")

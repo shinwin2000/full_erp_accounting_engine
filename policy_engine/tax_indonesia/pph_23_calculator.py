@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
+from typing import ClassVar
 from uuid import UUID, uuid4
 
 # Optional imports with fallback
@@ -166,7 +167,7 @@ class PPh23Calculator:
     """
 
     # Tarif dasar (dalam persen)
-    BASE_RATES = {
+    BASE_RATES: ClassVar[dict[PPh23Type, Decimal]] = {
         PPh23Type.ROYALTY: Decimal("15"),
         PPh23Type.DIVIDEND: Decimal("15"),
         PPh23Type.INTEREST: Decimal("15"),
@@ -177,7 +178,7 @@ class PPh23Calculator:
     }
 
     # NPWP factor: 100% lebih tinggi jika tidak punya NPWP
-    NPWP_FACTOR = {
+    NPWP_FACTOR: ClassVar[dict[NPWPStatus, Decimal]] = {
         NPWPStatus.HAS_NPWP: Decimal("1"),
         NPWPStatus.NO_NPWP: Decimal("2"),
         NPWPStatus.NOT_REQUIRED: Decimal("1"),
@@ -351,7 +352,7 @@ class PPh23Calculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         # Kembalikan tarif default untuk jasa
         return self.BASE_RATES.get(PPh23Type.SERVICES, Decimal("2"))
 
@@ -373,6 +374,8 @@ def get_pph23_calculator() -> PPh23Calculator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     calc = get_pph23_calculator()
     tx = PPh23Transaction(
         transaction_id=uuid4(),

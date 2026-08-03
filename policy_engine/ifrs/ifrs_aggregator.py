@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from policy_engine.ifrs.ifrs_9_financial_instruments import get_ifrs9_validator
 from policy_engine.ifrs.ifrs_15_revenue import get_ifrs15_validator

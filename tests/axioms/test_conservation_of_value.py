@@ -445,7 +445,7 @@ class TestConservationOfValueValidator:
 
     def test_validate_flow_failure_auto_correct(self):
         flow = create_test_flow(dest_amount=Decimal("700"))
-        is_cons, record, hint = ConservationOfValueValidator.validate_flow(flow, auto_correct=True)
+        is_cons, record, _hint = ConservationOfValueValidator.validate_flow(flow, auto_correct=True)
         assert is_cons is False
         assert record is not None
         assert record.is_conserved is False
@@ -481,7 +481,7 @@ class TestConservationOfValueValidator:
             {"account_code": "2000", "debit": "0", "credit": "800"},
             {"account_code": "3000", "debit": "0", "credit": "200"},
         ]
-        is_cons, record, flow, hint = ConservationOfValueValidator.validate_transaction(
+        is_cons, record, flow, _hint = ConservationOfValueValidator.validate_transaction(
             tx_id, lines, transaction_fee=Decimal("200"), fee_currency="IDR"
         )
         # Since fee is accounted as credit, total source=1000, total dest=1000, fee=200 => net = 1000-1000-200 = -200, not conserved.
@@ -730,7 +730,7 @@ class TestModuleFunctions:
         source = create_test_pool()
         dest = create_test_pool()
         transfer = ValueTransfer(source, dest, Decimal("3000"))
-        is_valid, violations = validate_value_transfer(transfer)
+        is_valid, _violations = validate_value_transfer(transfer)
         assert is_valid is True
 
     def test_create_value_node(self):

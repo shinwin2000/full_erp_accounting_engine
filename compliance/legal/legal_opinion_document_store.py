@@ -317,7 +317,7 @@ class LegalOpinionDocumentStore:
         active = len(self.get_all_active())
         by_jurisdiction = {
             j: len(self.find_by_jurisdiction(j))
-            for j in set(o.jurisdiction for o in self._opinions.values())
+            for j in {o.jurisdiction for o in self._opinions.values()}
         }
         by_status = {
             s.value: sum(1 for o in self._opinions.values() if o.status == s)

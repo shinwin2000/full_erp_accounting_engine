@@ -190,7 +190,7 @@ class ManufacturingCostCalculator(BaseTransformer):
         machine_costs: list[dict],
     ) -> dict[str, Decimal]:
         total_material = sum(Decimal(str(m.get("cost", 0))) for m in material_costs)
-        total_labor = sum(Decimal(str(l.get("cost", 0))) for l in labor_costs)
+        total_labor = sum(Decimal(str(labor.get("cost", 0))) for labor in labor_costs)
         total_machine = sum(Decimal(str(mc.get("cost", 0))) for mc in machine_costs)
 
         try:
@@ -446,11 +446,7 @@ class MESToManufacturingTransformer(BaseTransformer):
         machine_id = UUID(payload.get("machine_id"))
         hours = Decimal(str(payload.get("machine_hours", 0)))
         cost_per_hour = Decimal(str(payload.get("cost_per_hour", DEFAULT_MACHINE_HOUR_RATE)))
-        legal_entity_id = (
-            UUID(payload.get("legal_entity_id"))
-            if payload.get("legal_entity_id")
-            else envelope.metadata.get("legal_entity_id")
-        )
+        # legal_entity_id tidak digunakan, dihapus untuk menghindari F841
         total_cost = hours * cost_per_hour
         if work_order_id in self._wip_costs:
             self._wip_costs[work_order_id]["machine"] += total_cost
@@ -478,9 +474,7 @@ class MESToManufacturingTransformer(BaseTransformer):
         work_order = await self._work_order_repo.get_by_id(work_order_id)
         if not work_order:
             raise WorkOrderNotFoundError(f"Work order {work_order_id} not found")
-        wip = self._wip_costs.get(
-            work_order_id, {"material": Decimal(0), "labor": Decimal(0), "machine": Decimal(0)}
-        )
+        # wip tidak digunakan; kita langsung pakai wip_cost hasil perhitungan
         wip_cost = await self._cost_calculator.calculate_wip_cost(
             work_order_id,
             self._material_issues.get(work_order_id, []),

@@ -1,10 +1,12 @@
 # check_user.py
 import asyncio
 import os
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import PasswordHelper
+
 from domain.iam.password_hashed_vo import PasswordHashedVO
+
 
 async def main():
     DATABASE_URL = os.getenv("DATABASE_URL")

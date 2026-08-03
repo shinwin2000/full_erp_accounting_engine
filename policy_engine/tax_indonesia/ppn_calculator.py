@@ -329,7 +329,7 @@ class PPNCalculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         return self._tariff.value
 
     # calculate sudah ada instance method yang mengembalikan Decimal

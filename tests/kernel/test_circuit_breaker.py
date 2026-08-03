@@ -373,7 +373,7 @@ class TestCircuitBreaker:
         with patch.object(cb._metric_collector, 'set_gauge') as mock_set_gauge:
             cb._transition_to(CircuitState.OPEN)
             mock_set_gauge.assert_called_once()
-            args, kwargs = mock_set_gauge.call_args
+            args, _kwargs = mock_set_gauge.call_args
             assert args[1] == Decimal("1.0")
             assert args[2]["state"] == "open"
 

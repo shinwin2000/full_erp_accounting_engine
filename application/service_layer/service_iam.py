@@ -46,11 +46,11 @@ from application.events import (
     UserUnlockedEvent,
     UserUpdatedEvent,
 )
+from domain.iam.aggregate_root import UserAggregate
 from domain.iam.password_hashed_vo import PasswordHashedVO
 from domain.iam.permission_vo import PermissionVO
 from domain.iam.role_entity import RoleEntity
-from domain.iam.user_entity import UserEntity, UserStatus, UserProfile, UserAudit
-from domain.iam.aggregate_root import UserAggregate, IAM, IAMStatus
+from domain.iam.user_entity import UserAudit, UserEntity, UserProfile, UserStatus
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.iam_repository_port import IAMRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort

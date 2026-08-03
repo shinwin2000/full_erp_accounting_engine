@@ -359,9 +359,8 @@ class DeadLetterQueueManager:
         items = await self.list_items(limit=10000)
         deleted = 0
         for item in items:
-            if event_type is None or item.event_type == event_type:
-                if await self.delete_item(item.id):
-                    deleted += 1
+            if (event_type is None or item.event_type == event_type) and await self.delete_item(item.id):
+                deleted += 1
         self._record_audit("DELETE_ALL", "system", {"event_type": event_type, "deleted": deleted})
         logger.info(
             f"Deleted {deleted} items from DLQ"

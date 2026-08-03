@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ class PPh4Ayat2Calculator:
     """
 
     # Tarif final
-    RATES = {
+    RATES: ClassVar[dict[PPh4Ayat2Type, Decimal]] = {
         PPh4Ayat2Type.LAND_BUILDING_RENTAL: Decimal("10"),
         PPh4Ayat2Type.LOTTERY_PRIZE: Decimal("25"),
         PPh4Ayat2Type.REAL_ESTATE_SALES: Decimal("2.5"),
@@ -126,7 +126,7 @@ class PPh4Ayat2Calculator:
     }
 
     # Tarif jasa konstruksi
-    CONSTRUCTION_RATES = {
+    CONSTRUCTION_RATES: ClassVar[dict[ConstructionServiceType, Decimal]] = {
         ConstructionServiceType.SMALL_SCALE: Decimal("2"),
         ConstructionServiceType.MEDIUM_SCALE: Decimal("4"),
         ConstructionServiceType.LARGE_SCALE: Decimal("6"),
@@ -412,7 +412,7 @@ class PPh4Ayat2Calculator:
     def validate(self, data: dict) -> bool:
         return True
 
-    def get_rate(self, tax_type: str = None) -> Decimal:
+    def get_rate(self, tax_type: str | None = None) -> Decimal:
         # Mengembalikan tarif default untuk sewa tanah/bangunan
         return self._rates.get(PPh4Ayat2Type.LAND_BUILDING_RENTAL, Decimal("10"))
 

@@ -36,10 +36,9 @@ from uuid import uuid4
 # Optional PDF export
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import cm
-    from reportlab.pdfgen import canvas
     from reportlab.platypus import (
         PageBreak,
         Paragraph,
@@ -910,12 +909,7 @@ class AuditCommitteeReportBuilder:
         # Asumsi deficiency_tracker memiliki metode get_open_deficiencies()
         open_deficiencies = deficiency_tracker.get_open_deficiencies()
         # Kelompokkan berdasarkan area (bisa ditentukan dari regulation field)
-        for deficiency in open_deficiencies[:max_items]:
-            area = self._map_regulation_to_area(deficiency.regulation)
-            # Cari section yang sesuai atau buat section baru?
-            # Untuk sederhana, kita tambahkan ke section "Deficiencies" terpisah
-            pass
-        # Atau buat section khusus
+        # Untuk sederhana, kita tambahkan ke section "Deficiencies" terpisah
         deficiency_items = []
         for d in open_deficiencies[:max_items]:
             deficiency_items.append(

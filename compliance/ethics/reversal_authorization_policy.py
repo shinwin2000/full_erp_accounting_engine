@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -257,9 +258,7 @@ class ReversalAuthorizationPolicy:
         if age_hours > 24:
             return False
         # Amount below threshold
-        if request.journal_amount > Decimal("10_000_000"):
-            return False
-        return True
+        return not request.journal_amount > Decimal("10_000_000")
 
     def request_reversal(
         self,

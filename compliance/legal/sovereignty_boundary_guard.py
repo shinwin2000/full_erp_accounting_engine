@@ -24,6 +24,7 @@ import json
 import logging
 from datetime import datetime
 from enum import Enum
+from typing import ClassVar
 from uuid import UUID, uuid4
 
 from .jurisdiction_definition import JurisdictionDefinition
@@ -117,10 +118,12 @@ class SovereigntyBoundaryGuard:
     """
 
     # Daftar yurisdiksi yang memiliki tingkat perlindungan data memadai (adequacy decision) untuk Indonesia
-    ADEQUATE_JURISDICTIONS_FOR_ID = {"SG", "JP", "KR", "AU", "NZ", "CH", "GB", "US"}
+    ADEQUATE_JURISDICTIONS_FOR_ID: ClassVar[set[str]] = {
+        "SG", "JP", "KR", "AU", "NZ", "CH", "GB", "US"
+    }
 
     # Daftar transfer yang dilarang (default blacklist)
-    RESTRICTED_TRANSFERS = {
+    RESTRICTED_TRANSFERS: ClassVar[dict[tuple[str, str], str]] = {
         ("ID", "CN"): "Data transfer to China is restricted without specific approval",
         ("ID", "RU"): "Data transfer to Russia is restricted due to sanctions",
         ("ID", "XX"): "Unknown jurisdiction - transfer not allowed",
@@ -159,21 +162,23 @@ class SovereigntyBoundaryGuard:
             violations.append(f"Restricted data cannot leave {data_source_jurisdiction}")
 
         # 3. Data personal (GDPR/UU PDP) memerlukan basis transfer yang valid
-        if data_classification == DataClassification.PERSONAL:
-            if data_processing_jurisdiction not in self.ADEQUATE_JURISDICTIONS_FOR_ID:
-                violations.append(
-                    f"Personal data transfer to {data_processing_jurisdiction} requires adequacy decision or SCCs"
-                )
+        if (
+            data_classification == DataClassification.PERSONAL
+            and data_processing_jurisdiction not in self.ADEQUATE_JURISDICTIONS_FOR_ID
+        ):
+            violations.append(
+                f"Personal data transfer to {data_processing_jurisdiction} requires adequacy decision or SCCs"
+            )
 
         # 4. Data confidential hanya boleh ke yurisdiksi dengan tingkat perlindungan memadai
-        if data_classification == DataClassification.CONFIDENTIAL:
-            if (
-                data_processing_jurisdiction not in self.ADEQUATE_JURISDICTIONS_FOR_ID
-                and data_processing_jurisdiction != data_source_jurisdiction
-            ):
-                violations.append(
-                    f"Confidential data transfer to {data_processing_jurisdiction} not allowed"
-                )
+        if (
+            data_classification == DataClassification.CONFIDENTIAL
+            and data_processing_jurisdiction not in self.ADEQUATE_JURISDICTIONS_FOR_ID
+            and data_processing_jurisdiction != data_source_jurisdiction
+        ):
+            violations.append(
+                f"Confidential data transfer to {data_processing_jurisdiction} not allowed"
+            )
 
         return len(violations) == 0, violations
 
@@ -193,11 +198,13 @@ class SovereigntyBoundaryGuard:
 
         violations = []
         # Cross-border access hanya untuk role tertentu (kecuali data public)
-        if data_classification != DataClassification.PUBLIC:
-            if user_role not in self._allowed_cross_border_roles:
-                violations.append(
-                    f"User role '{user_role}' not authorized for cross-border access to {data_classification.value} data"
-                )
+        if (
+            data_classification != DataClassification.PUBLIC
+            and user_role not in self._allowed_cross_border_roles
+        ):
+            violations.append(
+                f"User role '{user_role}' not authorized for cross-border access to {data_classification.value} data"
+            )
         return len(violations) == 0, violations
 
     def record_transfer(

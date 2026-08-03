@@ -172,7 +172,7 @@ def payroll_aggregate_with_calculated_run(payroll_aggregate_with_run):
     agg = payroll_aggregate_with_run
     run_id = agg._run_id
     employee_ids = list(agg.employee_structures.keys())
-    agg, run = agg.calculate_payroll(run_id, employee_ids, "system")
+    agg, _run = agg.calculate_payroll(run_id, employee_ids, "system")
     agg._run_id = run_id
     return agg
 
@@ -182,7 +182,7 @@ def payroll_aggregate_with_approved_run(payroll_aggregate_with_calculated_run):
     """Create a PayrollAggregate with an approved payroll run."""
     agg = payroll_aggregate_with_calculated_run
     run_id = agg._run_id
-    agg, run = agg.approve_payroll(run_id, "manager")
+    agg, _run = agg.approve_payroll(run_id, "manager")
     agg._run_id = run_id
     return agg
 
@@ -192,7 +192,7 @@ def payroll_aggregate_with_paid_run(payroll_aggregate_with_approved_run):
     """Create a PayrollAggregate with a paid payroll run."""
     agg = payroll_aggregate_with_approved_run
     run_id = agg._run_id
-    agg, run = agg.process_payment(run_id, "finance")
+    agg, _run = agg.process_payment(run_id, "finance")
     agg._run_id = run_id
     return agg
 
@@ -643,7 +643,7 @@ class TestPayrollCalculation:
         run_id = agg._run_id
         employee_ids = list(agg.employee_structures.keys())
         # Calculate once
-        agg, run = agg.calculate_payroll(run_id, employee_ids, "system")
+        agg, _run = agg.calculate_payroll(run_id, employee_ids, "system")
         agg._run_id = run_id
         # Try to calculate again
         with pytest.raises(ValueError, match="Cannot calculate payroll in status calculated"):
@@ -660,7 +660,7 @@ class TestPayrollCalculation:
         run_id = agg._run_id
         # Use an employee ID that doesn't exist
         employee_ids = [uuid4()]
-        new_agg, run = agg.calculate_payroll(run_id, employee_ids, "system")
+        _new_agg, run = agg.calculate_payroll(run_id, employee_ids, "system")
         # Should still calculate but with 0 employees
         assert run.status == PayrollRunStatus.CALCULATED
         assert len(run.employees) == 0
@@ -735,7 +735,7 @@ class TestStatusTransitions:
         agg = payroll_aggregate_with_paid_run
         run_id = agg._run_id
         journal_id = uuid4()
-        new_agg, run = agg.post_to_gl(run_id, journal_id, "accountant")
+        new_agg, _run = agg.post_to_gl(run_id, journal_id, "accountant")
         assert new_agg.version == agg.version + 1
         events = new_agg.get_events()
         assert any(isinstance(e, PayrollRunPostedEvent) for e in events)

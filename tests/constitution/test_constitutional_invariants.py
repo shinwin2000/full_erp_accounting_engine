@@ -668,40 +668,40 @@ class TestInvariantValidator:
         assert hint is not None
 
     def test_validate_accounting_equation_within_tolerance(self):
-        is_valid, diff, hint = InvariantValidator.validate_accounting_equation(
+        is_valid, diff, _hint = InvariantValidator.validate_accounting_equation(
             {"total_assets": Decimal("1000.00"), "total_liabilities": Decimal("600.00"), "total_equity": Decimal("399.99")}
         )
         assert is_valid  # within 0.01 tolerance
         assert diff["difference"] == "0.01"
 
     def test_validate_double_entry_balance_valid(self):
-        is_valid, diff, hint = InvariantValidator.validate_double_entry_balance(
+        is_valid, diff, _hint = InvariantValidator.validate_double_entry_balance(
             {"total_debit": Decimal("500"), "total_credit": Decimal("500")}
         )
         assert is_valid
         assert diff["difference"] == "0"
 
     def test_validate_double_entry_balance_invalid(self):
-        is_valid, diff, hint = InvariantValidator.validate_double_entry_balance(
+        is_valid, diff, _hint = InvariantValidator.validate_double_entry_balance(
             {"total_debit": Decimal("500"), "total_credit": Decimal("400")}
         )
         assert not is_valid
         assert diff["difference"] == "100"
 
     def test_validate_double_entry_balance_with_tolerance(self):
-        is_valid, diff, hint = InvariantValidator.validate_double_entry_balance(
+        is_valid, _diff, _hint = InvariantValidator.validate_double_entry_balance(
             {"total_debit": Decimal("500.0001"), "total_credit": Decimal("500")}
         )
         assert is_valid  # within 0.0001 tolerance
 
     def test_validate_conservation_of_value_valid(self):
-        is_valid, diff, hint = InvariantValidator.validate_conservation_of_value(
+        is_valid, _diff, _hint = InvariantValidator.validate_conservation_of_value(
             {"source_value": Decimal("1000"), "destination_value": Decimal("990"), "transaction_fee": Decimal("10")}
         )
         assert is_valid
 
     def test_validate_conservation_of_value_invalid(self):
-        is_valid, diff, hint = InvariantValidator.validate_conservation_of_value(
+        is_valid, _diff, _hint = InvariantValidator.validate_conservation_of_value(
             {"source_value": Decimal("1000"), "destination_value": Decimal("900"), "transaction_fee": Decimal("10")}
         )
         assert not is_valid
@@ -714,7 +714,7 @@ class TestInvariantValidator:
             "period_start": now - timedelta(days=1),
             "period_end": now + timedelta(days=1),
         }
-        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_time_monotonicity(context)
         assert is_valid
 
     def test_validate_time_monotonicity_invalid_backward(self):
@@ -725,7 +725,7 @@ class TestInvariantValidator:
             "period_start": now - timedelta(days=1),
             "period_end": now + timedelta(days=1),
         }
-        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity(context)
+        is_valid, _diff, hint = InvariantValidator.validate_time_monotonicity(context)
         assert not is_valid
         assert "Transaction time cannot be earlier than last transaction" in hint
 
@@ -736,12 +736,12 @@ class TestInvariantValidator:
             "period_start": now - timedelta(days=1),
             "period_end": now + timedelta(days=1),
         }
-        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity(context)
+        is_valid, _diff, hint = InvariantValidator.validate_time_monotonicity(context)
         assert not is_valid
         assert "Transaction time outside period" in hint
 
     def test_validate_time_monotonicity_no_transaction_time(self):
-        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity({})
+        is_valid, diff, _hint = InvariantValidator.validate_time_monotonicity({})
         assert is_valid
         assert diff == {}
 
@@ -751,7 +751,7 @@ class TestInvariantValidator:
             "transaction_time": now,
             "last_transaction_time": now - timedelta(minutes=5),
         }
-        is_valid, diff, hint = InvariantValidator.validate_time_monotonicity(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_time_monotonicity(context)
         assert is_valid
 
     def test_validate_legal_entity_isolation_valid(self):
@@ -761,7 +761,7 @@ class TestInvariantValidator:
             "accessed_legal_entity_ids": [],
             "user_legal_entity_ids": [le_id],
         }
-        is_valid, diff, hint = InvariantValidator.validate_legal_entity_isolation(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_legal_entity_isolation(context)
         assert is_valid
 
     def test_validate_legal_entity_isolation_invalid(self):
@@ -771,7 +771,7 @@ class TestInvariantValidator:
             "accessed_legal_entity_ids": [],
             "user_legal_entity_ids": [uuid.uuid4()],
         }
-        is_valid, diff, hint = InvariantValidator.validate_legal_entity_isolation(context)
+        is_valid, _diff, hint = InvariantValidator.validate_legal_entity_isolation(context)
         assert not is_valid
         assert "User does not have access" in hint
 
@@ -784,7 +784,7 @@ class TestInvariantValidator:
             "accessed_legal_entity_ids": [le2],
             "user_legal_entity_ids": user_entities,
         }
-        is_valid, diff, hint = InvariantValidator.validate_legal_entity_isolation(context)
+        is_valid, diff, _hint = InvariantValidator.validate_legal_entity_isolation(context)
         assert not is_valid
         assert str(le2) in diff["offending_entity"]
 
@@ -794,7 +794,7 @@ class TestInvariantValidator:
             "base_currency": "IDR",
             "exchange_rates": {"USD": Decimal("15250")},
         }
-        is_valid, diff, hint = InvariantValidator.validate_currency_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_currency_consistency(context)
         assert is_valid
 
     def test_validate_currency_consistency_single_currency(self):
@@ -803,7 +803,7 @@ class TestInvariantValidator:
             "base_currency": "IDR",
             "exchange_rates": {},
         }
-        is_valid, diff, hint = InvariantValidator.validate_currency_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_currency_consistency(context)
         assert is_valid
 
     def test_validate_currency_consistency_invalid(self):
@@ -812,7 +812,7 @@ class TestInvariantValidator:
             "base_currency": "IDR",
             "exchange_rates": {},
         }
-        is_valid, diff, hint = InvariantValidator.validate_currency_consistency(context)
+        is_valid, diff, _hint = InvariantValidator.validate_currency_consistency(context)
         assert not is_valid
         assert "missing_exchange_rate" in diff
 
@@ -820,7 +820,7 @@ class TestInvariantValidator:
         content = "test content"
         h = hashlib.sha3_256(content.encode()).hexdigest()
         context = {"current_hash": h, "content_to_hash": content}
-        is_valid, diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_hash_chain_consistency(context)
         assert is_valid
 
     @pytest.mark.parametrize("context,expected_hint", [
@@ -828,79 +828,79 @@ class TestInvariantValidator:
         ({"previous_hash": "prevhash", "expected_previous_hash": "different"}, "Hash chain broken"),
     ], ids=["invalid_hash", "broken_chain"])
     def test_validate_hash_chain_consistency_invalid(self, context, expected_hint):
-        is_valid, diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
+        is_valid, _diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
         assert not is_valid
         assert expected_hint in hint
 
     def test_validate_hash_chain_consistency_no_hash(self):
         context = {}
-        is_valid, diff, hint = InvariantValidator.validate_hash_chain_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_hash_chain_consistency(context)
         assert is_valid
 
     def test_validate_audit_trail_completeness_valid(self):
         context = {"expected_event_count": 10, "actual_event_count": 10, "missing_sequence_numbers": []}
-        is_valid, diff, hint = InvariantValidator.validate_audit_trail_completeness(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_audit_trail_completeness(context)
         assert is_valid
 
     def test_validate_audit_trail_completeness_invalid_missing(self):
         context = {"expected_event_count": 10, "actual_event_count": 8, "missing_sequence_numbers": []}
-        is_valid, diff, hint = InvariantValidator.validate_audit_trail_completeness(context)
+        is_valid, _diff, hint = InvariantValidator.validate_audit_trail_completeness(context)
         assert not is_valid
         assert "Missing 2 audit events" in hint
 
     def test_validate_audit_trail_completeness_invalid_sequence(self):
         context = {"expected_event_count": 10, "actual_event_count": 10, "missing_sequence_numbers": [3, 4, 5]}
-        is_valid, diff, hint = InvariantValidator.validate_audit_trail_completeness(context)
+        is_valid, _diff, hint = InvariantValidator.validate_audit_trail_completeness(context)
         assert not is_valid
         assert "Missing sequence numbers" in hint
 
     def test_validate_idempotency_strict_valid(self):
         context = {"idempotency_key": "key1", "previous_result": "result", "current_result": "result"}
-        is_valid, diff, hint = InvariantValidator.validate_idempotency_strict(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_idempotency_strict(context)
         assert is_valid
 
     def test_validate_idempotency_strict_invalid(self):
         context = {"idempotency_key": "key1", "previous_result": "result1", "current_result": "result2"}
-        is_valid, diff, hint = InvariantValidator.validate_idempotency_strict(context)
+        is_valid, _diff, hint = InvariantValidator.validate_idempotency_strict(context)
         assert not is_valid
         assert "Non-idempotent result" in hint
 
     def test_validate_idempotency_strict_no_key(self):
         context = {}
-        is_valid, diff, hint = InvariantValidator.validate_idempotency_strict(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_idempotency_strict(context)
         assert is_valid
 
     @pytest.mark.parametrize("proposed_change", [Decimal("-50"), Decimal("-100")], ids=["positive_remainder", "exact_zero"])
     def test_validate_non_negative_cash_valid(self, proposed_change):
         context = {"cash_balance": Decimal("100"), "proposed_change": proposed_change}
-        is_valid, diff, hint = InvariantValidator.validate_non_negative_cash(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_non_negative_cash(context)
         assert is_valid
 
     def test_validate_non_negative_cash_invalid(self):
         context = {"cash_balance": Decimal("100"), "proposed_change": Decimal("-150")}
-        is_valid, diff, hint = InvariantValidator.validate_non_negative_cash(context)
+        is_valid, _diff, hint = InvariantValidator.validate_non_negative_cash(context)
         assert not is_valid
         assert "negative cash balance" in hint
 
     def test_validate_non_negative_inventory_valid(self):
         context = {"quantity": Decimal("100"), "proposed_change": Decimal("-50")}
-        is_valid, diff, hint = InvariantValidator.validate_non_negative_inventory(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_non_negative_inventory(context)
         assert is_valid
 
     def test_validate_non_negative_inventory_invalid(self):
         context = {"quantity": Decimal("100"), "proposed_change": Decimal("-150")}
-        is_valid, diff, hint = InvariantValidator.validate_non_negative_inventory(context)
+        is_valid, _diff, hint = InvariantValidator.validate_non_negative_inventory(context)
         assert not is_valid
         assert "Insufficient inventory" in hint
 
     def test_validate_non_negative_receivable_valid(self):
         context = {"receivable_balance": Decimal("100"), "proposed_payment": Decimal("-50")}
-        is_valid, diff, hint = InvariantValidator.validate_non_negative_receivable(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_non_negative_receivable(context)
         assert is_valid
 
     def test_validate_non_negative_receivable_invalid(self):
         context = {"receivable_balance": Decimal("100"), "proposed_payment": Decimal("-150")}
-        is_valid, diff, hint = InvariantValidator.validate_non_negative_receivable(context)
+        is_valid, _diff, hint = InvariantValidator.validate_non_negative_receivable(context)
         assert not is_valid
         assert "Payment exceeds receivable balance" in hint
 
@@ -910,22 +910,22 @@ class TestInvariantValidator:
     ], ids=["exact_match", "within_tolerance"])
     def test_validate_tax_consistency_valid(self, tax_collected, tax_submitted):
         context = {"tax_collected": tax_collected, "tax_submitted": tax_submitted}
-        is_valid, diff, hint = InvariantValidator.validate_tax_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_tax_consistency(context)
         assert is_valid
 
     def test_validate_tax_consistency_invalid(self):
         context = {"tax_collected": Decimal("1000"), "tax_submitted": Decimal("900")}
-        is_valid, diff, hint = InvariantValidator.validate_tax_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_tax_consistency(context)
         assert not is_valid
 
     def test_validate_period_closure_finality_valid(self):
         context = {"is_closed": False, "is_reopening": False}
-        is_valid, diff, hint = InvariantValidator.validate_period_closure_finality(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_period_closure_finality(context)
         assert is_valid
 
     def test_validate_period_closure_finality_reopening_requires_approval(self):
         context = {"is_closed": True, "is_reopening": True, "reopening_authorization": {}}
-        is_valid, diff, hint = InvariantValidator.validate_period_closure_finality(context)
+        is_valid, _diff, hint = InvariantValidator.validate_period_closure_finality(context)
         assert not is_valid
         assert "dual approval" in hint
 
@@ -935,7 +935,7 @@ class TestInvariantValidator:
             "is_reopening": True,
             "reopening_authorization": {"approved_by": ["finance", "audit"], "audit_trail_id": "audit123"},
         }
-        is_valid, diff, hint = InvariantValidator.validate_period_closure_finality(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_period_closure_finality(context)
         assert is_valid
 
     def test_validate_period_integrity_valid(self):
@@ -946,7 +946,7 @@ class TestInvariantValidator:
             "period_end": now + timedelta(days=1),
             "period_status": "OPEN",
         }
-        is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_period_integrity(context)
         assert is_valid
 
     @pytest.mark.parametrize("period_status,expected_hint", [
@@ -961,7 +961,7 @@ class TestInvariantValidator:
             "period_end": now + timedelta(days=1),
             "period_status": period_status,
         }
-        is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
+        is_valid, _diff, hint = InvariantValidator.validate_period_integrity(context)
         assert not is_valid
         assert expected_hint in hint
 
@@ -973,24 +973,24 @@ class TestInvariantValidator:
             "period_end": now + timedelta(days=1),
             "period_status": "OPEN",
         }
-        is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
+        is_valid, _diff, hint = InvariantValidator.validate_period_integrity(context)
         assert not is_valid
         assert "Transaction date outside period" in hint
 
     def test_validate_period_integrity_no_transaction_date(self):
         context = {"period_status": "OPEN"}
-        is_valid, diff, hint = InvariantValidator.validate_period_integrity(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_period_integrity(context)
         assert is_valid
 
     @pytest.mark.parametrize("current_number,allow_gap", [(5, False), (6, True)], ids=["no_gap", "gap_allowed"])
     def test_validate_sequence_integrity_valid(self, current_number, allow_gap):
         context = {"current_number": current_number, "last_number": 4, "expected_next": 5, "allow_gap": allow_gap}
-        is_valid, diff, hint = InvariantValidator.validate_sequence_integrity(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_sequence_integrity(context)
         assert is_valid
 
     def test_validate_sequence_integrity_gap(self):
         context = {"current_number": 6, "last_number": 4, "expected_next": 5, "allow_gap": False}
-        is_valid, diff, hint = InvariantValidator.validate_sequence_integrity(context)
+        is_valid, _diff, hint = InvariantValidator.validate_sequence_integrity(context)
         assert not is_valid
         assert "Sequence gap detected" in hint
 
@@ -1000,7 +1000,7 @@ class TestInvariantValidator:
             "functional_currency_amounts": {"USD": Decimal("1525000")},
             "exchange_rates": {"USD": Decimal("15250")},
         }
-        is_valid, diff, hint = InvariantValidator.validate_currency_exposure_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_currency_exposure_consistency(context)
         assert is_valid
 
     def test_validate_currency_exposure_consistency_invalid(self):
@@ -1009,13 +1009,13 @@ class TestInvariantValidator:
             "functional_currency_amounts": {"USD": Decimal("1500000")},
             "exchange_rates": {"USD": Decimal("15250")},
         }
-        is_valid, diff, hint = InvariantValidator.validate_currency_exposure_consistency(context)
+        is_valid, _diff, hint = InvariantValidator.validate_currency_exposure_consistency(context)
         assert not is_valid
         assert "Currency exposure mismatch" in hint
 
     def test_validate_currency_exposure_consistency_empty(self):
         context = {"foreign_currency_amounts": {}, "functional_currency_amounts": {}, "exchange_rates": {}}
-        is_valid, diff, hint = InvariantValidator.validate_currency_exposure_consistency(context)
+        is_valid, _diff, _hint = InvariantValidator.validate_currency_exposure_consistency(context)
         assert is_valid
 
 

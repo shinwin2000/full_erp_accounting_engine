@@ -148,9 +148,10 @@ class IAS12TaxPosition:
     tax_credit_carryforwards: Money = field(default_factory=lambda: Money(Decimal(0), "IDR"))
 
     def total_tax_expense(self) -> Money:
-        currency = self.current_tax.total_expense()  # butuh currency
-        # Simplified
-        return Money(Decimal(self.current_tax.total_expense()), "IDR")
+        # Simplified: use currency from deferred tax
+        currency = self.deferred_tax.net_deferred_tax.currency
+        total = Decimal(self.current_tax.total_expense()) + self.deferred_tax.net_deferred_tax.amount
+        return Money(total, currency)
 
     def effective_tax_rate(self) -> Decimal:
         """Tarif pajak efektif = total tax expense / accounting profit."""
@@ -201,7 +202,7 @@ class IAS12TaxService:
     def calculate_temporary_difference(
         carrying_amount: Money,
         tax_base: Money,
-    ) -> Tuple[Money, IAS12TemporaryDifferenceType]:
+    ) -> tuple[Money, IAS12TemporaryDifferenceType]:
         """Menghitung perbedaan temporer."""
         diff = carrying_amount - tax_base
         if diff.amount > 0:

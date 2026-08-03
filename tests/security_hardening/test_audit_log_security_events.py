@@ -167,7 +167,7 @@ class TestFileAuditStorage:
 
     def test_construction(self, tmp_path):
         """FileAuditStorage can be instantiated."""
-        instance, path = self._build_instance(tmp_path)
+        instance, _path = self._build_instance(tmp_path)
         assert isinstance(instance, FileAuditStorage)
         assert instance.file_path == str(tmp_path / "test.log")
 
@@ -184,7 +184,7 @@ class TestFileAuditStorage:
 
     def test_query(self, tmp_path):
         """FileAuditStorage.query returns events."""
-        instance, path = self._build_instance(tmp_path)
+        instance, _path = self._build_instance(tmp_path)
         event = {"event_id": "123", "event_type": "login", "user_id": "user1"}
         instance.write(event=event)
         results = instance.query(filters={}, limit=10)
@@ -193,7 +193,7 @@ class TestFileAuditStorage:
 
     def test_query_with_filters(self, tmp_path):
         """FileAuditStorage.query filters events."""
-        instance, path = self._build_instance(tmp_path)
+        instance, _path = self._build_instance(tmp_path)
         event1 = {"event_id": "1", "event_type": "login", "user_id": "user1"}
         event2 = {"event_id": "2", "event_type": "logout", "user_id": "user2"}
         instance.write(event=event1)
@@ -204,7 +204,7 @@ class TestFileAuditStorage:
 
     def test_to_dict(self, tmp_path):
         """FileAuditStorage.to_dict returns proper dict."""
-        instance, path = self._build_instance(tmp_path)
+        instance, _path = self._build_instance(tmp_path)
         result = instance.to_dict()
         assert "name" in result
         assert "file_path" in result
@@ -220,7 +220,7 @@ class TestFileAuditStorage:
 
     def test_clone(self, tmp_path):
         """FileAuditStorage.clone creates new instance."""
-        instance, path = self._build_instance(tmp_path)
+        instance, _path = self._build_instance(tmp_path)
         cloned = instance.clone()
         assert isinstance(cloned, FileAuditStorage)
         assert cloned.file_path == instance.file_path

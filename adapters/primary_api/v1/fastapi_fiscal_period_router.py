@@ -81,7 +81,6 @@ class IdempotencyManager:
 # Global instance
 _idempotency_manager = IdempotencyManager()
 
-
 router = APIRouter()
 
 
@@ -301,7 +300,7 @@ async def list_periods(
     legal_entity_id: UUID = Query(..., description="Legal entity ID"),
     from_year: int | None = Query(None, description="Filter from year"),
     to_year: int | None = Query(None, description="Filter to year"),
-    status: PeriodStatus | None = Query(None, description="Filter by status"),
+    period_status: PeriodStatus | None = Query(None, description="Filter by status"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> list[PeriodResponseModel]:
@@ -309,15 +308,17 @@ async def list_periods(
     List fiscal periods for a legal entity with optional filters.
     """
     try:
-        status_enum = None
-        if status:
+        # Convert period_status to domain enum if provided
+        domain_status = None
+        if period_status:
             from domain.fiscal_period.aggregate_root import PeriodStatus as DomainPeriodStatus
-            status_enum = DomainPeriodStatus(status.value)
+            domain_status = DomainPeriodStatus(period_status.value)
+
         results = await service.list_periods(
             legal_entity_id=legal_entity_id,
             from_year=from_year,
             to_year=to_year,
-            status=status_enum,
+            status=domain_status,
         )
         return [
             PeriodResponseModel(

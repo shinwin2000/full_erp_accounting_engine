@@ -195,7 +195,7 @@ class TestMigrationRollbackExecutor:
         mock_process.communicate = AsyncMock(return_value=(b"", b"error"))
         mock_process.returncode = 1
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            code, stdout, stderr = await executor._run_subprocess(["false"])
+            code, _stdout, stderr = await executor._run_subprocess(["false"])
             assert code == 1
             assert stderr == "error"
 

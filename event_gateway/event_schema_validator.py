@@ -304,13 +304,11 @@ class EventSchemaValidator:
                 prop_value = obj[prop_name]
                 prop_path = f"{path}{prop_name}."
                 prop_format = prop_schema.get("format")
-                if prop_format and isinstance(prop_value, str):
-                    if not self._validate_date_format(prop_value, prop_format):
-                        errors.append(f"{prop_path} invalid {prop_format} format: {prop_value}")
+                if prop_format and isinstance(prop_value, str) and not self._validate_date_format(prop_value, prop_format):
+                    errors.append(f"{prop_path} invalid {prop_format} format: {prop_value}")
                 pattern = prop_schema.get("pattern")
-                if pattern and isinstance(prop_value, str):
-                    if not re.match(pattern, prop_value):
-                        errors.append(f"{prop_path} does not match pattern {pattern}")
+                if pattern and isinstance(prop_value, str) and not re.match(pattern, prop_value):
+                    errors.append(f"{prop_path} does not match pattern {pattern}")
                 enum_values = prop_schema.get("enum")
                 if enum_values and prop_value not in enum_values:
                     errors.append(f"{prop_path} value {prop_value} not in enum {enum_values}")

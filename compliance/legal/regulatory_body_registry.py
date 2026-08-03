@@ -45,6 +45,8 @@ class RegulatoryScope(Enum):
     ANTI_MONEY_LAUNDERING = "anti_money_laundering"
     CONSUMER_PROTECTION = "consumer_protection"
     COMPETITION = "competition"
+    PAYMENT_SYSTEM = "payment_system"
+    MONETARY = "monetary"
 
 
 # ============================================================================
@@ -57,7 +59,7 @@ class RegulatoryBody:
         name: str,
         jurisdiction: str,
         website: str = "",
-        scopes: list[RegulatoryScope] = None,
+        scopes: list[RegulatoryScope] | None = None,
         api_base_url: str | None = None,
         contact_email: str | None = None,
         contact_phone: str | None = None,
@@ -347,9 +349,10 @@ class RegulatoryBodyRegistry:
         by_jurisdiction = {
             j: len(self.get_bodies_by_jurisdiction(j)) for j in self._jurisdiction_index
         }
+        # Build set of all scope values used in the index
+        all_scopes = {s for scope_list in self._scope_index.values() for s in scope_list}
         by_scope = {
-            s: len(self.get_bodies_by_scope(RegulatoryScope(s)))
-            for s in set(s for scope_list in self._scope_index.values() for s in scope_list)
+            s: len(self.get_bodies_by_scope(RegulatoryScope(s))) for s in all_scopes
         }
         return {
             "total_bodies": total,

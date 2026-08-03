@@ -175,7 +175,7 @@ class PSAK22BusinessCombination:
     @property
     def net_identifiable_assets(self) -> Decimal:
         total_assets = sum(a.fair_value for a in self.identifiable_assets)
-        total_liabilities = sum(l.fair_value for l in self.identifiable_liabilities)
+        total_liabilities = sum(liab.fair_value for liab in self.identifiable_liabilities)
         return total_assets - total_liabilities
 
     @property
@@ -212,7 +212,7 @@ class PSAK22BusinessCombination:
             "goodwill": str(goodwill),
             "bargain_purchase_gain": str(gain),
             "identifiable_assets": [a.to_dict() for a in self.identifiable_assets],
-            "identifiable_liabilities": [l.to_dict() for l in self.identifiable_liabilities],
+            "identifiable_liabilities": [liab.to_dict() for liab in self.identifiable_liabilities],
             "contingent_consideration": [c.to_dict() for c in self.contingent_consideration],
             "measurement_period_adjustments": {
                 k: str(v) for k, v in self.measurement_period_adjustments.items()
@@ -284,7 +284,7 @@ class PSAK22BusinessCombinationService:
         assets: list[PSAK22IdentifiableAsset], liabilities: list[PSAK22IdentifiableLiability]
     ) -> Decimal:
         total_assets = sum(a.fair_value for a in assets)
-        total_liabilities = sum(l.fair_value for l in liabilities)
+        total_liabilities = sum(liab.fair_value for liab in liabilities)
         return total_assets - total_liabilities
 
     @staticmethod
@@ -441,7 +441,7 @@ class PSAK22Validator:
             useful_life=useful_life,
             is_current=is_current,
         )
-        new_assets = combination.identifiable_assets + [new_asset]
+        new_assets = [*combination.identifiable_assets, new_asset]
         return PSAK22BusinessCombination(
             combination_id=combination.combination_id,
             acquirer_id=combination.acquirer_id,
@@ -478,7 +478,7 @@ class PSAK22Validator:
             liability_type=liability_type,
             settlement_date=settlement_date,
         )
-        new_liabilities = combination.identifiable_liabilities + [new_liability]
+        new_liabilities = [*combination.identifiable_liabilities, new_liability]
         return PSAK22BusinessCombination(
             combination_id=combination.combination_id,
             acquirer_id=combination.acquirer_id,
@@ -517,7 +517,7 @@ class PSAK22Validator:
             settlement_range_high=settlement_range_high,
             settlement_date=settlement_date,
         )
-        new_cc_list = combination.contingent_consideration + [new_cc]
+        new_cc_list = [*combination.contingent_consideration, new_cc]
         return PSAK22BusinessCombination(
             combination_id=combination.combination_id,
             acquirer_id=combination.acquirer_id,

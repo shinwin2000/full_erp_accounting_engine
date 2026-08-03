@@ -550,7 +550,7 @@ class PSAK10Validator:
     def add_transaction(
         self, disclosure: ForeignExchangeDisclosure, transaction: ForeignCurrencyTransaction
     ) -> ForeignExchangeDisclosure:
-        new_txns = disclosure.transactions + [transaction]
+        new_txns = [*disclosure.transactions, transaction]
         total_pl = sum(
             t.exchange_difference
             for t in new_txns
@@ -578,7 +578,7 @@ class PSAK10Validator:
     def add_foreign_operation(
         self, disclosure: ForeignExchangeDisclosure, operation: ForeignOperation
     ) -> ForeignExchangeDisclosure:
-        new_ops = disclosure.foreign_operations + [operation]
+        new_ops = [*disclosure.foreign_operations, operation]
         return ForeignExchangeDisclosure(
             disclosure_id=disclosure.disclosure_id,
             entity_id=disclosure.entity_id,

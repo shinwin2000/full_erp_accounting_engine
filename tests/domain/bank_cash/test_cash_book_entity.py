@@ -510,7 +510,7 @@ class TestCashBookEntity:
         )
         can, msg = cb.check_daily_limits(Decimal("300"), False)
         assert can is True
-        can, msg = cb.check_daily_limits(Decimal("600"), False)
+        can, _msg = cb.check_daily_limits(Decimal("600"), False)
         assert can is False
 
     def test_needs_approval(self):

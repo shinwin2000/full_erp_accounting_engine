@@ -1,9 +1,10 @@
-from __future__ import annotations
-
+#!/usr/bin/env python3
 """
 Package: compliance.legal
 Responsibility: Modul kepatuhan legal, yurisdiksi, hierarki hukum, dan manajemen risiko legal.
 """
+
+from __future__ import annotations
 
 from .authority_hierarchy import AuthorityHierarchy, LegalSource, LegalSourceType
 from .binding_precedence_resolver import BindingPrecedenceResolver

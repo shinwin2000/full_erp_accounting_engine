@@ -723,7 +723,7 @@ class TestPeriodBoundValidator:
 
     def test_validate_transaction_period_outside(self, sample_period):
         outside = sample_period.end_date + timedelta(days=1)
-        is_valid, violation, hint = PeriodBoundValidator.validate_transaction_period(
+        is_valid, violation, _hint = PeriodBoundValidator.validate_transaction_period(
             transaction_date=outside,
             target_period=sample_period,
             transaction_id=uuid.uuid4(),
@@ -736,7 +736,7 @@ class TestPeriodBoundValidator:
     def test_validate_transaction_period_closed(self, sample_period):
         closed = sample_period.close("admin")
         tx_date = closed.start_date + (closed.end_date - closed.start_date) / 2
-        is_valid, violation, hint = PeriodBoundValidator.validate_transaction_period(
+        is_valid, violation, _hint = PeriodBoundValidator.validate_transaction_period(
             transaction_date=tx_date,
             target_period=closed,
             transaction_id=uuid.uuid4(),
@@ -748,7 +748,7 @@ class TestPeriodBoundValidator:
 
     def test_validate_transaction_period_future_too_far(self, sample_period, fixed_now):
         future = fixed_now + timedelta(days=10)
-        is_valid, violation, hint = PeriodBoundValidator.validate_transaction_period(
+        is_valid, violation, _hint = PeriodBoundValidator.validate_transaction_period(
             transaction_date=future,
             target_period=sample_period,
             transaction_id=uuid.uuid4(),
@@ -761,7 +761,7 @@ class TestPeriodBoundValidator:
 
     def test_validate_transaction_period_future_allowed(self, sample_period, fixed_now):
         future = fixed_now + timedelta(days=3)
-        is_valid, violation, hint = PeriodBoundValidator.validate_transaction_period(
+        is_valid, violation, _hint = PeriodBoundValidator.validate_transaction_period(
             transaction_date=future,
             target_period=sample_period,
             transaction_id=uuid.uuid4(),

@@ -156,7 +156,7 @@ iam_session_table = Table(
     extend_existing=True,
 )
 
-# Junction tables 
+# Junction tables
 iam_user_role = Table(
     "iam_user_role",
     Base.metadata,
@@ -369,8 +369,8 @@ __all__ = [
     "LoginAttemptTable",
     "iam_role_permission",
     "iam_role_permission_table",
-    "iam_user_role",
-    "iam_user_role_table",
     "iam_user_legal_entity",
     "iam_user_legal_entity_table",
+    "iam_user_role",
+    "iam_user_role_table",
 ]

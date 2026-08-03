@@ -160,10 +160,7 @@ class LayerDefinition:
         )
 
     def matches(self, module_path: str) -> bool:
-        for pattern in self._compiled_patterns:
-            if pattern.search(module_path):
-                return True
-        return False
+        return any(pattern.search(module_path) for pattern in self._compiled_patterns)
 
     def allows_dependency(self, target_layer: Layer) -> bool:
         return target_layer in self.allowed_dependencies

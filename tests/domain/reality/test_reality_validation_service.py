@@ -244,7 +244,7 @@ class TestValidateBasic:
     @pytest.mark.asyncio
     async def test_amount_zero_raises_error(self, validation_service, mock_event):
         mock_event.amount.amount = Decimal("0")
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "amount"
         assert "greater than 0" in issues[0].message
@@ -253,7 +253,7 @@ class TestValidateBasic:
     @pytest.mark.asyncio
     async def test_amount_negative_raises_error(self, validation_service, mock_event):
         mock_event.amount.amount = Decimal("-1000")
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "amount"
         assert "greater than 0" in issues[0].message
@@ -261,7 +261,7 @@ class TestValidateBasic:
     @pytest.mark.asyncio
     async def test_currency_missing_raises_error(self, validation_service, mock_event):
         mock_event.amount.currency = None
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "currency"
         assert "Currency is required" in issues[0].message
@@ -278,7 +278,7 @@ class TestValidateBasic:
     @pytest.mark.asyncio
     async def test_date_future_exceeds_limit_error(self, validation_service, mock_event):
         mock_event.event_date = datetime.now(UTC) + timedelta(days=10)
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "event_date"
         assert "10 days in the future" in issues[0].message
@@ -286,7 +286,7 @@ class TestValidateBasic:
     @pytest.mark.asyncio
     async def test_description_missing(self, validation_service, mock_event):
         mock_event.description = ""
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "description"
         assert "Description is required" in issues[0].message
@@ -294,7 +294,7 @@ class TestValidateBasic:
     @pytest.mark.asyncio
     async def test_description_too_short(self, validation_service, mock_event):
         mock_event.description = "AB"
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "description"
         assert "minimum 3 characters" in issues[0].message
@@ -313,7 +313,7 @@ class TestValidateBasic:
     async def test_counterparty_required(self, validation_service, mock_event):
         mock_event.counterparty_id = None
         mock_event.event_type = "PURCHASE_OF_GOODS"
-        issues, warnings = await validation_service._validate_basic(mock_event)
+        issues, _warnings = await validation_service._validate_basic(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "counterparty_id"
         assert "Counterparty is required" in issues[0].message
@@ -432,7 +432,7 @@ class TestValidateConsistency:
         mock_event.reversal_of = uuid4()
         validation_service._event_service.get_event.return_value = None
 
-        issues, warnings = await validation_service._validate_consistency(mock_event)
+        issues, _warnings = await validation_service._validate_consistency(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "reversal_of"
         assert "Original event" in issues[0].message
@@ -447,7 +447,7 @@ class TestValidateConsistency:
         original.status.name = "DRAFT"
         validation_service._event_service.get_event.return_value = original
 
-        issues, warnings = await validation_service._validate_consistency(mock_event)
+        issues, _warnings = await validation_service._validate_consistency(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "reversal_of"
         assert "status is DRAFT" in issues[0].message
@@ -463,7 +463,7 @@ class TestValidateCompliance:
     async def test_large_cash_transaction_aml_error(self, validation_service, mock_event):
         mock_event.amount.amount = Decimal("150000000")
         mock_event.metadata = {"payment_method": "CASH"}
-        issues, warnings = await validation_service._validate_compliance(mock_event)
+        issues, _warnings = await validation_service._validate_compliance(mock_event)
         assert len(issues) == 1
         assert issues[0].field == "payment_method"
         assert "Large cash transaction" in issues[0].message

@@ -484,10 +484,10 @@ class LegalObligationCalendar:
             if (
                 inst.status not in (ObligationStatus.COMPLETED, ObligationStatus.WAIVED)
                 and inst.due_date < today
+                and inst.status != ObligationStatus.OVERDUE
             ):
-                if inst.status != ObligationStatus.OVERDUE:
-                    inst.mark_overdue()
-                    count += 1
+                inst.mark_overdue()
+                count += 1
         return count
 
     def send_reminders(

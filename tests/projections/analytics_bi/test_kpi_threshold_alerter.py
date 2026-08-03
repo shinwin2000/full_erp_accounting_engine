@@ -210,7 +210,7 @@ class TestKPIThresholdAlerter:
 
     def test_is_threshold_violated_lower_is_better_warning(self):
         threshold = {"warning": Decimal("100"), "critical": Decimal("50")}
-        violated, severity = KPIThresholdAlerter._is_threshold_violated(
+        violated, _severity = KPIThresholdAlerter._is_threshold_violated(
             Decimal("75"), threshold, "lower_is_better"
         )
         assert violated is False  # 75 <= 100, not above warning? Wait lower_is_better: warning at 100 means value >= 100 triggers warning. But 75 is less than 100, so OK.

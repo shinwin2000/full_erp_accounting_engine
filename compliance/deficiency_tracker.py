@@ -496,9 +496,7 @@ class DeficiencyTracker:
                 old_value = getattr(deficiency, key)
                 setattr(deficiency, key, value)
                 deficiency.add_history_entry(
-                    DeficiencyAction.COMMENT_ADDED
-                    if key == "description"
-                    else DeficiencyAction.COMMENT_ADDED,
+                    DeficiencyAction.COMMENT_ADDED,
                     deficiency.discovered_by,
                     str(old_value) if old_value else None,
                     str(value) if value else None,
@@ -600,13 +598,16 @@ class DeficiencyTracker:
         today = date.today()
         escalated_count = 0
         for d in self.get_overdue_deficiencies():
-            if d.due_date and (today - d.due_date).days >= escalation_days:
-                if d.escalation_level < 3:
-                    d.escalate(
-                        UUID("00000000-0000-0000-0000-000000000000"),
-                        f"Auto-escalated after {escalation_days} days overdue",
-                    )
-                    escalated_count += 1
+            if (
+                d.due_date
+                and (today - d.due_date).days >= escalation_days
+                and d.escalation_level < 3
+            ):
+                d.escalate(
+                    UUID("00000000-0000-0000-0000-000000000000"),
+                    f"Auto-escalated after {escalation_days} days overdue",
+                )
+                escalated_count += 1
         return escalated_count
 
     def get_sla_summary(self) -> dict:
@@ -685,11 +686,8 @@ class DeficiencyTracker:
         if not self._enable_external:
             return False
         deficiency = self.get_deficiency(deficiency_id)
-        if not deficiency or not deficiency.external_ticket_id:
-            return False
-        # Implementasi panggilan API ke Jira/ServiceNow
-        # Di sini simulasi
-        return True
+        # Return True only if deficiency exists and has an external ticket id
+        return deficiency is not None and deficiency.external_ticket_id is not None
 
     # ------------------------------------------------------------------------
     # Reporting & Export

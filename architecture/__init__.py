@@ -23,15 +23,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
-__version__ = "2.0.0"
-__author__ = "ERP Accounting Engine Team"
-
 # ============================================================================
-# Ekspos komponen utama dari submodul
+# Ekspos komponen utama dari submodul (import di atas sebelum kode lain)
 # ============================================================================
-
 from .boundary_checker import (
     BoundaryChecker,
     ImportViolation,
@@ -51,6 +45,11 @@ from .layer_definitions import (
     reset_cache,
     validate_layer_consistency,
 )
+
+logger = logging.getLogger(__name__)
+
+__version__ = "2.0.0"
+__author__ = "ERP Accounting Engine Team"
 
 # ============================================================================
 # Utilitas tambahan untuk package
@@ -144,11 +143,11 @@ class ArchitecturePackage:
         errors = []
         # Cek bahwa semua modul penting dapat diimpor
         try:
-            from .boundary_checker import BoundaryChecker
+            from .boundary_checker import BoundaryChecker  # noqa: F401
         except ImportError as e:
             errors.append(f"boundary_checker module missing: {e}")
         try:
-            from .layer_definitions import Layer
+            from .layer_definitions import Layer  # noqa: F401
         except ImportError as e:
             errors.append(f"layer_definitions module missing: {e}")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -195,30 +194,27 @@ class ArchitecturePackage:
 logger.info(f"Architecture package loaded (version {__version__})")
 
 # ============================================================================
-# Ekspor __all__
+# Ekspor __all__ (diurutkan secara alfabetis)
 # ============================================================================
 
 __all__ = [
-    # Kelas dan fungsi dari boundary_checker
-    "BoundaryChecker",
-    "ImportViolation",
-    "check_all_boundaries",
-    "get_architecture_report",
-    # Kelas, enum, dan fungsi dari layer_definitions
     "DEPENDENCY_RULES",
     "LAYER_DEFINITIONS",
+    "ArchitecturePackage",
+    "BoundaryChecker",
+    "ImportViolation",
     "Layer",
     "LayerDefinition",
+    "check_all_boundaries",
     "get_allowed_imports_for_module",
-    "get_layer_for_module",
-    "get_layer_for_file",
-    "is_allowed_import",
-    "validate_layer_consistency",
-    "reset_cache",
-    "get_cache_stats",
-    # Utilitas package
-    "run_full_architecture_check",
+    "get_architecture_report",
     "get_architecture_summary",
     "get_architecture_version",
-    "ArchitecturePackage",
+    "get_cache_stats",
+    "get_layer_for_file",
+    "get_layer_for_module",
+    "is_allowed_import",
+    "reset_cache",
+    "run_full_architecture_check",
+    "validate_layer_consistency",
 ]

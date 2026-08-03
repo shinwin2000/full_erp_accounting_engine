@@ -268,7 +268,7 @@ class TestTokenCreation:
             assert token == "fake-access-token"
             mock_encode.assert_called_once()
             # Check that payload was passed correctly
-            args, kwargs = mock_encode.call_args
+            args, _kwargs = mock_encode.call_args
             payload = args[0]
             assert payload["sub"] == str(user_id)
             assert payload["token_type"] == TOKEN_TYPE_ACCESS

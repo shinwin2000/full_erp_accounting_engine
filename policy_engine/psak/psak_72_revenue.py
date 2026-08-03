@@ -489,7 +489,7 @@ class PSAK72Validator:
             estimated_costs=estimated_costs,
             total_units_expected=total_units_expected,
         )
-        new_obs = contract.performance_obligations + [po]
+        new_obs = [*contract.performance_obligations, po]
         return PSAK72ContractWithCustomer(
             contract_id=contract.contract_id,
             contract_number=contract.contract_number,
@@ -519,7 +519,7 @@ class PSAK72Validator:
             probability=probability,
             method=method,
         )
-        new_vcs = contract.variable_considerations + [vc]
+        new_vcs = [*contract.variable_considerations, vc]
         return PSAK72ContractWithCustomer(
             contract_id=contract.contract_id,
             contract_number=contract.contract_number,
@@ -655,8 +655,8 @@ class PSAK72Validator:
     ) -> PSAK72ContractWithCustomer:
         if is_advance:
             new_liability = contract.contract_liability + amount
+            new_asset = contract.contract_asset
         else:
-            # Payment reduces contract asset
             new_asset = max(Decimal(0), contract.contract_asset - amount)
             new_liability = contract.contract_liability
         return PSAK72ContractWithCustomer(
@@ -670,12 +670,8 @@ class PSAK72Validator:
             variable_considerations=contract.variable_considerations,
             performance_obligations=contract.performance_obligations,
             allocation_method=contract.allocation_method,
-            contract_asset=contract.contract_asset - amount
-            if not is_advance
-            else contract.contract_asset,
-            contract_liability=contract.contract_liability + amount
-            if is_advance
-            else contract.contract_liability,
+            contract_asset=new_asset,
+            contract_liability=new_liability,
         )
 
     def validate_contract(self, contract: PSAK72ContractWithCustomer) -> PSAK72ValidationResult:
@@ -874,28 +870,27 @@ class PerformanceObligationStatus(Enum):
 
 
 __all__ = [
-    "PSAK72Validator",
-    "get_psak72_validator",
     "PSAK72",
-    "PerformanceObligationStatus",
-    "RevenueRecognitionTiming",
     "ContractWithCustomer",
-    "PerformanceObligation",
-    "TransactionPriceAllocation",
-    # Include all needed enums etc.
+    "PSAK72ComplianceLevel",
+    "PSAK72ContractAssetLiability",
     "PSAK72ContractType",
+    "PSAK72ContractWithCustomer",
+    "PSAK72LicenceType",
+    "PSAK72PerformanceObligation",
     "PSAK72PerformanceObligationTiming",
     "PSAK72ProgressMeasureMethod",
-    "PSAK72TransactionPriceAllocationMethod",
-    "PSAK72VariableConsiderationMethod",
-    "PSAK72LicenceType",
-    "PSAK72ContractAssetLiability",
-    "PSAK72ComplianceLevel",
-    "PSAK72VariableConsideration",
-    "PSAK72PerformanceObligation",
-    "PSAK72ContractWithCustomer",
     "PSAK72RevenueRecognitionResult",
-    "PSAK72ValidationResult",
     "PSAK72RevenueService",
     "PSAK72Rules",
+    "PSAK72TransactionPriceAllocationMethod",
+    "PSAK72ValidationResult",
+    "PSAK72Validator",
+    "PSAK72VariableConsideration",
+    "PSAK72VariableConsiderationMethod",
+    "PerformanceObligation",
+    "PerformanceObligationStatus",
+    "RevenueRecognitionTiming",
+    "TransactionPriceAllocation",
+    "get_psak72_validator",
 ]

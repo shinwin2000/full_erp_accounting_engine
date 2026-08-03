@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 app/main.py
 ===========
@@ -11,28 +9,21 @@ All credentials from environment variables.
 Integrasi RCA Engine via kernel.error_analysis (tidak melanggar layer).
 """
 
+from __future__ import annotations
+
+import importlib
 import logging
+import os
 import sys
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# ─── FIX #1: Pastikan DATABASE_URL menggunakan async driver ──────────────
-import os
-
-_db_url = os.environ.get("DATABASE_URL", "")
-if _db_url and "postgresql://" in _db_url and "+asyncpg" not in _db_url:
-    _fixed_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    os.environ["DATABASE_URL"] = _fixed_url
-
-from pathlib import Path
-
+# ... (sisa kode di bawahnya tetap sama)
 import redis.asyncio as aioredis
+from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,19 +55,28 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+# ------------------------------------------------------------------
+# Load environment variables and adjust Python path BEFORE local imports
+# ------------------------------------------------------------------
+load_dotenv()
+
+# ─── FIX #1: Pastikan DATABASE_URL menggunakan async driver ──────────────
+_db_url = os.environ.get("DATABASE_URL", "")
+if _db_url and "postgresql://" in _db_url and "+asyncpg" not in _db_url:
+    _fixed_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    os.environ["DATABASE_URL"] = _fixed_url
+
+# Add project root to sys.path for local imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# ------------------------------------------------------------------
+# Local imports (must happen after sys.path.insert)
+# ------------------------------------------------------------------
+from adapters.primary_api.common.fastapi_auth_jwt_middleware import JWTAuthMiddleware  # noqa: E402
+from bootstrap.dependency_container.ioc_container import get_container  # noqa: E402
+from bootstrap.iam_setup import setup_iam_service  # noqa: E402
 
-# ==================================================
-from adapters.primary_api.common.fastapi_auth_jwt_middleware import JWTAuthMiddleware
-from bootstrap.dependency_container.ioc_container import get_container
-
-# ==================== PERUBAHAN ====================
-from bootstrap.iam_setup import setup_iam_service
-
-# ============================================================
 # RCA ENGINE — via kernel.error_analysis (tidak langsung dari checker)
-# ============================================================
 try:
     from kernel.error_analysis import RCAResult, analyze_error, log_rca_result
     RCA_KERNEL_AVAILABLE = True
@@ -387,10 +387,8 @@ async def _init_kafka() -> None:
     except Exception as e:
         logger.warning(f"Failed to start Kafka producer: {e}. Kafka disabled.")
         if _kafka_producer is not None:
-            try:
+            with suppress(Exception):
                 await _kafka_producer.stop()
-            except Exception:
-                pass
         _kafka_producer = None
         _kafka_available = False
 
@@ -481,7 +479,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from infrastructure.persistence_orm import load_all_models
     load_all_models()
     logger.info("All ORM models eagerly loaded ✓")
-    
+
     try:
         SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
         logger.info("OpenTelemetry configured ✓")
@@ -571,7 +569,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("DB engine disposed")
 
     try:
-        import importlib
         audit_mod = importlib.import_module("kernel.audit_hook_injector")
         get_audit_hook_injector = audit_mod.get_audit_hook_injector
         await get_audit_hook_injector().shutdown()
@@ -765,9 +762,6 @@ async def versioned_journal(journal_id: str, accept: str = Header(None, alias="A
 # ADAPTER ROUTERS - DYNAMIC IMPORT
 # ============================================================
 def _discover_and_register_adapter_routers(app: FastAPI) -> None:
-    import importlib
-    from pathlib import Path
-
     v1_dir = Path(__file__).parent.parent / "adapters" / "primary_api" / "v1"
     if not v1_dir.exists():
         logger.warning(f"Adapter directory not found: {v1_dir}")

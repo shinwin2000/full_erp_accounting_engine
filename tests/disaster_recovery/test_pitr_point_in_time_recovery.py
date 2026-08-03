@@ -667,7 +667,7 @@ class TestPointInTimeRecovery:
         # First get restore points to populate the cache
         pitr.get_restore_points()
         # Get the first restore point ID
-        restore_point_id = list(pitr._restore_points.keys())[0]
+        restore_point_id = next(iter(pitr._restore_points.keys()))
 
         with patch.object(pitr, "_restore_physical_backup", return_value="/tmp/restore/data"):
             with patch.object(pitr, "_list_wal_files_since", return_value=[]):

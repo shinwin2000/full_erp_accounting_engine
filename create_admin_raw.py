@@ -4,13 +4,15 @@ create_admin_raw.py - Buat admin dengan raw SQL (tanpa ORM relationships)
 """
 
 import asyncio
+import json
 import os
 import uuid
-import json
-import bcrypt
 from datetime import datetime
+
+import bcrypt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
 
 async def main():
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:palapapls88@localhost/erp_db")
@@ -24,7 +26,7 @@ async def main():
         company_name = "PT Saya"
         legal_id = uuid.uuid4()
         now = datetime.utcnow()
-        
+
         result = await conn.execute(
             text("SELECT id FROM legal_entity WHERE legal_name = :name"),
             {"name": company_name}

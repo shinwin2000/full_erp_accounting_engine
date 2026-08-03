@@ -719,10 +719,30 @@ class ImmutabilityViolation:
 
 
 class ImmutabilityValidator:
-    IMMUTABLE_STATES = {DataState.POSTED, DataState.REVERSED, DataState.ARCHIVED, DataState.DELETED}
-    MUTABLE_STATES = {DataState.DRAFT, DataState.SUBMITTED, DataState.APPROVED}
-    ALLOWED_OPERATIONS_ON_IMMUTABLE = {"READ", "SELECT", "GET", "VIEW", "EXPORT"}
-    CORRECTION_OPERATIONS = {"REVERSE", "CORRECT", "ADJUST", "AMEND"}
+    IMMUTABLE_STATES: ClassVar[set[DataState]] = {
+        DataState.POSTED,
+        DataState.REVERSED,
+        DataState.ARCHIVED,
+        DataState.DELETED,
+    }
+    MUTABLE_STATES: ClassVar[set[DataState]] = {
+        DataState.DRAFT,
+        DataState.SUBMITTED,
+        DataState.APPROVED,
+    }
+    ALLOWED_OPERATIONS_ON_IMMUTABLE: ClassVar[set[str]] = {
+        "READ",
+        "SELECT",
+        "GET",
+        "VIEW",
+        "EXPORT",
+    }
+    CORRECTION_OPERATIONS: ClassVar[set[str]] = {
+        "REVERSE",
+        "CORRECT",
+        "ADJUST",
+        "AMEND",
+    }
 
     @classmethod
     def validate_operation(
@@ -740,13 +760,17 @@ class ImmutabilityValidator:
         if current_state in cls.IMMUTABLE_STATES:
             if operation.upper() in cls.ALLOWED_OPERATIONS_ON_IMMUTABLE:
                 return True, None
-            if is_correction and operation.upper() in cls.CORRECTION_OPERATIONS:
-                if correction_method in (
+            if (
+                is_correction
+                and operation.upper() in cls.CORRECTION_OPERATIONS
+                and correction_method in (
                     CorrectionMethod.REVERSAL_JOURNAL,
                     CorrectionMethod.AMENDMENT_ENTRY,
-                ):
-                    if bypass_authorization and len(bypass_authorization) >= 1:
-                        return True, None
+                )
+                and bypass_authorization
+                and len(bypass_authorization) >= 1
+            ):
+                return True, None
             severity = ImmutabilityViolationSeverity.CRITICAL
             violation = cls._create_violation(
                 record_id,
@@ -813,37 +837,41 @@ class ImmutabilityValidator:
         module: str,
         require_approval: bool = True,
     ) -> tuple[bool, ImmutabilityViolation | None]:
-        if to_state == DataState.POSTED:
-            if from_state not in (DataState.APPROVED, DataState.SUBMITTED):
-                violation = cls._create_violation(
-                    record_id,
-                    aggregate_id,
-                    f"STATE_TRANSITION_{from_state.name}_TO_{to_state.name}",
-                    user_id,
-                    module,
-                    ImmutabilityViolationSeverity.CRITICAL,
-                    f"Cannot post from {from_state.name}",
-                    True,
-                    False,
-                )
-                cls._log_violation(violation)
-                return False, violation
-        if from_state == DataState.POSTED:
-            if to_state not in (DataState.REVERSED, DataState.ARCHIVED):
-                violation = cls._create_violation(
-                    record_id,
-                    aggregate_id,
-                    f"STATE_TRANSITION_{from_state.name}_TO_{to_state.name}",
-                    user_id,
-                    module,
-                    ImmutabilityViolationSeverity.CATASTROPHIC,
-                    f"Cannot transition from POSTED to {to_state.name}",
-                    True,
-                    False,
-                )
-                cls._log_violation(violation)
-                cls._notify_constitution(violation)
-                return False, violation
+        if to_state == DataState.POSTED and from_state not in (
+            DataState.APPROVED,
+            DataState.SUBMITTED,
+        ):
+            violation = cls._create_violation(
+                record_id,
+                aggregate_id,
+                f"STATE_TRANSITION_{from_state.name}_TO_{to_state.name}",
+                user_id,
+                module,
+                ImmutabilityViolationSeverity.CRITICAL,
+                f"Cannot post from {from_state.name}",
+                True,
+                False,
+            )
+            cls._log_violation(violation)
+            return False, violation
+        if from_state == DataState.POSTED and to_state not in (
+            DataState.REVERSED,
+            DataState.ARCHIVED,
+        ):
+            violation = cls._create_violation(
+                record_id,
+                aggregate_id,
+                f"STATE_TRANSITION_{from_state.name}_TO_{to_state.name}",
+                user_id,
+                module,
+                ImmutabilityViolationSeverity.CATASTROPHIC,
+                f"Cannot transition from POSTED to {to_state.name}",
+                True,
+                False,
+            )
+            cls._log_violation(violation)
+            cls._notify_constitution(violation)
+            return False, violation
         if to_state == DataState.REVERSED and require_approval and not user_id:
             violation = cls._create_violation(
                 record_id,
@@ -902,7 +930,8 @@ class ImmutabilityValidator:
     def _notify_constitution(cls, violation: ImmutabilityViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 ImmutabilityViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 ImmutabilityViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 ImmutabilityViolationSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -924,16 +953,8 @@ class ImmutabilityValidator:
 
 
 class ImmutabilityAxiom:
-    _instance: ImmutabilityAxiom | None = None
-    _immutable_records: dict[UUID, ImmutableRecord] = {}
-    _correction_history: list[CorrectionRecord] = []
-    _violation_history: list[ImmutabilityViolation] = []
-    _state_registry: dict[UUID, DataState] = {}
-    # NOTE: must be reentrant (RLock, not Lock). Several methods acquire
-    # this lock and then call other locking methods on the same thread
-    # (e.g. register_immutable_record() -> save_immutable_record()); with a
-    # plain threading.Lock() that nested acquisition deadlocks forever.
-    _lock = threading.RLock()
+    _instance: ClassVar[ImmutabilityAxiom | None] = None
+    _lock: ClassVar[threading.RLock] = threading.RLock()
 
     def __new__(cls) -> ImmutabilityAxiom:
         if cls._instance is None:
@@ -947,10 +968,10 @@ class ImmutabilityAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._immutable_records = {}
-        self._correction_history = []
-        self._violation_history = []
-        self._state_registry = {}
+        self._immutable_records: dict[UUID, ImmutableRecord] = {}
+        self._correction_history: list[CorrectionRecord] = []
+        self._violation_history: list[ImmutabilityViolation] = []
+        self._state_registry: dict[UUID, DataState] = {}
 
     # ==================== REPOSITORY METHODS ====================
     def save_immutable_record(self, record: ImmutableRecord) -> None:
@@ -1115,9 +1136,8 @@ class ImmutabilityAxiom:
         if correction_method in (
             CorrectionMethod.PRIOR_PERIOD_ADJUSTMENT,
             CorrectionMethod.AMENDMENT_ENTRY,
-        ):
-            if len(approved_by) < 2:
-                raise ValueError(f"{correction_method.name} requires at least 2 approvers")
+        ) and len(approved_by) < 2:
+            raise ValueError(f"{correction_method.name} requires at least 2 approvers")
         correction = CorrectionRecord(
             correction_id=uuid4(),
             original_record_id=original_record_id,

@@ -204,13 +204,12 @@ class AuditSamplingEngineMaterialityBased:
 
         # Tolerable error in monetary terms (performance materiality scaled by population)
         # For attribute sampling, we use error rate
-        if self._current_engagement.get("use_mus"):
-            tolerable_error = performance_materiality
-        else:
+        if not self._current_engagement.get("use_mus"):
             # For attribute sampling, tolerable error count
-            tolerable_error_count = int(
-                math.ceil(self._current_engagement["tolerable_error_percent"] / 100.0 * sample_size)
+            tolerable_error_count = math.ceil(
+                self._current_engagement["tolerable_error_percent"] / 100.0 * sample_size
             )
+        # else: for MUS we don't need tolerable_error_count
 
         # Determine conclusion
         if len(material_errors) == 0:
@@ -259,7 +258,6 @@ class AuditSamplingEngineMaterialityBased:
         if not self._current_engagement:
             raise SamplingEngineError("Engagement not set up.")
 
-        performance_materiality = Decimal(str(self._current_engagement["performance_materiality"]))
         sample_size = self._current_engagement["sample_size"]
         batch_size = max(1, sample_size // max_samples)
 

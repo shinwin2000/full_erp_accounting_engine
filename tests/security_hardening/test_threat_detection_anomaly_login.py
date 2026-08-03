@@ -355,7 +355,7 @@ class TestAnomalyLoginDetectorHelpers:
         mock_reader = MagicMock()
         mock_reader.city.side_effect = Exception("GeoIP error")
         detector._geoip_reader = mock_reader
-        country, city, lat, lon = detector._get_location("8.8.8.8")
+        country, _city, _lat, _lon = detector._get_location("8.8.8.8")
         assert country is None
 
     def test_is_tor_exit_node(self, detector):

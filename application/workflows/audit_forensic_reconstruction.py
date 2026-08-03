@@ -276,19 +276,18 @@ class AuditForensicReconstructionWorkflow:
                 gaps = []
                 prev_event = None
                 for event in events:
-                    if prev_event:
-                        if event.sequence_number != prev_event.sequence_number + 1:
-                            gaps.append(
-                                {
-                                    "from_sequence": prev_event.sequence_number,
-                                    "to_sequence": event.sequence_number,
-                                    "from_event_id": str(prev_event.id),
-                                    "to_event_id": str(event.id),
-                                    "gap_size": event.sequence_number
-                                    - prev_event.sequence_number
-                                    - 1,
-                                }
-                            )
+                    if prev_event and event.sequence_number != prev_event.sequence_number + 1:
+                        gaps.append(
+                            {
+                                "from_sequence": prev_event.sequence_number,
+                                "to_sequence": event.sequence_number,
+                                "from_event_id": str(prev_event.id),
+                                "to_event_id": str(event.id),
+                                "gap_size": event.sequence_number
+                                - prev_event.sequence_number
+                                - 1,
+                            }
+                        )
                     prev_event = event
 
                 file_path = None

@@ -237,10 +237,9 @@ class TamperAlertTrigger:
 
         try:
             hash_builder = await self._get_hash_builder()
-            repaired_events = await hash_builder.repair_chain(events, broken_at)
+            # Repair chain but ignore returned events (just log)
+            await hash_builder.repair_chain(events, broken_at)
 
-            # Save repaired events back to store
-            store = await self._get_event_store()
             # In production, this would require careful handling
             # For now, just log
             logger.warning(f"Hash chain repaired for stream {stream_name}. Please verify manually.")

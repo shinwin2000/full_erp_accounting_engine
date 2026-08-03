@@ -336,7 +336,7 @@ class PSAK48ImpairmentService:
         future_cash_flows: list[tuple[int, Decimal]],  # (year, cash_flow)
         discount_rate: Decimal,
         growth_rate: Decimal = Decimal(0),
-        perpetual_growth_rate: Decimal = Decimal(0.02),
+        perpetual_growth_rate: Decimal = Decimal("0.02"),
     ) -> Decimal:
         """Menghitung nilai pakai (value in use) dengan diskonto arus kas masa depan."""
         pv = Decimal(0)
@@ -462,9 +462,8 @@ class PSAK48Rules:
         result = PSAK48ValidationResult(
             is_compliant=True, compliance_level=PSAK48ComplianceLevel.FULL
         )
-        if test_result.impairment_loss > 0:
-            if not test_result.discount_rate_used and test_result.value_in_use:
-                result.add_warning("Asumsi diskonto untuk nilai pakai tidak diungkapkan")
+        if test_result.impairment_loss > 0 and not test_result.discount_rate_used and test_result.value_in_use:
+            result.add_warning("Asumsi diskonto untuk nilai pakai tidak diungkapkan")
         return result
 
 
@@ -492,7 +491,7 @@ class PSAK48Validator:
     def add_asset_to_cgu(
         self, cgu: PSAK48CashGeneratingUnit, asset_id: UUID
     ) -> PSAK48CashGeneratingUnit:
-        new_assets = cgu.assets + [asset_id]
+        new_assets = [*cgu.assets, asset_id]
         return PSAK48CashGeneratingUnit(
             cgu_id=cgu.cgu_id,
             cgu_code=cgu.cgu_code,
@@ -527,7 +526,7 @@ class PSAK48Validator:
         future_cash_flows: list[tuple[int, Decimal]],
         discount_rate: Decimal,
         growth_rate: Decimal = Decimal(0),
-        perpetual_growth_rate: Decimal = Decimal(0.02),
+        perpetual_growth_rate: Decimal = Decimal("0.02"),
     ) -> Decimal:
         return self._service.calculate_value_in_use(
             future_cash_flows, discount_rate, growth_rate, perpetual_growth_rate
@@ -590,13 +589,12 @@ class PSAK48Validator:
         result = PSAK48ValidationResult(
             is_compliant=True, compliance_level=PSAK48ComplianceLevel.FULL
         )
-        if test_result.impairment_loss > 0:
-            # Goodwill can't be reversed
-            if (
-                test_result.asset_type == PSAK48AssetType.GOODWILL
-                and test_result.reversal_recognized > 0
-            ):
-                result.add_error("Goodwill impairment tidak dapat dibalik")
+        if (
+            test_result.impairment_loss > 0
+            and test_result.asset_type == PSAK48AssetType.GOODWILL
+            and test_result.reversal_recognized > 0
+        ):
+            result.add_error("Goodwill impairment tidak dapat dibalik")
         result = self._merge_results(result, self._rules.validate_disclosure(test_result))
         return result
 

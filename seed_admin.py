@@ -2,10 +2,13 @@
 """Seed admin user jika belum ada di database - menggunakan raw SQL."""
 import asyncio
 import json
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
-from datetime import datetime, timezone
+
 from sqlalchemy import text
+
 from infrastructure.persistence_orm.database import async_session_maker
+
 
 async def seed_admin():
     async with async_session_maker() as session:
@@ -19,7 +22,7 @@ async def seed_admin():
         admin_id = uuid4()
         legal_entity_id = UUID("00000000-0000-0000-0000-000000000001")
         password_hash = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKx0f7WcUmHx5cW"  # "Admin123!"
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         insert_stmt = text("""
             INSERT INTO iam_user (
@@ -52,7 +55,7 @@ async def seed_admin():
             "version": 1,
         })
         await session.commit()
-        print(f"Admin user created with password: Admin123!")
+        print("Admin user created with password: Admin123!")
         print(f"   User ID: {admin_id}")
         print(f"   Legal Entity ID: {legal_entity_id}")
 

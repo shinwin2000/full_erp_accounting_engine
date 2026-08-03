@@ -168,7 +168,7 @@ class PSAK24ActuarialAssumption:
     employee_turnover_rate: Decimal  # persen
     retirement_age: int
     mortality_adjustment_factor: Decimal = Decimal(1)
-    disability_rate: Decimal = Decimal(0.001)
+    disability_rate: Decimal = Decimal("0.001")
 
     def to_dict(self) -> dict:
         return {
@@ -661,7 +661,7 @@ class PSAK24Validator:
     def add_short_term_benefit(
         self, summary: PSAK24EmployeeBenefitsSummary, benefit: PSAK24ShortTermBenefit
     ) -> PSAK24EmployeeBenefitsSummary:
-        new_list = summary.short_term_benefits + [benefit]
+        new_list = [*summary.short_term_benefits, benefit]
         return PSAK24EmployeeBenefitsSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,
@@ -676,7 +676,7 @@ class PSAK24Validator:
     def add_defined_contribution_plan(
         self, summary: PSAK24EmployeeBenefitsSummary, plan: PSAK24DefinedContributionPlan
     ) -> PSAK24EmployeeBenefitsSummary:
-        new_list = summary.defined_contribution_plans + [plan]
+        new_list = [*summary.defined_contribution_plans, plan]
         return PSAK24EmployeeBenefitsSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,
@@ -691,7 +691,7 @@ class PSAK24Validator:
     def add_defined_benefit_obligation(
         self, summary: PSAK24EmployeeBenefitsSummary, obligation: PSAK24DefinedBenefitObligation
     ) -> PSAK24EmployeeBenefitsSummary:
-        new_list = summary.defined_benefit_obligations + [obligation]
+        new_list = [*summary.defined_benefit_obligations, obligation]
         return PSAK24EmployeeBenefitsSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,
@@ -706,7 +706,7 @@ class PSAK24Validator:
     def add_termination_benefit(
         self, summary: PSAK24EmployeeBenefitsSummary, benefit: PSAK24TerminationBenefit
     ) -> PSAK24EmployeeBenefitsSummary:
-        new_list = summary.termination_benefits + [benefit]
+        new_list = [*summary.termination_benefits, benefit]
         return PSAK24EmployeeBenefitsSummary(
             summary_id=summary.summary_id,
             entity_id=summary.entity_id,

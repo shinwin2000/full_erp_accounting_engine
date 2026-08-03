@@ -894,7 +894,8 @@ class ConservationOfValueValidator:
     ) -> None:
         try:
             supreme_law = get_supreme_law()
-            const_severity = {
+            # Determine severity mapping but not used further; kept for clarity
+            _ = {
                 ConservationViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 ConservationViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
                 ConservationViolationSeverity.HIGH: ConstitutionalSeverity.HIGH,
@@ -988,12 +989,9 @@ class ConservationOfValueValidator:
 
 
 class ConservationOfValueAxiom:
-    _instance: ConservationOfValueAxiom | None = None
+    _instance: ClassVar[ConservationOfValueAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
     _validator = ConservationOfValueValidator
-    _flows: dict[UUID, ValueFlow] = {}
-    _records: list[ConservationRecord] = []
-    _violation_history: list[ConservationRecord] = []
-    _lock = threading.Lock()
 
     def __new__(cls) -> ConservationOfValueAxiom:
         if cls._instance is None:
@@ -1007,9 +1005,9 @@ class ConservationOfValueAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._flows = {}
-        self._records = []
-        self._violation_history = []
+        self._flows: dict[UUID, ValueFlow] = {}
+        self._records: list[ConservationRecord] = []
+        self._violation_history: list[ConservationRecord] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_flow(self, flow: ValueFlow) -> None:
@@ -1094,7 +1092,7 @@ class ConservationOfValueAxiom:
         auto_correct: bool = True,
         raise_on_violation: bool = True,
     ) -> tuple[bool, ConservationRecord | None]:
-        is_conserved, record, hint = self._validator.validate_flow(flow, tolerance, auto_correct)
+        is_conserved, record, _ = self._validator.validate_flow(flow, tolerance, auto_correct)
         if record:
             with self._lock:
                 self._records.append(record)
@@ -1126,7 +1124,7 @@ class ConservationOfValueAxiom:
         auto_correct: bool = True,
         raise_on_violation: bool = True,
     ) -> tuple[bool, ConservationRecord | None, ValueFlow | None]:
-        is_conserved, record, flow, hint = self._validator.validate_transaction(
+        is_conserved, record, flow, _ = self._validator.validate_transaction(
             transaction_id, journal_lines, transaction_fee, fee_currency, tolerance, auto_correct
         )
         if flow:

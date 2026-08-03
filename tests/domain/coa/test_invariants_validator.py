@@ -475,7 +475,7 @@ class TestValidateExistingAccountUpdate:
             coa_legal_entity_id=legal_entity_id,
         )
         assert len(results) == 1  # only the legal-entity check runs
-        valid, errors = COAInvariantsValidator.validate_all_results(results)
+        valid, _errors = COAInvariantsValidator.validate_all_results(results)
         assert valid is True
 
     def test_code_change_validated(self, validator, legal_entity_id):

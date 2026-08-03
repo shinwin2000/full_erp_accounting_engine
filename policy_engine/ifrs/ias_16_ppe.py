@@ -163,7 +163,7 @@ class IAS16AssetRegister:
         return IAS16AssetRegister(
             register_id=self.register_id,
             entity_id=self.entity_id,
-            assets=self.assets + [asset],
+            assets=[*self.assets, asset],
             revaluation_frequency_years=self.revaluation_frequency_years,
         )
 

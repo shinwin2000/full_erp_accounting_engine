@@ -414,18 +414,7 @@ class TestTrialBalanceCube:
 
     def test_validate_invalid_unbalanced(self, valid_kwargs, balanced_accounts):
         # Create an unbalanced cube by adding an extra account
-        unbalanced_accounts = balanced_accounts + [
-            TrialBalanceAccount(
-                code="301",
-                name="Equity",
-                opening_debit=Decimal("0"),
-                opening_credit=Decimal("0"),
-                movement_debit=Decimal("0"),
-                movement_credit=Decimal("0"),
-                closing_debit=Decimal("100"),
-                closing_credit=Decimal("0"),
-            )
-        ]
+        unbalanced_accounts = [*balanced_accounts, TrialBalanceAccount(code="301", name="Equity", opening_debit=Decimal("0"), opening_credit=Decimal("0"), movement_debit=Decimal("0"), movement_credit=Decimal("0"), closing_debit=Decimal("100"), closing_credit=Decimal("0"))]
         kwargs = valid_kwargs.copy()
         kwargs["accounts"] = unbalanced_accounts
         # Construction won't raise because _validate only warns

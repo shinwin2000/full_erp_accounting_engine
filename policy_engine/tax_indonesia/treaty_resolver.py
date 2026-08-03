@@ -88,11 +88,9 @@ class TreatyArticle:
 
     def is_active(self, as_of: datetime | None = None) -> bool:
         check_date = as_of or datetime.now(UTC)
-        if self.effective_from > check_date:
-            return False
-        if self.effective_to and self.effective_to < check_date:
-            return False
-        return True
+        return self.effective_from <= check_date and (
+            self.effective_to is None or self.effective_to >= check_date
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -142,7 +140,6 @@ class TreatyResolver:
     # ------------------------------------------------------------------------
     def _load_default_treaties(self) -> None:
         """Memuat treaty default Indonesia dengan negara mitra utama."""
-        now = datetime.now(UTC)
         default_treaties = [
             # Singapore
             TreatyArticle(
@@ -484,23 +481,25 @@ class TreatyResolver:
             return None
 
         # Check condition for dividend ownership
-        if income_type == TreatyIncomeType.DIVIDEND and ownership_percentage is not None:
-            if "ownership" in article.condition.lower():
-                # Parsing sederhana: cek apakah ownership memenuhi syarat
-                if "25%" in article.condition and ownership_percentage < 25:
-                    # Fallback rate (misal 15% untuk Jepang jika kepemilikan <25%)
-                    if article.country_code == "JP":
-                        fallback_rate = Decimal("15")
-                        with self._lock:
-                            self._cache[cache_key] = article
-                        return fallback_rate
-                    if article.country_code == "US":
-                        fallback_rate = (
-                            Decimal("15") if ownership_percentage < 10 else Decimal("10")
-                        )
-                        with self._lock:
-                            self._cache[cache_key] = article
-                        return fallback_rate
+        if (
+            income_type == TreatyIncomeType.DIVIDEND
+            and ownership_percentage is not None
+            and "ownership" in article.condition.lower()
+            and "25%" in article.condition
+            and ownership_percentage < 25
+        ):
+            # Fallback rate (misal 15% untuk Jepang jika kepemilikan <25%)
+            if article.country_code == "JP":
+                fallback_rate = Decimal("15")
+                with self._lock:
+                    self._cache[cache_key] = article
+                return fallback_rate
+            if article.country_code == "US":
+                fallback_rate = Decimal("15") if ownership_percentage < 10 else Decimal("10")
+                with self._lock:
+                    self._cache[cache_key] = article
+                return fallback_rate
+
         with self._lock:
             self._cache[cache_key] = article
         return article.rate

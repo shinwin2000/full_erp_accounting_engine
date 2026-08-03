@@ -26,6 +26,7 @@ import logging
 from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 # Optional imports with fallback for test compatibility

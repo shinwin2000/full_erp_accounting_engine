@@ -134,9 +134,7 @@ class PSAK30LeaseContract:
             return True
         if self.lease_term_years >= 0.75 * 20:  # Example: economic life assumed 20 years
             return True
-        if pv_payments >= 0.9 * self.fair_value_asset:
-            return True
-        return False
+        return pv_payments >= 0.9 * self.fair_value_asset
 
     def to_dict(self) -> dict:
         return {

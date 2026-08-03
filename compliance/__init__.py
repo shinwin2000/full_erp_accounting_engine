@@ -1,10 +1,11 @@
-from __future__ import annotations
-
+#!/usr/bin/env python3
 """
 Package: compliance
 Responsibility: Modul kepatuhan untuk ERP Accounting Engine.
 Mencakup AML, GDPR, SOX, IFRS, PSAK, OJK, dan Coretax DJP.
 """
+
+from __future__ import annotations
 
 from .aml_risk_scorer import AMLRiskScorer, RiskLevel, SuspiciousTransactionReport
 from .compliance_exceptions import (

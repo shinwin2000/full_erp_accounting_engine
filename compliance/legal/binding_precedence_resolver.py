@@ -215,7 +215,7 @@ class BindingPrecedenceResolver:
         if winner is None:
             winner = source_a if str(source_a.id) > str(source_b.id) else source_b
             reason = ResolutionReason.TIE_BREAKER
-            applied_rules = self._rule_order + [PrecedenceRule.TEMPORAL]  # fallback
+            applied_rules = [*self._rule_order, PrecedenceRule.TEMPORAL]  # fallback
 
         resolution = PrecedenceResolution(
             resolution_id=uuid4(),

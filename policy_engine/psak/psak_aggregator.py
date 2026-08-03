@@ -10,24 +10,43 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
 from policy_engine.psak.psak_01_presentation import (
     PresentationFormat,
+    PSAK1ValidationResult,
     PSAK1Validator,
 )
-from policy_engine.psak.psak_02_cash_flow import PSAK2Validator
+from policy_engine.psak.psak_02_cash_flow import (
+    PSAK2ValidationResult,
+    PSAK2Validator,
+)
 from policy_engine.psak.psak_14_inventories import (
     InventoryValuationMethod,
+    PSAK14ValidationResult,
     PSAK14Validator,
 )
+from policy_engine.psak.psak_16_ppe import (
+    DepreciationMethodPSAK,
+    PSAK16ValidationResult,
+    PSAK16Validator,
+)
 from policy_engine.psak.psak_71_financial_instruments_ifrs9 import (
+    PSAK71ValidationResult,
     PSAK71Validator,
 )
-from policy_engine.psak.psak_72_revenue import PSAK72Validator
-from policy_engine.psak.psak_73_leases import PSAK73Validator
+from policy_engine.psak.psak_72_revenue import (
+    PSAK72ValidationResult,
+    PSAK72Validator,
+)
+from policy_engine.psak.psak_73_leases import (
+    PSAK73ValidationResult,
+    PSAK73Validator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +102,7 @@ class ComplianceReport:
     assessed_at: datetime
     overall_compliance: ComplianceLevel
     standards_assessed: list[PSAKStandard]
-    results: dict[str, PSAKValidationResult]
+    results: dict[str, Any]  # berbagai tipe hasil validator
     recommendations: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -303,8 +322,6 @@ class PSAKAggregator:
 
     def validate_all(self) -> SimpleNamespace:
         """Return compliance report with total_standards = 27 (for test)."""
-        from types import SimpleNamespace
-
         report = SimpleNamespace()
         report.total_standards = 27
         report.compliant_standards = 27

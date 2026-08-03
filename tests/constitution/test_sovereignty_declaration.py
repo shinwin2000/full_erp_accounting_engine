@@ -562,7 +562,7 @@ class TestSovereigntyDeclaration:
             )
             mock_change.assert_called_once()
             # Verify that change_status was called with EMERGENCY_LOCKDOWN
-            args, kwargs = mock_change.call_args
+            args, _kwargs = mock_change.call_args
             assert args[0] == SovereigntyStatus.EMERGENCY_LOCKDOWN
         assert record is not None
 

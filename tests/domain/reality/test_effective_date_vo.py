@@ -208,7 +208,7 @@ class TestEffectiveDateValidation:
         end = make_dt(2026, 12, 31)
         dt = make_dt(2026, 6, 15)
         eff = EffectiveDate(dt, EffectiveDateType.TRANSACTION_DATE, "test")
-        valid, msg = eff.validate(
+        valid, _msg = eff.validate(
             EffectiveDateConstraint.WITHIN_FISCAL_YEAR,
             fiscal_year_start=start,
             fiscal_year_end=end,

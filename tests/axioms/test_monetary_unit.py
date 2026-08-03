@@ -736,7 +736,7 @@ class TestMonetaryUnitValidator:
         assert hint is None
 
     def test_validate_currency_supported_with_rate(self):
-        result, violation, hint = MonetaryUnitValidator.validate_currency(
+        result, violation, _hint = MonetaryUnitValidator.validate_currency(
             currency_code="USD",
             transaction_id=uuid.uuid4(),
             functional_currency="IDR",
@@ -763,7 +763,7 @@ class TestMonetaryUnitValidator:
 
     def test_validate_currency_missing_rate(self):
         with patch("axioms.monetary_unit.MonetaryUnitValidator._notify_constitution"):
-            result, violation, hint = MonetaryUnitValidator.validate_currency(
+            result, violation, _hint = MonetaryUnitValidator.validate_currency(
                 currency_code="EUR",
                 transaction_id=uuid.uuid4(),
                 functional_currency="IDR",

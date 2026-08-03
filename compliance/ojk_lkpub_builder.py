@@ -28,7 +28,7 @@ from datetime import date
 from decimal import Decimal
 from enum import Enum
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 # Optional XML export
 try:
@@ -249,8 +249,7 @@ class LKPubReport:
         )
         self.aset_bersih = self.balance_sheet.total_assets - self.balance_sheet.total_liabilities
         if self.rasio_ckpn is None:
-            total_kredit = self.balance_sheet.assets.get("Kredit", Decimal("0"))
-            self.rasio_ckpn = Decimal("0.02") if total_kredit > 0 else Decimal("0.02")
+            self.rasio_ckpn = Decimal("0.02")
         if isinstance(self.digital_signature, str):
             self.digital_signature = SimpleNamespace(
                 signature=self.digital_signature, verified=self.verified
@@ -278,7 +277,7 @@ class OJKLKPubBuilder:
 
     # Mapping kode akun ke kategori LKPBU (contoh sederhana)
     # Dalam implementasi nyata, bisa dari file konfigurasi atau database
-    ASSET_ACCOUNTS = {
+    ASSET_ACCOUNTS: ClassVar[dict[str, str]] = {
         "101": "Kas",
         "102": "Bank",
         "110": "Piutang Usaha",
@@ -288,34 +287,34 @@ class OJKLKPubBuilder:
         "160": "Akumulasi Penyusutan",
         "180": "Aset Tak Berwujud",
     }
-    LIABILITY_ACCOUNTS = {
+    LIABILITY_ACCOUNTS: ClassVar[dict[str, str]] = {
         "201": "Utang Usaha",
         "210": "Utang Pajak",
         "220": "Utang Bank Jangka Pendek",
         "230": "Utang Jangka Panjang",
         "240": "Liabilitas Imbalan Kerja",
     }
-    EQUITY_ACCOUNTS = {
+    EQUITY_ACCOUNTS: ClassVar[dict[str, str]] = {
         "301": "Modal Disetor",
         "310": "Tambahan Modal Disetor",
         "320": "Saldo Laba",
         "330": "Laba Tahun Berjalan",
     }
-    REVENUE_ACCOUNTS = {
+    REVENUE_ACCOUNTS: ClassVar[dict[str, str]] = {
         "401": "Pendapatan Usaha",
         "402": "Pendapatan Lain-lain",
     }
-    COGS_ACCOUNTS = {
+    COGS_ACCOUNTS: ClassVar[dict[str, str]] = {
         "501": "Harga Pokok Penjualan",
     }
-    OPERATING_EXPENSES = {
+    OPERATING_EXPENSES: ClassVar[dict[str, str]] = {
         "601": "Beban Gaji",
         "602": "Beban Sewa",
         "603": "Beban Penyusutan",
         "604": "Beban Pemasaran",
         "605": "Beban Umum & Admin",
     }
-    FINANCE_COSTS = {
+    FINANCE_COSTS: ClassVar[dict[str, str]] = {
         "701": "Beban Bunga",
     }
 
@@ -569,7 +568,7 @@ class OJKLKPubBuilder:
         self.compute()
 
         # Tentukan jenis laporan berdasarkan bulan
-        year, month = self.period.year, self.period.month
+        _year, month = self.period.year, self.period.month
         if month in [3, 6, 9, 12]:
             report_type = LKPBUReportType.QUARTERLY
         else:
@@ -598,7 +597,7 @@ class OJKLKPubBuilder:
 
         # Eliminasi intercompany jika diminta
         if consolidated:
-            total_ic = sum(tx.amount for tx in self.intercompany_transactions)
+            _total_ic = sum(tx.amount for tx in self.intercompany_transactions)
             report.pendapatan_intercompany = Decimal("0")
             report.beban_intercompany = Decimal("0")
 
@@ -862,7 +861,7 @@ if __name__ == "__main__":
     if errors:
         print("Validation errors:", errors)
     else:
-        report = builder.build(auditor_reviewed=True, approved_by="CFO")
+        report = builder.build(consolidated=False)
         print(f"Report built: {report.report_id}")
         print(f"Neraca balance: {report.balance_sheet.is_balanced()}")
         print(f"Total assets: {report.balance_sheet.total_assets:,.0f}")

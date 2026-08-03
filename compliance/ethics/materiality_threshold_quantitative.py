@@ -25,6 +25,7 @@ import logging
 from datetime import datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class QuantitativeMateriality:
     Perhitungan materialitas kuantitatif berdasarkan benchmark keuangan.
     """
 
-    DEFAULT_PERCENTAGES = {
+    DEFAULT_PERCENTAGES: ClassVar[dict[BenchmarkType, Decimal]] = {
         BenchmarkType.REVENUE: Decimal("0.005"),  # 0.5%
         BenchmarkType.TOTAL_ASSETS: Decimal("0.005"),  # 0.5%
         BenchmarkType.TOTAL_EQUITY: Decimal("0.01"),  # 1%
@@ -133,8 +134,8 @@ class QuantitativeMateriality:
         BenchmarkType.OPERATING_CASH_FLOW: Decimal("0.05"),  # 5%
     }
 
-    PERFORMANCE_MATERIALITY_FACTOR = Decimal("0.75")  # 75% of planning materiality
-    CLEARLY_TRIVIAL_FACTOR = Decimal("0.05")  # 5% of planning materiality
+    PERFORMANCE_MATERIALITY_FACTOR: ClassVar[Decimal] = Decimal("0.75")  # 75% of planning materiality
+    CLEARLY_TRIVIAL_FACTOR: ClassVar[Decimal] = Decimal("0.05")  # 5% of planning materiality
 
     def __init__(self, custom_percentages: dict[BenchmarkType, Decimal] | None = None):
         self._percentages = custom_percentages or self.DEFAULT_PERCENTAGES.copy()
@@ -288,7 +289,7 @@ class QuantitativeMateriality:
     def sensitivity_analysis(
         self,
         financial_data: dict[BenchmarkType, Decimal],
-        percentage_variations: list[Decimal] = None,
+        percentage_variations: list[Decimal] | None = None,
     ) -> dict:
         """
         Analisis sensitivitas terhadap perubahan persentase benchmark.

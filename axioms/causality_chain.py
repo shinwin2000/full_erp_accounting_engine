@@ -335,10 +335,10 @@ class CausalityRecord:
 
     def compute_hash(self) -> str:
         causes_hash = hashlib.sha3_256(
-            "".join(str(l.link_id) for l in self.causes).encode()
+            "".join(str(link.link_id) for link in self.causes).encode()
         ).hexdigest()
         effects_hash = hashlib.sha3_256(
-            "".join(str(l.link_id) for l in self.effects).encode()
+            "".join(str(link.link_id) for link in self.effects).encode()
         ).hexdigest()
         content = f"{self.transaction_id}|{causes_hash}|{effects_hash}|{self.is_complete}|{self.verified_at.isoformat() if self.verified_at else ''}"
         return hashlib.sha3_256(content.encode()).hexdigest()
@@ -482,7 +482,7 @@ class CausalityRecord:
     def add_cause(self, link: CausalLink) -> CausalityRecord:
         return CausalityRecord(
             transaction_id=self.transaction_id,
-            causes=self.causes + [link],
+            causes=[*self.causes, link],
             effects=self.effects,
             metadata=self.metadata,
             verified_at=self.verified_at,
@@ -495,7 +495,7 @@ class CausalityRecord:
         return CausalityRecord(
             transaction_id=self.transaction_id,
             causes=self.causes,
-            effects=self.effects + [link],
+            effects=[*self.effects, link],
             metadata=self.metadata,
             verified_at=self.verified_at,
             verified_by=self.verified_by,
@@ -746,11 +746,8 @@ class CausalityViolation:
 
 
 class CausalityChainAxiom:
-    _instance: CausalityChainAxiom | None = None
-    _causality_records: dict[UUID, CausalityRecord] = {}
-    _links: dict[UUID, CausalLink] = {}
-    _violation_history: list[CausalityViolation] = []
-    _lock = threading.Lock()
+    _instance: ClassVar[CausalityChainAxiom | None] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __new__(cls) -> CausalityChainAxiom:
         if cls._instance is None:
@@ -764,9 +761,9 @@ class CausalityChainAxiom:
         if self._initialized:
             return
         self._initialized = True
-        self._causality_records = {}
-        self._links = {}
-        self._violation_history = []
+        self._causality_records: dict[UUID, CausalityRecord] = {}
+        self._links: dict[UUID, CausalLink] = {}
+        self._violation_history: list[CausalityViolation] = []
 
     # ==================== REPOSITORY METHODS ====================
     def save_link(self, link: CausalLink) -> None:
@@ -951,7 +948,7 @@ class CausalityChainValidator:
 
     @staticmethod
     def validate_evidence(
-        link: CausalLink, required_evidence: list[EvidenceType] = None
+        link: CausalLink, required_evidence: list[EvidenceType] | None = None
     ) -> tuple[bool, list[str]]:
         if required_evidence is None:
             required_evidence = [EvidenceType.SOURCE_DOCUMENT]
@@ -981,7 +978,7 @@ def create_causal_link_dict(
     effect_id: UUID,
     causality_type: str,
     description: str,
-    evidence_refs: list[str] = None,
+    evidence_refs: list[str] | None = None,
     weight: float = 1.0,
 ) -> dict[str, Any]:
     return {

@@ -620,27 +620,27 @@ class TestQueryMethods:
         return coa, root, child
 
     def test_get_account(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, root, _child = populated_coa
         assert coa.get_account(root.id).account_code == "1000"
 
     def test_get_account_missing_returns_none(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, _child = populated_coa
         assert coa.get_account(uuid4()) is None
 
     def test_get_account_by_code(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, child = populated_coa
         assert coa.get_account_by_code("1001").id == child.id
 
     def test_get_account_by_code_missing_returns_none(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, _child = populated_coa
         assert coa.get_account_by_code("nope") is None
 
     def test_get_all_accounts(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, _child = populated_coa
         assert len(coa.get_all_accounts()) == 2
 
     def test_get_active_accounts_excludes_draft(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, _child = populated_coa
         assert coa.get_active_accounts() == []
 
     def test_get_children(self, populated_coa):
@@ -659,21 +659,21 @@ class TestQueryMethods:
         assert parent.id == root.id
 
     def test_get_parent_of_root_is_none(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, root, _child = populated_coa
         assert coa.get_parent(root.id) is None
 
     def test_get_tree_whole_hierarchy(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, _child = populated_coa
         tree = coa.get_tree()
         assert tree["total_nodes"] == 2
 
     def test_get_tree_subtree(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, root, _child = populated_coa
         subtree = coa.get_tree(root.id)
         assert subtree["total_nodes"] == 2  # root + its descendant, re-rooted
 
     def test_get_root_accounts(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, root, _child = populated_coa
         roots = coa.get_root_accounts()
         assert [r.id for r in roots] == [root.id]
 
@@ -683,12 +683,12 @@ class TestQueryMethods:
         assert coa.get_account_level(child.id) == 1
 
     def test_get_hierarchy_node(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, root, _child = populated_coa
         node = coa.get_hierarchy_node(root.id)
         assert node.account.account_code == "1000"
 
     def test_is_code_unique(self, populated_coa):
-        coa, root, child = populated_coa
+        coa, _root, _child = populated_coa
         assert coa.is_code_unique("9999") is True
         assert coa.is_code_unique("1000") is False
 

@@ -116,11 +116,9 @@ class TaxRate:
 
     def is_active(self, as_of: datetime | None = None) -> bool:
         check_date = as_of or datetime.now(UTC)
-        if self.effective_from > check_date:
-            return False
-        if self.effective_to and self.effective_to < check_date:
-            return False
-        return True
+        return self.effective_from <= check_date and (
+            self.effective_to is None or self.effective_to >= check_date
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -173,7 +171,6 @@ class DynamicRateRegistry:
     # ------------------------------------------------------------------------
     def _load_default_rates(self) -> None:
         """Memuat tarif default berdasarkan peraturan perpajakan Indonesia."""
-        now = datetime.now(UTC)
         default_rates = [
             # PPN
             TaxRate(
@@ -527,7 +524,7 @@ class RateRegistry:
     """
 
     @staticmethod
-    def get_ppn_rate(effective_date: date = None) -> Decimal:
+    def get_ppn_rate(effective_date: date | None = None) -> Decimal:
         """
         Get PPN rate as decimal (e.g., 0.11 for 11%).
         """

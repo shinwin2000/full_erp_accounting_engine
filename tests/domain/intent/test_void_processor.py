@@ -484,7 +484,7 @@ class TestVoidProcessor:
         void_processor._record_service.get.side_effect = mock_get
         void_processor._record_service.store.return_value = None
 
-        success, msg = void_processor.void_intent(
+        success, _msg = void_processor.void_intent(
             intent_id=root.intent_id,
             reason=VoidReason.SUPERSEDED,
             reason_description="Replaced",

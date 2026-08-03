@@ -1,9 +1,10 @@
-from __future__ import annotations
-
+#!/usr/bin/env python3
 """
 Package: audit
 Immutable audit trail, forensics, hash chain.
 """
+
+from __future__ import annotations
 
 from audit.event_writer_immutable import ImmutableEventWriter
 from audit.forensic_replayer import ForensicReplayer

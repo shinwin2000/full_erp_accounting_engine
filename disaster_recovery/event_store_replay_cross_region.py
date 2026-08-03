@@ -574,20 +574,20 @@ class CrossRegionEventStoreReplayer:
             last_event = events[-1]
             start_seq = last_event["sequence"] + 1
             last_event_id = UUID(last_event["event_id"]) if "event_id" in last_event else None
-            if total_written % (batch_sz * 10) == 0 or (limit and total_written >= limit):
-                if not dry_run:
-                    cp = ReplayCheckpoint(
-                        stream_name=stream_name,
-                        last_event_sequence=last_event["sequence"],
-                        last_event_id=last_event_id,
-                        replayed_at=datetime.now(UTC),
-                        region_source=self.source_region,
-                        region_target=self.target_region,
-                        total_events_replayed=total_written,
-                    )
-                    if self.save_checkpoint(cp):
-                        checkpoint_updates += 1
-                        last_checkpoint_seq = last_event["sequence"]
+            # Save checkpoint periodically, but only if not dry_run
+            if (total_written % (batch_sz * 10) == 0 or (limit and total_written >= limit)) and not dry_run:
+                cp = ReplayCheckpoint(
+                    stream_name=stream_name,
+                    last_event_sequence=last_event["sequence"],
+                    last_event_id=last_event_id,
+                    replayed_at=datetime.now(UTC),
+                    region_source=self.source_region,
+                    region_target=self.target_region,
+                    total_events_replayed=total_written,
+                )
+                if self.save_checkpoint(cp):
+                    checkpoint_updates += 1
+                    last_checkpoint_seq = last_event["sequence"]
             if limit and total_written >= limit:
                 break
 

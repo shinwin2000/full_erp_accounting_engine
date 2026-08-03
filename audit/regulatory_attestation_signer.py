@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Module: regulatory_attestation_signer.py
 Layer: Audit
@@ -151,15 +151,15 @@ class RegulatoryAttestation:
         period_start: date,
         period_end: date,
         legal_entity_id: UUID,
-        created_at: datetime = None,
-        signed_at: datetime = None,
-        expires_at: datetime = None,
+        created_at: datetime | None = None,
+        signed_at: datetime | None = None,
+        expires_at: datetime | None = None,
         status: str = AttestationStatus.DRAFT,
-        content_hash: str = None,
-        audit_root_hash: str = None,
-        signature: str = None,
-        signer_info: dict = None,
-        metadata: dict = None,
+        content_hash: str | None = None,
+        audit_root_hash: str | None = None,
+        signature: str | None = None,
+        signer_info: dict | None = None,
+        metadata: dict | None = None,
     ):
         self.id = id
         self.framework = framework
@@ -281,7 +281,6 @@ class RegulatoryAttestationSigner:
 
         # Filter by legal entity if needed (requires metadata filtering)
         # For simplicity, we'll compute from all events and trust that separation is handled
-        hash_builder = await self._get_hash_builder()
         # Build a Merkle root of all event hashes
         hashes = [e.get("hash") for e in events if e.get("hash")]
         if not hashes:
@@ -642,7 +641,7 @@ async def get_regulatory_attestation_signer() -> RegulatoryAttestationSigner:
 
 
 # ============================================================================
-# CLI COMMAND � DIPERBAIKI (tanpa unsafe create_task)
+# CLI COMMAND — DIPERBAIKI (tanpa unsafe create_task)
 # ============================================================================
 
 
@@ -708,8 +707,9 @@ def cli():
 
     # Eksekusi dengan aman, tanpa unsafe create_task
     try:
-        loop = asyncio.get_running_loop()
-        # Jika ada loop berjalan, jalankan di thread terpisah
+        # Coba dapatkan loop yang sedang berjalan, jika tidak ada, jalankan langsung
+        asyncio.get_running_loop()
+        # Jika ada loop, jalankan di thread terpisah
         import threading
         def _run_in_thread():
             asyncio.run(run())

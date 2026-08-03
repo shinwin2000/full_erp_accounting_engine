@@ -1,10 +1,13 @@
 # fix_corrupted_user.py
 import asyncio
-import os
 import json
+import os
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
 from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import PasswordHelper
+
 
 async def main():
     DATABASE_URL = os.getenv("DATABASE_URL")
