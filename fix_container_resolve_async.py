@@ -80,9 +80,26 @@ RESOLVE_RE = re.compile(
 )
 
 
+def read_text_flexible(path: Path) -> tuple[str, str]:
+    """Baca file dengan fallback encoding. Kembalikan (isi, encoding_yang_dipakai).
+
+    Beberapa file di proyek ini ternyata tidak murni UTF-8 (mis. ada
+    karakter em-dash atau simbol lain tersimpan sebagai Windows-1252).
+    Coba beberapa encoding umum sebelum menyerah.
+    """
+    raw = path.read_bytes()
+    for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return raw.decode(enc), enc
+        except UnicodeDecodeError:
+            continue
+    # Fallback terakhir: latin-1 tidak pernah gagal decode (1 byte = 1 char)
+    return raw.decode("latin-1", errors="replace"), "latin-1"
+
+
 def fix_file(path: Path, dry_run: bool = False) -> int:
     """Kembalikan jumlah baris yang diubah di file ini."""
-    original_text = path.read_text(encoding="utf-8")
+    original_text, source_encoding = read_text_flexible(path)
     lines = original_text.split("\n")
 
     last_def_idx: int | None = None
@@ -129,15 +146,22 @@ def fix_file(path: Path, dry_run: bool = False) -> int:
     new_text = "\n".join(lines)
 
     if dry_run:
-        print(f"[DRY-RUN] {path}: {n_changed} baris akan diubah")
+        note = f" (encoding: {source_encoding})" if source_encoding != "utf-8" else ""
+        print(f"[DRY-RUN] {path}: {n_changed} baris akan diubah{note}")
         return n_changed
 
     backup_path = path.with_suffix(path.suffix + ".bak")
     if not backup_path.exists():
-        backup_path.write_text(original_text, encoding="utf-8")
+        # Backup disimpan sebagai byte mentah asli, tidak lewat re-encode,
+        # supaya 100% identik dengan file asli sebelum diubah.
+        backup_path.write_bytes(path.read_bytes())
 
-    path.write_text(new_text, encoding="utf-8")
-    print(f"[FIXED] {path}: {n_changed} baris diubah (backup: {backup_path.name})")
+    # Tulis balik pakai encoding yang sama seperti saat dibaca, supaya
+    # karakter non-ASCII asli (mis. em-dash di komentar) tidak berubah
+    # jadi mojibake.
+    path.write_text(new_text, encoding=source_encoding)
+    note = f" (encoding: {source_encoding})" if source_encoding != "utf-8" else ""
+    print(f"[FIXED] {path}: {n_changed} baris diubah (backup: {backup_path.name}){note}")
     return n_changed
 
 
