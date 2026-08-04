@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -27,7 +27,7 @@ from application.events import JournalPostedEvent
 from domain.shared_value_objects.currency_vo import Currency
 from domain.shared_value_objects.document_number_vo import DocumentNumber
 from domain.subledger_ar.aggregate_root import ARAggregate
-from domain.subledger_ar.aging_bucket_vo import ARAgingBucketCalculator
+from domain.subledger_ar.aging_bucket_vo import AgingBucket, ARAgingBucketCalculator
 from domain.subledger_ar.bad_debt_provision_engine import BadDebtProvisionEngine
 from domain.subledger_ar.credit_note_entity import ARCreditNote
 from domain.subledger_ar.domain_events import (
@@ -174,6 +174,52 @@ class ARAgingReportDTO:
     total_ar: Decimal
     customer_balances: dict[str, Decimal]
     buckets: list[dict[str, Any]]
+
+
+@dataclass(kw_only=True)
+class ARAgingBucketItemDTO:
+    """Satu bucket umur piutang (dipakai baik di get_aging_all_customers
+    maupun get_dashboard). Field-nya cocok dengan ARAgingBucketSchema di
+    fastapi_ar_router.py."""
+
+    bucket_name: str
+    days_start: int
+    days_end: int | float
+    total_amount: Decimal
+    percentage: float
+    invoices: list[dict[str, Any]] = field(default_factory=list)
+    allowance_amount: Decimal = Decimal("0")
+
+
+@dataclass(kw_only=True)
+class ARCustomerAgingDTO:
+    """Aging report untuk satu customer. Field-nya cocok dengan
+    ARAgingResponseSchema di fastapi_ar_router.py."""
+
+    customer_id: UUID
+    customer_name: str
+    customer_code: str
+    total_outstanding: Decimal
+    total_allowance: Decimal
+    buckets: list[ARAgingBucketItemDTO]
+
+
+@dataclass(kw_only=True)
+class ARDashboardDTO:
+    """Ringkasan dashboard AR (DSO, aging summary). Field-nya cocok dengan
+    ARDashboardSchema di fastapi_ar_router.py."""
+
+    total_outstanding: Decimal
+    current_outstanding: Decimal
+    overdue_1_30: Decimal
+    overdue_31_60: Decimal
+    overdue_61_90: Decimal
+    overdue_90_plus: Decimal
+    overdue_amount: Decimal
+    overdue_percentage: float
+    dso_days: float
+    collection_efficiency: float
+    aging_buckets: list[ARAgingBucketItemDTO]
 
 
 @dataclass(kw_only=True)
@@ -827,6 +873,230 @@ class ARService:
             offset=offset,
         )
         return [self._to_invoice_response(inv) for inv in invoices]
+
+    async def get_aging_all_customers(
+        self, legal_entity_id: UUID, as_of_date: date | None = None
+    ) -> list[ARCustomerAgingDTO]:
+        """Aging report AR per customer, dikelompokkan per bucket umur piutang.
+
+        CATATAN IMPLEMENTASI:
+        - ARRepositoryPort tidak punya method list_open_invoices() seperti
+          di sisi AP, jadi di sini kita pakai list_invoices() (limit besar)
+          lalu filter status/remaining_amount di Python. Kalau volume invoice
+          sangat besar, sebaiknya nanti ganti dengan query khusus di level
+          repository/DB.
+        - Bucket dihitung pakai AgingCalculator.calculate_bucket() (alias:
+          ARAgingBucketCalculator) — BUKAN compute_buckets() seperti di AP,
+          karena calculator AR ini cuma expose calculate_bucket() dan
+          calculate_provision() per-invoice, bukan agregasi per-batch.
+        - customer_code: entity Customer di proyek ini tidak konsisten
+          diketahui punya field 'code' dari kode yang saya lihat sejauh ini
+          (cuma .name dan .credit_limit yang dipakai di service_ar.py).
+          Diambil pakai getattr dengan fallback ke str(customer_id) supaya
+          tidak meledak kalau field itu tidak ada — mohon dicek manual
+          apakah customer_code yang keluar sudah sesuai harapan.
+        """
+        as_of = as_of_date or date.today()
+        as_of_dt = datetime.combine(as_of, datetime.min.time())
+
+        all_invoices = await self.list_invoices(
+            legal_entity_id=legal_entity_id, limit=100_000, offset=0
+        )
+        outstanding = [
+            inv
+            for inv in all_invoices
+            if inv.remaining_amount > 0
+            and (inv.status or "").lower() not in ("draft", "cancelled")
+        ]
+
+        by_customer: dict[UUID, list[ARInvoiceResponse]] = {}
+        for inv in outstanding:
+            by_customer.setdefault(inv.customer_id, []).append(inv)
+
+        results: list[ARCustomerAgingDTO] = []
+        for customer_id, invoices in by_customer.items():
+            customer_name = invoices[0].customer_name
+            customer_code = str(customer_id)
+            try:
+                customer_agg = await self._customer_repo.get_customer_by_id(customer_id)
+                if customer_agg is not None:
+                    customer_code = getattr(customer_agg.customer, "code", customer_code)
+            except Exception as e:
+                logger.debug(f"Gagal ambil customer_code untuk {customer_id}: {e}")
+
+            invoices_by_bucket: dict[AgingBucket, list[ARInvoiceResponse]] = {
+                b: [] for b in AgingBucket
+            }
+            for inv in invoices:
+                due_dt = datetime.combine(inv.due_date, datetime.min.time())
+                bucket = ARAgingBucketCalculator.calculate_bucket(due_dt, as_of_dt)
+                invoices_by_bucket[bucket].append(inv)
+
+            total_outstanding = sum((inv.remaining_amount for inv in invoices), Decimal("0"))
+            total_allowance = Decimal("0")
+            bucket_dtos: list[ARAgingBucketItemDTO] = []
+            for bucket in AgingBucket:
+                bucket_invoices = invoices_by_bucket[bucket]
+                bucket_total = sum(
+                    (inv.remaining_amount for inv in bucket_invoices), Decimal("0")
+                )
+                allowance = ARAgingBucketCalculator.calculate_provision(bucket_total, bucket)
+                total_allowance += allowance
+                days_start, days_end = bucket.get_days_range()
+                bucket_dtos.append(
+                    ARAgingBucketItemDTO(
+                        bucket_name=bucket.get_display_name(),
+                        days_start=days_start,
+                        days_end=days_end,
+                        total_amount=bucket_total,
+                        percentage=(
+                            float(bucket_total / total_outstanding * 100)
+                            if total_outstanding > 0
+                            else 0.0
+                        ),
+                        invoices=[
+                            {
+                                "invoice_id": str(inv.id),
+                                "invoice_number": inv.invoice_number,
+                                "due_date": inv.due_date.isoformat(),
+                                "remaining_amount": str(inv.remaining_amount),
+                            }
+                            for inv in bucket_invoices
+                        ],
+                        allowance_amount=allowance,
+                    )
+                )
+
+            results.append(
+                ARCustomerAgingDTO(
+                    customer_id=customer_id,
+                    customer_name=customer_name,
+                    customer_code=customer_code,
+                    total_outstanding=total_outstanding,
+                    total_allowance=total_allowance,
+                    buckets=bucket_dtos,
+                )
+            )
+
+        return results
+
+    async def get_dashboard(
+        self, legal_entity_id: UUID, as_of_date: date | None = None
+    ) -> ARDashboardDTO:
+        """Dashboard AR: ringkasan aging + estimasi DSO.
+
+        CATATAN KETERBATASAN (mohon divalidasi dengan tim finance sebelum
+        dipakai untuk keputusan bisnis):
+        - dso_days dihitung pakai pendekatan umum
+          `(total_outstanding / total_penjualan_kredit_90_hari_terakhir) * 90`.
+          Ini pendekatan standar, tapi ARRepositoryPort tidak punya query
+          "total penjualan kredit per periode" khusus, jadi di sini dihitung
+          dari list_invoices() (invoice_date dalam 90 hari terakhir, status
+          bukan draft/cancelled).
+        - collection_efficiency di sini adalah proxy sederhana:
+          rata-rata (paid_amount / amount) dari invoice yang invoice_date-nya
+          dalam 90 hari terakhir, dalam persen (dibatasi 0-100). Ini BUKAN
+          rumus "collection efficiency ratio" versi lengkap (yang butuh
+          saldo AR awal periode + data pembayaran per periode), karena
+          ARRepositoryPort tidak expose method untuk list pembayaran secara
+          agregat. Kalau tim finance sudah punya definisi resmi, tolong
+          beri tahu supaya saya sesuaikan.
+        """
+        as_of = as_of_date or date.today()
+        as_of_dt = datetime.combine(as_of, datetime.min.time())
+        period_days = 90
+        period_start = as_of - timedelta(days=period_days)
+
+        all_invoices = await self.list_invoices(
+            legal_entity_id=legal_entity_id, limit=100_000, offset=0
+        )
+        outstanding = [
+            inv
+            for inv in all_invoices
+            if inv.remaining_amount > 0
+            and (inv.status or "").lower() not in ("draft", "cancelled")
+        ]
+
+        invoices_by_bucket: dict[AgingBucket, list[ARInvoiceResponse]] = {
+            b: [] for b in AgingBucket
+        }
+        for inv in outstanding:
+            due_dt = datetime.combine(inv.due_date, datetime.min.time())
+            bucket = ARAgingBucketCalculator.calculate_bucket(due_dt, as_of_dt)
+            invoices_by_bucket[bucket].append(inv)
+
+        total_outstanding = sum((inv.remaining_amount for inv in outstanding), Decimal("0"))
+        bucket_dtos: list[ARAgingBucketItemDTO] = []
+        bucket_totals: dict[AgingBucket, Decimal] = {}
+        for bucket in AgingBucket:
+            bucket_invoices = invoices_by_bucket[bucket]
+            bucket_total = sum((inv.remaining_amount for inv in bucket_invoices), Decimal("0"))
+            bucket_totals[bucket] = bucket_total
+            allowance = ARAgingBucketCalculator.calculate_provision(bucket_total, bucket)
+            days_start, days_end = bucket.get_days_range()
+            bucket_dtos.append(
+                ARAgingBucketItemDTO(
+                    bucket_name=bucket.get_display_name(),
+                    days_start=days_start,
+                    days_end=days_end,
+                    total_amount=bucket_total,
+                    percentage=(
+                        float(bucket_total / total_outstanding * 100)
+                        if total_outstanding > 0
+                        else 0.0
+                    ),
+                    invoices=[
+                        {
+                            "invoice_id": str(inv.id),
+                            "invoice_number": inv.invoice_number,
+                            "due_date": inv.due_date.isoformat(),
+                            "remaining_amount": str(inv.remaining_amount),
+                        }
+                        for inv in bucket_invoices
+                    ],
+                    allowance_amount=allowance,
+                )
+            )
+
+        overdue_amount = (
+            bucket_totals[AgingBucket.DAYS_1_30]
+            + bucket_totals[AgingBucket.DAYS_31_60]
+            + bucket_totals[AgingBucket.DAYS_61_90]
+            + bucket_totals[AgingBucket.OVER_90]
+        )
+
+        recent_invoices = [inv for inv in all_invoices if inv.invoice_date >= period_start]
+        recent_credit_sales = sum((inv.amount for inv in recent_invoices), Decimal("0"))
+        dso_days = (
+            float(total_outstanding / recent_credit_sales) * period_days
+            if recent_credit_sales > 0
+            else 0.0
+        )
+
+        billable_recent = [inv for inv in recent_invoices if inv.amount > 0]
+        if billable_recent:
+            ratios = [
+                min(float(inv.paid_amount / inv.amount), 1.0) for inv in billable_recent
+            ]
+            collection_efficiency = (sum(ratios) / len(ratios)) * 100
+        else:
+            collection_efficiency = 0.0
+
+        return ARDashboardDTO(
+            total_outstanding=total_outstanding,
+            current_outstanding=bucket_totals[AgingBucket.CURRENT],
+            overdue_1_30=bucket_totals[AgingBucket.DAYS_1_30],
+            overdue_31_60=bucket_totals[AgingBucket.DAYS_31_60],
+            overdue_61_90=bucket_totals[AgingBucket.DAYS_61_90],
+            overdue_90_plus=bucket_totals[AgingBucket.OVER_90],
+            overdue_amount=overdue_amount,
+            overdue_percentage=(
+                float(overdue_amount / total_outstanding * 100) if total_outstanding > 0 else 0.0
+            ),
+            dso_days=dso_days,
+            collection_efficiency=collection_efficiency,
+            aging_buckets=bucket_dtos,
+        )
 
     # ========================================================================
     # Private Helpers

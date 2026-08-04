@@ -11,7 +11,7 @@ import inspect
 import logging
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 logger = logging.getLogger(__name__)
 
@@ -213,8 +213,56 @@ class IoCContainer:
         else:
             raise RegistrationError("No factory or implementation provided")
 
+    def _resolve_key_by_name(self, name: str) -> type | str | None:
+        """Cari key terdaftar di registry (container ini atau parent) yang
+        __name__ class-nya cocok dengan string nama tipe. Dipakai sebagai
+        fallback terakhir kalau get_type_hints() tidak bisa resolve suatu
+        anotasi (mis. karena tipe itu hanya diimpor di bawah
+        `if TYPE_CHECKING:`, pola umum untuk menghindari circular import —
+        di runtime nama itu tidak pernah benar-benar ada di namespace
+        modul, jadi tidak bisa dievaluasi jadi objek class)."""
+        container: IoCContainer | None = self
+        while container is not None:
+            for key in container._registrations:
+                if isinstance(key, type) and key.__name__ == name:
+                    return key
+            container = container._parent
+        return None
+
     async def _construct_with_injection(self, cls: type, **kwargs) -> Any:
         sig = inspect.signature(cls.__init__)
+
+        # PENTING: banyak modul di proyek ini pakai
+        # `from __future__ import annotations` (PEP 563), yang membuat
+        # SEMUA anotasi tipe di constructor jadi string mentah (mis.
+        # "ARRepositoryPort") alih-alih objek class asli. `param.annotation`
+        # di bawah akan mengembalikan string itu apa adanya, sedangkan
+        # port didaftarkan di registry pakai objek class sebagai key —
+        # dua hal berbeda sebagai dict key walau namanya identik, jadi
+        # resolve akan selalu gagal (DependencyNotFoundError) walau
+        # port-nya sudah benar terdaftar.
+        #
+        # `typing.get_type_hints()` mengevaluasi string anotasi itu balik
+        # jadi objek class asli menggunakan namespace modul tempat cls
+        # didefinisikan, jadi ini dipakai sebagai sumber utama tipe param.
+        #
+        # CATATAN TAMBAHAN: get_type_hints() sifatnya all-or-nothing — kalau
+        # SATU SAJA anotasi di constructor tidak bisa dievaluasi (mis. tipe
+        # yang diimpor hanya di bawah `if TYPE_CHECKING:`, jadi tidak ada
+        # di namespace modul saat runtime), seluruh pemanggilan gagal dengan
+        # NameError, bukan cuma parameter itu. Kalau ini terjadi, kita fallback
+        # ke pencarian berdasarkan nama string di registry
+        # (_resolve_key_by_name) per-parameter, alih-alih menyerah total.
+        try:
+            type_hints = get_type_hints(cls.__init__)
+        except Exception as e:
+            logger.debug(
+                f"get_type_hints gagal untuk {cls.__module__}.{cls.__name__}.__init__: {e} "
+                "(kemungkinan ada tipe yang cuma diimpor di bawah TYPE_CHECKING). "
+                "Fallback ke resolve per-parameter berdasarkan nama string."
+            )
+            type_hints = {}
+
         parameters = {}
         for name, param in sig.parameters.items():
             if name == "self":
@@ -222,7 +270,30 @@ class IoCContainer:
             if name in kwargs:
                 parameters[name] = kwargs[name]
                 continue
-            param_type = param.annotation
+
+            param_type = type_hints.get(name, param.annotation)
+
+            # Fallback tambahan: kalau param_type masih berupa string
+            # (get_type_hints gagal total atau parameter ini tidak ada di
+            # hasilnya), cari key terdaftar di registry yang __name__-nya
+            # cocok. Ini menangani kasus tipe yang cuma diimpor di bawah
+            # `if TYPE_CHECKING:` seperti ARRepositoryPort di service_ap.py.
+            if isinstance(param_type, str):
+                resolved_key = self._resolve_key_by_name(param_type)
+                if resolved_key is not None:
+                    param_type = resolved_key
+
+            # Unwrap Optional[X] / X | None -> X, supaya tetap bisa resolve
+            # ke tipe konkretnya. Kalau X sendiri juga tidak terdaftar,
+            # tetap fallback ke default lewat except di bawah seperti biasa
+            # (mis. `session: AsyncSession | None = None` tetap jatuh ke
+            # default None, bukan salah resolve).
+            origin = get_origin(param_type)
+            if origin is Union:
+                non_none_args = [a for a in get_args(param_type) if a is not type(None)]
+                if len(non_none_args) == 1:
+                    param_type = non_none_args[0]
+
             if param_type != inspect.Parameter.empty:
                 try:
                     dep = await self.resolve_async(param_type)

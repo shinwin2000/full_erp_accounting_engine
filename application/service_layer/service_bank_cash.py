@@ -127,6 +127,15 @@ class BankAccountResponse:
 
 
 @dataclass(kw_only=True)
+class DailyCashPositionDTO:
+    account_type: str  # "BANK" (cash book belum didukung, lihat get_daily_cash_position)
+    account_id: UUID
+    account_name: str
+    currency: str
+    balance: Decimal
+
+
+@dataclass(kw_only=True)
 class BankTransactionRequest:
     legal_entity_id: UUID
     bank_account_id: UUID
@@ -614,6 +623,39 @@ class BankCashService:
             offset=offset,
         )
         return [self._to_bank_account_response(acc) for acc in accounts]
+
+    async def get_daily_cash_position(
+        self, legal_entity_id: UUID, as_of_date: date | None = None
+    ) -> list[DailyCashPositionDTO]:
+        """Get daily cash position (saldo kas & bank per akun) untuk legal entity.
+
+        CATATAN KETERBATASAN: saat ini cuma mengembalikan posisi rekening
+        bank (dari list_bank_accounts(), yang sudah teruji). Cash book /
+        kas kecil (petty cash) BELUM ikut, karena BankCashRepositoryPort
+        tidak mengekspos method untuk listing semua cash book per legal
+        entity (cuma get_cash_book_by_id() untuk satu cash book yang sudah
+        diketahui ID-nya) — repo secondary_impl perlu dicek dulu apakah
+        method seperti list_cash_books() memang ada sebelum ini ditambahkan,
+        supaya tidak menebak nama kolom/tabel yang belum pasti ada.
+        """
+        accounts = await self._bank_repo.list_bank_accounts(
+            legal_entity_id=legal_entity_id,
+            status=None,
+            currency=None,
+            limit=10_000,
+            offset=0,
+        )
+        responses = [self._to_bank_account_response(acc) for acc in accounts]
+        return [
+            DailyCashPositionDTO(
+                account_type="BANK",
+                account_id=resp.id,
+                account_name=resp.account_name,
+                currency=resp.currency_code,
+                balance=resp.current_balance,
+            )
+            for resp in responses
+        ]
 
     # ========================================================================
     # Bank Transactions

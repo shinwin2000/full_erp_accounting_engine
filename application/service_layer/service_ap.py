@@ -669,6 +669,22 @@ class APService:
     # Aging Report
     # ========================================================================
 
+    async def get_aging_all_vendors(
+        self, legal_entity_id: UUID, as_of_date: date | None = None
+    ) -> APAgingReportDTO:
+        """Alias untuk get_aging_report() dengan vendor_id=None (semua vendor).
+
+        Ditambahkan karena fastapi_ap_router.py memanggil
+        `ap_svc.get_aging_all_vendors(legal_entity_id, as_of_date)` — nama
+        method ini tidak pernah ada di APService (menyebabkan
+        AttributeError), padahal logic yang sama persis sudah ada dan
+        teruji di get_aging_report() di bawah. Method ini murni pemetaan
+        nama, tidak menduplikasi logic.
+        """
+        return await self.get_aging_report(
+            legal_entity_id, as_of_date=as_of_date, vendor_id=None
+        )
+
     async def get_aging_report(
         self, legal_entity_id: UUID, as_of_date: date | None = None, vendor_id: UUID | None = None
     ) -> APAgingReportDTO:

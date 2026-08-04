@@ -554,6 +554,23 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             offset=offset
         )
 
+    async def list_open_invoices(
+        self, legal_entity_id: UUID, vendor_id: UUID | None = None, limit: int = 1000, offset: int = 0
+    ) -> list[APInvoiceAggregate]:
+        conditions = [
+            APInvoiceTable.legal_entity_id == legal_entity_id,
+            APInvoiceTable.status.in_(["approved", "partially_paid"]),
+            APInvoiceTable.deleted_at.is_(None),
+        ]
+        if vendor_id is not None:
+            conditions.append(APInvoiceTable.vendor_id == vendor_id)
+        return await self._fetch_invoices(
+            conditions,
+            order_by=APInvoiceTable.invoice_date.desc(),
+            limit=limit,
+            offset=offset,
+        )
+
     async def find_invoices_by_vendor(self, vendor_id: UUID, limit: int = 100, offset: int = 0) -> list[APInvoiceAggregate]:
         return await self.find_by_vendor(vendor_id, limit, offset)
 
@@ -748,7 +765,7 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             raise APRepositoryError(f"Failed to perform 3-way match: {e}") from e
 
     # ========================================================================
-    # AGING BUCKETS — DIPERBAIKI (satu query agregasi, tanpa loop)
+    # AGING BUCKETS ï¿½ DIPERBAIKI (satu query agregasi, tanpa loop)
     # ========================================================================
 
     async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Decimal]:

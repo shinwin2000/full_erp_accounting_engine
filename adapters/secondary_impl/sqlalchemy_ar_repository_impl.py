@@ -660,6 +660,35 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     # QUERY METHODS — DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
+    async def list_invoices(
+        self,
+        legal_entity_id: UUID,
+        customer_id: UUID | None = None,
+        status: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ARInvoiceAggregate]:
+        conditions = [
+            ARInvoiceTable.legal_entity_id == legal_entity_id,
+            ARInvoiceTable.deleted_at.is_(None),
+        ]
+        if customer_id is not None:
+            conditions.append(ARInvoiceTable.customer_id == customer_id)
+        if status is not None:
+            conditions.append(ARInvoiceTable.status == status)
+        if from_date is not None:
+            conditions.append(ARInvoiceTable.invoice_date >= from_date)
+        if to_date is not None:
+            conditions.append(ARInvoiceTable.invoice_date <= to_date)
+        return await self._fetch_invoices(
+            conditions,
+            order_by=ARInvoiceTable.invoice_date.desc(),
+            limit=limit,
+            offset=offset,
+        )
+    
     async def find_by_customer(
         self, customer_id: UUID, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[ARInvoiceAggregate]:
