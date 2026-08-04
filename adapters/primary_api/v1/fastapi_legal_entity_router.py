@@ -439,7 +439,7 @@ async def get_legal_entity_service(request: Request) -> Any:
     from application.service_layer.service_legal_entity import LegalEntityService
 
     container = request.app.state.container
-    return container.resolve(LegalEntityService)
+    return await container.resolve_async(LegalEntityService)
 
 
 # ============================================================================
@@ -452,8 +452,53 @@ router = APIRouter(prefix="/legal-entities", tags=["Legal Entity"])
 # ----------------------------------------------------------------------------
 # LEGAL ENTITY CRUD
 # ----------------------------------------------------------------------------
+async def get_unit_of_work(request: Request) -> Any:
+    """Resolve UnitOfWork dari container (perhatian: terdaftar sebagai singleton)."""
+    from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+    container = request.app.state.container
+    return await container.resolve_async(UnitOfWorkPort)
 
 
+class LegalEntityLoginOptionSchema(BaseModel):
+    """Skema minim untuk dropdown pemilihan entity di layar login (TANPA auth)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    legal_name: str
+    trade_name: str | None = None
+
+
+@router.get(
+    "/login-options",
+    response_model=list[LegalEntityLoginOptionSchema],
+    summary="List active legal entities for login screen (public, no auth)",
+    operation_id="legal_list_login_options",
+)
+async def list_legal_entities_for_login(
+    uow: Any = Depends(get_unit_of_work),
+) -> list[LegalEntityLoginOptionSchema]:
+    """
+    Endpoint publik TANPA autentikasi. Hanya mengembalikan id + nama
+    entity yang aktif — dipakai UI login untuk mengisi dropdown Legal
+    Entity sebelum user punya token. TIDAK mengembalikan data sensitif
+    (NPWP, alamat, dll) karena bisa diakses tanpa login.
+    """
+    try:
+        async with uow:
+            entities = await uow.legal_entities().find_all_active()
+            return [
+                LegalEntityLoginOptionSchema(
+                    id=e.id,
+                    legal_name=e.legal_name,
+                    trade_name=e.entity_name if e.entity_name != e.legal_name else None,
+                )
+                for e in entities
+            ]
+    except Exception as e:
+        logger.exception("Failed to list legal entities for login: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
 @router.post(
     "/",
     response_model=LegalEntityResponseSchema,

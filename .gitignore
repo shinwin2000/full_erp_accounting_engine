@@ -130,3 +130,12 @@ temp/
 
 .env
 .env.*
+
++++ .gitignore (修改后)
+```
+# Environment variables
+.env
+
+# Reports and generated files
+checker_reports/
+```

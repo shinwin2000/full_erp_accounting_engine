@@ -4,6 +4,10 @@ ui/login_window.py
 Layar login. Memanggil POST /api/v1/iam/login (lihat api_client.login).
 Menangani MFA (kode 6 digit) dan pemilihan legal entity bila user
 terhubung ke lebih dari satu entitas.
+
+Daftar Legal Entity diambil otomatis dari endpoint publik
+GET /api/v1/legal-entities/login-options (tidak butuh token), sehingga
+tidak ada UUID yang di-hardcode di source code.
 """
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -37,6 +42,7 @@ class LoginWindow(QWidget):
         self.setWindowTitle(f"Masuk — {APP_NAME}")
         self.resize(420, 560)
         self._build_ui()
+        self._load_legal_entities()
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -85,10 +91,12 @@ class LoginWindow(QWidget):
         self.mfa_edit.setMaxLength(6)
         form.addRow("Kode MFA", self.mfa_edit)
 
-        self.legal_entity_edit = QLineEdit()
-        self.legal_entity_edit.setPlaceholderText("Legal Entity ID")
-        self.legal_entity_edit.setText("d4785e85-a647-46dc-8fe2-fc64b5188f37")
-        form.addRow("Legal Entity", self.legal_entity_edit)
+        # Legal Entity — diisi otomatis dari server (lihat _load_legal_entities),
+        # bukan hardcoded. Disabled sampai data selesai dimuat.
+        self.legal_entity_combo = QComboBox()
+        self.legal_entity_combo.addItem("Memuat...", None)
+        self.legal_entity_combo.setEnabled(False)
+        form.addRow("Legal Entity", self.legal_entity_combo)
 
         card_layout.addLayout(form)
 
@@ -116,23 +124,58 @@ class LoginWindow(QWidget):
         outer.addWidget(card)
 
     # ------------------------------------------------------------------
+    # Legal Entity — dimuat otomatis dari server
+    # ------------------------------------------------------------------
+    def _load_legal_entities(self) -> None:
+        """Ambil daftar legal entity aktif dari server (endpoint publik, tanpa token)."""
+        run_task(
+            api_client.list_legal_entity_login_options,
+            on_success=self._on_legal_entities_loaded,
+            on_error=self._on_legal_entities_error,
+        )
+
+    def _on_legal_entities_loaded(self, items: list[dict]) -> None:
+        self.legal_entity_combo.clear()
+        if not items:
+            self.legal_entity_combo.addItem("Tidak ada legal entity aktif", None)
+            self.legal_entity_combo.setEnabled(False)
+            return
+        for item in items:
+            label = item["legal_name"]
+            if item.get("trade_name"):
+                label += f" ({item['trade_name']})"
+            self.legal_entity_combo.addItem(label, item["id"])
+        self.legal_entity_combo.setEnabled(True)
+
+    def _on_legal_entities_error(self, message: str) -> None:
+        self.legal_entity_combo.clear()
+        self.legal_entity_combo.addItem("Gagal memuat daftar entity", None)
+        self.legal_entity_combo.setEnabled(False)
+        self._show_error(f"Tidak bisa memuat daftar Legal Entity dari server: {message}")
+
+    # ------------------------------------------------------------------
     def _set_loading(self, loading: bool) -> None:
         self.login_btn.setEnabled(not loading)
         self.login_btn.setText("Memproses..." if loading else "Masuk")
         self.username_edit.setEnabled(not loading)
         self.password_edit.setEnabled(not loading)
         self.mfa_edit.setEnabled(not loading)
+        # Combo tetap disabled kalau memang belum ada data untuk dipilih.
+        self.legal_entity_combo.setEnabled(not loading and self.legal_entity_combo.count() > 0)
 
     def _do_login(self) -> None:
         settings.api_base_url = self.server_edit.text().strip() or settings.api_base_url
         username = self.username_edit.text().strip()
         password = self.password_edit.text()
         mfa = self.mfa_edit.text().strip() or None
-        legal_entity_id = self.legal_entity_edit.text().strip() or None
+        legal_entity_id = self.legal_entity_combo.currentData()
 
         self.error_label.setVisible(False)
         if not username or not password:
             self._show_error("Username dan password wajib diisi.")
+            return
+        if not legal_entity_id:
+            self._show_error("Pilih Legal Entity terlebih dahulu.")
             return
 
         self._set_loading(True)

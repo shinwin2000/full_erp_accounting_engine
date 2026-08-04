@@ -60,9 +60,18 @@ class FiscalPeriodRepositoryPort(ABC):
         offset: int = 0,
         from_year: int | None = None,
         to_year: int | None = None,
+        status: str | None = None,
     ) -> list[FiscalPeriod]:
         """
         Mendaftar periode fiskal untuk suatu legal entity dengan pagination dan filter tahun.
+
+        Args:
+            legal_entity_id: ID entitas legal
+            limit: Jumlah maksimum hasil
+            offset: Offset untuk pagination
+            from_year: Filter tahun awal (opsional)
+            to_year: Filter tahun akhir (opsional)
+            status: Filter status (opsional), bisa string atau PeriodStatus enum
         """
         pass
 

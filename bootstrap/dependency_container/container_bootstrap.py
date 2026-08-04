@@ -35,14 +35,42 @@ def initialize_container() -> None:
     logger.info("Adapter registry completed")
 
     # Service registry
+    # FIX: sebelumnya, jika dipanggil dari dalam running event loop,
+    # `loop.create_task(...)` hanya MENJADWALKAN coroutine tanpa menunggunya
+    # selesai (fire-and-forget). Akibatnya initialize_container() bisa return
+    # SEBELUM ServiceRegistrar.register_all() benar-benar selesai mendaftarkan
+    # service, menyebabkan DependencyNotFoundError yang intermiten (race
+    # condition) pada request pertama setelah startup.
     try:
-        loop = asyncio.get_running_loop()
-        if loop.is_running():
-            loop.create_task(ServiceRegistrar.register_all(container))
-            logger.info("Service registry scheduled on existing loop")
-        else:
-            asyncio.run(ServiceRegistrar.register_all(container))
+        asyncio.get_running_loop()
+        running_in_loop = True
     except RuntimeError:
+        running_in_loop = False
+
+    if running_in_loop:
+        # Tidak bisa memakai asyncio.run() di dalam loop yang sudah berjalan,
+        # dan initialize_container() ini sendiri bukan fungsi async (tidak bisa
+        # di-`await`). Sebagai gantinya kita jalankan registrasi secara blocking
+        # lewat thread terpisah dengan event loop barunya sendiri, supaya
+        # register_all() benar-benar SELESAI sebelum initialize_container()
+        # return (bukan fire-and-forget seperti sebelumnya).
+        # Catatan: pemanggil yang sudah berada di dalam coroutine async
+        # sebaiknya memanggil `await ServiceRegistrar.register_all(container)`
+        # secara langsung (seperti yang dilakukan app/main.py) daripada lewat
+        # initialize_container() ini.
+        import concurrent.futures
+
+        def _run_in_new_loop() -> None:
+            new_loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(new_loop)
+                new_loop.run_until_complete(ServiceRegistrar.register_all(container))
+            finally:
+                new_loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(_run_in_new_loop).result()
+    else:
         asyncio.run(ServiceRegistrar.register_all(container))
     logger.info("Service registry completed")
 

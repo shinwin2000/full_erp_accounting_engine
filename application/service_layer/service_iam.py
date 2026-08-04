@@ -5,6 +5,7 @@ Layer: Application / Service Layer
 Responsibility: IAM service (identity and access management).
                Memperbaiki: set_context(), login(), authenticate(),
                dan konversi UserAggregate -> UserEntity.
+FIX v10: Tambahkan logging untuk permission yang dihasilkan, agar mudah debugging.
 """
 
 from __future__ import annotations
@@ -1188,19 +1189,38 @@ class IAMService:
             if role:
                 role_names.append(role.role_name)
 
+        # ============================================================
+        # FIX: Ubah permissions dari PermissionVO object ke string
+        # ============================================================
+        permissions_list = [p.to_string for p in all_perms] if all_perms else []
+
+        # ============================================================
+        # LOGGING untuk debugging
+        # ============================================================
+        logger.info(
+            f"User {username} (id={user.user_id}) permissions: {permissions_list}"
+        )
+        logger.info(
+            f"User {username} roles: {role_names}"
+        )
+        if not permissions_list:
+            logger.warning(
+                f"⚠️  User {username} has NO permissions! Check role assignments and permission mappings."
+            )
+
         access_token = await self._token_issuer.create_access_token(
             user_id=user.user_id,
             username=user.username,
             legal_entity_id=user.legal_entity_id,
             roles=role_names,
-            permissions=list(all_perms),
+            permissions=permissions_list,  # <-- string list
         )
         refresh_token = await self._token_issuer.create_refresh_token(
             user_id=user.user_id,
             username=user.username,
             legal_entity_id=user.legal_entity_id,
             roles=role_names,
-            permissions=list(all_perms),
+            permissions=permissions_list,  # <-- string list
         )
 
         self._stats["logins"] += 1

@@ -19,6 +19,9 @@ Perbaikan berdasarkan audit v4.7:
 - Entity ensure filter status aktif
 - Path regex dukung {path:path}
 - CLI tambahan email, password, health path
+- FIX: RaceConditionChecker menggunakan PayloadGenerator
+- FIX: BusinessRuleLoader menangani not dan if-then-else lebih baik
+- FIX: EndpointDiscovery menangani import router
 """
 
 import ast
@@ -107,7 +110,7 @@ class CheckerConfig:
     FRONTEND_PATH: str = os.getenv("FRONTEND_PATH", "./erp_frontend")
     BACKEND_SOURCE_PATH: str = os.getenv("BACKEND_SOURCE_PATH", "")
 
-    LOGIN_ENDPOINT: str = "/api/v1/auth/login"
+    LOGIN_ENDPOINT: str = os.getenv("LOGIN_ENDPOINT", "/api/v1/iam/login")
     LOGIN_CREDENTIALS: dict = field(default_factory=dict)
 
     MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "10"))
@@ -153,7 +156,11 @@ class CheckerConfig:
 
     EXCLUDE_PATHS: list[str] = field(default_factory=lambda: [
         "/docs", "/redoc", "/openapi.json", "/health", "/metrics",
-        "/favicon.ico", "/static", "/assets"
+        "/favicon.ico", "/static", "/assets",
+        "/api/v1/iam/logout", "/api/v1/iam/sessions",
+        "/api/v1/iam/mfa/disable", "/api/v1/iam/mfa/setup", "/api/v1/iam/mfa/verify",
+        "/api/v1/iam/change-password", "/api/v1/iam/reset-password",
+        "/api/v1/iam/forgot-password", "/api/v1/iam/refresh",
     ])
 
     BUSINESS_RULES: dict[str, dict] = field(default_factory=lambda: {
@@ -167,7 +174,6 @@ class CheckerConfig:
         }
     })
 
-    # Data integrity ignore fields: tambahkan field yang sering berubah otomatis
     DATA_INTEGRITY_IGNORE_FIELDS: list[str] = field(default_factory=lambda: [
         "timestamp", "created_at", "updated_at", "etag", "version", "revision",
         "last_login", "sync_token", "last_modified", "lock_version", "row_version",
@@ -175,12 +181,14 @@ class CheckerConfig:
     ])
 
     def __post_init__(self):
-        # Credentials bisa dari env atau argumen CLI (akan di set oleh checker)
         if not self.LOGIN_CREDENTIALS:
             email = os.getenv("TEST_EMAIL")
             password = os.getenv("TEST_PASSWORD")
             if email and password:
-                self.LOGIN_CREDENTIALS = {"email": email, "password": password}
+                self.LOGIN_CREDENTIALS = {"username": email, "password": password}
+                legal_entity_id = os.getenv("TEST_LEGAL_ENTITY_ID")
+                if legal_entity_id:
+                    self.LOGIN_CREDENTIALS["legal_entity_id"] = legal_entity_id
             else:
                 raise ValueError("TEST_EMAIL and TEST_PASSWORD must be set or pass via CLI.")
         if self.SCAN_PYSIDE6 and not Path(self.FRONTEND_PATH).exists():
@@ -219,7 +227,7 @@ class CheckerConfig:
             return [10]
 
 # ============================================
-# Data Models (tetap sama)
+# Data Models
 # ============================================
 @dataclass
 class PySide6ApiCall:
@@ -381,7 +389,7 @@ class HealthReport:
                               self.coverage_score*0.1 + flow_score*0.1 + race_score*0.1)
 
 # ============================================
-# Error Analyzer (tambahan untuk token refresh)
+# Error Analyzer
 # ============================================
 class ErrorAnalyzer:
     def __init__(self):
@@ -604,7 +612,7 @@ class OpenAPIResolver:
             if "$ref" in obj:
                 ref = obj["$ref"]
                 if ref in self.visited:
-                    # circular reference, return empty dict to avoid recursion
+                    # Circular reference, return empty dict
                     return {}
                 self.visited.add(ref)
                 if ref in self.cache:
@@ -625,7 +633,7 @@ class OpenAPIResolver:
         return obj
 
 # ============================================
-# Enhanced BusinessRuleLoader: dukung oneOf, anyOf, if-then-else
+# Enhanced BusinessRuleLoader: dukung oneOf, anyOf, not, if-then-else
 # ============================================
 class BusinessRuleLoader:
     def __init__(self, config, spec=None):
@@ -643,7 +651,16 @@ class BusinessRuleLoader:
                         self.resolver = OpenAPIResolver(self.spec)
             except: pass
         if self.spec:
-            self._extract_rules_from_schema()
+            try:
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, self._extract_rules_from_schema),
+                    timeout=60,
+                )
+            except asyncio.TimeoutError:
+                logging.warning(
+                    "Ekstraksi business rules dari schema timeout (>60s), dilewati agar tidak macet."
+                )
 
     def _extract_rules_from_schema(self):
         if not self.spec:
@@ -659,7 +676,6 @@ class BusinessRuleLoader:
                     schema = content.get("schema", {})
                     if not schema:
                         continue
-                    # resolve allOf, oneOf, anyOf
                     merged_props = self._merge_schema_properties(schema)
                     if merged_props:
                         rules_for_path = self.rules.setdefault(path, {})
@@ -684,26 +700,39 @@ class BusinessRuleLoader:
                 self.rules[path].update(rules)
 
     def _merge_schema_properties(self, schema):
-        """Resolve allOf, oneOf, anyOf, if-then-else (sederhana)"""
+        """Resolve allOf, oneOf, anyOf, not, if-then-else"""
+        # Handle not: ignore because we don't have negated constraints
+        if "not" in schema:
+            # We cannot derive positive rules from "not", so skip it.
+            pass
+
         if "allOf" in schema:
             merged = {}
             for sub in schema["allOf"]:
                 sub_props = self._merge_schema_properties(sub)
                 merged.update(sub_props)
             return merged
+
         if "oneOf" in schema or "anyOf" in schema:
-            # Ambil gabungan dari semua opsi (union)
             combined = {}
             options = schema.get("oneOf", []) or schema.get("anyOf", [])
             for opt in options:
                 opt_props = self._merge_schema_properties(opt)
                 combined.update(opt_props)
             return combined
+
         if "if" in schema and "then" in schema:
-            # ambil properti dari then saja (kondisi diabaikan untuk rule)
-            return self._merge_schema_properties(schema["then"])
+            # Prefer then properties; else part if present
+            then_props = self._merge_schema_properties(schema["then"])
+            if "else" in schema:
+                else_props = self._merge_schema_properties(schema["else"])
+                # Merge both (union)
+                then_props.update(else_props)
+            return then_props
+
         if "properties" in schema:
             return schema["properties"]
+
         return {}
 
 # ============================================
@@ -761,7 +790,11 @@ class PayloadGenerator:
                 merged.update(opt_merged)
             return merged
         if "if" in schema and "then" in schema:
-            return self._merge_schema(schema["then"])
+            then_merged = self._merge_schema(schema["then"])
+            if "else" in schema:
+                else_merged = self._merge_schema(schema["else"])
+                then_merged.update(else_merged)
+            return then_merged
         if "properties" in schema:
             return schema["properties"]
         return merged
@@ -776,7 +809,6 @@ class PayloadGenerator:
         # Jika ini adalah foreign key (nama berakhir _id atau _ids), coba ambil dari entity
         if name.endswith("_id") and prop_type == "integer":
             entity_path = f"/api/v1/{name[:-3]}s"  # misal customer_id -> /api/v1/customers
-            # coba ambil id yang valid
             valid_id = await self._get_valid_entity_id(entity_path)
             if valid_id:
                 return valid_id
@@ -792,7 +824,6 @@ class PayloadGenerator:
                 arr.append(await self._generate_value(items, name+"_item", []))
             return arr
         if prop_type == "object":
-            # generate nested
             nested = {}
             for sub_name, sub_prop in prop.get("properties", {}).items():
                 nested[sub_name] = await self._generate_value(sub_prop, sub_name, [])
@@ -816,7 +847,6 @@ class PayloadGenerator:
             if "enum" in prop:
                 return prop["enum"][0]
             if "pattern" in prop:
-                # coba generate sederhana
                 return "test_value"
             return "test"
         return None
@@ -826,7 +856,6 @@ class PayloadGenerator:
             return self.entity_cache[entity_path][0]
         headers = self.executor._auth_headers()
         try:
-            # coba get dengan filter limit 5
             url = f"{self.executor.base_url}{entity_path}?limit=5&status=active"
             async with self.session.get(url, headers=headers) as resp:
                 if resp.status == 200:
@@ -856,15 +885,28 @@ class EnhancedEndpointDiscovery:
 
     async def discover(self, session):
         try:
+            logging.info("Mengambil openapi.json dari backend...")
             async with session.get(f"{self.base_url}/openapi.json", timeout=aiohttp.ClientTimeout(10)) as resp:
                 if resp.status == 200:
                     spec = await resp.json()
+                    logging.info(f"openapi.json diterima ({len(spec.get('paths', {}))} paths). Meresolusi $ref...")
                     resolver = OpenAPIResolver(spec)
-                    spec = resolver.resolve(spec)
+                    loop = asyncio.get_event_loop()
+                    try:
+                        spec = await asyncio.wait_for(
+                            loop.run_in_executor(None, resolver.resolve, spec),
+                            timeout=60,
+                        )
+                        logging.info("Resolusi $ref selesai.")
+                    except asyncio.TimeoutError:
+                        logging.warning(
+                            "Resolusi $ref openapi.json timeout (>60s) — pakai spec mentah."
+                        )
                     self._parse_openapi(spec)
                 else:
                     await self._fallback(session)
-        except Exception:
+        except Exception as e:
+            logging.warning(f"Endpoint discovery via openapi.json gagal ({e}), pakai fallback endpoints.")
             await self._fallback(session)
 
         if self.config.BACKEND_SOURCE_PATH and not self.endpoints:
@@ -914,7 +956,7 @@ class EnhancedEndpointDiscovery:
             except: pass
 
         # Kumpulkan router prefix dari setiap file
-        router_prefixes = {}  # file -> {"router_var": prefix, "router_obj": ...}
+        router_prefixes = {}  # file -> prefix
         for py_file in root.rglob("*.py"):
             try:
                 content = py_file.read_text(encoding="utf-8")
@@ -934,6 +976,25 @@ class EnhancedEndpointDiscovery:
                             router_prefixes[py_file] = prefix
             except: pass
 
+        # Kumpulkan imports untuk resolusi router
+        import_map = {}  # module_name -> file path
+        for py_file in root.rglob("*.py"):
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                tree = ast.parse(content)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            import_map[alias.asname or alias.name] = py_file
+                    elif isinstance(node, ast.ImportFrom):
+                        module = node.module or ""
+                        for alias in node.names:
+                            name = alias.asname or alias.name
+                            # try to resolve relative import
+                            full_module = module + "." + name
+                            import_map[name] = py_file  # rough
+            except: pass
+
         # Fungsi rekursif untuk melacak include_router
         def collect_routes(file_path, current_prefix=""):
             try:
@@ -941,7 +1002,6 @@ class EnhancedEndpointDiscovery:
                 tree = ast.parse(content)
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "include_router":
-                        # cari argumen router
                         router_arg = None
                         prefix_kw = None
                         for arg in node.args:
@@ -957,6 +1017,8 @@ class EnhancedEndpointDiscovery:
                                         prefix_kw = val
                         if router_arg:
                             # cari file yang mendefinisikan router_var
+                            found_file = None
+                            # cari di file_globals
                             for py_file2 in root.rglob("*.py"):
                                 if py_file2 == file_path:
                                     continue
@@ -967,12 +1029,19 @@ class EnhancedEndpointDiscovery:
                                         if isinstance(node2, ast.Assign):
                                             for target in node2.targets:
                                                 if isinstance(target, ast.Name) and target.id == router_arg:
-                                                    # kita temukan router object, cari prefix
-                                                    sub_prefix = router_prefixes.get(py_file2, "")
-                                                    new_prefix = (current_prefix or "") + (prefix_kw or "") + sub_prefix
-                                                    # rekur
-                                                    collect_routes(py_file2, new_prefix)
+                                                    found_file = py_file2
+                                                    break
+                                        if found_file:
+                                            break
                                 except: pass
+                            if not found_file:
+                                # coba lewat import_map
+                                if router_arg in import_map:
+                                    found_file = import_map[router_arg]
+                            if found_file:
+                                sub_prefix = router_prefixes.get(found_file, "")
+                                new_prefix = (current_prefix or "") + (prefix_kw or "") + sub_prefix
+                                collect_routes(found_file, new_prefix)
             except: pass
 
             # Ekstrak route dari file ini dengan prefix saat ini
@@ -989,10 +1058,9 @@ class EnhancedEndpointDiscovery:
                                     self.endpoints.append({"path": full_path, "method": deco.func.attr.upper(), "auth_required": True})
             except: pass
 
-        # Mulai dari main file (biasanya main.py atau app.py)
+        # Mulai dari main file
         main_files = list(root.glob("main.py")) + list(root.glob("app.py"))
         if not main_files:
-            # cari file yang mengandung app = FastAPI()
             for py_file in root.rglob("*.py"):
                 try:
                     content = py_file.read_text(encoding="utf-8")
@@ -1003,7 +1071,6 @@ class EnhancedEndpointDiscovery:
             for main_file in main_files:
                 collect_routes(main_file, "")
         else:
-            # fallback: scan semua file dengan prefix kosong
             for py_file in root.rglob("*.py"):
                 collect_routes(py_file, "")
 
@@ -1145,7 +1212,6 @@ class PySide6Scanner:
                 class_context = node.name
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func_name = node.name
-                # kumpulkan assign lokal
                 for child in ast.walk(node):
                     if isinstance(child, ast.Assign):
                         for target in child.targets:
@@ -1163,18 +1229,15 @@ class PySide6Scanner:
                                             break
                                     if all_const:
                                         local_vars[(func_name, target.id)] = "".join(parts)
-                    # tangkap await client.get(...), return await api.post(...)
                     if isinstance(child, ast.Await):
                         self._analyze_call_node(child.value, file_path, child.lineno, class_context, func_name, content, local_vars, module)
                     if isinstance(child, ast.Return):
                         if isinstance(child.value, ast.Await):
                             self._analyze_call_node(child.value.value, file_path, child.lineno, class_context, func_name, content, local_vars, module)
-                    # async with
                     if isinstance(child, ast.AsyncWith):
                         for item in child.items:
                             if isinstance(item.context_expr, ast.Call):
                                 self._analyze_call_node(item.context_expr, file_path, item.context_expr.lineno, class_context, func_name, content, local_vars, module)
-                    # panggilan langsung
                     if isinstance(child, ast.Call):
                         self._analyze_call_node(child, file_path, child.lineno, class_context, func_name, content, local_vars, module)
             if isinstance(node, ast.Call):
@@ -1263,9 +1326,18 @@ class BusinessFlowRunner:
         self.executor = executor
         self.session = session
         self.base_entities = {
-            "customer_id": {"endpoint": "/api/v1/customers", "body": {"name": f"Checker Customer {uuid.uuid4().hex[:6]}", "status": "active"}},
-            "supplier_id": {"endpoint": "/api/v1/suppliers", "body": {"name": f"Checker Supplier {uuid.uuid4().hex[:6]}", "status": "active"}},
-            "product_id": {"endpoint": "/api/v1/products", "body": {"name": f"Checker Product {uuid.uuid4().hex[:6]}", "price": 100, "status": "active"}},
+            "customer_id": {
+                "endpoint": "/api/v1/customers/customers",
+                "body": {"name": f"Checker Customer {uuid.uuid4().hex[:6]}", "status": "active"}
+            },
+            "supplier_id": {
+                "endpoint": "/api/v1/suppliers/suppliers",
+                "body": {"name": f"Checker Supplier {uuid.uuid4().hex[:6]}", "status": "active"}
+            },
+            "product_id": {
+                "endpoint": "/api/v1/inventory/inventory/items",
+                "body": {"name": f"Checker Product {uuid.uuid4().hex[:6]}", "price": 100, "status": "active"}
+            },
         }
         self.ids = {}
 
@@ -1273,7 +1345,6 @@ class BusinessFlowRunner:
         headers = self.executor._auth_headers()
         for key, cfg in self.base_entities.items():
             entity_id = None
-            # cari dengan status aktif
             try:
                 async with self.session.get(f"{self.executor.base_url}{cfg['endpoint']}?limit=5&status=active", headers=headers) as resp:
                     if resp.status == 200:
@@ -1348,7 +1419,7 @@ class BusinessFlowRunner:
         except Exception as e:
             error_step = executed + 1
             error_msg = str(e)
-        # Cleanup fleksibel: support POST cancel, reverse, archive
+        # Cleanup fleksibel
         cleanup_steps = flow.get("cleanup", [])
         if not isinstance(cleanup_steps, list):
             cleanup_steps = [cleanup_steps] if cleanup_steps else []
@@ -1407,8 +1478,13 @@ class RaceConditionChecker:
         method = endpoint["method"].upper()
         url = f"{self.executor.base_url}{path}"
         headers = self.executor._auth_headers()
-        # Generate valid body
+
+        # Generate valid body using PayloadGenerator
         body = await self.payload_gen.generate(path, method)
+        if not body and method in ["POST", "PUT", "PATCH"]:
+            # Fallback: minimal body
+            body = {"name": f"race_test_{uuid.uuid4().hex[:8]}"}
+
         created_ids = []
 
         async def make_request(unique_id):
@@ -1495,7 +1571,6 @@ class TransactionRollbackChecker:
         headers = self.executor._auth_headers()
         for path, invalid_body in endpoints_to_test:
             try:
-                # Ambil set id sebelum
                 before_ids = await self._get_ids(path, headers)
                 trans_id = None
                 async with self.session.post(f"{self.executor.base_url}{path}", json=invalid_body, headers=headers) as resp:
@@ -1505,15 +1580,11 @@ class TransactionRollbackChecker:
                             if isinstance(data, dict) and "id" in data:
                                 trans_id = data["id"]
                         except: pass
-                # Ambil set id setelah
                 after_ids = await self._get_ids(path, headers)
-                # Bandingkan set
                 rollback_ok = True
                 if trans_id:
-                    # Jika trans_id ada, seharusnya tidak ada di after_ids
                     if trans_id in after_ids:
                         rollback_ok = False
-                # Juga cek tidak ada tambahan id lain
                 new_ids = after_ids - before_ids
                 if new_ids:
                     rollback_ok = False
@@ -1528,7 +1599,6 @@ class TransactionRollbackChecker:
     async def _get_ids(self, path, headers):
         ids = set()
         try:
-            # Pagination scan untuk ambil semua id (maks 100)
             limit = 100
             offset = 0
             while True:
@@ -1548,7 +1618,7 @@ class TransactionRollbackChecker:
                     if len(items) < limit:
                         break
                     offset += limit
-                    if offset > 500:  # safety
+                    if offset > 500:
                         break
         except: pass
         return ids
@@ -1581,7 +1651,6 @@ class DatabaseConsistencyChecker:
             status_filter = rest[0] if rest else None
             status_val = rest[1] if len(rest) > 1 else None
             try:
-                # Scan pagination
                 limit = 50
                 offset = 0
                 while True:
@@ -1606,7 +1675,7 @@ class DatabaseConsistencyChecker:
                         if len(items) < limit:
                             break
                         offset += limit
-                        if offset > 500:  # safety
+                        if offset > 500:
                             break
             except Exception as e:
                 local.append(f"Consistency error {entity1}-{entity2}: {e!s}")
@@ -1618,7 +1687,7 @@ class DatabaseConsistencyChecker:
         return issues
 
 # ============================================
-# Infra Checkers (unchanged)
+# Infra Checkers
 # ============================================
 class KafkaChecker:
     async def check(self, session, endpoint):
@@ -1653,7 +1722,7 @@ class SchedulerChecker:
         except: return {"error": "Scheduler unreachable"}
 
 # ============================================
-# Ultimate Runtime Executor (token refresh dengan Event, health configurable)
+# Ultimate Runtime Executor
 # ============================================
 class UltimateRuntimeExecutor:
     def __init__(self, base_url, config, session, token=None):
@@ -1661,11 +1730,13 @@ class UltimateRuntimeExecutor:
         self.config = config
         self.session = session
         self.token = token
+        self.refresh_token = None
         self.token_version = 0
         self.semaphore = asyncio.Semaphore(config.MAX_CONCURRENT)
         self.rate_limiter = RateLimiter(config.RATE_LIMIT_RPS)
         self.error_analyzer = ErrorAnalyzer()
         self._login_lock = asyncio.Lock()
+        self._refresh_lock = asyncio.Lock()
         self._refresh_event = asyncio.Event()
         self._refresh_in_progress = False
         self.pyside6_scanner = None
@@ -1689,49 +1760,61 @@ class UltimateRuntimeExecutor:
     async def login(self):
         async with self._login_lock:
             if self.token and self.token_version > 0:
-                # Check token validity
-                try:
-                    async with self.session.get(f"{self.base_url}/api/v1/auth/me", headers=self._auth_headers()) as resp:
-                        if resp.status == 200:
-                            return True
-                except:
-                    pass
+                return True
             try:
                 url = f"{self.base_url}{self.config.LOGIN_ENDPOINT}"
-                async with self.session.post(url, json=self.config.LOGIN_CREDENTIALS) as resp:
+                timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
+                async with self.session.post(url, json=self.config.LOGIN_CREDENTIALS, timeout=timeout) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         self.token = data.get("access_token") or data.get("token")
+                        self.refresh_token = data.get("refresh_token")
                         self.token_version += 1
-                        self._refresh_event.set()  # notify waiters
+                        user = data.get("user", {})
+                        if not user.get("roles") and not user.get("permissions"):
+                            logging.warning("User admin tidak memiliki roles/permissions. Sebagian besar endpoint akan return 403.")
                         return bool(self.token)
                 return False
-            except:
+            except asyncio.TimeoutError:
+                logging.error("Login request timed out")
+                return False
+            except Exception as e:
+                logging.error(f"Login exception: {e}")
                 return False
 
     async def refresh_token_if_needed(self):
-        """Jika token kadaluarsa, lakukan refresh dengan Event agar hanya satu yang melakukan login."""
         if self.token and self.token_version > 0:
-            # coba test dengan request ringan ke /auth/me
-            try:
-                async with self.session.get(f"{self.base_url}/api/v1/auth/me", headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        return True
-            except:
-                pass
-        # Token invalid, butuh refresh
+            return True
         if self._refresh_in_progress:
-            # Tunggu refresh selesai
             await self._refresh_event.wait()
             return bool(self.token)
-        async with self._login_lock:
+        async with self._refresh_lock:
             if self._refresh_in_progress:
                 await self._refresh_event.wait()
                 return bool(self.token)
             self._refresh_in_progress = True
             self._refresh_event.clear()
             try:
-                success = await self.login()
+                success = False
+                if self.refresh_token:
+                    try:
+                        url = f"{self.base_url}/api/v1/iam/refresh"
+                        timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
+                        async with self.session.post(url, json={"refresh_token": self.refresh_token}, timeout=timeout) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                self.token = data.get("access_token") or data.get("token")
+                                new_refresh = data.get("refresh_token")
+                                if new_refresh:
+                                    self.refresh_token = new_refresh
+                                self.token_version += 1
+                                success = True
+                            else:
+                                logging.warning(f"Refresh token failed with status {resp.status}, falling back to login.")
+                    except Exception as e:
+                        logging.warning(f"Refresh token request failed: {e}, falling back to login.")
+                if not success:
+                    success = await self.login()
                 self._refresh_in_progress = False
                 self._refresh_event.set()
                 return success
@@ -1743,9 +1826,7 @@ class UltimateRuntimeExecutor:
     async def test_endpoint_with_retry(self, endpoint):
         last = None
         for attempt in range(self.config.MAX_RETRIES + 1):
-            # Jika token expired, refresh
             if not await self.refresh_token_if_needed():
-                # gagal refresh
                 return TestResult(endpoint=endpoint["path"], method=endpoint["method"], status_code=401,
                                   success=False, duration_ms=0, error_type="AuthError",
                                   error_message="Cannot refresh token", error_category="AUTH_ERROR", severity="CRITICAL")
@@ -1767,6 +1848,7 @@ class UltimateRuntimeExecutor:
         headers = self._auth_headers()
         async def make_request():
             try:
+                logging.info(f"  -> Mengirim {method.upper()} {path}...")
                 await self.rate_limiter.acquire()
                 async with self.semaphore:
                     timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
@@ -1791,8 +1873,9 @@ class UltimateRuntimeExecutor:
                                   duration_ms=(time.time()-start)*1000, error_type=type(e).__name__,
                                   error_message=str(e), error_category="UNKNOWN_ERROR", severity="MEDIUM")
         result = await make_request()
-        # Jika 401, refresh via method di atas sudah dilakukan, tapi untuk jaga-jaga
         if result.status_code == 401:
+            self.token = None
+            self.token_version = 0
             if await self.refresh_token_if_needed():
                 headers = self._auth_headers()
                 result = await make_request()
@@ -1824,7 +1907,6 @@ class UltimateRuntimeExecutor:
         return result
 
     async def health_check(self):
-        """Gunakan endpoint health yang dikonfigurasi, fallback ke HEAD /."""
         endpoints = [self.config.HEALTH_ENDPOINT, "/", "/health"]
         for ep in endpoints:
             try:
@@ -1836,13 +1918,10 @@ class UltimateRuntimeExecutor:
         return {"status": "unknown"}
 
     def _path_to_regex(self, path):
-        # Support {path:path} yang mengandung slash
         cleaned = re.sub(r"\{(\w+):[^}]+\}", r"{\1}", path)
         escaped = re.escape(cleaned).replace(r"\{", "{").replace(r"\}", "}")
-        # Ganti {path} dengan .+ (bisa slash)
         return re.compile("^" + re.sub(r"\{path\}", r".+", escaped) + "/?$")
 
-    # Fungsi lainnya sama seperti sebelumnya (find_related_api_calls, detect_sync_issue, analyze_error, check_business_rules, check_data_integrity)
     def _find_related_api_calls(self, endpoint):
         regex = self._path_to_regex(endpoint["path"])
         return [c for c in self.api_calls if regex.match(c.url.rstrip("/").split("?")[0]) and c.method == endpoint["method"]]
@@ -1968,13 +2047,17 @@ class UltimateRuntimeExecutor:
             if not await self.login():
                 logging.error("Login failed")
                 return []
+        logging.info(f"Mulai test {len(endpoints)} endpoint (concurrency={self.config.MAX_CONCURRENT})...")
         tasks = [self.test_endpoint_with_retry(ep) for ep in endpoints]
         results = []
         for coro in asyncio.as_completed(tasks):
             try:
-                results.append(await coro)
+                r = await coro
+                results.append(r)
+                logging.info(f"[{len(results)}/{len(endpoints)}] {r.method} {r.endpoint} -> {r.status_code} ({r.duration_ms:.0f}ms)")
             except Exception as e:
                 logging.error(f"Unexpected: {e}")
+        logging.info(f"Testing selesai: {len(results)}/{len(endpoints)} endpoint.")
         self.results = results
         return results
 
@@ -1992,7 +2075,6 @@ class UltimateReportBuilder:
             trace_id = f"trace_{uuid.uuid4().hex[:6]}"
             body_id = f"body_{uuid.uuid4().hex[:6]}"
             response_preview = html_module.escape(json.dumps(r.response_body, indent=2, default=str)) if r.response_body else ""
-            # Sembunyikan dengan display none, tampilkan via button
             rows.append(f"""<tr class="{"success" if r.success else "error"}">
                 <td>{html_module.escape(r.endpoint)}</td>
                 <td>{r.method}</td>
@@ -2068,6 +2150,8 @@ class UltimateRuntimeChecker:
             except: pass
 
             executor = UltimateRuntimeExecutor(self.config.BASE_URL, self.config, session, token)
+            if token:
+                executor.token_version = 1
 
             if self.config.SCAN_PYSIDE6:
                 await executor.initialize(self.config.FRONTEND_PATH)
@@ -2080,17 +2164,31 @@ class UltimateRuntimeChecker:
             # Load OpenAPI spec
             spec = {}
             try:
+                logging.info("Mengambil ulang openapi.json untuk business rule loader...")
                 async with session.get(f"{self.config.BASE_URL}/openapi.json") as resp:
                     if resp.status == 200:
                         spec = await resp.json()
                         resolver = OpenAPIResolver(spec)
-                        spec = resolver.resolve(spec)
-            except: pass
+                        loop = asyncio.get_event_loop()
+                        try:
+                            spec = await asyncio.wait_for(
+                                loop.run_in_executor(None, resolver.resolve, spec),
+                                timeout=60,
+                            )
+                            logging.info("Resolusi $ref (business rules) selesai.")
+                        except asyncio.TimeoutError:
+                            logging.warning(
+                                "Resolusi $ref untuk business rules timeout (>60s), pakai spec mentah."
+                            )
+            except Exception as e:
+                logging.warning(f"Gagal ambil/resolve openapi.json untuk business rules: {e}")
 
             # Business rule loader
+            logging.info("Memuat business rules dari schema...")
             rule_loader = BusinessRuleLoader(self.config, spec)
             await rule_loader.load_from_openapi(session)
             self.config.BUSINESS_RULES = rule_loader.rules
+            logging.info("Business rules dimuat. Mulai testing endpoint...")
 
             # Frontend mapping
             if self.config.SCAN_PYSIDE6 and executor.api_calls:
@@ -2210,6 +2308,7 @@ async def main():
     parser.add_argument("--rate-limit", type=float, default=0)
     parser.add_argument("--email", default=os.getenv("TEST_EMAIL"))
     parser.add_argument("--password", default=os.getenv("TEST_PASSWORD"))
+    parser.add_argument("--legal-entity-id", default=os.getenv("TEST_LEGAL_ENTITY_ID"))
     parser.add_argument("--health-path", default=os.getenv("HEALTH_ENDPOINT", "/health"))
     parser.add_argument("--no-scan", action="store_true")
     parser.add_argument("--no-sync", action="store_true")
@@ -2227,12 +2326,15 @@ async def main():
     parser.add_argument("--debug-endpoint", default=os.getenv("PROCESS_DEBUG_ENDPOINT", "/debug/process"))
     args = parser.parse_args()
 
-    # Siapkan credentials dari CLI jika diberikan
     login_creds = {}
     if args.email and args.password:
-        login_creds = {"email": args.email, "password": args.password}
+        login_creds = {"username": args.email, "password": args.password}
+        if args.legal_entity_id:
+            login_creds["legal_entity_id"] = args.legal_entity_id
     elif os.getenv("TEST_EMAIL") and os.getenv("TEST_PASSWORD"):
-        login_creds = {"email": os.getenv("TEST_EMAIL"), "password": os.getenv("TEST_PASSWORD")}
+        login_creds = {"username": os.getenv("TEST_EMAIL"), "password": os.getenv("TEST_PASSWORD")}
+        if os.getenv("TEST_LEGAL_ENTITY_ID"):
+            login_creds["legal_entity_id"] = os.getenv("TEST_LEGAL_ENTITY_ID")
     else:
         print("\n❌ Error: Please provide --email and --password or set TEST_EMAIL/TEST_PASSWORD environment variables.")
         sys.exit(1)

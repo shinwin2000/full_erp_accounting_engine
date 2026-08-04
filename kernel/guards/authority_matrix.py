@@ -86,6 +86,30 @@ class ResourceType(Enum):
     BUDGET = "budget"
     APPROVAL = "approval"
     AUDIT = "audit"
+    # --- Ditambahkan agar cocok dengan semua router yang terdaftar di app.main ---
+    AP = "ap"
+    AR = "ar"
+    BANK_CASH = "bank_cash"
+    COA = "coa"
+    HEDGE = "hedge"
+    CURRENCY_EXCHANGE = "currency_exchange"
+    IAM = "iam"
+    GOODWILL = "goodwill"
+    DOCUMENT = "document"
+    FOREX = "forex"
+    LEGAL_ENTITY = "legal_entity"
+    INTANGIBLE_ASSET = "intangible_asset"
+    PROJECT = "project"
+    PURCHASE_SALES = "purchase_sales"
+    MAINTENANCE = "maintenance"
+    UMKM = "umkm"
+    SETTINGS = "settings"
+    LEDGER = "ledger"
+    CONSOLIDATION = "consolidation"
+    MANUFACTURING = "manufacturing"
+    PAYROLL = "payroll"
+    CAPITAL = "capital"
+    FISCAL_PERIOD = "fiscal_period"
 
 
 class Action(Enum):
@@ -246,6 +270,58 @@ STANDARD_ROLES: dict[str, Role] = {
         description="Default role for unauthenticated users",
     ),
 }
+
+
+# ============================================================================
+# EXTENSI OTOMATIS: admin & super_admin mendapat CRUD penuh untuk semua
+# resource domain bisnis yang baru ditambahkan (ap, ar, bank_cash, ledger, dst)
+# Ini untuk menghindari 403 tak terduga saat router baru ditambahkan tapi
+# STANDARD_ROLES belum dimutakhirkan manual.
+# ============================================================================
+
+_BUSINESS_RESOURCE_TYPES: list[ResourceType] = [
+    ResourceType.AP,
+    ResourceType.AR,
+    ResourceType.BANK_CASH,
+    ResourceType.COA,
+    ResourceType.HEDGE,
+    ResourceType.CURRENCY_EXCHANGE,
+    ResourceType.IAM,
+    ResourceType.GOODWILL,
+    ResourceType.DOCUMENT,
+    ResourceType.FOREX,
+    ResourceType.LEGAL_ENTITY,
+    ResourceType.INTANGIBLE_ASSET,
+    ResourceType.PROJECT,
+    ResourceType.PURCHASE_SALES,
+    ResourceType.MAINTENANCE,
+    ResourceType.UMKM,
+    ResourceType.SETTINGS,
+    ResourceType.LEDGER,
+    ResourceType.CONSOLIDATION,
+    ResourceType.MANUFACTURING,
+    ResourceType.PAYROLL,
+    ResourceType.CAPITAL,
+    ResourceType.FISCAL_PERIOD,
+]
+
+_ADMIN_DEFAULT_ACTIONS: list[Action] = [
+    Action.CREATE,
+    Action.READ,
+    Action.UPDATE,
+    Action.DELETE,
+    Action.EXPORT,
+]
+
+for _res in _BUSINESS_RESOURCE_TYPES:
+    for _act in _ADMIN_DEFAULT_ACTIONS:
+        STANDARD_ROLES["admin"].permissions.append(
+            Permission(_res, _act, PermissionScope.LEGAL_ENTITY)
+        )
+    # super_admin mewarisi admin (parent_role="admin") jadi otomatis ikut dapat,
+    # tidak perlu ditambahkan manual di sini.
+
+del _res, _act
 
 
 # ============================================================================
@@ -746,6 +822,80 @@ class AuthorityMatrix:
             return self.has_permission(role.parent_role, permission)
         return False
 
+    async def is_allowed(
+        self,
+        user_id: Any,
+        resource: str,
+        action: str,
+        legal_entity_id: Any | None = None,
+    ) -> bool:
+        """
+        Method ini yang dipanggil oleh RBACEnforcer.check_permission() sebagai
+        lapisan fallback setelah pengecekan permission langsung dari DB gagal.
+
+        SEBELUM PERBAIKAN: method ini TIDAK ADA SAMA SEKALI, sehingga setiap
+        kali kode sampai di sini akan raise AttributeError. Ini adalah salah
+        satu akar penyebab 403/401 yang terjadi walau user sudah berhasil
+        login dan punya role yang valid.
+
+        PERBAIKAN LANJUTAN: SQLAlchemyIAMUserRepository (repo asli) WAJIB
+        di-set_session() dulu sebelum method apa pun (termasuk get_user_roles())
+        bisa dipanggil -- kalau tidak, dia raise IAMRepositoryError("Session
+        not set"). Karena guard ini singleton yang di-wire sekali saat startup,
+        instance repo yang dipegangnya TIDAK punya session aktif. Method ini
+        sekarang membuka session sendiri (mengikuti pola yang sama seperti
+        RBACEnforcer._get_user_permissions() di rbac_enforcer_unified.py),
+        query roles, lalu menutup session -- supaya tidak tergantung pada
+        session yang mungkin sudah ditutup/tidak ada.
+        """
+        user_repo = getattr(self._guard, "_user_repo", None)
+        if user_repo is None:
+            logger.warning("is_allowed: tidak ada user repository terpasang, deny by default")
+            return False
+
+        role_names: list[str] = []
+        try:
+            if hasattr(user_repo, "get_user_roles") and hasattr(user_repo, "set_session"):
+                # Repo bergaya SQLAlchemyIAMUserRepository: butuh session per-panggilan.
+                from infrastructure.database.session_factory_sqlalchemy import (
+                    get_async_session_factory,
+                )
+
+                session_maker = await get_async_session_factory()
+                db_session = session_maker()
+                try:
+                    user_repo.set_session(db_session)
+                    raw_roles = await user_repo.get_user_roles(user_id)
+                    role_names = [
+                        getattr(r, "role_name", None) or getattr(r, "name", None) or str(r)
+                        for r in raw_roles
+                    ]
+                finally:
+                    await db_session.close()
+            elif hasattr(user_repo, "get_roles"):
+                # Kontrak _FallbackUserRepository lama (in-memory, tanpa session).
+                role_names = await user_repo.get_roles(str(user_id))
+            else:
+                logger.warning(
+                    "is_allowed: %s tidak punya get_user_roles()/get_roles(), deny by default",
+                    type(user_repo).__name__,
+                )
+                return False
+        except Exception as e:
+            logger.warning(
+                "is_allowed: gagal resolve role untuk user %s: %s", user_id, type(e).__name__
+            )
+            return False
+
+        if not role_names:
+            role_names = ["guest"]
+
+        permission = f"{resource}:{action}"
+        for role_name in role_names:
+            if self.has_permission(role_name, permission):
+                return True
+        return False
+
     def get_permissions_for_role(self, role_name: str) -> list[str]:
         role = STANDARD_ROLES.get(role_name)
         if not role:
@@ -788,6 +938,31 @@ def get_authority_matrix_guard() -> AuthorityMatrixGuard:
             if _authority_matrix_guard_instance is None:
                 _authority_matrix_guard_instance = AuthorityMatrixGuard()
     return _authority_matrix_guard_instance
+
+
+def set_authority_matrix_user_repository(user_repository: Any) -> None:
+    """
+    Inject user repository ASLI (mis. SQLAlchemyIAMUserRepository) ke singleton
+    guard, menggantikan _FallbackUserRepository in-memory.
+
+    WAJIB dipanggil sekali saat startup aplikasi (di service_registry / bootstrap),
+    setelah IAMUserRepositoryPort berhasil di-resolve dari IoC container.
+    Tanpa ini, guard akan selalu memakai fallback in-memory yang tidak tahu
+    role user yang sesungguhnya tersimpan di database, sehingga semua
+    authorization check akan gagal (403) walau user sudah berhasil login.
+
+    Contoh pemakaian (di bootstrap/dependency_container/service_registry.py):
+
+        from kernel.guards.authority_matrix import set_authority_matrix_user_repository
+        set_authority_matrix_user_repository(resolved_iam_user_repository)
+    """
+    global _authority_matrix_guard_instance
+    with _lock_instance:
+        _authority_matrix_guard_instance = AuthorityMatrixGuard(user_repository=user_repository)
+        logger.info(
+            "AuthorityMatrixGuard re-wired dengan user repository asli: %s",
+            type(user_repository).__name__,
+        )
 
 
 # ============================================================================

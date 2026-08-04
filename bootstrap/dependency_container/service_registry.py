@@ -144,15 +144,27 @@ class ServiceRegistrar:
             from application.service_layer.service_capital import CapitalService
             from application.service_layer.service_coa import COAService
             from application.service_layer.service_coretax import CoretaxService
+            from application.service_layer.service_employee import EmployeeService
             from application.service_layer.service_fiscal_period import FiscalPeriodService
             from application.service_layer.service_fixed_asset import FixedAssetService
             from application.service_layer.service_inventory import InventoryService
             from application.service_layer.service_journal import JournalService
+            from application.service_layer.service_legal_entity import LegalEntityService
             from application.service_layer.service_ledger import LedgerService
             from application.service_layer.service_manufacturing import ManufacturingService
             from application.service_layer.service_payroll import PayrollService
             from application.service_layer.service_report import ReportService
             from application.service_layer.service_tax import TaxService
+
+            # FIX: SupplierService, CustomerService, dan PaymentService sebelumnya TIDAK
+            # PERNAH terdaftar di sini sama sekali, padahal router-nya
+            # (fastapi_supplier_router.py, fastapi_customer_router.py,
+            # fastapi_payment_router.py) memakai Depends(get_service(...)) untuk
+            # ketiganya. Akibatnya setiap request ke endpoint supplier/customer/payment
+            # gagal dengan DependencyNotFoundError saat resolve.
+            from application.service_layer.service_customer import CustomerService
+            from application.service_layer.service_payment import PaymentService
+            from application.service_layer.service_supplier import SupplierService
 
             container.register_singleton(COAService, COAService)
             container.register_singleton(JournalService, JournalService)
@@ -167,6 +179,11 @@ class ServiceRegistrar:
             container.register_singleton(PayrollService, PayrollService)
             container.register_singleton(ManufacturingService, ManufacturingService)
             container.register_singleton(ReportService, ReportService)
+            container.register_singleton(SupplierService, SupplierService)
+            container.register_singleton(CustomerService, CustomerService)
+            container.register_singleton(PaymentService, PaymentService)
+            container.register_singleton(LegalEntityService, LegalEntityService)
+            logger.info("LegalEntityService registered")
 
             # ----- Registrasi CapitalService dengan factory yang aman -----
             async def _create_capital_service():
@@ -215,6 +232,18 @@ class ServiceRegistrar:
 
             container.register_singleton(FiscalPeriodService, factory=_create_fiscal_period_service)
             logger.info("FiscalPeriodService registered with dependencies")
+
+            # ----- Registrasi EmployeeService dengan factory yang aman -----
+            async def _create_employee_service():
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return EmployeeService(event_publisher=event_publisher)
+
+            container.register_singleton(EmployeeService, factory=_create_employee_service)
+            logger.info("EmployeeService registered")
 
             logger.info("Application services registered")
         except ImportError as e:

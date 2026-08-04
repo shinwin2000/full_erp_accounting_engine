@@ -21,7 +21,6 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# ... (sisa kode di bawahnya tetap sama)
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request, status
@@ -118,7 +117,6 @@ except ImportError:
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-
     from redis.asyncio import Redis
 
 
@@ -289,6 +287,9 @@ def _setup_tracing() -> None:
 # DATABASE
 # ============================================================
 _db_url_final = settings.database_url
+import re as _re
+_masked = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', _db_url_final)
+logger.warning(f"[DEBUG] DATABASE_URL final yang dipakai: {_masked}")
 if "postgresql://" in _db_url_final and "+asyncpg" not in _db_url_final:
     _db_url_final = _db_url_final.replace("postgresql://", "postgresql+asyncpg://", 1)
     logger.info(f"Auto-corrected DATABASE_URL to asyncpg: {_db_url_final[:50]}...")
@@ -328,7 +329,6 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 # ============================================================
 _redis_client: Redis | None = None
 
-
 def get_redis() -> Redis:
     if _redis_client is None:
         raise RuntimeError("Redis not initialized")
@@ -341,16 +341,13 @@ def get_redis() -> Redis:
 _kafka_producer = None
 _kafka_available = False
 
-
 def get_kafka_producer():
     if _kafka_producer is None:
         raise RuntimeError("Kafka producer not initialized")
     return _kafka_producer
 
-
 def is_kafka_available() -> bool:
     return _kafka_available
-
 
 async def kafka_publish(topic: str, value: bytes, key: bytes | None = None) -> None:
     if not _kafka_available:
@@ -359,7 +356,6 @@ async def kafka_publish(topic: str, value: bytes, key: bytes | None = None) -> N
     producer = get_kafka_producer()
     await producer.send_and_wait(topic, value=value, key=key)
     KAFKA_PUBLISH_TOTAL.labels(topic=topic).inc()
-
 
 async def _init_kafka() -> None:
     global _kafka_producer, _kafka_available
@@ -392,7 +388,6 @@ async def _init_kafka() -> None:
         _kafka_producer = None
         _kafka_available = False
 
-
 async def _stop_kafka() -> None:
     global _kafka_producer, _kafka_available
     if _kafka_producer is not None:
@@ -411,16 +406,13 @@ async def _stop_kafka() -> None:
 _minio_client: Minio | None = None
 _minio_available = False
 
-
 def get_minio() -> Minio:
     if _minio_client is None:
         raise RuntimeError("MinIO client not initialized")
     return _minio_client
 
-
 def is_minio_available() -> bool:
     return _minio_available
-
 
 async def _init_minio() -> None:
     global _minio_client, _minio_available
@@ -537,13 +529,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.container = get_container()
     logger.info("IoC Container attached to app.state ✓")
 
+    # ============================================================
+    # FIX: AdapterRegistry.register_all() HARUS dipanggil SEBELUM service registry
+    # ============================================================
+    from bootstrap.dependency_container.adapter_registry import (
+        AdapterRegistry,
+        set_adapter_registry_instance,
+    )
+    adapter_registry = AdapterRegistry(container=app.state.container)
+    set_adapter_registry_instance(adapter_registry)
+    adapter_registry.register_all()
+    logger.info("Adapter registry (ports -> implementations) completed ✓")
+
     from bootstrap.dependency_container.service_registry import ServiceRegistrar
     await ServiceRegistrar.register_all(app.state.container)
+    logger.info("Service registry completed ✓")
 
     # ============================================================
-    # FIX: Inisialisasi IAMService via bootstrap
+    # Inisialisasi IAMService via bootstrap
     # ============================================================
-    await setup_iam_service(app)   # <-- PERUBAHAN: panggil fungsi dari bootstrap
+    await setup_iam_service(app)   # <-- panggil fungsi dari bootstrap
 
     docs_url = f"http://localhost:{settings.port}/docs"
     logger.info("=" * 60)
@@ -580,7 +585,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # ============================================================
-# ROUTERS (internal, v1, v2, versioned) - same as before
+# ROUTERS (internal, v1, v2, versioned)
 # ============================================================
 def _build_internal_router() -> APIRouter:
     router = APIRouter(tags=["System"])
@@ -791,7 +796,7 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         "fastapi_goodwill_router": "/api/v1/goodwill",
         "fastapi_hedge_router": "/api/v1/hedge",
         "fastapi_forex_router": "/api/v1/forex",
-        "fastapi_legal_entity_router": "/api/v1/legal-entities",
+        "fastapi_legal_entity_router": "/api/v1",
         "fastapi_consolidation_router": "/api/v1/consolidation",
         "fastapi_manufacturing_router": "/api/v1/manufacturing",
         "fastapi_project_router": "/api/v1/projects",
@@ -859,10 +864,10 @@ def create_app() -> FastAPI:
             "/openapi.json",
             "/api/v1/iam/login",
             "/api/v1/iam/refresh",
+            "/api/v1/legal-entities/login-options",
             "/",
         ],
     )
-
     @_app.middleware("http")
     async def observability_middleware(request: Request, call_next):
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())

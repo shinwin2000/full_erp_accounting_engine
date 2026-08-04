@@ -263,13 +263,16 @@ class RolePermissionAssignSchema(BaseModel):
     permission_ids: list[UUID] = Field(..., min_length=1)
 
 
+# ========================================================================
+# PERUBAHAN UTAMA: legal_entity_id dijadikan WAJIB (bukan None)
+# ========================================================================
 class LoginRequestSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     username: str
     password: str
     mfa_code: str | None = Field(None, min_length=6, max_length=6)
-    legal_entity_id: UUID | None = None
+    legal_entity_id: UUID = Field(..., description="Legal entity context is required")
 
 
 class LoginResponseSchema(BaseModel):

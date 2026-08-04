@@ -308,6 +308,9 @@ class ApiClient:
         except requests.exceptions.RequestException:
             return False
 
+    def list_legal_entity_login_options(self) -> list[dict[str, Any]]:
+        """Ambil daftar legal entity aktif untuk dropdown di layar login (tanpa auth)."""
+        return self.request("GET", "/legal-entities/login-options", retry_on_401=False)
 
 # Instance global — dipakai di seluruh aplikasi
 api_client = ApiClient()

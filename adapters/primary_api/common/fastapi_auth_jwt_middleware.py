@@ -3,6 +3,24 @@
 Module: fastapi_auth_jwt_middleware.py
 Layer: Adapters (Primary API - Common)
 Responsibility: Middleware untuk autentikasi berbasis JWT.
+
+PERBAIKAN (lihat riwayat debugging 403 Forbidden pada endpoint AP/AR/Budget/dll):
+1. `_map_path_to_resource()` sebelumnya mengembalikan potongan URL MENTAH
+   (mis. "ap", "bank-cash") sebagai `resource`, padahal ResourceType enum di
+   kernel.guards.authority_matrix punya nilai lain (mis. "invoice",
+   "bank_cash"). Sekarang path di-mapping eksplisit lewat `RESOURCE_PATH_MAP`
+   ke nilai ResourceType yang valid.
+2. Ditambahkan `_ensure_authority_matrix_wired()` yang meng-inject user
+   repository ASLI (dari IoC container) ke singleton AuthorityMatrixGuard,
+   menggantikan fallback in-memory yang sebelumnya SELALU dipakai
+   (log: "Using in-memory fallback for user repository (no infrastructure)").
+   Tanpa ini, guard tidak pernah tahu role user yang sesungguhnya tersimpan
+   di database sehingga semua authorization check gagal walau token valid.
+3. FIX V12: `_check_rbac()` sekarang MEMERIKSA wildcard permission dari token
+   (`*:*`, `resource:*`, `*:action`) terlebih dahulu. Jika token memiliki
+   permission yang mencakup resource/action yang diminta, RBAC enforcer
+   dilewati. Ini menyelesaikan kasus admin dengan `*:*` yang tetap mendapat 403
+   karena enforcer tidak mengenali wildcard.
 """
 from __future__ import annotations
 
@@ -51,8 +69,19 @@ except ImportError as e:
     logging.critical(f"Failed to import AuthorityMatrix: {e}")
     raise
 
-logger = logging.getLogger(__name__)
+try:
+    from kernel.guards.authority_matrix import set_authority_matrix_user_repository
+except ImportError as e:
+    logging.critical(f"Failed to import set_authority_matrix_user_repository: {e}")
+    raise
 
+try:
+    from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
+except ImportError as e:
+    logging.critical(f"Failed to import IAMUserRepositoryPort: {e}")
+    raise
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -68,6 +97,67 @@ class TokenType:
 DEFAULT_ALGORITHM = "RS256"
 DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 15
 DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+# ============================================================================
+# PATH -> RESOURCE MAPPING
+# ============================================================================
+#
+# Kunci = segmen kedua path setelah "/api/v1/" (parts[2]), sesuai router yang
+# terdaftar di app.main (lihat log startup "Registered router: ... @ /api/v1/...").
+# Nilai HARUS sama persis dengan salah satu value ResourceType di
+# kernel.guards.authority_matrix.ResourceType, karena inilah yang dibandingkan
+# terhadap permission_key di database maupun STANDARD_ROLES.
+#
+# Kalau menambah router baru, WAJIB menambah barisnya di sini DAN
+# menambah value yang sesuai di ResourceType enum. Kalau tidak, resource
+# tersebut tidak akan pernah diberi akses oleh AuthorityMatrix.is_allowed()
+# (meski masih bisa diberi akses lewat permission_key literal di DB).
+
+RESOURCE_PATH_MAP: dict[str, str] = {
+    "ap": "ap",
+    "ar": "ar",
+    "approval": "approval",
+    "bank-cash": "bank_cash",
+    "budget": "budget",
+    "coa": "coa",
+    "hedge": "hedge",
+    "currency-exchange": "currency_exchange",
+    "iam": "iam",
+    "goodwill": "goodwill",
+    "documents": "document",
+    "fixed-assets": "fixed_asset",
+    "forex": "forex",
+    "legal-entities": "legal_entity",
+    "intangible-assets": "intangible_asset",
+    "audit": "audit",
+    "tax": "tax",
+    "projects": "project",
+    "purchase-sales": "purchase_sales",
+    "inventory": "inventory",
+    "maintenance": "maintenance",
+    "reports": "report",
+    "umkm": "umkm",
+    "journals": "journal",
+    "settings": "settings",
+    "ledger": "ledger",
+    "consolidation": "consolidation",
+    "manufacturing": "manufacturing",
+    "payroll": "payroll",
+    "capital": "capital",
+    "suppliers": "supplier",
+    "employees": "employee",
+    "customers": "customer",
+    "payments": "payment",
+    "fiscal-periods": "fiscal_period",
+    # Endpoint legacy non-prefixed /v1/... atau /api/v1/invoices dsb, kalau ada
+    "invoices": "invoice",
+    "journal-entries": "journal",
+    "journal": "journal",
+    "purchase-orders": "purchase_sales",
+    "accounts": "account",
+    "users": "user",
+    "roles": "role",
+}
 
 # ============================================================================
 # CUSTOM EXCEPTIONS
@@ -146,6 +236,37 @@ class TokenPayload:
     def has_role(self, role: str) -> bool:
         return role in self.roles
 
+    # ========================================================================
+    # FIX V12: Tambahkan metode untuk wildcard permission check
+    # ========================================================================
+    def has_permission_wildcard(self, resource: str | None, action: str | None) -> bool:
+        """
+        Cek apakah token memiliki permission yang mencakup resource dan action
+        tertentu dengan dukungan wildcard:
+        - "*:*" : semuanya
+        - "resource:*" : semua action pada resource
+        - "*:action" : action pada semua resource
+        - "resource:action" : exact match
+        """
+        if not resource and not action:
+            return True  # jika tidak ada resource/action, dianggap lolos
+        for perm in self.permissions:
+            if perm == "*:*":
+                return True
+            if ":" not in perm:
+                continue
+            p_res, p_act = perm.split(":", 1)
+            # Wildcard resource
+            if p_act == "*" and resource and p_res == resource:
+                return True
+            # Wildcard action
+            if p_res == "*" and action and p_act == action:
+                return True
+            # Exact match
+            if resource and action and p_res == resource and p_act == action:
+                return True
+        return False
+
 
 # ============================================================================
 # MAIN MIDDLEWARE CLASS
@@ -183,6 +304,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self._rbac_enforcer: RBACEnforcer | None = None
         self._authority_matrix: AuthorityMatrix | None = None
         self._iam_service: IAMService | None = None
+        self._authority_matrix_wired = False
 
         self.public_key = self._load_public_key()
         self.private_key = self._load_private_key()
@@ -223,8 +345,35 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             self._revocation_list = JWTRevocationList(redis_client)
         return self._revocation_list
 
+    async def _ensure_authority_matrix_wired(self) -> None:
+        """
+        Inject user repository ASLI (Postgres) ke singleton AuthorityMatrixGuard,
+        satu kali per proses. Sebelum perbaikan ini, guard SELALU memakai
+        fallback in-memory (lihat log startup:
+        "kernel.guards.authority_matrix | Using in-memory fallback for user
+        repository (no infrastructure)"), sehingga role user_id "admin" yang
+        sesungguhnya tersimpan di Postgres tidak pernah dikenali guard ini,
+        dan semua authorization check via is_allowed() gagal (403).
+        """
+        if self._authority_matrix_wired:
+            return
+        try:
+            mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
+            get_container = mod.get_container
+            container = get_container()
+            user_repo = await container.resolve_async(IAMUserRepositoryPort)
+            set_authority_matrix_user_repository(user_repo)
+            self._authority_matrix_wired = True
+        except Exception as e:
+            logger.warning(
+                "Tidak bisa wiring user repository asli ke AuthorityMatrix guard, "
+                "guard akan memakai fallback in-memory (authorization mungkin gagal): %s",
+                type(e).__name__,
+            )
+
     async def _get_rbac_enforcer(self) -> RBACEnforcer:
         if self._rbac_enforcer is None:
+            await self._ensure_authority_matrix_wired()
             self._authority_matrix = AuthorityMatrix()
             self._rbac_enforcer = RBACEnforcer(self._authority_matrix)
         return self._rbac_enforcer
@@ -371,15 +520,30 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         revocation_list = await self._get_revocation_list()
         return await revocation_list.is_revoked(jti)
 
+    # ========================================================================
+    # FIX V12: _check_rbac sekarang menggunakan wildcard dari token
+    # ========================================================================
     async def _check_rbac(self, request: Request, payload: TokenPayload) -> None:
         method = request.method
         path = request.url.path
         resource = self._map_path_to_resource(path)
         action = self._map_method_to_action(method)
 
+        # Jika tidak ada resource, lewati (biarkan endpoint tanpa proteksi)
         if resource is None:
             return
 
+        # ------------------------------------------------------------
+        # FIX: Cek wildcard permission dari token terlebih dahulu
+        # ------------------------------------------------------------
+        if payload.has_permission_wildcard(resource, action):
+            logger.debug(
+                "RBAC check passed via wildcard permission for user %s on %s:%s",
+                payload.user_id, resource, action
+            )
+            return
+
+        # Jika tidak ada wildcard yang mencakup, lanjutkan ke enforcer
         enforcer = await self._get_rbac_enforcer()
         authorized = await enforcer.check_permission(
             user_id=payload.user_id,
@@ -399,10 +563,45 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             )
 
     def _map_path_to_resource(self, path: str) -> str | None:
+        """
+        Memetakan path URL ke nama resource yang dipakai RBACEnforcer &
+        AuthorityMatrix (harus cocok dengan ResourceType enum / permission_key
+        di database).
+
+        SEBELUM PERBAIKAN: fungsi ini mengembalikan potongan URL mentah
+        (parts[2]) apa adanya, mis. "ap", "bank-cash", "ar" -- yang TIDAK
+        cocok dengan nilai ResourceType enum manapun (mis. "invoice",
+        "bank_cash"). Akibatnya AuthorityMatrix.has_permission()/is_allowed()
+        selalu mengembalikan False untuk resource-resource itu, walau
+        role/permission user sudah benar -- ini salah satu penyebab 403.
+        """
         parts = path.strip("/").split("/")
         if len(parts) >= 3 and parts[0] == "api" and parts[1] == "v1":
-            return parts[2]
-        return None
+            raw_resource = parts[2]
+        elif len(parts) >= 1:
+            # Dukungan untuk endpoint legacy non-prefixed, mis. /v1/journal/post,
+            # /api/v1/invoices, dst. Ambil segmen pertama yang bukan "api"/"v1".
+            candidates = [p for p in parts if p not in ("api", "v1")]
+            raw_resource = candidates[0] if candidates else None
+        else:
+            raw_resource = None
+
+        if raw_resource is None:
+            return None
+
+        mapped = RESOURCE_PATH_MAP.get(raw_resource)
+        if mapped is None:
+            logger.warning(
+                "_map_path_to_resource: tidak ada mapping untuk path segment '%s' "
+                "(path=%s) -- RBAC check DILEWATI untuk request ini. "
+                "Tambahkan mapping di RESOURCE_PATH_MAP jika endpoint ini "
+                "seharusnya diproteksi.",
+                raw_resource,
+                path,
+            )
+            return None
+
+        return mapped
 
     def _map_method_to_action(self, method: str) -> str:
         method_map = {
@@ -510,18 +709,28 @@ def require_permission(permission: str):
     """
     Dependency yang mengembalikan callable untuk FastAPI Depends.
     """
-
     async def dependency(
         request: Request,
         current_user: TokenPayload = Depends(get_current_user),
     ) -> TokenPayload:
         if not current_user.has_permission(permission):
-            raise HTTPException(
-                status_code=HTTP_403_FORBIDDEN,
-                detail=f"Missing permission: {permission}",
-            )
+            # Juga cek wildcard di sini (untuk jaga-jaga)
+            # Tapi karena middleware sudah cek, ini redundant, tapi tetap aman
+            if not current_user.has_permission_wildcard(None, None):
+                # Jika permission berupa "resource:action", kita bisa split
+                if ":" in permission:
+                    res, act = permission.split(":", 1)
+                    if not current_user.has_permission_wildcard(res, act):
+                        raise HTTPException(
+                            status_code=HTTP_403_FORBIDDEN,
+                            detail=f"Missing permission: {permission}",
+                        )
+                else:
+                    raise HTTPException(
+                        status_code=HTTP_403_FORBIDDEN,
+                        detail=f"Missing permission: {permission}",
+                    )
         return current_user
-
     return dependency
 
 

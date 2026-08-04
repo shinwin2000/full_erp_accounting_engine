@@ -19,9 +19,19 @@ from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domain.legal_entity.aggregate_root import EntityType, LegalEntityAggregate, LegalEntityStatus
-from domain.legal_entity.company_tax_profile_vo import CompanyTaxProfile
-from domain.shared_value_objects.npwp_vo import NPWPVO
+from domain.legal_entity.aggregate_root import (
+    EntityType,
+    FiscalYearType,
+    LegalEntityAggregate,
+    LegalEntityStatus,
+)
+from domain.legal_entity.company_tax_profile_vo import (
+    CompanyTaxProfile,
+    Percentage,
+    TaxPaymentMethod,
+)
+from domain.legal_entity.company_tax_profile_vo import TaxRegime as DomainTaxRegime
+from domain.shared_value_objects.npwp_vo import NPWPVO, NPWPValidationError
 from infrastructure.persistence_orm.consolidation_group_member_table import (
     ConsolidationGroupMemberTable,
 )
@@ -81,51 +91,73 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
     # MAPPING HELPERS (Port LegalEntity ↔ Domain LegalEntityAggregate)
     # ========================================================================
 
+    def _safe_npwp(self, raw_npwp: str | None, entity_id: Any) -> NPWPVO | None:
+        """NPWP di data lama/dummy kadang tidak valid checksum-nya (mis. data
+        seed). Untuk read path, jangan biarkan itu menggagalkan seluruh query
+        — log saja sebagai warning dan perlakukan sebagai None."""
+        if not raw_npwp:
+            return None
+        try:
+            return NPWPVO(raw_npwp)
+        except NPWPValidationError:
+            logger.warning(
+                "Legal entity %s punya NPWP tidak valid di database ('%s'), "
+                "diabaikan (di-set None) saat load.",
+                entity_id, raw_npwp,
+            )
+            return None
+
     def _to_port(self, aggregate: LegalEntityAggregate) -> LegalEntity:
         """Konversi domain aggregate ke port DTO."""
-        # Mapping tipe
         type_map = {
-            EntityType.PARENT_COMPANY: LegalEntityType.CORPORATION,
-            EntityType.SUBSIDIARY: LegalEntityType.CORPORATION,
-            EntityType.BRANCH: LegalEntityType.REPRESENTATIVE_OFFICE,
-            EntityType.REPRESENTATIVE_OFFICE: LegalEntityType.REPRESENTATIVE_OFFICE,
-            EntityType.JOINT_VENTURE: LegalEntityType.CORPORATION,
+            EntityType.CORPORATION: LegalEntityType.CORPORATION,
+            EntityType.LIMITED: LegalEntityType.LIMITED,
+            EntityType.SOLE_PROPRIETORSHIP: LegalEntityType.SOLE_PROPRIETORSHIP,
+            EntityType.PARTNERSHIP: LegalEntityType.LIMITED,  # port tidak punya PARTNERSHIP — approksimasi
+            EntityType.COOPERATIVE: LegalEntityType.COOPERATIVE,
+            EntityType.NON_PROFIT: LegalEntityType.FOUNDATION,
+            EntityType.GOVERNMENT: LegalEntityType.GOVERNMENT,
         }
         entity_type = type_map.get(aggregate.entity_type, LegalEntityType.CORPORATION)
 
+        domain_to_port_tax_regime = {
+            DomainTaxRegime.GENERAL: TaxRegime.GENERAL,
+            DomainTaxRegime.FINAL: TaxRegime.FINAL,
+            DomainTaxRegime.GROSS_UP: TaxRegime.SPECIAL,
+            DomainTaxRegime.WITHHOLDING: TaxRegime.SPECIAL,
+        }
+
         tax_profile = TaxProfile(
             npwp=str(aggregate.npwp) if aggregate.npwp else None,
-            tax_regime=TaxRegime.GENERAL,
-            is_pkp=aggregate.tax_profile.is_vat_collector if aggregate.tax_profile else False,
-            pkp_number=aggregate.tax_profile.vat_collector_number if aggregate.tax_profile else None,
-            tax_office=aggregate.tax_profile.tax_office if aggregate.tax_profile else None,
-            tax_office_code=aggregate.tax_profile.tax_office_code if aggregate.tax_profile else None,
+            tax_regime=(
+                domain_to_port_tax_regime.get(aggregate.tax_profile.tax_regime, TaxRegime.GENERAL)
+                if aggregate.tax_profile else TaxRegime.GENERAL
+            ),
+            is_pkp=aggregate.tax_profile.is_pkp if aggregate.tax_profile else False,
         )
 
         return LegalEntity(
             id=aggregate.id,
-            entity_code=aggregate.registration_number or "",
-            entity_name=aggregate.trade_name or aggregate.legal_name,
+            entity_code=aggregate.entity_code,
+            entity_name=aggregate.entity_name,
             legal_name=aggregate.legal_name,
             entity_type=entity_type,
-            registration_number=aggregate.registration_number,
-            registration_date=aggregate.established_date,
+            registration_number=None,  # domain tidak simpan field ini terpisah dari entity_code
+            registration_date=None,
             established_date=aggregate.established_date,
-            fiscal_year_start_month=aggregate.fiscal_year_start or 1,
-            fiscal_year_end_month=aggregate.fiscal_year_end or 12,
+            fiscal_year_start_month=aggregate.fiscal_year_start_month or 1,
+            fiscal_year_end_month=12,  # domain tidak punya field ini, default kalender
             functional_currency=aggregate.functional_currency or "IDR",
-            reporting_currency=aggregate.base_currency or "IDR",
+            reporting_currency=aggregate.functional_currency or "IDR",
             addresses=[],
             contacts=[],
             tax_profile=tax_profile,
-            parent_entity_id=aggregate.parent_company_id,
-            consolidation_method=None,
-            consolidation_group_id=aggregate.consolidation_group_id,
+            parent_entity_id=aggregate.parent_entity_id,
+            consolidation_group_id=None,  # domain simpan sebagai string (consolidation_group), bukan UUID
             is_active=aggregate.is_active,
             created_at=aggregate.created_at,
-            created_by=aggregate.created_by,
+            created_by=UUID(int=0),  # domain simpan created_by sebagai string, bukan UUID
             updated_at=aggregate.updated_at,
-            updated_by=aggregate.updated_by,
             version=aggregate.version,
         )
 
@@ -133,18 +165,23 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
         """Konversi port DTO ke domain aggregate."""
         # Mapping tipe
         type_map = {
-            LegalEntityType.CORPORATION: EntityType.SUBSIDIARY,
-            LegalEntityType.LIMITED: EntityType.SUBSIDIARY,
-            LegalEntityType.SOLE_PROPRIETORSHIP: EntityType.SUBSIDIARY,
-            LegalEntityType.COOPERATIVE: EntityType.SUBSIDIARY,
-            LegalEntityType.FOUNDATION: EntityType.SUBSIDIARY,
-            LegalEntityType.GOVERNMENT: EntityType.SUBSIDIARY,
-            LegalEntityType.REPRESENTATIVE_OFFICE: EntityType.REPRESENTATIVE_OFFICE,
+            LegalEntityType.CORPORATION: EntityType.CORPORATION,
+            LegalEntityType.LIMITED: EntityType.LIMITED,
+            LegalEntityType.SOLE_PROPRIETORSHIP: EntityType.SOLE_PROPRIETORSHIP,
+            LegalEntityType.COOPERATIVE: EntityType.COOPERATIVE,
+            LegalEntityType.FOUNDATION: EntityType.NON_PROFIT,
+            LegalEntityType.GOVERNMENT: EntityType.GOVERNMENT,
+            LegalEntityType.REPRESENTATIVE_OFFICE: EntityType.CORPORATION,  # tidak ada padanan langsung di domain
         }
-        entity_type = type_map.get(port_entity.entity_type, EntityType.SUBSIDIARY)
+        entity_type = type_map.get(port_entity.entity_type, EntityType.CORPORATION)
+
+        npwp_value = self._safe_npwp(
+            port_entity.tax_profile.npwp if port_entity.tax_profile else None,
+            port_entity.id,
+        )
 
         tax_profile = CompanyTaxProfile(
-            npwp=NPWPVO(port_entity.tax_profile.npwp) if port_entity.tax_profile and port_entity.tax_profile.npwp else None,
+            npwp=npwp_value,
             tax_office=port_entity.tax_profile.tax_office if port_entity.tax_profile else None,
             tax_office_code=port_entity.tax_profile.tax_office_code if port_entity.tax_profile else None,
             is_vat_collector=port_entity.tax_profile.is_pkp if port_entity.tax_profile else False,
@@ -157,7 +194,7 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             trade_name=port_entity.entity_name,
             entity_type=entity_type,
             registration_number=port_entity.registration_number,
-            npwp=NPWPVO(port_entity.tax_profile.npwp) if port_entity.tax_profile and port_entity.tax_profile.npwp else None,
+            npwp=npwp_value,
             tax_id=port_entity.tax_profile.npwp if port_entity.tax_profile else None,
             address=None,
             city=None,
@@ -648,60 +685,73 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
 
     def _orm_to_aggregate(self, table: LegalEntityTable) -> LegalEntityAggregate:
         entity_type_map = {
-            "parent_company": EntityType.PARENT_COMPANY,
-            "subsidiary": EntityType.SUBSIDIARY,
-            "branch": EntityType.BRANCH,
-            "representative_office": EntityType.REPRESENTATIVE_OFFICE,
-            "joint_venture": EntityType.JOINT_VENTURE,
+            "corporation": EntityType.CORPORATION,
+            "limited": EntityType.LIMITED,
+            "sole": EntityType.SOLE_PROPRIETORSHIP,
+            "sole_proprietorship": EntityType.SOLE_PROPRIETORSHIP,
+            "partnership": EntityType.PARTNERSHIP,
+            "cooperative": EntityType.COOPERATIVE,
+            "non_profit": EntityType.NON_PROFIT,
+            "government": EntityType.GOVERNMENT,
+            "parent_company": EntityType.CORPORATION,
+            "subsidiary": EntityType.CORPORATION,
+            "branch": EntityType.CORPORATION,
+            "representative_office": EntityType.CORPORATION,
+            "joint_venture": EntityType.CORPORATION,
         }
         status_map = {
             "active": LegalEntityStatus.ACTIVE,
             "inactive": LegalEntityStatus.INACTIVE,
             "suspended": LegalEntityStatus.SUSPENDED,
-            "liquidated": LegalEntityStatus.LIQUIDATED,
+            "dissolved": LegalEntityStatus.DISSOLVED,
+            "liquidated": LegalEntityStatus.DISSOLVED,
         }
         tax_profile = CompanyTaxProfile(
-            npwp=NPWPVO(table.npwp) if table.npwp else None,
-            tax_office=table.tax_office,
-            tax_office_code=table.tax_office_code,
-            tax_classification=table.tax_classification,
-            taxable_date=table.taxable_date,
-            annual_tax_return_due_date=table.annual_tax_return_due_date,
-            monthly_tax_due_date=table.monthly_tax_due_date,
-            is_vat_collector=table.is_vat_collector,
-            vat_collector_number=table.vat_collector_number,
-            is_withholding_agent=table.is_withholding_agent,
+            is_pkp=bool(table.is_vat_collector),
+            tax_regime=DomainTaxRegime.GENERAL,
+            corporate_income_tax_rate=Percentage(Decimal("22")),
+            vat_rate=Percentage(Decimal("11")),
+            vat_collection_method="output",
+            income_tax_article=None,
+            tax_bracket=table.tax_classification,
+            payment_method=TaxPaymentMethod.MONTHLY_INSTALLMENT,
+            annual_return_deadline_month=(
+                table.annual_tax_return_due_date.month
+                if table.annual_tax_return_due_date else 4
+            ),
         )
+
+        entity_code = (table.registration_number or str(table.id))[:20]
+        if len(entity_code) < 3:
+            entity_code = entity_code.ljust(3, "0")
+
         return LegalEntityAggregate(
-            id=table.id,
+            entity_id=table.id,
+            entity_code=entity_code,
+            entity_name=table.trade_name or table.legal_name,
             legal_name=table.legal_name,
-            trade_name=table.trade_name,
-            entity_type=entity_type_map.get(table.entity_type, EntityType.SUBSIDIARY),
-            registration_number=table.registration_number,
-            npwp=NPWPVO(table.npwp) if table.npwp else None,
-            tax_id=table.npwp,
-            address=table.address,
-            city=table.city,
-            postal_code=table.postal_code,
+            entity_type=entity_type_map.get(table.entity_type, EntityType.CORPORATION),
+            status=status_map.get(table.status, LegalEntityStatus.ACTIVE),
+            npwp=self._safe_npwp(table.npwp, table.id),
+            tax_profile=tax_profile,
+            address=table.address or "Alamat belum diisi",
+            city=table.city or "N/A",
+            province="N/A",  # kolom province tidak ada di LegalEntityTable
+            postal_code=table.postal_code or "",
             country=table.country or "ID",
             phone=table.phone,
             email=table.email,
             website=table.website,
-            established_date=table.established_date,
-            fiscal_year_start=table.fiscal_year_start,
-            fiscal_year_end=table.fiscal_year_end,
-            base_currency=table.base_currency or "IDR",
+            fiscal_year_type=FiscalYearType.CALENDAR,
+            fiscal_year_start_month=table.fiscal_year_start or 1,
             functional_currency=table.functional_currency or "IDR",
-            tax_profile=tax_profile,
-            status=status_map.get(table.status, LegalEntityStatus.ACTIVE),
-            is_active=table.is_active,
-            parent_company_id=table.parent_company_id,
-            consolidation_group_id=table.consolidation_group_id,
-            logo_url=table.logo_url,
+            parent_entity_id=table.parent_company_id,
+            consolidation_group=str(table.consolidation_group_id) if table.consolidation_group_id else None,
+            established_date=table.established_date,
             created_at=table.created_at,
             updated_at=table.updated_at,
-            created_by=table.created_by,
-            version=table.version,
+            created_by=str(table.created_by) if table.created_by else "system",
+            version=table.version or 1,
         )
 
     async def _aggregate_to_orm(self, aggregate: LegalEntityAggregate) -> LegalEntityTable:

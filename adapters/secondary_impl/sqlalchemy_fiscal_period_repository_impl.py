@@ -25,8 +25,9 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
+            factory = await get_async_session_factory()
+            self._session = factory()
         return self._session
 
     def _get_legal_entity_id(self) -> UUID:
@@ -137,6 +138,7 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
         offset: int = 0,
         from_year: int | None = None,
         to_year: int | None = None,
+        status: str | None = None,
     ) -> list[FiscalPeriod]:
         session = await self._get_session()
         stmt = select(FiscalPeriodTable).where(
@@ -146,6 +148,10 @@ class SQLAlchemyFiscalPeriodRepository(FiscalPeriodRepositoryPort):
             stmt = stmt.where(FiscalPeriodTable.fiscal_year >= from_year)
         if to_year is not None:
             stmt = stmt.where(FiscalPeriodTable.fiscal_year <= to_year)
+        if status is not None:
+            # Convert PeriodStatus enum to string value if needed
+            status_value = status.value if hasattr(status, 'value') else status
+            stmt = stmt.where(FiscalPeriodTable.status == status_value)
         stmt = stmt.order_by(FiscalPeriodTable.period_number).offset(offset).limit(limit)
         result = await session.execute(stmt)
         tables = result.scalars().all()
