@@ -39,7 +39,6 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 from application.dto_objects.coa_request import (
     AccountCreateRequest,
-    AccountQueryParams,
     AccountUpdateRequest,
 )
 
@@ -164,6 +163,16 @@ class AccountCreateSchema(BaseModel):
     opening_balance: Decimal = Field(0, decimal_places=2, description="Saldo awal")
     category: str | None = Field(None, max_length=50, description="Kategori akun")
     budget_control: bool = Field(False, description="Apakah dikontrol anggaran?")
+
+    @field_validator("account_type", mode="before")
+    @classmethod
+    def normalize_account_type(cls, v: object) -> object:
+        # Frontend desktop (coa_page.py) kadang mengirim account_type huruf kecil
+        # (mis. "asset"), sedangkan enum backend memakai Title Case ("Asset").
+        # Dinormalisasi di sini supaya backend toleran terhadap variasi casing.
+        if isinstance(v, str):
+            return v.strip().capitalize()
+        return v
 
     @field_validator("account_code")
     @classmethod
@@ -861,13 +870,14 @@ async def list_accounts(
     search: str | None = Query(None, description="Search in code or name"),
     include_inactive: bool = Query(False, description="Include inactive accounts"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=2000, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=1000, description="Items per page"),
     _permission: None = Depends(require_permission("coa:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountListResponseSchema:
     try:
-        params = AccountQueryParams(
+        result = await coa_service.list_accounts(
+            legal_entity_id=legal_entity_id,
             account_type=account_type.value if account_type else None,
             status=status.value if status else None,
             parent_account_code=parent_account_code,
@@ -875,11 +885,9 @@ async def list_accounts(
             level=level,
             search=search,
             include_inactive=include_inactive,
-            legal_entity_id=legal_entity_id,
             page=page,
             page_size=page_size,
         )
-        result = await coa_service.list_accounts(params)
         items = [
             AccountResponseSchema(
                 id=acc.id,

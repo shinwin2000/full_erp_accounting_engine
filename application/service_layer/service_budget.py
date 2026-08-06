@@ -46,17 +46,71 @@ from ..dto_objects.budget_request import (
     BudgetVsActualResponse,
 )
 
+# ============================================================================
+# ADDITIONAL DTOs (untuk testing compatibility)
+# ============================================================================
+
+from dataclasses import dataclass
+
+
+@dataclass(kw_only=True)
+class BudgetRequest:
+    """DTO untuk request budget (legacy/compatibility)."""
+    legal_entity_id: UUID
+    budget_name: str
+    fiscal_year: int
+    lines: list[dict]
+    period_type: str
+    description: str
+
+
+@dataclass(kw_only=True)
+class BudgetLineRequest:
+    """DTO untuk request budget line (legacy/compatibility)."""
+    account_code: str
+    amount: Decimal
+    period: str
+    description: str
+
+
+@dataclass(kw_only=True)
+class VarianceAnalysisRequest:
+    """DTO untuk variance analysis request."""
+    legal_entity_id: UUID
+    budget_id: UUID
+    period_start: date
+    period_end: date
+    include_details: bool
+
+
+@dataclass(kw_only=True)
+class VarianceItem:
+    """DTO untuk variance item."""
+    account_code: str
+    account_name: str
+    budget_amount: Decimal
+    actual_amount: Decimal
+    variance: Decimal
+    variance_percentage: float
+    variance_type: str
+
+
+@dataclass(kw_only=True)
+class VarianceAnalysisResponse:
+    """DTO untuk variance analysis response."""
+    budget_id: UUID
+    budget_name: str
+    period_start: date
+    period_end: date
+    total_budget: Decimal
+    total_actual: Decimal
+    total_variance: Decimal
+    variance_percentage: float
+    items: list
+    analysis_date: datetime
+
+
 logger = logging.getLogger(__name__)
-
-
-# ============================================================================
-# DUMMY AUDIT DECORATOR
-# ============================================================================
-
-
-def audit(func):
-    """Dummy decorator to mark methods as audited for accounting_posting_checker."""
-    return func
 
 
 # ============================================================================
@@ -76,8 +130,23 @@ class BudgetAlreadyExistsError(BudgetServiceError):
     pass
 
 
+class BudgetPeriodClosedError(BudgetServiceError):
+    """Exception untuk periode budget yang sudah ditutup."""
+    pass
+
+
 class BudgetInvalidStatusError(BudgetServiceError):
     pass
+
+
+# ============================================================================
+# DUMMY AUDIT DECORATOR
+# ============================================================================
+
+
+def audit(func):
+    """Dummy decorator to mark methods as audited for accounting_posting_checker."""
+    return func
 
 
 # ============================================================================

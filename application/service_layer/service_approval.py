@@ -259,7 +259,9 @@ class ApprovalService:
             "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
         })
 
-        return await self._to_response(row)
+        # Pass matrix_name via cache to avoid second get_matrix_by_id call in _to_response
+        matrix_cache: dict[UUID, str | None] = {approval_matrix_id: matrix.matrix_name} if approval_matrix_id and matrix else {}
+        return await self._to_response(row, matrix_cache)
 
     async def list_approval_requests(
         self,

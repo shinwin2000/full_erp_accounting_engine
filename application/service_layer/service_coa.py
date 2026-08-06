@@ -23,10 +23,13 @@ import asyncio
 import csv
 import io
 import logging
+from dataclasses import dataclass, field as dc_field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
+
+from sqlalchemy import func, or_, select
 
 from application.dto_objects.account_dto import (
     AccountHierarchyNodeDTO,
@@ -118,6 +121,66 @@ class AccountLockedError(COAServiceError):
 # ============================================================================
 # Main Service
 # ============================================================================
+
+
+# ============================================================================
+# List DTOs (untuk endpoint GET /coa/chart-of-accounts/accounts)
+#
+# CATATAN PENTING: query list ini SENGAJA tidak lewat self._account_repo /
+# AccountAggregate. Investigasi menemukan bahwa AccountAggregate (alias dari
+# ChartOfAccounts, lihat domain/coa/aggregate_root.py) adalah aggregate untuk
+# SATU SET banyak akun (punya field accounts: dict[UUID, Account]), BUKAN
+# representasi satu akun tunggal. Baik SQLAlchemyAccountRepositoryImpl._to_domain
+# maupun _ConcreteAccountRepository mengonstruksi AccountAggregate(...) dengan
+# kwargs satu-akun (account_code=, account_name=, is_bank_account=, dst) yang
+# TIDAK COCOK dengan constructor ChartOfAccounts yang sebenarnya -> selalu
+# TypeError begitu dipanggil. Ini bug arsitektur di level domain, bukan cuma
+# salah wiring service/DTO, dan berada di luar cakupan perbaikan endpoint list.
+# Untuk endpoint READ (list akun) kita query AccountTable langsung lewat
+# UnitOfWork (yang sudah benar & ter-wiring), supaya endpoint ini bisa jalan
+# tanpa bergantung pada AccountAggregate yang rusak.
+# ============================================================================
+
+
+@dataclass(kw_only=True)
+class AccountListItemDTO:
+    """Item akun untuk endpoint list, lengkap sesuai AccountResponseSchema
+    di fastapi_coa_router.py."""
+
+    id: UUID
+    account_code: str
+    account_name: str
+    account_type: str
+    normal_balance: str
+    parent_account_id: UUID | None
+    parent_account_code: str | None
+    level: int
+    description: str | None
+    status: str
+    currency_code: str
+    is_bank_account: bool
+    is_cash_account: bool
+    is_intercompany: bool
+    is_header: bool
+    created_at: datetime
+    updated_at: datetime
+    created_by: UUID
+    version: int = 1
+    # Field berikut TIDAK ada kolomnya di tabel `account` saat ini, jadi
+    # diisi default aman. Kalau suatu saat kolomnya ditambahkan di DB,
+    # tinggal isi dari row di sini.
+    is_used_in_transaction: bool = False
+    is_locked: bool = False
+    current_balance: Decimal = Decimal("0")
+    category: str | None = None
+    budget_control: bool = False
+    created_by_name: str | None = None
+
+
+@dataclass(kw_only=True)
+class AccountListResult:
+    items: list[AccountListItemDTO]
+    total: int
 
 
 class COAService:
@@ -632,34 +695,138 @@ class COAService:
             return None
         return self._to_response(account)
 
+    async def list_accounts_raw(
+        self,
+        legal_entity_id: UUID,
+        account_type: str | None = None,
+        status: str | None = None,
+        include_inactive: bool = True,
+    ) -> list[AccountListItemDTO]:
+        """
+        Ambil SEMUA akun yang cocok filter, TANPA pagination — dipakai oleh
+        use case internal (mis. post_closing_journal.py) yang butuh iterasi
+        atas seluruh akun suatu tipe, bukan satu halaman.
+        """
+        result = await self.list_accounts(
+            legal_entity_id=legal_entity_id,
+            account_type=account_type,
+            status=status,
+            include_inactive=include_inactive,
+            page=1,
+            page_size=100_000,
+        )
+        return result.items
+
     async def list_accounts(
         self,
         legal_entity_id: UUID,
         account_type: str | None = None,
         status: str | None = None,
-        parent_id: UUID | None = None,
-        include_children: bool = False,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[AccountResponse]:
-        accounts = await self._account_repo.list(
-            legal_entity_id=legal_entity_id,
-            account_type=account_type,
-            status=status,
-            parent_id=parent_id,
-            limit=limit,
-            offset=offset,
+        parent_account_code: str | None = None,
+        is_header: bool | None = None,
+        level: int | None = None,
+        search: str | None = None,
+        include_inactive: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> AccountListResult:
+        """
+        List akun dengan filter dan pagination.
+        Dipakai oleh GET /api/v1/coa/chart-of-accounts/accounts.
+
+        Query langsung ke AccountTable lewat UnitOfWork — lihat catatan di
+        atas class AccountListItemDTO untuk alasannya.
+        """
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        page = max(page, 1)
+        page_size = max(page_size, 1)
+
+        async with self._uow:
+            session = self._uow.session
+
+            conditions = [
+                AccountTable.legal_entity_id == legal_entity_id,
+                AccountTable.deleted_at.is_(None),
+            ]
+            if account_type:
+                conditions.append(AccountTable.account_type == account_type)
+            if status:
+                conditions.append(AccountTable.status == status)
+            elif not include_inactive:
+                conditions.append(AccountTable.status == "active")
+            if parent_account_code:
+                conditions.append(
+                    AccountTable.parent_account_id.in_(
+                        select(AccountTable.id).where(
+                            AccountTable.account_code == parent_account_code,
+                            AccountTable.legal_entity_id == legal_entity_id,
+                        )
+                    )
+                )
+            if is_header is not None:
+                conditions.append(AccountTable.is_header == is_header)
+            if level is not None:
+                conditions.append(AccountTable.level == level)
+            if search:
+                like = f"%{search}%"
+                conditions.append(
+                    or_(
+                        AccountTable.account_code.ilike(like),
+                        AccountTable.account_name.ilike(like),
+                    )
+                )
+
+            count_stmt = select(func.count()).select_from(AccountTable).where(*conditions)
+            total = (await session.execute(count_stmt)).scalar_one()
+
+            stmt = (
+                select(AccountTable)
+                .where(*conditions)
+                .order_by(AccountTable.account_code)
+                .limit(page_size)
+                .offset((page - 1) * page_size)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+
+            parent_ids = {r.parent_account_id for r in rows if r.parent_account_id}
+            parent_code_map: dict[UUID, str] = {}
+            if parent_ids:
+                presult = await session.execute(
+                    select(AccountTable.id, AccountTable.account_code).where(
+                        AccountTable.id.in_(parent_ids)
+                    )
+                )
+                parent_code_map = {pid: code for pid, code in presult.all()}
+
+            items = [self._table_row_to_list_item(r, parent_code_map) for r in rows]
+
+        return AccountListResult(items=items, total=total)
+
+    def _table_row_to_list_item(
+        self, row: Any, parent_code_map: dict[UUID, str]
+    ) -> AccountListItemDTO:
+        return AccountListItemDTO(
+            id=row.id,
+            account_code=row.account_code,
+            account_name=row.account_name,
+            account_type=row.account_type,
+            normal_balance=row.normal_balance,
+            parent_account_id=row.parent_account_id,
+            parent_account_code=parent_code_map.get(row.parent_account_id),
+            level=row.level,
+            description=row.description,
+            status=row.status,
+            currency_code=row.currency_code,
+            is_bank_account=row.is_bank_account,
+            is_cash_account=row.is_cash_account,
+            is_intercompany=row.is_intercompany,
+            is_header=row.is_header,
+            created_at=row.created_at,
+            updated_at=row.updated_at or row.created_at,
+            created_by=row.created_by or UUID(int=0),
+            version=getattr(row, "version", 1),
         )
-
-        result = []
-        for acc in accounts:
-            result.append(self._to_response(acc))
-            if include_children and acc.id:
-                children = await self._account_repo.find_children(acc.id)
-                for child in children:
-                    result.append(self._to_response(child))
-
-        return result
 
     async def get_hierarchy_tree(
         self, legal_entity_id: UUID, use_cache: bool = True, max_depth: int = 10

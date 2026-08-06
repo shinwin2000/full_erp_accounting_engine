@@ -244,20 +244,20 @@ class PostClosingJournalUseCase:
             if existing_closing:
                 raise ValueError(f"Closing journal already exists for period {period_str}")
 
-            revenue_accounts = await self._coa_service.list_accounts(
+            revenue_accounts = await self._coa_service.list_accounts_raw(
                 legal_entity_id=command.legal_entity_id, account_type="REVENUE", status="ACTIVE"
             )
-            expense_accounts = await self._coa_service.list_accounts(
+            expense_accounts = await self._coa_service.list_accounts_raw(
                 legal_entity_id=command.legal_entity_id, account_type="EXPENSE", status="ACTIVE"
             )
             withdrawal_accounts = []
             if command.include_withdrawal_accounts:
-                withdrawal_accounts = await self._coa_service.list_accounts(
+                withdrawal_accounts = await self._coa_service.list_accounts_raw(
                     legal_entity_id=command.legal_entity_id, account_type="EQUITY", status="ACTIVE"
                 )
                 withdrawal_accounts = [
                     acc for acc in withdrawal_accounts
-                    if "PRIVE" in acc.name.upper() or "WITHDRAWAL" in acc.name.upper()
+                    if "PRIVE" in acc.account_name.upper() or "WITHDRAWAL" in acc.account_name.upper()
                 ]
 
             revenue_balance = Decimal("0")
