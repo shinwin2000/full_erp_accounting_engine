@@ -280,8 +280,9 @@ def mock_delegation_row(**kwargs) -> MockDelegationRow:
 def mock_repo(mocker: MockerFixture):
     repo = mocker.MagicMock()
 
-    # Default behaviors for common methods returning safe MockRequestRow instances
-    repo.save_request = mocker.AsyncMock(side_effect=lambda req: req if isinstance(req, MockRequestRow) else mock_request_row())
+    # Default behaviors for common methods
+    # We use return_value so tests can override
+    repo.save_request = mocker.AsyncMock(return_value=mock_request_row())
     repo.get_request_by_id = mocker.AsyncMock(return_value=None)
     repo.get_request_by_number = mocker.AsyncMock(return_value=None)
     repo.list_requests = mocker.AsyncMock(return_value=([], 0))
@@ -361,10 +362,12 @@ class TestApprovalService:
         matrix_row = mock_matrix_row(
             matrix_id=matrix_id,
             legal_entity_id=legal_entity_id,
+            matrix_name="Test Matrix",
             rules=[{"level": 1, "approver_id": approver_id, "approver_name": "Manager"}],
         )
         mock_repo.get_matrix_by_id.return_value = matrix_row
 
+        # Explicitly set save_request return value to our custom row
         submitted_row = mock_request_row(
             approval_matrix_id=matrix_id,
             approver_id=approver_id,
@@ -544,7 +547,7 @@ class TestApprovalService:
                 {"level": 2, "approver_id": approver_id, "approver_name": "Director"},
             ],
         )
-        # Service calls get_matrix_by_id twice: once for resolving approver, once for matrix name in _to_response
+        # Service may call get_matrix_by_id multiple times (once for resolving approver, once for matrix name)
         mock_repo.get_matrix_by_id.return_value = matrix_row
 
         row = mock_request_row(
@@ -564,7 +567,6 @@ class TestApprovalService:
         assert result is not None
         assert result.current_level == 2
         assert result.current_approver_id == approver_id
-        # Service may call get_matrix_by_id multiple times (once for resolution, once for matrix name)
         mock_repo.get_matrix_by_id.assert_called_with(matrix_id, row.legal_entity_id)
         mock_repo.save_request.assert_not_called()
 
