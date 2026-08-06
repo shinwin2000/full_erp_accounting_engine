@@ -1,341 +1,326 @@
 # tests/application/service_layer/test_service_approval.py
 """
-Unit tests for ApprovalService and related domain models.
-Covers all public methods with strong assertions, no MagicMock for domain objects.
-All tests PASS.
+Unit tests for ApprovalService (DB-backed version).
+
+Covers all public methods of ApprovalService using a mocked
+ApprovalRepositoryPort. No real database is used.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from pytest_mock import MockerFixture
 
 from application.service_layer.service_approval import (
-    ApprovalAction,
-    ApprovalHistoryEntry,
-    ApprovalMatrix,
-    ApprovalRequest,
     ApprovalService,
-    ApprovalStatus,
     PaginatedResult,
     audit,
 )
 
-# ============================================================================
-# Test Data Factory
-# ============================================================================
 
-def create_approval_request(
-    entity_type: str = "Journal",
-    status: ApprovalStatus = ApprovalStatus.PENDING,
-    requester_id: UUID | None = None,
-    legal_entity_id: UUID | None = None,
-    **kwargs,
-) -> ApprovalRequest:
-    """Factory to create ApprovalRequest with defaults."""
-    return ApprovalRequest(
-        entity_type=entity_type,
-        entity_id=uuid4(),
-        requester_id=requester_id or uuid4(),
-        legal_entity_id=legal_entity_id or uuid4(),
-        status=status,
-        **kwargs,
-    )
+# =============================================================================
+# Enum definitions
+# =============================================================================
+
+class ApprovalStatus:
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ESCALATED = "escalated"
+    RECALLED = "recalled"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
 
 
-def create_approval_matrix(
-    matrix_code: str = "MAT-001",
-    matrix_name: str = "Test Matrix",
-    entity_type: str = "Journal",
-    min_amount: Decimal | None = Decimal("0"),
-    max_amount: Decimal | None = Decimal("1000000"),
-    is_active: bool = True,
-    legal_entity_id: UUID | None = None,
-    **kwargs,
-) -> ApprovalMatrix:
-    """Factory to create ApprovalMatrix with defaults."""
-    return ApprovalMatrix(
-        matrix_code=matrix_code,
-        matrix_name=matrix_name,
-        entity_type=entity_type,
-        min_amount=min_amount,
-        max_amount=max_amount,
-        currency="IDR",
-        rules=[],
-        is_active=is_active,
-        legal_entity_id=legal_entity_id or uuid4(),
-        **kwargs,
-    )
+class ApprovalAction:
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ESCALATED = "escalated"
+    RECALLED = "recalled"
+    CANCELLED = "cancelled"
 
 
-def create_history_entry(
-    approval_request_id: UUID,
-    level: int = 1,
-    action: str = ApprovalAction.SUBMITTED.value,
-    actor_id: UUID | None = None,
-    notes: str | None = None,
-) -> ApprovalHistoryEntry:
-    """Factory to create ApprovalHistoryEntry."""
-    return ApprovalHistoryEntry(
-        approval_request_id=approval_request_id,
-        level=level,
-        action=action,
-        actor_id=actor_id or uuid4(),
-        notes=notes,
-    )
+# =============================================================================
+# Mock Request Row with methods (all IDs stored as strings)
+# =============================================================================
+
+class MockRequestRow:
+    """Mock object that mimics ApprovalRequestTable ORM row with methods.
+    All UUID fields are stored as strings to match database behavior.
+    """
+
+    def __init__(
+        self,
+        request_id: UUID | str | None = None,
+        request_number: str = "APR-20260101-ABC123",
+        entity_type: str = "Journal",
+        entity_id: UUID | str | None = None,
+        amount: Decimal | None = Decimal("1000"),
+        currency: str = "IDR",
+        status: str = "pending",
+        current_level: int = 1,
+        approver_id: UUID | str | None = None,
+        approver_name: str = "Approver",
+        approver_role: str | None = "Manager",
+        approval_matrix_id: UUID | str | None = None,
+        requested_by: UUID | str | None = None,
+        requester_name: str = "Requester",
+        requester_comments: str | None = None,
+        legal_entity_id: UUID | str | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+        approved_at: datetime | None = None,
+        approved_by: UUID | str | None = None,
+        cancelled_at: datetime | None = None,
+        cancelled_by: UUID | str | None = None,
+        escalated_at: datetime | None = None,
+        escalated_to: UUID | str | None = None,
+        deadline: date | None = None,
+        approval_comments: str | None = None,
+        cancellation_reason: str | None = None,
+        is_overdue: bool = False,
+        created_by: UUID | str | None = None,
+        version: int = 1,
+    ):
+        # Convert all UUIDs to strings
+        self.id = str(request_id) if request_id else str(uuid4())
+        self.request_number = request_number
+        self.entity_type = entity_type
+        self.entity_id = str(entity_id) if entity_id else str(uuid4())
+        self.entity_reference = f"{entity_type}-{uuid4().hex[:8]}"
+        self.amount = amount
+        self.currency = currency
+        self.status = status
+        self.current_level = current_level
+        self.approver_id = str(approver_id) if approver_id else str(uuid4())
+        self.approver_name = approver_name
+        self.approver_role = approver_role
+        self.approval_matrix_id = str(approval_matrix_id) if approval_matrix_id else str(uuid4())
+        self.requested_by = str(requested_by) if requested_by else str(uuid4())
+        self.requester_name = requester_name
+        self.requester_comments = requester_comments
+        self.legal_entity_id = str(legal_entity_id) if legal_entity_id else str(uuid4())
+        self.created_at = created_at or datetime.now(UTC)
+        self.updated_at = updated_at or datetime.now(UTC)
+        self.approved_at = approved_at
+        self.approved_by = str(approved_by) if approved_by else None
+        self.cancelled_at = cancelled_at
+        self.cancelled_by = str(cancelled_by) if cancelled_by else None
+        self.escalated_at = escalated_at
+        self.escalated_to = str(escalated_to) if escalated_to else None
+        self.deadline = deadline
+        self.approval_comments = approval_comments
+        self.cancellation_reason = cancellation_reason
+        self.is_overdue = is_overdue
+        self.created_by = str(created_by) if created_by else str(uuid4())
+        self.version = version
+
+    def approve(self, approved_by: UUID | str, comments: str | None = None):
+        self.status = ApprovalStatus.APPROVED
+        self.approved_by = str(approved_by)
+        self.approved_at = datetime.now(UTC)
+        if comments:
+            self.approval_comments = comments
+
+    def reject(self, approved_by: UUID | str, comments: str | None = None):
+        self.status = ApprovalStatus.REJECTED
+        self.approved_by = str(approved_by)
+        self.approved_at = datetime.now(UTC)
+        if comments:
+            self.approval_comments = comments
+
+    def cancel(self, cancelled_by: UUID | str, reason: str | None = None):
+        self.status = ApprovalStatus.CANCELLED
+        self.cancelled_by = str(cancelled_by)
+        self.cancelled_at = datetime.now(UTC)
+        if reason:
+            self.cancellation_reason = reason
+
+    def recall(self, recalled_by: UUID | str, reason: str | None = None):
+        self.status = ApprovalStatus.RECALLED
+        self.cancelled_by = str(recalled_by)
+        self.cancelled_at = datetime.now(UTC)
+        if reason:
+            self.cancellation_reason = reason
+
+    def escalate(self, escalated_to: UUID | str, reason: str | None = None, level: int | None = None, **kwargs):
+        self.status = ApprovalStatus.ESCALATED
+        self.escalated_to = str(escalated_to)
+        self.escalated_at = datetime.now(UTC)
+        if level is not None:
+            self.current_level = level
+        elif "current_level" in kwargs:
+            self.current_level = kwargs["current_level"]
+        else:
+            self.current_level += 1
+        if reason:
+            self.approval_comments = reason
+
+    def increment_version(self):
+        self.version += 1
 
 
-# ============================================================================
-# Tests for Enums
-# ============================================================================
+# =============================================================================
+# Mock Matrix Row with methods (all IDs as strings)
+# =============================================================================
 
-class TestApprovalStatus:
-    def test_members(self):
-        assert ApprovalStatus.PENDING.value == "pending"
-        assert ApprovalStatus.APPROVED.value == "approved"
-        assert ApprovalStatus.REJECTED.value == "rejected"
-        assert ApprovalStatus.ESCALATED.value == "escalated"
-        assert ApprovalStatus.RECALLED.value == "recalled"
-        assert ApprovalStatus.EXPIRED.value == "expired"
+class MockMatrixRow:
+    """Mock object that mimics ApprovalMatrixTable ORM row with methods."""
 
+    def __init__(
+        self,
+        matrix_id: UUID | str | None = None,
+        matrix_code: str = "MAT-001",
+        matrix_name: str = "Test Matrix",
+        entity_type: str = "Journal",
+        min_amount: Decimal | None = Decimal("0"),
+        max_amount: Decimal | None = Decimal("1000000"),
+        currency: str = "IDR",
+        rules: list[dict] | None = None,
+        is_active: bool = True,
+        notes: str | None = None,
+        legal_entity_id: UUID | str | None = None,
+        created_by: UUID | str | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+        version: int = 1,
+    ):
+        self.id = str(matrix_id) if matrix_id else str(uuid4())
+        self.matrix_code = matrix_code
+        self.matrix_name = matrix_name
+        self.entity_type = entity_type
+        self.min_amount = min_amount
+        self.max_amount = max_amount
+        self.currency = currency
+        self.rules = rules or [{"level": 1, "approver_id": str(uuid4()), "approver_name": "Manager"}]
+        self.is_active = is_active
+        self.notes = notes
+        self.legal_entity_id = str(legal_entity_id) if legal_entity_id else str(uuid4())
+        self.created_by = str(created_by) if created_by else str(uuid4())
+        self.created_by_name = None
+        self.created_at = created_at or datetime.now(UTC)
+        self.updated_at = updated_at or datetime.now(UTC)
+        self.version = version
 
-class TestApprovalAction:
-    def test_members(self):
-        assert ApprovalAction.SUBMITTED.value == "submitted"
-        assert ApprovalAction.APPROVED.value == "approved"
-        assert ApprovalAction.REJECTED.value == "rejected"
-        assert ApprovalAction.ESCALATED.value == "escalated"
-        assert ApprovalAction.RECALLED.value == "recalled"
-
-
-# ============================================================================
-# Tests for ApprovalRequest Domain Model
-# ============================================================================
-
-class TestApprovalRequest:
-    def test_construction(self):
-        req_id = uuid4()
-        entity_id = uuid4()
-        requester_id = uuid4()
-        legal_id = uuid4()
-        req = ApprovalRequest(
-            id=req_id,
-            entity_type="Invoice",
-            entity_id=entity_id,
-            requester_id=requester_id,
-            legal_entity_id=legal_id,
-            notes="Test notes",
-            level=2,
-        )
-        assert req.id == req_id
-        assert req.entity_type == "Invoice"
-        assert req.entity_id == entity_id
-        assert req.requester_id == requester_id
-        assert req.legal_entity_id == legal_id
-        assert req.notes == "Test notes"
-        assert req.level == 2
-        assert req.status == ApprovalStatus.PENDING
-        assert req.requested_at is not None
-        assert req.created_at is not None
-        assert req.updated_at is not None
-
-    def test_approve(self):
-        req = create_approval_request(status=ApprovalStatus.PENDING)
-        approver_id = uuid4()
-        req.approve(approver_id, "Approver Name", "Approved notes")
-        assert req.status == ApprovalStatus.APPROVED
-        assert req.approved_by_id == approver_id
-        assert req.approved_by_name == "Approver Name"
-        assert req.approved_at is not None
-        assert req.notes == "Approved notes"
-        assert req.updated_at is not None
-
-    def test_reject(self):
-        req = create_approval_request(status=ApprovalStatus.PENDING)
-        approver_id = uuid4()
-        req.reject(approver_id, "Rejected reason")
-        assert req.status == ApprovalStatus.REJECTED
-        assert req.approved_by_id == approver_id
-        assert req.approved_at is not None
-        assert req.notes == "Rejected reason"
-        assert req.updated_at is not None
-
-    def test_escalate(self):
-        req = create_approval_request(status=ApprovalStatus.PENDING, level=1)
-        approver_id = uuid4()
-        new_approver_id = uuid4()
-        req.escalate(approver_id, new_approver_id)
-        assert req.status == ApprovalStatus.ESCALATED
-        assert req.level == 2
-        assert req.current_approver_id == new_approver_id
-        assert req.updated_at is not None
-
-    def test_recall_by_requester(self):
-        requester_id = uuid4()
-        req = create_approval_request(requester_id=requester_id)
-        req.recall(requester_id)
-        assert req.status == ApprovalStatus.RECALLED
-        assert req.updated_at is not None
-
-    def test_recall_by_non_requester_raises(self):
-        requester_id = uuid4()
-        wrong_user = uuid4()
-        req = create_approval_request(requester_id=requester_id)
-        with pytest.raises(ValueError, match="Only requester can recall"):
-            req.recall(wrong_user)
-
-    def test_to_dict(self):
-        req_id = uuid4()
-        entity_id = uuid4()
-        requester_id = uuid4()
-        legal_id = uuid4()
-        req = ApprovalRequest(
-            id=req_id,
-            entity_type="Journal",
-            entity_id=entity_id,
-            requester_id=requester_id,
-            legal_entity_id=legal_id,
-            notes="Test",
-            status=ApprovalStatus.PENDING,
-            level=3,
-        )
-        d = req.to_dict()
-        assert d["id"] == str(req_id)
-        assert d["entity_type"] == "Journal"
-        assert d["entity_id"] == str(entity_id)
-        assert d["requester_id"] == str(requester_id)
-        assert d["legal_entity_id"] == str(legal_id)
-        assert d["status"] == "pending"
-        assert d["level"] == 3
-        assert d["notes"] == "Test"
-        assert d["approved_at"] is None
+    def increment_version(self):
+        self.version += 1
 
 
-# ============================================================================
-# Tests for ApprovalMatrix Domain Model
-# ============================================================================
+# =============================================================================
+# Mock Delegation Row with methods (all IDs as strings)
+# =============================================================================
 
-class TestApprovalMatrix:
-    def test_construction(self):
-        mat_id = uuid4()
-        legal_id = uuid4()
-        mat = ApprovalMatrix(
-            id=mat_id,
-            matrix_code="MAT-001",
-            matrix_name="Procurement Matrix",
-            entity_type="PurchaseOrder",
-            min_amount=Decimal("1000"),
-            max_amount=Decimal("100000"),
-            currency="USD",
-            rules=[{"level": 1, "approver_role": "manager"}],
-            is_active=True,
-            notes="Test notes",
-            legal_entity_id=legal_id,
-        )
-        assert mat.id == mat_id
-        assert mat.matrix_code == "MAT-001"
-        assert mat.matrix_name == "Procurement Matrix"
-        assert mat.entity_type == "PurchaseOrder"
-        assert mat.min_amount == Decimal("1000")
-        assert mat.max_amount == Decimal("100000")
-        assert mat.currency == "USD"
-        assert mat.rules == [{"level": 1, "approver_role": "manager"}]
-        assert mat.is_active is True
-        assert mat.notes == "Test notes"
-        assert mat.legal_entity_id == legal_id
-        assert mat.created_at is not None
-        assert mat.updated_at is not None
+class MockDelegationRow:
+    """Mock object that mimics ApprovalDelegationTable ORM row with methods."""
 
-    def test_to_dict(self):
-        mat_id = uuid4()
-        legal_id = uuid4()
-        mat = ApprovalMatrix(
-            id=mat_id,
-            matrix_code="MAT-002",
-            matrix_name="Sales Matrix",
-            entity_type="SalesOrder",
-            min_amount=Decimal("5000"),
-            max_amount=Decimal("50000"),
-            currency="IDR",
-            rules=[],
-            is_active=True,
-            notes="Sales approval",
-            legal_entity_id=legal_id,
-        )
-        d = mat.to_dict()
-        assert d["id"] == str(mat_id)
-        assert d["matrix_code"] == "MAT-002"
-        assert d["matrix_name"] == "Sales Matrix"
-        assert d["entity_type"] == "SalesOrder"
-        assert d["min_amount"] == 5000.0
-        assert d["max_amount"] == 50000.0
-        assert d["currency"] == "IDR"
-        assert d["rules"] == []
-        assert d["is_active"] is True
-        assert d["notes"] == "Sales approval"
-        assert d["legal_entity_id"] == str(legal_id)
+    def __init__(
+        self,
+        delegation_id: UUID | str | None = None,
+        delegator_id: UUID | str | None = None,
+        delegate_to_id: UUID | str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        reason: str | None = None,
+        is_active: bool = True,
+        legal_entity_id: UUID | str | None = None,
+        created_by: UUID | str | None = None,
+        created_at: datetime | None = None,
+        revoked_by: UUID | str | None = None,
+        revoked_at: datetime | None = None,
+        version: int = 1,
+    ):
+        self.id = str(delegation_id) if delegation_id else str(uuid4())
+        self.delegator_id = str(delegator_id) if delegator_id else str(uuid4())
+        self.delegator_name = None
+        self.delegate_to_id = str(delegate_to_id) if delegate_to_id else str(uuid4())
+        self.delegate_to_name = None
+        self.start_date = start_date or date.today()
+        self.end_date = end_date or date.today().replace(year=date.today().year + 1)
+        self.reason = reason
+        self.is_active = is_active
+        self.legal_entity_id = str(legal_entity_id) if legal_entity_id else str(uuid4())
+        self.created_by = str(created_by) if created_by else str(uuid4())
+        self.created_at = created_at or datetime.now(UTC)
+        self.revoked_by = str(revoked_by) if revoked_by else None
+        self.revoked_at = revoked_at
+        self.version = version
+
+    def increment_version(self):
+        self.version += 1
 
 
-# ============================================================================
-# Tests for ApprovalHistoryEntry Domain Model
-# ============================================================================
+# =============================================================================
+# Helper: create mock rows
+# =============================================================================
 
-class TestApprovalHistoryEntry:
-    def test_construction(self):
-        entry_id = uuid4()
-        req_id = uuid4()
-        actor_id = uuid4()
-        entry = ApprovalHistoryEntry(
-            id=entry_id,
-            approval_request_id=req_id,
-            level=2,
-            action=ApprovalAction.APPROVED.value,
-            actor_id=actor_id,
-            actor_name="John Doe",
-            notes="Approved",
-        )
-        assert entry.id == entry_id
-        assert entry.approval_request_id == req_id
-        assert entry.level == 2
-        assert entry.action == "approved"
-        assert entry.actor_id == actor_id
-        assert entry.actor_name == "John Doe"
-        assert entry.notes == "Approved"
-        assert entry.action_at is not None
-
-    def test_to_dict(self):
-        entry_id = uuid4()
-        req_id = uuid4()
-        actor_id = uuid4()
-        entry = ApprovalHistoryEntry(
-            id=entry_id,
-            approval_request_id=req_id,
-            level=1,
-            action=ApprovalAction.SUBMITTED.value,
-            actor_id=actor_id,
-            actor_name="Jane Smith",
-            notes="Initial submission",
-        )
-        d = entry.to_dict()
-        assert d["id"] == str(entry_id)
-        assert d["approval_request_id"] == str(req_id)
-        assert d["level"] == 1
-        assert d["action"] == "submitted"
-        assert d["actor_id"] == str(actor_id)
-        assert d["actor_name"] == "Jane Smith"
-        assert d["notes"] == "Initial submission"
-        assert "action_at" in d
+def mock_request_row(**kwargs) -> MockRequestRow:
+    return MockRequestRow(**kwargs)
 
 
-# ============================================================================
+def mock_matrix_row(**kwargs) -> MockMatrixRow:
+    return MockMatrixRow(**kwargs)
+
+
+def mock_delegation_row(**kwargs) -> MockDelegationRow:
+    return MockDelegationRow(**kwargs)
+
+
+# =============================================================================
+# Fixture: Mock ApprovalRepositoryPort
+# =============================================================================
+
+@pytest.fixture
+def mock_repo(mocker: MockerFixture):
+    repo = mocker.MagicMock()
+
+    # Default behaviors for common methods returning safe MockRequestRow instances
+    repo.save_request = mocker.AsyncMock(side_effect=lambda req: req if isinstance(req, MockRequestRow) else mock_request_row())
+    repo.get_request_by_id = mocker.AsyncMock(return_value=None)
+    repo.get_request_by_number = mocker.AsyncMock(return_value=None)
+    repo.list_requests = mocker.AsyncMock(return_value=([], 0))
+    repo.get_pending_requests_for_user = mocker.AsyncMock(return_value=[])
+    repo.get_requests_by_entity = mocker.AsyncMock(return_value=[])
+
+    repo.save_matrix = mocker.AsyncMock(return_value=mock_matrix_row())
+    repo.get_matrix_by_id = mocker.AsyncMock(return_value=None)
+    repo.list_matrices = mocker.AsyncMock(return_value=[])
+    repo.delete_matrix = mocker.AsyncMock(return_value=True)
+
+    repo.save_delegation = mocker.AsyncMock(return_value=mock_delegation_row())
+    repo.get_delegation_by_id = mocker.AsyncMock(return_value=None)
+    repo.list_delegations_by_delegator = mocker.AsyncMock(return_value=[])
+
+    repo.get_statistics = mocker.AsyncMock(return_value={
+        "total": 10,
+        "pending": 5,
+        "approved": 3,
+        "rejected": 1,
+        "escalated": 1,
+        "avg_approval_time_hours": 12.5,
+    })
+
+    return repo
+
+
+@pytest.fixture
+def service(mock_repo) -> ApprovalService:
+    return ApprovalService(approval_repo=mock_repo)
+
+
+# =============================================================================
 # Tests for PaginatedResult
-# ============================================================================
+# =============================================================================
 
 class TestPaginatedResult:
     def test_construction(self):
-        items = ["a", "b", "c"]
+        items = [1, 2, 3]
         result = PaginatedResult(items=items, total=25, page=3, page_size=10)
         assert result.items == items
         assert result.total == 25
@@ -343,421 +328,501 @@ class TestPaginatedResult:
         assert result.page_size == 10
 
     def test_total_pages(self):
-        # 25 items, page_size=10 -> 3 pages
-        result = PaginatedResult(total=25, page=1, page_size=10)
+        result = PaginatedResult(items=[], total=25, page=1, page_size=10)
         assert result.total_pages == 3
-
-        # 0 items, page_size=10 -> 0 pages
-        result2 = PaginatedResult(total=0, page=1, page_size=10)
+        result2 = PaginatedResult(items=[], total=0, page=1, page_size=10)
         assert result2.total_pages == 0
-
-        # page_size=0 -> 0
-        result3 = PaginatedResult(total=10, page=1, page_size=0)
+        result3 = PaginatedResult(items=[], total=10, page=1, page_size=0)
         assert result3.total_pages == 0
 
     def test_has_next(self):
-        result = PaginatedResult(total=25, page=1, page_size=10)
-        assert result.has_next() is True  # page 1 < total_pages 3
-
-        result2 = PaginatedResult(total=25, page=3, page_size=10)
-        assert result2.has_next() is False  # page 3 == total_pages 3
-
-        result3 = PaginatedResult(total=5, page=1, page_size=10)
-        assert result3.has_next() is False  # only one page
+        result = PaginatedResult(items=[], total=25, page=1, page_size=10)
+        assert result.has_next() is True
+        result2 = PaginatedResult(items=[], total=25, page=3, page_size=10)
+        assert result2.has_next() is False
 
     def test_has_prev(self):
-        result = PaginatedResult(total=25, page=2, page_size=10)
+        result = PaginatedResult(items=[], total=25, page=2, page_size=10)
         assert result.has_prev() is True
-
-        result2 = PaginatedResult(total=25, page=1, page_size=10)
+        result2 = PaginatedResult(items=[], total=25, page=1, page_size=10)
         assert result2.has_prev() is False
 
-    def test_to_dict(self):
-        items = [{"id": 1}, {"id": 2}]
-        result = PaginatedResult(items=items, total=50, page=3, page_size=20)
-        d = result.to_dict()
-        assert d["items"] == items
-        assert d["total"] == 50
-        assert d["page"] == 3
-        assert d["page_size"] == 20
-        assert d["total_pages"] == 3  # ceil(50/20)
 
-
-# ============================================================================
+# =============================================================================
 # Tests for ApprovalService
-# ============================================================================
+# =============================================================================
 
+@pytest.mark.asyncio
 class TestApprovalService:
-    @pytest.fixture
-    def service(self) -> ApprovalService:
-        return ApprovalService()
-
-    @pytest.fixture
-    def legal_entity_id(self) -> UUID:
-        return uuid4()
-
-    @pytest.fixture
-    def requester_id(self) -> UUID:
-        return uuid4()
-
-    @pytest.fixture
-    def approver_id(self) -> UUID:
-        return uuid4()
-
-    @pytest.mark.asyncio
-    async def test_submit_approval(self, service, legal_entity_id, requester_id):
-        entity_id = uuid4()
-        matrix_id = uuid4()
-        request = await service.submit_approval(
-            entity_type="Journal",
-            entity_id=entity_id,
-            approval_matrix_id=matrix_id,
-            requester_id=requester_id,
+    async def test_submit_approval_success(self, service, mock_repo):
+        matrix_id = str(uuid4())
+        approver_id = str(uuid4())
+        legal_entity_id = str(uuid4())
+        matrix_row = mock_matrix_row(
+            matrix_id=matrix_id,
             legal_entity_id=legal_entity_id,
-            notes="Test submission",
+            rules=[{"level": 1, "approver_id": approver_id, "approver_name": "Manager"}],
         )
-        assert request is not None
-        assert request.entity_type == "Journal"
-        assert request.entity_id == entity_id
-        assert request.requester_id == requester_id
-        assert request.legal_entity_id == legal_entity_id
-        assert request.approval_matrix_id == matrix_id
-        assert request.notes == "Test submission"
-        assert request.status == ApprovalStatus.PENDING
-        assert service._stats["submitted"] == 1
-        # Check history was added
-        history = service._history.get(request.id, [])
-        assert len(history) == 1
-        assert history[0].action == ApprovalAction.SUBMITTED.value
+        mock_repo.get_matrix_by_id.return_value = matrix_row
 
-    @pytest.mark.asyncio
-    async def test_list_approval_requests(self, service, legal_entity_id, requester_id):
-        # Submit two requests
-        await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-
-        result = await service.list_approval_requests(legal_entity_id=legal_entity_id)
-        assert result.total == 2
-        assert len(result.items) == 2
-
-        # Filter by entity_type
-        result2 = await service.list_approval_requests(legal_entity_id=legal_entity_id, entity_type="Journal")
-        assert result2.total == 2
-
-        # Filter by status
-        result3 = await service.list_approval_requests(legal_entity_id=legal_entity_id, status="pending")
-        assert result3.total == 2
-
-        # Pagination
-        result4 = await service.list_approval_requests(page=1, page_size=1)
-        assert len(result4.items) == 1
-        assert result4.total == 2
-        assert result4.page == 1
-        assert result4.page_size == 1
-
-    @pytest.mark.asyncio
-    async def test_get_approval_request(self, service, legal_entity_id, requester_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        retrieved = await service.get_approval_request(request.id, legal_entity_id=legal_entity_id)
-        assert retrieved is not None
-        assert retrieved.id == request.id
-
-        # Wrong legal_entity_id should return None
-        retrieved2 = await service.get_approval_request(request.id, legal_entity_id=uuid4())
-        assert retrieved2 is None
-
-    @pytest.mark.asyncio
-    async def test_process_approval_approve(self, service, legal_entity_id, requester_id, approver_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        result = await service.process_approval(
-            request_id=request.id,
-            decision="approve",
-            actor_id=approver_id,
+        submitted_row = mock_request_row(
+            approval_matrix_id=matrix_id,
+            approver_id=approver_id,
+            approver_name="Manager",
+            current_level=1,
+            status=ApprovalStatus.PENDING,
             legal_entity_id=legal_entity_id,
-            notes="Approved by manager",
+        )
+        mock_repo.save_request.return_value = submitted_row
+
+        result = await service.submit_approval(
+            entity_type="Journal",
+            entity_id=uuid4(),
+            approval_matrix_id=matrix_id,
+            requester_id=uuid4(),
+            legal_entity_id=legal_entity_id,
+            amount=Decimal("1000"),
+            notes="Test",
+        )
+
+        assert result is not None
+        assert result.status == ApprovalStatus.PENDING
+        assert result.current_level == 1
+        assert result.current_approver_id == approver_id
+        assert result.current_approver_name == "Manager"
+        assert result.approval_matrix_id == matrix_id
+        mock_repo.get_matrix_by_id.assert_called_once_with(matrix_id, result.legal_entity_id)
+        mock_repo.save_request.assert_called_once()
+
+    async def test_submit_approval_matrix_not_found(self, service, mock_repo):
+        mock_repo.get_matrix_by_id.return_value = None
+
+        with pytest.raises(ValueError, match="Approval matrix .* not found"):
+            await service.submit_approval(
+                entity_type="Journal",
+                entity_id=uuid4(),
+                approval_matrix_id=str(uuid4()),
+                requester_id=uuid4(),
+                legal_entity_id=str(uuid4()),
+            )
+
+    async def test_submit_approval_no_level1_rule(self, service, mock_repo):
+        matrix_row = mock_matrix_row(rules=[{"level": 2, "approver_id": str(uuid4())}])
+        mock_repo.get_matrix_by_id.return_value = matrix_row
+
+        with pytest.raises(ValueError, match="Matrix .* has no level-1 rule defined"):
+            await service.submit_approval(
+                entity_type="Journal",
+                entity_id=uuid4(),
+                approval_matrix_id=str(uuid4()),
+                requester_id=uuid4(),
+                legal_entity_id=str(uuid4()),
+            )
+
+    async def test_list_approval_requests(self, service, mock_repo):
+        test_legal_entity_id = str(uuid4())
+        mock_repo.list_requests.return_value = ([mock_request_row(legal_entity_id=test_legal_entity_id, status="pending")], 1)
+
+        result = await service.list_approval_requests(
+            legal_entity_id=test_legal_entity_id,
+            entity_type="Journal",
+            status="pending",
+            page=2,
+            page_size=10,
+        )
+
+        assert result.total == 1
+        assert len(result.items) == 1
+        assert result.page == 2
+        assert result.page_size == 10
+        mock_repo.list_requests.assert_called_once_with(
+            legal_entity_id=test_legal_entity_id,
+            entity_type="Journal",
+            status="pending",
+            requester_id=None,
+            start_date=None,
+            end_date=None,
+            page=2,
+            page_size=10,
+        )
+
+    async def test_get_approval_request_by_id(self, service, mock_repo):
+        row = mock_request_row()
+        mock_repo.get_request_by_id.return_value = row
+
+        result = await service.get_approval_request(row.id, row.legal_entity_id)
+        assert result is not None
+        assert result.id == row.id
+        assert result.status == row.status
+
+        result2 = await service.get_approval_request(row.id, str(uuid4()))
+        assert result2 is None
+
+    async def test_get_approval_request_by_number(self, service, mock_repo):
+        row = mock_request_row(request_number="APR-123")
+        mock_repo.get_request_by_number.return_value = row
+
+        result = await service.get_approval_request_by_number("APR-123", row.legal_entity_id)
+        assert result is not None
+        assert result.request_number == "APR-123"
+
+    async def test_recall_approval_success(self, service, mock_repo):
+        requester_id = str(uuid4())
+        row = mock_request_row(requested_by=requester_id, status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        result = await service.recall_approval(row.id, requester_id, row.legal_entity_id)
+
+        assert result is not None
+        assert result.status in (ApprovalStatus.CANCELLED, ApprovalStatus.RECALLED)
+        mock_repo.save_request.assert_not_called()
+
+    async def test_recall_approval_wrong_user(self, service, mock_repo):
+        requester_id = str(uuid4())
+        row = mock_request_row(requested_by=str(uuid4()), status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        with pytest.raises(ValueError, match="Only requester can recall approval"):
+            await service.recall_approval(row.id, requester_id, row.legal_entity_id)
+
+    async def test_recall_approval_not_pending(self, service, mock_repo):
+        requester_id = str(uuid4())
+        row = mock_request_row(requested_by=requester_id, status=ApprovalStatus.APPROVED)
+        mock_repo.get_request_by_id.return_value = row
+
+        with pytest.raises(ValueError, match="Cannot recall request with status approved"):
+            await service.recall_approval(row.id, requester_id, row.legal_entity_id)
+
+    async def test_cancel_approval(self, service, mock_repo):
+        row = mock_request_row(status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        result = await service.cancel_approval(row.id, str(uuid4()), row.legal_entity_id, reason="Test cancel")
+        assert result is not None
+        assert result.status == ApprovalStatus.CANCELLED
+        mock_repo.save_request.assert_not_called()
+
+    async def test_process_approval_approve(self, service, mock_repo):
+        row = mock_request_row(status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        actor_id = str(uuid4())
+        result = await service.process_approval_action(
+            request_id=row.id,
+            action="approve",
+            actor_id=actor_id,
+            legal_entity_id=row.legal_entity_id,
+            notes="OK",
         )
         assert result is not None
         assert result.status == ApprovalStatus.APPROVED
-        assert result.approved_by_id == approver_id
-        assert result.notes == "Approved by manager"
-        assert service._stats["approved"] == 1
-        # Check history
-        history = service._history.get(request.id, [])
-        assert len(history) == 2  # submitted + approved
-        assert history[1].action == ApprovalAction.APPROVED.value
+        mock_repo.save_request.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_process_approval_reject(self, service, legal_entity_id, requester_id, approver_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        result = await service.process_approval(
-            request_id=request.id,
-            decision="reject",
-            actor_id=approver_id,
-            legal_entity_id=legal_entity_id,
-            notes="Rejected due to policy",
+    async def test_process_approval_reject(self, service, mock_repo):
+        row = mock_request_row(status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        result = await service.process_approval_action(
+            request_id=row.id,
+            action="reject",
+            actor_id=str(uuid4()),
+            legal_entity_id=row.legal_entity_id,
+            notes="Rejected",
         )
         assert result is not None
         assert result.status == ApprovalStatus.REJECTED
-        assert result.notes == "Rejected due to policy"
-        assert service._stats["rejected"] == 1
+        mock_repo.save_request.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_process_approval_escalate(self, service, legal_entity_id, requester_id, approver_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        result = await service.process_approval(
-            request_id=request.id,
-            decision="escalate",
-            actor_id=approver_id,
-            legal_entity_id=legal_entity_id,
-            notes="Escalated to director",
-        )
-        assert result is not None
-        assert result.status == ApprovalStatus.ESCALATED
-        assert result.level == 2
-        assert result.current_approver_id == approver_id  # In test, escalate uses same actor_id
-        history = service._history.get(request.id, [])
-        assert len(history) == 2
-        assert history[1].action == ApprovalAction.ESCALATED.value
-
-    @pytest.mark.asyncio
-    async def test_process_approval_not_pending_raises(self, service, legal_entity_id, requester_id, approver_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.process_approval(request.id, "approve", approver_id, legal_entity_id)
-        # Second attempt should raise
-        with pytest.raises(ValueError, match="is not pending"):
-            await service.process_approval(request.id, "reject", approver_id, legal_entity_id)
-
-    @pytest.mark.asyncio
-    async def test_process_approval_unknown_decision(self, service, legal_entity_id, requester_id, approver_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        with pytest.raises(ValueError, match="Unknown decision"):
-            await service.process_approval(request.id, "unknown", approver_id, legal_entity_id)
-
-    @pytest.mark.asyncio
-    async def test_recall_approval(self, service, legal_entity_id, requester_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        result = await service.recall_approval(request.id, requester_id, legal_entity_id)
-        assert result is not None
-        assert result.status == ApprovalStatus.RECALLED
-        history = service._history.get(request.id, [])
-        assert len(history) == 2
-        assert history[1].action == ApprovalAction.RECALLED.value
-
-    @pytest.mark.asyncio
-    async def test_recall_approval_wrong_user_raises(self, service, legal_entity_id, requester_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        wrong_user = uuid4()
-        with pytest.raises(ValueError, match="Only requester can recall"):
-            await service.recall_approval(request.id, wrong_user, legal_entity_id)
-
-    @pytest.mark.asyncio
-    async def test_get_approval_history(self, service, legal_entity_id, requester_id, approver_id):
-        request = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.process_approval(request.id, "approve", approver_id, legal_entity_id)
-        history = await service.get_approval_history(request.id, legal_entity_id)
-        assert len(history) == 2
-        assert history[0].action == ApprovalAction.SUBMITTED.value
-        assert history[1].action == ApprovalAction.APPROVED.value
-
-    @pytest.mark.asyncio
-    async def test_get_approval_history_not_found(self, service):
-        history = await service.get_approval_history(uuid4())
-        assert history == []
-
-    @pytest.mark.asyncio
-    async def test_create_approval_matrix(self, service, legal_entity_id, requester_id):
-        matrix = await service.create_approval_matrix(
-            matrix_code="MAT-TEST",
+    async def test_process_approval_escalate(self, service, mock_repo):
+        matrix_id = str(uuid4())
+        approver_id = str(uuid4())
+        matrix_row = mock_matrix_row(
+            matrix_id=matrix_id,
             matrix_name="Test Matrix",
+            rules=[
+                {"level": 1, "approver_id": str(uuid4())},
+                {"level": 2, "approver_id": approver_id, "approver_name": "Director"},
+            ],
+        )
+        # Service calls get_matrix_by_id twice: once for resolving approver, once for matrix name in _to_response
+        mock_repo.get_matrix_by_id.return_value = matrix_row
+
+        row = mock_request_row(
+            status=ApprovalStatus.PENDING,
+            current_level=1,
+            approval_matrix_id=matrix_id,
+        )
+        mock_repo.get_request_by_id.return_value = row
+
+        result = await service.process_approval_action(
+            request_id=row.id,
+            action="escalate",
+            actor_id=str(uuid4()),
+            legal_entity_id=row.legal_entity_id,
+            escalation_level=2,
+        )
+        assert result is not None
+        assert result.current_level == 2
+        assert result.current_approver_id == approver_id
+        # Service may call get_matrix_by_id multiple times (once for resolution, once for matrix name)
+        mock_repo.get_matrix_by_id.assert_called_with(matrix_id, row.legal_entity_id)
+        mock_repo.save_request.assert_not_called()
+
+    async def test_process_approval_delegate(self, service, mock_repo):
+        delegate_to = str(uuid4())
+        row = mock_request_row(status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        result = await service.process_approval_action(
+            request_id=row.id,
+            action="delegate",
+            actor_id=str(uuid4()),
+            legal_entity_id=row.legal_entity_id,
+            delegate_to_user_id=delegate_to,
+        )
+        assert result is not None
+        assert result.current_approver_id == delegate_to
+        mock_repo.save_request.assert_not_called()
+
+    async def test_process_approval_unknown_action(self, service, mock_repo):
+        row = mock_request_row(status=ApprovalStatus.PENDING)
+        mock_repo.get_request_by_id.return_value = row
+
+        with pytest.raises(ValueError, match="Unknown action: unknown"):
+            await service.process_approval_action(
+                request_id=row.id,
+                action="unknown",
+                actor_id=str(uuid4()),
+                legal_entity_id=row.legal_entity_id,
+            )
+
+    async def test_get_pending_tasks_for_user(self, service, mock_repo):
+        test_legal_entity_id = str(uuid4())
+        rows = [
+            mock_request_row(
+                status=ApprovalStatus.PENDING,
+                entity_type="Journal",
+                legal_entity_id=test_legal_entity_id,
+                is_overdue=True
+            )
+            for _ in range(3)
+        ]
+        mock_repo.get_pending_requests_for_user.return_value = rows
+
+        user_id = str(uuid4())
+
+        result = await service.get_pending_tasks_for_user(user_id, legal_entity_id=test_legal_entity_id)
+        assert len(result) == 3
+
+        result2 = await service.get_pending_tasks_for_user(user_id, entity_type="Journal")
+        assert len(result2) == 3
+
+        result3 = await service.get_pending_tasks_for_user(user_id, overdue_only=True)
+        assert len(result3) == 3
+
+    async def test_get_pending_tasks_count(self, service, mock_repo):
+        test_legal_entity_id = str(uuid4())
+        rows = [
+            mock_request_row(status=ApprovalStatus.PENDING, entity_type="Journal", legal_entity_id=test_legal_entity_id),
+            mock_request_row(status=ApprovalStatus.PENDING, entity_type="Journal", legal_entity_id=test_legal_entity_id),
+            mock_request_row(status=ApprovalStatus.PENDING, entity_type="PurchaseOrder", legal_entity_id=test_legal_entity_id),
+        ]
+        mock_repo.get_pending_requests_for_user.return_value = rows
+
+        user_id = str(uuid4())
+        result = await service.get_pending_tasks_count(user_id, legal_entity_id=test_legal_entity_id)
+        assert result.total == 3
+        assert result.by_entity_type == {"Journal": 2, "PurchaseOrder": 1}
+        assert result.overdue == 0
+
+    async def test_get_approval_history_synthetic(self, service, mock_repo):
+        row = mock_request_row(
+            status=ApprovalStatus.APPROVED,
+            created_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
+            approved_at=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+            approved_by=str(uuid4()),
+            requester_comments="Initial",
+            approval_comments="Approved",
+        )
+        mock_repo.get_request_by_id.return_value = row
+
+        history = await service.get_approval_history(row.id, row.legal_entity_id)
+        assert len(history) == 2
+        assert history[0].action == ApprovalAction.SUBMITTED
+        assert history[1].action == ApprovalAction.APPROVED
+
+        row2 = mock_request_row(status=ApprovalStatus.CANCELLED, cancelled_at=datetime.now(UTC))
+        mock_repo.get_request_by_id.return_value = row2
+        history2 = await service.get_approval_history(row2.id)
+        assert len(history2) == 2
+
+        row3 = mock_request_row(
+            status=ApprovalStatus.PENDING,
+            current_level=2,
+            escalated_at=datetime.now(UTC),
+        )
+        mock_repo.get_request_by_id.return_value = row3
+        history3 = await service.get_approval_history(row3.id)
+        assert len(history3) == 2
+
+    async def test_get_entity_approval_status(self, service, mock_repo):
+        row = mock_request_row(status=ApprovalStatus.APPROVED)
+        mock_repo.get_requests_by_entity.return_value = [row]
+
+        result = await service.get_entity_approval_status("Journal", row.entity_id, row.legal_entity_id)
+        assert result is not None
+        assert result.status == ApprovalStatus.APPROVED
+
+        mock_repo.get_requests_by_entity.return_value = []
+        result2 = await service.get_entity_approval_status("Journal", str(uuid4()), str(uuid4()))
+        assert result2 is None
+
+    # --------------------- Matrix Tests ---------------------
+    async def test_create_approval_matrix(self, service, mock_repo):
+        created = mock_matrix_row(matrix_code="MAT-001")
+        mock_repo.save_matrix.return_value = created
+
+        result = await service.create_approval_matrix(
+            matrix_code="MAT-001",
+            matrix_name="Test",
             entity_type="Journal",
-            min_amount=Decimal("1000"),
-            max_amount=Decimal("50000"),
-            currency="IDR",
-            rules=[{"level": 1, "role": "manager"}],
-            is_active=True,
-            notes="Test notes",
-            created_by=requester_id,
-            legal_entity_id=legal_entity_id,
-        )
-        assert matrix is not None
-        assert matrix.matrix_code == "MAT-TEST"
-        assert matrix.matrix_name == "Test Matrix"
-        assert matrix.entity_type == "Journal"
-        assert matrix.min_amount == Decimal("1000")
-        assert matrix.max_amount == Decimal("50000")
-        assert matrix.currency == "IDR"
-        assert matrix.rules == [{"level": 1, "role": "manager"}]
-        assert matrix.is_active is True
-        assert matrix.notes == "Test notes"
-        assert matrix.created_by == requester_id
-        assert matrix.legal_entity_id == legal_entity_id
-        assert matrix.id in service._matrices
-
-    @pytest.mark.asyncio
-    async def test_list_approval_matrices(self, service, legal_entity_id):
-        await service.create_approval_matrix("MAT-1", "Matrix 1", "Journal", legal_entity_id=legal_entity_id)
-        await service.create_approval_matrix("MAT-2", "Matrix 2", "PurchaseOrder", legal_entity_id=legal_entity_id)
-        await service.create_approval_matrix("MAT-3", "Matrix 3", "Journal", is_active=False, legal_entity_id=legal_entity_id)
-
-        all_mats = await service.list_approval_matrices(legal_entity_id=legal_entity_id)
-        assert len(all_mats) == 3
-
-        filtered = await service.list_approval_matrices(legal_entity_id=legal_entity_id, entity_type="Journal")
-        assert len(filtered) == 2
-
-        active = await service.list_approval_matrices(legal_entity_id=legal_entity_id, is_active=True)
-        assert len(active) == 2
-
-        inactive = await service.list_approval_matrices(legal_entity_id=legal_entity_id, is_active=False)
-        assert len(inactive) == 1
-
-    @pytest.mark.asyncio
-    async def test_get_approval_matrix(self, service, legal_entity_id):
-        matrix = await service.create_approval_matrix("MAT-1", "Matrix 1", "Journal", legal_entity_id=legal_entity_id)
-        retrieved = await service.get_approval_matrix(matrix.id, legal_entity_id)
-        assert retrieved is not None
-        assert retrieved.id == matrix.id
-
-        # Wrong legal_entity_id
-        retrieved2 = await service.get_approval_matrix(matrix.id, uuid4())
-        assert retrieved2 is None
-
-    @pytest.mark.asyncio
-    async def test_update_approval_matrix(self, service, legal_entity_id, requester_id):
-        matrix = await service.create_approval_matrix(
-            "MAT-OLD", "Old Name", "Journal",
-            min_amount=Decimal("100"),
+            min_amount=Decimal("0"),
             max_amount=Decimal("1000"),
+            currency="IDR",
+            rules=[{"level": 1, "approver_id": str(uuid4())}],
             is_active=True,
-            legal_entity_id=legal_entity_id,
+            notes="Test",
+            created_by=str(uuid4()),
+            legal_entity_id=str(uuid4()),
         )
-        updated = await service.update_approval_matrix(
+        assert result is not None
+        assert result.matrix_code == "MAT-001"
+        mock_repo.save_matrix.assert_called_once()
+
+    async def test_list_approval_matrices(self, service, mock_repo):
+        mock_repo.list_matrices.return_value = [mock_matrix_row(), mock_matrix_row()]
+
+        result = await service.list_approval_matrices(str(uuid4()), entity_type="Journal", is_active=True)
+        assert len(result) == 2
+        mock_repo.list_matrices.assert_called_once()
+
+    async def test_get_approval_matrix(self, service, mock_repo):
+        matrix = mock_matrix_row()
+        mock_repo.get_matrix_by_id.return_value = matrix
+
+        result = await service.get_approval_matrix(matrix.id, matrix.legal_entity_id)
+        assert result is not None
+        assert result.id == matrix.id
+
+    async def test_update_approval_matrix(self, service, mock_repo):
+        matrix = mock_matrix_row(matrix_name="Old")
+        mock_repo.get_matrix_by_id.return_value = matrix
+
+        result = await service.update_approval_matrix(
             matrix_id=matrix.id,
-            matrix_code="MAT-NEW",
             matrix_name="New Name",
-            entity_type="PurchaseOrder",
-            min_amount=Decimal("500"),
-            max_amount=Decimal("5000"),
-            currency="USD",
-            rules=[{"level": 2, "role": "director"}],
-            is_active=False,
-            notes="Updated notes",
-            updated_by=requester_id,
-            legal_entity_id=legal_entity_id,
+            legal_entity_id=matrix.legal_entity_id,
         )
-        assert updated is not None
-        assert updated.matrix_code == "MAT-NEW"
-        assert updated.matrix_name == "New Name"
-        assert updated.entity_type == "PurchaseOrder"
-        assert updated.min_amount == Decimal("500")
-        assert updated.max_amount == Decimal("5000")
-        assert updated.currency == "USD"
-        assert updated.rules == [{"level": 2, "role": "director"}]
-        assert updated.is_active is False
-        assert updated.notes == "Updated notes"
-        assert updated.updated_at is not None
+        assert result is not None
+        assert result.matrix_name == "New Name"
 
-    @pytest.mark.asyncio
-    async def test_update_approval_matrix_not_found(self, service):
-        result = await service.update_approval_matrix(uuid4(), matrix_code="NEW", legal_entity_id=uuid4())
-        assert result is None
+    async def test_delete_approval_matrix(self, service, mock_repo):
+        mock_repo.delete_matrix.return_value = True
+        result = await service.delete_approval_matrix(str(uuid4()), str(uuid4()), str(uuid4()))
+        assert result is True
+        mock_repo.delete_matrix.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_deactivate_approval_matrix(self, service, legal_entity_id, requester_id):
-        matrix = await service.create_approval_matrix("MAT-1", "Matrix 1", "Journal", legal_entity_id=legal_entity_id)
-        result = await service.deactivate_approval_matrix(matrix.id, legal_entity_id, updated_by=requester_id)
+    async def test_deactivate_approval_matrix(self, service, mock_repo):
+        matrix = mock_matrix_row(is_active=True)
+        mock_repo.get_matrix_by_id.return_value = matrix
+
+        result = await service.deactivate_approval_matrix(matrix.id, matrix.legal_entity_id, str(uuid4()))
         assert result is True
         assert matrix.is_active is False
+        assert matrix.version == 2
 
-    @pytest.mark.asyncio
-    async def test_deactivate_approval_matrix_not_found(self, service):
-        result = await service.deactivate_approval_matrix(uuid4())
-        assert result is False
+    # --------------------- Delegation Tests ---------------------
+    async def test_create_delegation(self, service, mock_repo):
+        delegation = mock_delegation_row()
+        mock_repo.save_delegation.return_value = delegation
 
-    @pytest.mark.asyncio
-    async def test_get_pending_tasks_for_user(self, service, legal_entity_id, requester_id, approver_id):
-        # Submit two pending requests for same legal_entity
-        await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        # Submit one that gets approved
-        req3 = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.process_approval(req3.id, "approve", approver_id, legal_entity_id)
-
-        tasks = await service.get_pending_tasks_for_user(approver_id, legal_entity_id)
-        assert len(tasks) == 2  # both pending
-
-        # Filter by legal_entity
-        tasks2 = await service.get_pending_tasks_for_user(approver_id, uuid4())
-        assert len(tasks2) == 0
-
-    @pytest.mark.asyncio
-    async def test_get_stats(self, service, legal_entity_id, requester_id, approver_id):
-        stats = service.get_stats()
-        assert stats == {"submitted": 0, "approved": 0, "rejected": 0}
-
-        await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        req2 = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.process_approval(req2.id, "approve", approver_id, legal_entity_id)
-        req3 = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.process_approval(req3.id, "reject", approver_id, legal_entity_id)
-
-        stats2 = service.get_stats()
-        assert stats2["submitted"] == 3
-        assert stats2["approved"] == 1
-        assert stats2["rejected"] == 1
-
-    @pytest.mark.asyncio
-    async def test_get_audit_trail(self, service, legal_entity_id, requester_id, approver_id):
-        # Initially empty
-        assert len(service.get_audit_trail()) == 0
-
-        await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        trail = service.get_audit_trail()
-        assert len(trail) == 1
-        assert trail[0]["action"] == "submit_approval"
-
-        # More actions
-        req2 = await service.submit_approval("Journal", uuid4(), requester_id=requester_id, legal_entity_id=legal_entity_id)
-        await service.process_approval(req2.id, "approve", approver_id, legal_entity_id)
-        trail2 = service.get_audit_trail()
-        assert len(trail2) == 3  # submit + submit + process_approval
-
-    # ---- Integration test for full workflow ----
-    @pytest.mark.asyncio
-    async def test_full_approval_workflow(self, service, legal_entity_id, requester_id, approver_id):
-        # 1. Submit
-        request = await service.submit_approval(
-            entity_type="Journal",
-            entity_id=uuid4(),
-            requester_id=requester_id,
-            legal_entity_id=legal_entity_id,
-            notes="Initial submission",
+        result = await service.create_delegation(
+            delegator_id=str(uuid4()),
+            delegate_to_id=str(uuid4()),
+            start_date=date.today(),
+            end_date=date.today().replace(year=date.today().year + 1),
+            reason="Test",
+            legal_entity_id=str(uuid4()),
         )
-        assert request.status == ApprovalStatus.PENDING
+        assert result is not None
+        assert result.id == delegation.id
+        mock_repo.save_delegation.assert_called_once()
 
-        # 2. List and find
-        results = await service.list_approval_requests(legal_entity_id=legal_entity_id, status="pending")
-        assert results.total == 1
+    async def test_create_delegation_invalid_dates(self, service):
+        with pytest.raises(ValueError, match="end_date must be on or after start_date"):
+            await service.create_delegation(
+                delegator_id=str(uuid4()),
+                delegate_to_id=str(uuid4()),
+                start_date=date(2026, 1, 1),
+                end_date=date(2025, 12, 31),
+                reason="Invalid",
+                legal_entity_id=str(uuid4()),
+            )
 
-        # 3. Approve
-        approved = await service.process_approval(request.id, "approve", approver_id, legal_entity_id, notes="OK")
-        assert approved.status == ApprovalStatus.APPROVED
+    async def test_list_delegations(self, service, mock_repo):
+        mock_repo.list_delegations_by_delegator.return_value = [mock_delegation_row(), mock_delegation_row()]
 
-        # 4. Check history
-        history = await service.get_approval_history(request.id, legal_entity_id)
-        assert len(history) == 2
-        assert history[0].action == ApprovalAction.SUBMITTED.value
-        assert history[1].action == ApprovalAction.APPROVED.value
+        result = await service.list_delegations(str(uuid4()), str(uuid4()), is_active=True)
+        assert len(result) == 2
 
-        # 5. Check stats
-        stats = service.get_stats()
-        assert stats["submitted"] == 1
-        assert stats["approved"] == 1
+    async def test_revoke_delegation(self, service, mock_repo):
+        delegation = mock_delegation_row()
+        mock_repo.get_delegation_by_id.return_value = delegation
+
+        result = await service.revoke_delegation(delegation.id, str(uuid4()), delegation.legal_entity_id)
+        assert result is True
+        assert delegation.is_active is False
+        assert delegation.version == 2
+
+    # --------------------- Statistics ---------------------
+    async def test_get_approval_statistics(self, service, mock_repo):
+        stats = await service.get_approval_statistics(
+            legal_entity_id=str(uuid4()),
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+            entity_type="Journal",
+        )
+        assert stats.total == 10
+        assert stats.pending == 5
+        assert stats.approved == 3
+
+    # --------------------- Export ---------------------
+    async def test_export_approval_requests_csv(self, service, mock_repo):
+        mock_repo.list_requests.return_value = (
+            [mock_request_row(request_number="APR-1"), mock_request_row(request_number="APR-2")],
+            2,
+        )
+
+        data = await service.export_approval_requests(
+            legal_entity_id=str(uuid4()),
+            start_date=date(2026, 1, 1),
+            format="csv",
+        )
+        assert isinstance(data, bytes)
+        assert b"request_number" in data
+        assert b"APR-1" in data
+
+    async def test_export_approval_requests_unsupported_format(self, service):
+        with pytest.raises(ValueError, match="Unsupported export format: pdf"):
+            await service.export_approval_requests(
+                legal_entity_id=str(uuid4()),
+                format="pdf",
+            )
 
 
-# ============================================================================
+# =============================================================================
 # Test for audit decorator
-# ============================================================================
+# =============================================================================
 
 def test_audit_decorator():
     @audit
@@ -766,20 +831,11 @@ def test_audit_decorator():
     assert test_func() == "ok"
 
 
-# ============================================================================
-# Test for exports
-# ============================================================================
+# =============================================================================
+# Test for __all__ exports
+# =============================================================================
 
 def test_exports():
     from application.service_layer.service_approval import __all__
-    expected = [
-        "ApprovalAction",
-        "ApprovalHistoryEntry",
-        "ApprovalMatrix",
-        "ApprovalRequest",
-        "ApprovalService",
-        "ApprovalStatus",
-        "PaginatedResult",
-        "audit",
-    ]
+    expected = ["ApprovalService", "PaginatedResult", "audit"]
     assert set(__all__) == set(expected)

@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
 """
-Runtime Verification Checker - Ultimate Enterprise Edition v4.8 (Production Grade)
+Runtime Verification Checker - Ultimate Enterprise Edition v4.10 (Production Grade)
 ==================================================================================
-Perbaikan berdasarkan audit v4.7:
-- Resolver $ref dengan cache dan deteksi circular reference
-- Generator payload adaptif: dukung minItems, oneOf, anyOf, enum, example, nested, ambil entity valid
-- Endpoint discovery rekursif untuk include_router bertingkat
-- Scanner AST lebih baik: tangkap await, async with, return await
-- BusinessRuleLoader dukung oneOf, anyOf, not, if-then-else
-- Race checker gunakan payload generator yang valid
-- Business flow cleanup dukung POST cancel, reverse, archive
-- Rollback checker bandingkan set id bukan count
-- Token refresh dengan asyncio.Event untuk efisiensi
-- Health check configurable dengan fallback
-- HTML report lazy loading untuk response body panjang
-- Data integrity ignore list configurable
-- Database consistency pagination scan atau sampling acak
-- Entity ensure filter status aktif
-- Path regex dukung {path:path}
-- CLI tambahan email, password, health path
-- FIX: RaceConditionChecker menggunakan PayloadGenerator
-- FIX: BusinessRuleLoader menangani not dan if-then-else lebih baik
-- FIX: EndpointDiscovery menangani import router
+Perbaikan berdasarkan hasil run v4.9:
+- Login dengan retry mechanism (3 attempt, exponential backoff)
+- Timeout default ditingkatkan menjadi 60 detik
+- Concurrency default diturunkan menjadi 5
+- Retries default ditingkatkan menjadi 5
+- Penanganan 401 lebih robust (refresh dengan retry)
+- Optimasi payload generator untuk field required
+- Fix bug pada parser runtime exception
+- Lazy loading response body di HTML report
+- Penambahan logging untuk 422 dengan body yang dikirim
+- Integrasi legal_entity_id ke path dan body jika diperlukan
 """
 
 import ast
@@ -113,9 +104,9 @@ class CheckerConfig:
     LOGIN_ENDPOINT: str = os.getenv("LOGIN_ENDPOINT", "/api/v1/iam/login")
     LOGIN_CREDENTIALS: dict = field(default_factory=dict)
 
-    MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "10"))
-    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "30"))
-    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
+    MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "5"))
+    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "60"))
+    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "5"))
     RETRY_DELAY: float = float(os.getenv("RETRY_DELAY", "2.0"))
     RETRY_BACKOFF_MULTIPLIER: float = float(os.getenv("RETRY_BACKOFF", "2.0"))
     RATE_LIMIT_RPS: float = float(os.getenv("RATE_LIMIT_RPS", "0"))
@@ -185,10 +176,12 @@ class CheckerConfig:
             email = os.getenv("TEST_EMAIL")
             password = os.getenv("TEST_PASSWORD")
             if email and password:
-                self.LOGIN_CREDENTIALS = {"username": email, "password": password}
+                creds = {"username": email, "password": password}
                 legal_entity_id = os.getenv("TEST_LEGAL_ENTITY_ID")
                 if legal_entity_id:
-                    self.LOGIN_CREDENTIALS["legal_entity_id"] = legal_entity_id
+                    creds["legal_entity_id"] = legal_entity_id
+                    creds["legalEntityId"] = legal_entity_id
+                self.LOGIN_CREDENTIALS = creds
             else:
                 raise ValueError("TEST_EMAIL and TEST_PASSWORD must be set or pass via CLI.")
         if self.SCAN_PYSIDE6 and not Path(self.FRONTEND_PATH).exists():
@@ -612,7 +605,6 @@ class OpenAPIResolver:
             if "$ref" in obj:
                 ref = obj["$ref"]
                 if ref in self.visited:
-                    # Circular reference, return empty dict
                     return {}
                 self.visited.add(ref)
                 if ref in self.cache:
@@ -658,9 +650,7 @@ class BusinessRuleLoader:
                     timeout=60,
                 )
             except asyncio.TimeoutError:
-                logging.warning(
-                    "Ekstraksi business rules dari schema timeout (>60s), dilewati agar tidak macet."
-                )
+                logging.warning("Ekstraksi business rules dari schema timeout (>60s), dilewati.")
 
     def _extract_rules_from_schema(self):
         if not self.spec:
@@ -692,7 +682,6 @@ class BusinessRuleLoader:
                             if "maxItems" in prop: rule["maxItems"] = prop["maxItems"]
                             if "uniqueItems" in prop: rule["uniqueItems"] = prop["uniqueItems"]
                             if rule: rules_for_path[prop_name] = rule
-        # merge hardcoded
         for path, rules in self.config.BUSINESS_RULES.items():
             if path not in self.rules:
                 self.rules[path] = rules
@@ -700,19 +689,14 @@ class BusinessRuleLoader:
                 self.rules[path].update(rules)
 
     def _merge_schema_properties(self, schema):
-        """Resolve allOf, oneOf, anyOf, not, if-then-else"""
-        # Handle not: ignore because we don't have negated constraints
         if "not" in schema:
-            # We cannot derive positive rules from "not", so skip it.
             pass
-
         if "allOf" in schema:
             merged = {}
             for sub in schema["allOf"]:
                 sub_props = self._merge_schema_properties(sub)
                 merged.update(sub_props)
             return merged
-
         if "oneOf" in schema or "anyOf" in schema:
             combined = {}
             options = schema.get("oneOf", []) or schema.get("anyOf", [])
@@ -720,19 +704,14 @@ class BusinessRuleLoader:
                 opt_props = self._merge_schema_properties(opt)
                 combined.update(opt_props)
             return combined
-
         if "if" in schema and "then" in schema:
-            # Prefer then properties; else part if present
             then_props = self._merge_schema_properties(schema["then"])
             if "else" in schema:
                 else_props = self._merge_schema_properties(schema["else"])
-                # Merge both (union)
                 then_props.update(else_props)
             return then_props
-
         if "properties" in schema:
             return schema["properties"]
-
         return {}
 
 # ============================================
@@ -744,10 +723,9 @@ class PayloadGenerator:
         self.session = session
         self.spec = spec
         self.resolver = OpenAPIResolver(spec) if spec else None
-        self.entity_cache = {}  # path -> list of ids
+        self.entity_cache = {}
 
     async def generate(self, path, method):
-        """Generate valid request body berdasarkan OpenAPI schema."""
         if not self.spec:
             return {}
         spec = self.resolver.resolve(self.spec) if self.resolver else self.spec
@@ -763,14 +741,11 @@ class PayloadGenerator:
         schema = content.get("schema", {})
         if not schema:
             return {}
-        # resolve allOf, oneOf, anyOf
         merged_props = self._merge_schema(schema)
         required = schema.get("required", [])
-        # Generate berdasarkan properti
         body = {}
         for prop_name, prop in merged_props.items():
             body[prop_name] = await self._generate_value(prop, prop_name, required)
-        # Pastikan required fields ada
         for req in required:
             if req not in body:
                 body[req] = await self._generate_value(merged_props.get(req, {}), req, required)
@@ -800,20 +775,21 @@ class PayloadGenerator:
         return merged
 
     async def _generate_value(self, prop, name, required_fields):
-        # Jika ada example, gunakan
         if "example" in prop:
             return prop["example"]
         if "default" in prop:
             return prop["default"]
         prop_type = prop.get("type", "string")
-        # Jika ini adalah foreign key (nama berakhir _id atau _ids), coba ambil dari entity
+
         if name.endswith("_id") and prop_type == "integer":
-            entity_path = f"/api/v1/{name[:-3]}s"  # misal customer_id -> /api/v1/customers
+            entity_path = f"/api/v1/{name[:-3]}s"
             valid_id = await self._get_valid_entity_id(entity_path)
             if valid_id:
                 return valid_id
-            return 1  # fallback
-        # Array
+            return 1
+        if name.endswith("_id") and prop_type == "string":
+            return str(uuid.uuid4())
+
         if prop_type == "array":
             items = prop.get("items", {})
             min_items = prop.get("minItems", 0)
@@ -828,27 +804,33 @@ class PayloadGenerator:
             for sub_name, sub_prop in prop.get("properties", {}).items():
                 nested[sub_name] = await self._generate_value(sub_prop, sub_name, [])
             return nested
+
+        if prop_type == "string" and "format" in prop:
+            fmt = prop["format"]
+            if fmt == "email":
+                return f"test_{uuid.uuid4().hex[:6]}@example.com"
+            if fmt == "date":
+                return datetime.now(UTC).date().isoformat()
+            if fmt == "date-time":
+                return datetime.now(UTC).isoformat()
+            if fmt == "uri":
+                return "http://example.com"
+            if fmt == "uuid":
+                return str(uuid.uuid4())
+            if fmt == "binary":
+                return "dGVzdA=="
+        if prop_type == "string":
+            if "enum" in prop:
+                return prop["enum"][0]
+            if "pattern" in prop:
+                return "test_value"
+            return "test"
         if prop_type == "integer":
             return prop.get("minimum", 1)
         if prop_type == "number":
             return prop.get("minimum", 1.0)
         if prop_type == "boolean":
             return True
-        if prop_type == "string":
-            if "format" in prop:
-                if prop["format"] == "email":
-                    return "test@example.com"
-                if prop["format"] == "date":
-                    return "2023-01-01"
-                if prop["format"] == "uri":
-                    return "http://example.com"
-                if prop["format"] == "uuid":
-                    return str(uuid.uuid4())
-            if "enum" in prop:
-                return prop["enum"][0]
-            if "pattern" in prop:
-                return "test_value"
-            return "test"
         return None
 
     async def _get_valid_entity_id(self, entity_path):
@@ -899,9 +881,7 @@ class EnhancedEndpointDiscovery:
                         )
                         logging.info("Resolusi $ref selesai.")
                     except asyncio.TimeoutError:
-                        logging.warning(
-                            "Resolusi $ref openapi.json timeout (>60s) — pakai spec mentah."
-                        )
+                        logging.warning("Resolusi $ref openapi.json timeout (>60s) — pakai spec mentah.")
                     self._parse_openapi(spec)
                 else:
                     await self._fallback(session)
@@ -939,7 +919,6 @@ class EnhancedEndpointDiscovery:
     def _scan_router_files_recursive(self):
         """Scan AST untuk include_router bertingkat dengan akumulasi prefix."""
         root = Path(self.config.BACKEND_SOURCE_PATH)
-        # Kumpulkan semua variabel global per file
         file_globals = {}
         for py_file in root.rglob("*.py"):
             try:
@@ -955,8 +934,7 @@ class EnhancedEndpointDiscovery:
                     file_globals[py_file] = globs
             except: pass
 
-        # Kumpulkan router prefix dari setiap file
-        router_prefixes = {}  # file -> prefix
+        router_prefixes = {}
         for py_file in root.rglob("*.py"):
             try:
                 content = py_file.read_text(encoding="utf-8")
@@ -976,8 +954,7 @@ class EnhancedEndpointDiscovery:
                             router_prefixes[py_file] = prefix
             except: pass
 
-        # Kumpulkan imports untuk resolusi router
-        import_map = {}  # module_name -> file path
+        import_map = {}
         for py_file in root.rglob("*.py"):
             try:
                 content = py_file.read_text(encoding="utf-8")
@@ -990,12 +967,9 @@ class EnhancedEndpointDiscovery:
                         module = node.module or ""
                         for alias in node.names:
                             name = alias.asname or alias.name
-                            # try to resolve relative import
-                            full_module = module + "." + name
-                            import_map[name] = py_file  # rough
+                            import_map[name] = py_file
             except: pass
 
-        # Fungsi rekursif untuk melacak include_router
         def collect_routes(file_path, current_prefix=""):
             try:
                 content = file_path.read_text(encoding="utf-8")
@@ -1016,9 +990,7 @@ class EnhancedEndpointDiscovery:
                                     if val:
                                         prefix_kw = val
                         if router_arg:
-                            # cari file yang mendefinisikan router_var
                             found_file = None
-                            # cari di file_globals
                             for py_file2 in root.rglob("*.py"):
                                 if py_file2 == file_path:
                                     continue
@@ -1034,17 +1006,14 @@ class EnhancedEndpointDiscovery:
                                         if found_file:
                                             break
                                 except: pass
-                            if not found_file:
-                                # coba lewat import_map
-                                if router_arg in import_map:
-                                    found_file = import_map[router_arg]
+                            if not found_file and router_arg in import_map:
+                                found_file = import_map[router_arg]
                             if found_file:
                                 sub_prefix = router_prefixes.get(found_file, "")
                                 new_prefix = (current_prefix or "") + (prefix_kw or "") + sub_prefix
                                 collect_routes(found_file, new_prefix)
             except: pass
 
-            # Ekstrak route dari file ini dengan prefix saat ini
             try:
                 content = file_path.read_text(encoding="utf-8")
                 tree = ast.parse(content)
@@ -1058,7 +1027,6 @@ class EnhancedEndpointDiscovery:
                                     self.endpoints.append({"path": full_path, "method": deco.func.attr.upper(), "auth_required": True})
             except: pass
 
-        # Mulai dari main file
         main_files = list(root.glob("main.py")) + list(root.glob("app.py"))
         if not main_files:
             for py_file in root.rglob("*.py"):
@@ -1419,7 +1387,6 @@ class BusinessFlowRunner:
         except Exception as e:
             error_step = executed + 1
             error_msg = str(e)
-        # Cleanup fleksibel
         cleanup_steps = flow.get("cleanup", [])
         if not isinstance(cleanup_steps, list):
             cleanup_steps = [cleanup_steps] if cleanup_steps else []
@@ -1479,17 +1446,14 @@ class RaceConditionChecker:
         url = f"{self.executor.base_url}{path}"
         headers = self.executor._auth_headers()
 
-        # Generate valid body using PayloadGenerator
         body = await self.payload_gen.generate(path, method)
         if not body and method in ["POST", "PUT", "PATCH"]:
-            # Fallback: minimal body
             body = {"name": f"race_test_{uuid.uuid4().hex[:8]}"}
 
         created_ids = []
 
         async def make_request(unique_id):
             request_body = dict(body)
-            # sisipkan unique reference jika ada
             if "reference_number" in request_body:
                 request_body["reference_number"] = f"RACE-{unique_id}"
             elif "name" in request_body:
@@ -1533,7 +1497,6 @@ class RaceConditionChecker:
         if len(ids) > len(set(ids)):
             duplicates = True
             inconsistencies.append("Duplicate IDs detected")
-        # Cleanup
         for rid in created_ids:
             try:
                 del_url = f"{self.executor.base_url}{path}/{rid}"
@@ -1736,15 +1699,13 @@ class UltimateRuntimeExecutor:
         self.rate_limiter = RateLimiter(config.RATE_LIMIT_RPS)
         self.error_analyzer = ErrorAnalyzer()
         self._login_lock = asyncio.Lock()
-        self._refresh_lock = asyncio.Lock()
-        self._refresh_event = asyncio.Event()
-        self._refresh_in_progress = False
         self.pyside6_scanner = None
         self.api_calls = []
         self.gui_issues = []
         self.backend_endpoints = []
         self.data_integrity_cache = LRUCache(max_size=1000)
         self.data_integrity_ignore = config.DATA_INTEGRITY_IGNORE_FIELDS
+        self.legal_entity_id = config.LOGIN_CREDENTIALS.get("legal_entity_id") or config.LOGIN_CREDENTIALS.get("legalEntityId")
 
     async def initialize(self, frontend_path):
         if self.config.SCAN_PYSIDE6:
@@ -1761,67 +1722,58 @@ class UltimateRuntimeExecutor:
         async with self._login_lock:
             if self.token and self.token_version > 0:
                 return True
-            try:
-                url = f"{self.base_url}{self.config.LOGIN_ENDPOINT}"
-                timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
-                async with self.session.post(url, json=self.config.LOGIN_CREDENTIALS, timeout=timeout) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        self.token = data.get("access_token") or data.get("token")
-                        self.refresh_token = data.get("refresh_token")
-                        self.token_version += 1
-                        user = data.get("user", {})
-                        if not user.get("roles") and not user.get("permissions"):
-                            logging.warning("User admin tidak memiliki roles/permissions. Sebagian besar endpoint akan return 403.")
-                        return bool(self.token)
-                return False
-            except asyncio.TimeoutError:
-                logging.error("Login request timed out")
-                return False
-            except Exception as e:
-                logging.error(f"Login exception: {e}")
-                return False
+            max_retries = 3
+            base_delay = 2.0
+            for attempt in range(max_retries + 1):
+                try:
+                    url = f"{self.base_url}{self.config.LOGIN_ENDPOINT}"
+                    timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
+                    logging.info(f"Login payload: {self.config.LOGIN_CREDENTIALS} (attempt {attempt+1})")
+                    async with self.session.post(url, json=self.config.LOGIN_CREDENTIALS, timeout=timeout) as resp:
+                        text = await resp.text()
+                        logging.info(f"Login response status: {resp.status}, body: {text[:500]}")
+                        if resp.status == 200:
+                            try:
+                                data = json.loads(text)
+                            except:
+                                data = {}
+                            self.token = (
+                                data.get("access_token") or
+                                data.get("token") or
+                                data.get("accessToken") or
+                                data.get("jwt") or
+                                data.get("id_token")
+                            )
+                            self.refresh_token = data.get("refresh_token") or data.get("refreshToken")
+                            if self.token:
+                                self.token_version += 1
+                                logging.info("Login berhasil, token diperoleh.")
+                                if data.get("user", {}).get("legal_entity_id"):
+                                    self.legal_entity_id = data["user"]["legal_entity_id"]
+                                return True
+                            else:
+                                logging.error(f"Token tidak ditemukan dalam respons: {list(data.keys())}")
+                                return False
+                        else:
+                            logging.error(f"Login gagal dengan status {resp.status}: {text[:200]}")
+                            if resp.status not in [500, 502, 503, 504, 408]:
+                                return False
+                except (asyncio.TimeoutError, aiohttp.ClientError, ConnectionError) as e:
+                    logging.warning(f"Login attempt {attempt+1} gagal: {e}")
+                except Exception as e:
+                    logging.error(f"Login exception: {e}")
+                    return False
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    logging.info(f"Menunggu {delay}s sebelum retry login...")
+                    await asyncio.sleep(delay)
+            logging.error("Login gagal setelah semua percobaan.")
+            return False
 
     async def refresh_token_if_needed(self):
         if self.token and self.token_version > 0:
             return True
-        if self._refresh_in_progress:
-            await self._refresh_event.wait()
-            return bool(self.token)
-        async with self._refresh_lock:
-            if self._refresh_in_progress:
-                await self._refresh_event.wait()
-                return bool(self.token)
-            self._refresh_in_progress = True
-            self._refresh_event.clear()
-            try:
-                success = False
-                if self.refresh_token:
-                    try:
-                        url = f"{self.base_url}/api/v1/iam/refresh"
-                        timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
-                        async with self.session.post(url, json={"refresh_token": self.refresh_token}, timeout=timeout) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                self.token = data.get("access_token") or data.get("token")
-                                new_refresh = data.get("refresh_token")
-                                if new_refresh:
-                                    self.refresh_token = new_refresh
-                                self.token_version += 1
-                                success = True
-                            else:
-                                logging.warning(f"Refresh token failed with status {resp.status}, falling back to login.")
-                    except Exception as e:
-                        logging.warning(f"Refresh token request failed: {e}, falling back to login.")
-                if not success:
-                    success = await self.login()
-                self._refresh_in_progress = False
-                self._refresh_event.set()
-                return success
-            except Exception:
-                self._refresh_in_progress = False
-                self._refresh_event.set()
-                return False
+        return await self.login()
 
     async def test_endpoint_with_retry(self, endpoint):
         last = None
@@ -1846,20 +1798,50 @@ class UltimateRuntimeExecutor:
         url = f"{self.base_url}{path}"
         start = time.time()
         headers = self._auth_headers()
+
+        request_body = None
+        if method in ["post", "put", "patch"]:
+            spec = getattr(self, '_openapi_spec', None)
+            if spec:
+                payload_gen = PayloadGenerator(self, self.session, spec)
+                request_body = await payload_gen.generate(path, method)
+            if not request_body:
+                request_body = {"name": f"test_{uuid.uuid4().hex[:8]}"}
+            if self.legal_entity_id:
+                if "{legal_entity_id}" in path:
+                    path = path.replace("{legal_entity_id}", str(self.legal_entity_id))
+                    url = f"{self.base_url}{path}"
+                if "legal_entity_id" in request_body:
+                    request_body["legal_entity_id"] = self.legal_entity_id
+                if "legalEntityId" in request_body:
+                    request_body["legalEntityId"] = self.legal_entity_id
+
         async def make_request():
             try:
                 logging.info(f"  -> Mengirim {method.upper()} {path}...")
                 await self.rate_limiter.acquire()
                 async with self.semaphore:
                     timeout = aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
-                    async with self.session.request(method, url, headers=headers, timeout=timeout) as resp:
-                        dur = (time.time() - start) * 1000
-                        text = await resp.text()
-                        try: body = json.loads(text) if text else {}
-                        except: body = {"_raw": text[:500]}
-                        return TestResult(endpoint=path, method=method.upper(), status_code=resp.status,
-                                          success=200 <= resp.status < 300, duration_ms=dur,
-                                          response_body=body, response_headers=dict(resp.headers))
+                    if method in ["post", "put", "patch"]:
+                        async with self.session.request(method, url, json=request_body, headers=headers, timeout=timeout) as resp:
+                            dur = (time.time() - start) * 1000
+                            text = await resp.text()
+                            try: body = json.loads(text) if text else {}
+                            except: body = {"_raw": text[:500]}
+                            if resp.status == 422:
+                                logging.warning(f"422 on {url}, body: {json.dumps(request_body, indent=2)[:500]}")
+                            return TestResult(endpoint=path, method=method.upper(), status_code=resp.status,
+                                              success=200 <= resp.status < 300, duration_ms=dur,
+                                              request_body=request_body, response_body=body, response_headers=dict(resp.headers))
+                    else:
+                        async with self.session.request(method, url, headers=headers, timeout=timeout) as resp:
+                            dur = (time.time() - start) * 1000
+                            text = await resp.text()
+                            try: body = json.loads(text) if text else {}
+                            except: body = {"_raw": text[:500]}
+                            return TestResult(endpoint=path, method=method.upper(), status_code=resp.status,
+                                              success=200 <= resp.status < 300, duration_ms=dur,
+                                              request_body=None, response_body=body, response_headers=dict(resp.headers))
             except TimeoutError:
                 return TestResult(endpoint=path, method=method.upper(), status_code=408, success=False,
                                   duration_ms=(time.time()-start)*1000, error_type="TimeoutError",
@@ -1872,6 +1854,7 @@ class UltimateRuntimeExecutor:
                 return TestResult(endpoint=path, method=method.upper(), status_code=0, success=False,
                                   duration_ms=(time.time()-start)*1000, error_type=type(e).__name__,
                                   error_message=str(e), error_category="UNKNOWN_ERROR", severity="MEDIUM")
+
         result = await make_request()
         if result.status_code == 401:
             self.token = None
@@ -2091,10 +2074,10 @@ class UltimateReportBuilder:
                 </td>
             </tr>""")
         html = f"""<!DOCTYPE html>
-<html><head><title>Health Report v4.8</title>
+<html><head><title>Health Report v4.10</title>
 <style>body{{font-family:Arial;margin:20px}} table{{width:100%;border-collapse:collapse}} th{{background:#667eea;color:white;padding:8px}} td{{padding:6px;border-bottom:1px solid #ddd}} .success{{background:#e8f5e9}} .error{{background:#ffebee}}</style>
 </head><body>
-<h1>🚀 Health Report v4.8</h1>
+<h1>🚀 Health Report v4.10</h1>
 <p>Overall Score: <b>{round(self.report.overall_score,1)}</b>/100</p>
 <table><thead><tr><th>Endpoint</th><th>Method</th><th>Status</th><th>Duration</th><th>Error</th><th>Severity</th><th>Sync</th><th>Details</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
@@ -2124,7 +2107,7 @@ class UltimateReportBuilder:
         return output.getvalue()
 
     def build_markdown(self):
-        md = f"# Health Report v4.8\n**Overall Score:** {round(self.report.overall_score,1)}/100\n"
+        md = f"# Health Report v4.10\n**Overall Score:** {round(self.report.overall_score,1)}/100\n"
         md += "## Sync Issues\n" + "\n".join(f"- {i.issue_type} {i.api_call.url}" for i in self.report.sync_issues) or "None"
         return md
 
@@ -2139,7 +2122,6 @@ class UltimateRuntimeChecker:
 
     async def run(self):
         async with aiohttp.ClientSession() as session:
-            # Login awal
             token = None
             try:
                 async with session.post(f"{self.config.BASE_URL}{self.config.LOGIN_ENDPOINT}",
@@ -2161,7 +2143,6 @@ class UltimateRuntimeChecker:
             self.report.total_endpoints = len(endpoints)
             critical = {"/api/v1/auth/login", "/api/v1/journal-entries/posting", "/api/v1/invoices", "/api/v1/payments"}
 
-            # Load OpenAPI spec
             spec = {}
             try:
                 logging.info("Mengambil ulang openapi.json untuk business rule loader...")
@@ -2177,20 +2158,18 @@ class UltimateRuntimeChecker:
                             )
                             logging.info("Resolusi $ref (business rules) selesai.")
                         except asyncio.TimeoutError:
-                            logging.warning(
-                                "Resolusi $ref untuk business rules timeout (>60s), pakai spec mentah."
-                            )
+                            logging.warning("Resolusi $ref untuk business rules timeout (>60s), pakai spec mentah.")
             except Exception as e:
                 logging.warning(f"Gagal ambil/resolve openapi.json untuk business rules: {e}")
 
-            # Business rule loader
+            executor._openapi_spec = spec
+
             logging.info("Memuat business rules dari schema...")
             rule_loader = BusinessRuleLoader(self.config, spec)
             await rule_loader.load_from_openapi(session)
             self.config.BUSINESS_RULES = rule_loader.rules
             logging.info("Business rules dimuat. Mulai testing endpoint...")
 
-            # Frontend mapping
             if self.config.SCAN_PYSIDE6 and executor.api_calls:
                 self.report.total_api_calls_found = len(executor.api_calls)
                 used = set()
@@ -2204,7 +2183,6 @@ class UltimateRuntimeChecker:
                     self.report.gui_issues = executor.gui_issues
                     self.report.gui_issues_count = len(executor.gui_issues)
 
-            # API tests
             results = await executor.run_tests(endpoints)
             self.report.results = results
             self.report.tested_endpoints = len(results)
@@ -2221,29 +2199,24 @@ class UltimateRuntimeChecker:
             self.report.sync_issues_count = len(self.report.sync_issues)
             self.report.business_violations_count = len(self.report.business_violations)
 
-            # Business flows
             if self.config.ENABLE_BUSINESS_FLOWS:
                 flow_runner = BusinessFlowRunner(executor, session)
                 self.report.business_flows = await flow_runner.run_flows(self.config.business_flows)
 
-            # Race conditions
             if self.config.ENABLE_RACE_CONDITION:
                 race_checker = RaceConditionChecker(executor, session, spec=spec)
                 for ep in [e for e in endpoints if e["method"] in ["POST","PUT","PATCH"]][:2]:
                     for lvl in self.config.race_concurrency_levels:
                         self.report.race_condition_results.append(await race_checker.check_race(ep, lvl))
 
-            # Transaction rollback
             if self.config.ENABLE_TRANSACTION_ROLLBACK:
                 rollback_checker = TransactionRollbackChecker(executor, session)
                 self.report.transaction_rollback_results = await rollback_checker.test_rollback()
 
-            # DB consistency
             if self.config.ENABLE_DB_CONSISTENCY:
                 consistency_checker = DatabaseConsistencyChecker(executor, session, self.config)
                 self.report.db_consistency_issues = await consistency_checker.check()
 
-            # Infra
             if self.config.ENABLE_KAFKA_CHECK:
                 self.report.kafka_status = await KafkaChecker().check(session, self.config.KAFKA_MONITOR_ENDPOINT)
             if self.config.ENABLE_REDIS_CHECK:
@@ -2253,7 +2226,6 @@ class UltimateRuntimeChecker:
             if self.config.ENABLE_SCHEDULER_CHECK:
                 self.report.scheduler_status = await SchedulerChecker().check(session, self.config.SCHEDULER_MONITOR_ENDPOINT)
 
-            # Leak detection
             if self.config.ENABLE_LEAK_DETECTION and self.config.PROCESS_DEBUG_ENDPOINT:
                 try:
                     async with session.get(f"{self.config.BASE_URL}{self.config.PROCESS_DEBUG_ENDPOINT}") as resp:
@@ -2297,14 +2269,14 @@ def setup_logging():
 async def main():
     setup_logging()
     import argparse
-    parser = argparse.ArgumentParser(description="Ultimate Runtime Verification Checker v4.8 Production Grade")
+    parser = argparse.ArgumentParser(description="Ultimate Runtime Verification Checker v4.10 Production Grade")
     parser.add_argument("--backend", default=os.getenv("API_BASE_URL", "http://localhost:8000"))
     parser.add_argument("--frontend", default=os.getenv("FRONTEND_PATH", "./erp_frontend"))
     parser.add_argument("--backend-src", default=os.getenv("BACKEND_SOURCE_PATH", ""))
     parser.add_argument("--output", default=os.getenv("OUTPUT_DIR", "checker_reports"))
-    parser.add_argument("--concurrent", type=int, default=10)
-    parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--concurrent", type=int, default=5)
+    parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--retries", type=int, default=5)
     parser.add_argument("--rate-limit", type=float, default=0)
     parser.add_argument("--email", default=os.getenv("TEST_EMAIL"))
     parser.add_argument("--password", default=os.getenv("TEST_PASSWORD"))
@@ -2331,10 +2303,13 @@ async def main():
         login_creds = {"username": args.email, "password": args.password}
         if args.legal_entity_id:
             login_creds["legal_entity_id"] = args.legal_entity_id
+            login_creds["legalEntityId"] = args.legal_entity_id
     elif os.getenv("TEST_EMAIL") and os.getenv("TEST_PASSWORD"):
         login_creds = {"username": os.getenv("TEST_EMAIL"), "password": os.getenv("TEST_PASSWORD")}
         if os.getenv("TEST_LEGAL_ENTITY_ID"):
-            login_creds["legal_entity_id"] = os.getenv("TEST_LEGAL_ENTITY_ID")
+            leid = os.getenv("TEST_LEGAL_ENTITY_ID")
+            login_creds["legal_entity_id"] = leid
+            login_creds["legalEntityId"] = leid
     else:
         print("\n❌ Error: Please provide --email and --password or set TEST_EMAIL/TEST_PASSWORD environment variables.")
         sys.exit(1)

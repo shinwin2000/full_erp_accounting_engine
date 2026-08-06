@@ -15,6 +15,7 @@ Responsibility:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field as _dc_field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -67,6 +68,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_NIL_UUID = UUID(int=0)
+
+
+def _safe_uuid(value: Any) -> UUID:
+    """Konversi nilai apapun (UUID, str, None) menjadi UUID dengan aman."""
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return _NIL_UUID
+
+
+def _sanitize_decimal(value: Decimal) -> Decimal:
+    """Pastikan Decimal tidak NaN/Infinity."""
+    if not value.is_finite():
+        logger.warning(f"Decimal non-finite terdeteksi: {value}, di-clamp ke 0")
+        return Decimal("0")
+    return value
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -102,6 +124,57 @@ class APPaymentRunError(APServiceError):
 
 class APThreeWayMatchError(APServiceError):
     pass
+
+
+# ============================================================================
+# List DTOs (untuk endpoint GET /ap/invoices)
+# ============================================================================
+
+
+@dataclass(kw_only=True)
+class APInvoiceListItemDTO:
+    """DTO item invoice untuk endpoint list (GET /ap/invoices), lengkap sesuai
+    kebutuhan APInvoiceResponseSchema di fastapi_ap_router.py."""
+
+    id: UUID
+    invoice_number: str
+    vendor_id: UUID
+    vendor_name: str
+    vendor_code: str
+    invoice_date: date
+    due_date: date
+    invoice_number_vendor: str = ""
+    total_amount: Decimal = Decimal("0.00")
+    paid_amount: Decimal = Decimal("0.00")
+    outstanding_amount: Decimal = Decimal("0.00")
+    discount_taken: Decimal = Decimal("0.00")
+    status: str = "draft"
+    description: str | None = None
+    lines: list[dict[str, Any]] = _dc_field(default_factory=list)
+    tax_amount: Decimal = Decimal("0.00")
+    created_at: datetime = _dc_field(default_factory=lambda: datetime.now(UTC))
+    created_by: UUID = _dc_field(default_factory=lambda: _NIL_UUID)
+    created_by_name: str | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    posted_at: datetime | None = None
+    posted_by: UUID | None = None
+    cancelled_at: datetime | None = None
+    cancelled_by: UUID | None = None
+    payment_run_id: UUID | None = None
+    version: int = 1
+    is_locked: bool = False
+
+
+@dataclass(kw_only=True)
+class APInvoiceListResult:
+    """Hasil paginated untuk list_invoices(), dikonsumsi langsung oleh
+    fastapi_ap_router.list_ap_invoices()."""
+
+    items: list[APInvoiceListItemDTO]
+    total: int
+    total_outstanding: Decimal
+    total_paid: Decimal
 
 
 # ============================================================================
@@ -858,22 +931,58 @@ class APService:
         legal_entity_id: UUID,
         vendor_id: UUID | None = None,
         status: str | None = None,
-        from_date: date | None = None,
-        to_date: date | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[APInvoiceResponseDTO]:
-        """List invoices with filters."""
-        invoices = await self._ap_repo.list_invoices(
+        start_date: date | None = None,
+        end_date: date | None = None,
+        due_date_up_to: date | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> APInvoiceListResult:
+        """
+        List invoices dengan filter dan pagination.
+        Dipakai oleh GET /api/v1/ap/ap/invoices (fastapi_ap_router.list_ap_invoices).
+        """
+        raw_invoices = await self._ap_repo.list_invoices(
             legal_entity_id=legal_entity_id,
             vendor_id=vendor_id,
             status=status,
-            from_date=from_date,
-            to_date=to_date,
-            limit=limit,
-            offset=offset,
+            from_date=start_date,
+            to_date=end_date,
+            limit=100_000,
+            offset=0,
         )
-        return [self._to_invoice_response(inv) for inv in invoices]
+
+        def _due_date_of(inv: Any) -> date:
+            d = inv.due_date
+            return d.date() if hasattr(d, "date") else d
+
+        filtered = raw_invoices
+        if due_date_up_to is not None:
+            filtered = [inv for inv in filtered if _due_date_of(inv) <= due_date_up_to]
+
+        total = len(filtered)
+        total_outstanding = sum(
+            (inv.outstanding_amount for inv in filtered), Decimal("0")
+        )
+        total_paid = sum((inv.paid_amount for inv in filtered), Decimal("0"))
+
+        page = max(page, 1)
+        page_size = max(page_size, 1)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_slice = filtered[start_idx:end_idx]
+
+        vendor_code_cache: dict[UUID, str] = {}
+        items = [
+            await self._to_invoice_list_item(inv, vendor_code_cache)
+            for inv in page_slice
+        ]
+
+        return APInvoiceListResult(
+            items=items,
+            total=total,
+            total_outstanding=_sanitize_decimal(total_outstanding),
+            total_paid=_sanitize_decimal(total_paid),
+        )
 
     # ========================================================================
     # Private Helpers
@@ -929,6 +1038,51 @@ class APService:
             created_by=invoice.created_by,
             approved_at=getattr(invoice, "approved_at", None),
             approved_by=getattr(invoice, "approved_by", None),
+        )
+
+    async def _to_invoice_list_item(
+        self, invoice: APInvoice, vendor_code_cache: dict[UUID, str]
+    ) -> APInvoiceListItemDTO:
+        """Map domain APInvoice -> APInvoiceListItemDTO untuk endpoint list."""
+        vendor_code = vendor_code_cache.get(invoice.vendor_id)
+        if vendor_code is None:
+            vendor_code = str(invoice.vendor_id)
+            try:
+                vendor = await self._supplier_repo.get_by_id(invoice.vendor_id)
+                if vendor is not None:
+                    vendor_code = getattr(vendor, "supplier_code", vendor_code)
+            except Exception as e:
+                logger.debug(f"Gagal ambil vendor_code untuk {invoice.vendor_id}: {e}")
+            vendor_code_cache[invoice.vendor_id] = vendor_code
+
+        lines = [
+            line.to_dict() if hasattr(line, "to_dict") else line
+            for line in getattr(invoice, "lines", [])
+        ]
+
+        invoice_date = invoice.invoice_date
+        due_date = invoice.due_date
+
+        return APInvoiceListItemDTO(
+            id=invoice.invoice_id,
+            invoice_number=str(invoice.invoice_number),
+            vendor_id=invoice.vendor_id,
+            vendor_name=invoice.vendor_name,
+            vendor_code=vendor_code,
+            invoice_date=invoice_date.date() if hasattr(invoice_date, "date") else invoice_date,
+            due_date=due_date.date() if hasattr(due_date, "date") else due_date,
+            invoice_number_vendor=getattr(invoice, "invoice_number_vendor", "") or "",
+            total_amount=invoice.amount,
+            paid_amount=invoice.paid_amount,
+            outstanding_amount=invoice.outstanding_amount,
+            discount_taken=getattr(invoice, "discount_amount", Decimal("0.00")),
+            status=invoice.status.value if hasattr(invoice.status, "value") else str(invoice.status),
+            description=invoice.description,
+            lines=lines,
+            tax_amount=invoice.tax_amount,
+            created_at=invoice.created_at,
+            created_by=_safe_uuid(invoice.created_by),
+            version=getattr(invoice, "version", 1),
         )
 
     def _to_payment_response(self, payment: APPayment) -> APPaymentResponseDTO:

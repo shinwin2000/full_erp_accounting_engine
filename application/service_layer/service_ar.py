@@ -98,6 +98,23 @@ def _sanitize_decimal(value: Decimal) -> Decimal:
     return value
 
 
+_NIL_UUID = UUID(int=0)
+
+
+def _safe_uuid(value: Any) -> UUID:
+    """
+    Konversi nilai apapun (UUID, str, None) menjadi UUID dengan aman.
+    Dipakai karena beberapa entity domain menyimpan `created_by` sebagai str
+    (mis. "system") yang bukan UUID valid.
+    """
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return _NIL_UUID
+
+
 def _sanitize_value(value: Any) -> Any:
     """Sanitasi nilai tunggal (Decimal atau float)."""
     if isinstance(value, Decimal):
@@ -169,6 +186,53 @@ class ARInvoiceResponse:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: UUID | None = None
     approved_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class ARInvoiceListItemDTO:
+    """DTO item invoice untuk endpoint list (GET /ar/invoices), lengkap sesuai
+    kebutuhan ARInvoiceResponseSchema di fastapi_ar_router.py."""
+
+    id: UUID
+    invoice_number: str
+    customer_id: UUID
+    customer_name: str
+    customer_code: str
+    invoice_date: date
+    due_date: date
+    total_amount: Decimal
+    paid_amount: Decimal
+    outstanding_amount: Decimal
+    discount_taken: Decimal = Decimal("0.00")
+    status: str = "draft"
+    description: str | None = None
+    lines: list[dict[str, Any]] = field(default_factory=list)
+    tax_amount: Decimal = Decimal("0.00")
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_by: UUID = field(default_factory=lambda: _NIL_UUID)
+    created_by_name: str | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    posted_at: datetime | None = None
+    posted_by: UUID | None = None
+    cancelled_at: datetime | None = None
+    cancelled_by: UUID | None = None
+    collection_status: str = "not_started"
+    last_reminder_sent_at: datetime | None = None
+    version: int = 1
+    is_locked: bool = False
+
+
+@dataclass(kw_only=True)
+class ARInvoiceListResult:
+    """Hasil paginated untuk list_invoices(), dikonsumsi langsung oleh
+    fastapi_ar_router.list_ar_invoices()."""
+
+    items: list[ARInvoiceListItemDTO]
+    total: int
+    total_outstanding: Decimal
+    total_paid: Decimal
+    total_overdue: Decimal
 
 
 @dataclass(kw_only=True)
@@ -410,7 +474,7 @@ class ARService:
         self._check_authority(user_id, "create_invoice")
 
         # Validate customer
-        customer_agg = await self._customer_repo.get_customer_by_id(request.customer_id)
+        customer_agg = await self._customer_repo.get_by_id(request.customer_id)
         if not customer_agg:
             raise ARCustomerNotFoundError(f"Customer {request.customer_id} not found")
         customer = customer_agg.customer
@@ -593,7 +657,7 @@ class ARService:
         # ========== SOD / AUTHORITY CHECK ==========
         self._check_authority(user_id, "record_payment")
 
-        customer_agg = await self._customer_repo.get_customer_by_id(request.customer_id)
+        customer_agg = await self._customer_repo.get_by_id(request.customer_id)
         if not customer_agg:
             raise ARCustomerNotFoundError(f"Customer {request.customer_id} not found")
 
@@ -914,12 +978,99 @@ class ARService:
         legal_entity_id: UUID,
         customer_id: UUID | None = None,
         status: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        due_date_up_to: date | None = None,
+        overdue_only: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> ARInvoiceListResult:
+        """
+        List invoices dengan filter dan pagination.
+        Dipakai oleh GET /api/v1/ar/ar/invoices (fastapi_ar_router.list_ar_invoices).
+        """
+        raw_invoices = await self._ar_repo.list_invoices(
+            legal_entity_id=legal_entity_id,
+            customer_id=customer_id,
+            status=status,
+            from_date=start_date,
+            to_date=end_date,
+            limit=100_000,
+            offset=0,
+        )
+
+        today = date.today()
+
+        def _due_date_of(inv: Any) -> date:
+            d = inv.due_date
+            return d.date() if hasattr(d, "date") else d
+
+        def _status_value(inv: Any) -> str:
+            s = inv.status
+            return s.value if hasattr(s, "value") else str(s)
+
+        def _is_overdue(inv: Any) -> bool:
+            return _due_date_of(inv) < today and _status_value(inv) not in (
+                "paid",
+                "cancelled",
+                "written_off",
+            )
+
+        filtered = []
+        for inv in raw_invoices:
+            if due_date_up_to is not None and _due_date_of(inv) > due_date_up_to:
+                continue
+            filtered.append(inv)
+        if overdue_only:
+            filtered = [inv for inv in filtered if _is_overdue(inv)]
+
+        total = len(filtered)
+        total_outstanding = sum(
+            (inv.outstanding_amount for inv in filtered), Decimal("0")
+        )
+        total_paid = sum((inv.paid_amount for inv in filtered), Decimal("0"))
+        total_overdue = sum(
+            (inv.outstanding_amount for inv in filtered if _is_overdue(inv)),
+            Decimal("0"),
+        )
+
+        page = max(page, 1)
+        page_size = max(page_size, 1)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_slice = filtered[start_idx:end_idx]
+
+        customer_code_cache: dict[UUID, str] = {}
+        items = [
+            await self._to_invoice_list_item(inv, customer_code_cache)
+            for inv in page_slice
+        ]
+
+        return ARInvoiceListResult(
+            items=items,
+            total=total,
+            total_outstanding=_sanitize_decimal(total_outstanding),
+            total_paid=_sanitize_decimal(total_paid),
+            total_overdue=_sanitize_decimal(total_overdue),
+        )
+
+    async def list_invoices_raw(
+        self,
+        legal_entity_id: UUID,
+        customer_id: UUID | None = None,
+        status: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
-        limit: int = 100,
+        limit: int = 100_000,
         offset: int = 0,
     ) -> list[ARInvoiceResponse]:
-        """List invoices with filters."""
+        """
+        Ambil semua invoice sebagai ARInvoiceResponse (bentuk "flat", dengan field
+        `remaining_amount`/`amount`/`id`), TANPA pagination-envelope.
+        Dipakai oleh laporan agregat (get_aging_all_customers, get_dashboard) dan
+        oleh use case lain (mis. ar_collection_workflow.py) yang butuh list utuh.
+        Untuk endpoint list ber-pagination (GET /ar/invoices), pakai list_invoices().
+        """
         invoices = await self._ar_repo.list_invoices(
             legal_entity_id=legal_entity_id,
             customer_id=customer_id,
@@ -938,9 +1089,7 @@ class ARService:
         as_of = as_of_date or date.today()
         as_of_dt = datetime.combine(as_of, datetime.min.time())
 
-        all_invoices = await self.list_invoices(
-            legal_entity_id=legal_entity_id, limit=100_000, offset=0
-        )
+        all_invoices = await self.list_invoices_raw(legal_entity_id=legal_entity_id)
         outstanding = [
             inv
             for inv in all_invoices
@@ -957,9 +1106,9 @@ class ARService:
             customer_name = invoices[0].customer_name
             customer_code = str(customer_id)
             try:
-                customer_agg = await self._customer_repo.get_customer_by_id(customer_id)
+                customer_agg = await self._customer_repo.get_by_id(customer_id)
                 if customer_agg is not None:
-                    customer_code = getattr(customer_agg.customer, "code", customer_code)
+                    customer_code = getattr(customer_agg, "customer_code", customer_code)
             except Exception as e:
                 logger.debug(f"Gagal ambil customer_code untuk {customer_id}: {e}")
 
@@ -1030,9 +1179,7 @@ class ARService:
         period_days = 90
         period_start = as_of - timedelta(days=period_days)
 
-        all_invoices = await self.list_invoices(
-            legal_entity_id=legal_entity_id, limit=100_000, offset=0
-        )
+        all_invoices = await self.list_invoices_raw(legal_entity_id=legal_entity_id)
         outstanding = [
             inv
             for inv in all_invoices
@@ -1175,6 +1322,57 @@ class ARService:
             created_by=invoice.created_by,
             approved_at=invoice.approved_at,
             approved_by=invoice.approved_by,
+        )
+
+    async def _to_invoice_list_item(
+        self, invoice: ARInvoice, customer_code_cache: dict[UUID, str]
+    ) -> ARInvoiceListItemDTO:
+        """Map domain ARInvoice -> ARInvoiceListItemDTO untuk endpoint list."""
+        customer_code = customer_code_cache.get(invoice.customer_id)
+        if customer_code is None:
+            customer_code = str(invoice.customer_id)
+            try:
+                customer = await self._customer_repo.get_by_id(invoice.customer_id)
+                if customer is not None:
+                    customer_code = getattr(customer, "customer_code", customer_code)
+            except Exception as e:
+                logger.debug(
+                    f"Gagal ambil customer_code untuk {invoice.customer_id}: {e}"
+                )
+            customer_code_cache[invoice.customer_id] = customer_code
+
+        lines = [
+            line.to_dict() if hasattr(line, "to_dict") else line
+            for line in getattr(invoice, "lines", [])
+        ]
+
+        invoice_number = (
+            invoice.invoice_number.value
+            if hasattr(invoice.invoice_number, "value")
+            else str(invoice.invoice_number)
+        )
+        issue_date = invoice.issue_date
+        due_date = invoice.due_date
+
+        return ARInvoiceListItemDTO(
+            id=invoice.invoice_id,
+            invoice_number=invoice_number,
+            customer_id=invoice.customer_id,
+            customer_name=invoice.customer_name,
+            customer_code=customer_code,
+            invoice_date=issue_date.date() if hasattr(issue_date, "date") else issue_date,
+            due_date=due_date.date() if hasattr(due_date, "date") else due_date,
+            total_amount=invoice.amount,
+            paid_amount=invoice.paid_amount,
+            outstanding_amount=invoice.outstanding_amount,
+            discount_taken=getattr(invoice, "discount_amount", Decimal("0.00")),
+            status=invoice.status.value if hasattr(invoice.status, "value") else str(invoice.status),
+            description=invoice.description,
+            lines=lines,
+            tax_amount=invoice.tax_amount,
+            created_at=invoice.created_at,
+            created_by=_safe_uuid(invoice.created_by),
+            version=getattr(invoice, "version", 1),
         )
 
     def _to_payment_response(self, payment: ARPayment) -> ARPaymentResponse:

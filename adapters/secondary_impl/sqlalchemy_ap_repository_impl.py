@@ -554,6 +554,36 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             offset=offset
         )
 
+    async def list_invoices(
+        self,
+        legal_entity_id: UUID,
+        vendor_id: UUID | None = None,
+        status: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[APInvoiceAggregate]:
+        """List invoices dengan filter, dipakai oleh APService.list_invoices()."""
+        conditions = [
+            APInvoiceTable.legal_entity_id == legal_entity_id,
+            APInvoiceTable.deleted_at.is_(None),
+        ]
+        if vendor_id is not None:
+            conditions.append(APInvoiceTable.vendor_id == vendor_id)
+        if status is not None:
+            conditions.append(APInvoiceTable.status == status)
+        if from_date is not None:
+            conditions.append(APInvoiceTable.invoice_date >= from_date)
+        if to_date is not None:
+            conditions.append(APInvoiceTable.invoice_date <= to_date)
+        return await self._fetch_invoices(
+            conditions,
+            order_by=APInvoiceTable.invoice_date.desc(),
+            limit=limit,
+            offset=offset,
+        )
+
     async def list_open_invoices(
         self, legal_entity_id: UUID, vendor_id: UUID | None = None, limit: int = 1000, offset: int = 0
     ) -> list[APInvoiceAggregate]:

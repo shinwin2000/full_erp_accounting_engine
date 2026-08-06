@@ -400,7 +400,7 @@ async def list_legal_entities_for_login(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/",
+    "/legal-entities",
     response_model=LegalEntityResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create legal entity",
@@ -500,7 +500,7 @@ async def create_legal_entity(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/",
+    "/legal-entities",
     response_model=list[LegalEntityResponseSchema],
     summary="List legal entities",
     operation_id="legal_list_legal_entities",
@@ -577,7 +577,7 @@ async def list_legal_entities(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/{legal_entity_id}",
+    "/legal-entities/{legal_entity_id}",
     response_model=LegalEntityResponseSchema,
     summary="Get legal entity by ID",
     operation_id="legal_get_legal_entity",
@@ -641,7 +641,7 @@ async def get_legal_entity(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/by-npwp/{npwp}",
+    "/legal-entities/by-npwp/{npwp}",
     response_model=LegalEntityResponseSchema,
     summary="Get legal entity by NPWP",
     operation_id="legal_get_legal_entity_by_npwp",
@@ -701,7 +701,7 @@ async def get_legal_entity_by_npwp(
 
 
 @router.get(
-    "/by-registration/{registration_number}",
+    "/legal-entities/by-registration/{registration_number}",
     response_model=LegalEntityResponseSchema,
     summary="Get legal entity by registration number",
     operation_id="legal_get_legal_entity_by_registration",
@@ -765,7 +765,7 @@ async def get_legal_entity_by_registration(
 # ----------------------------------------------------------------------------
 
 @router.put(
-    "/{legal_entity_id}",
+    "/legal-entities/{legal_entity_id}",
     response_model=LegalEntityResponseSchema,
     summary="Update legal entity",
     operation_id="legal_update_legal_entity",
@@ -855,7 +855,7 @@ async def update_legal_entity(
 # ----------------------------------------------------------------------------
 
 @router.delete(
-    "/{legal_entity_id}",
+    "/legal-entities/{legal_entity_id}",
     response_model=dict[str, Any],
     summary="Deactivate legal entity",
     operation_id="legal_deactivate_legal_entity",
@@ -894,7 +894,7 @@ async def deactivate_legal_entity(
 
 
 @router.post(
-    "/{legal_entity_id}/activate",
+    "/legal-entities/{legal_entity_id}/activate",
     response_model=LegalEntityResponseSchema,
     summary="Activate legal entity",
     operation_id="legal_activate_legal_entity",
@@ -964,7 +964,7 @@ async def activate_legal_entity(
 
 
 @router.post(
-    "/{legal_entity_id}/lock",
+    "/legal-entities/{legal_entity_id}/lock",
     response_model=LegalEntityResponseSchema,
     summary="Lock legal entity",
     operation_id="legal_lock_legal_entity",
@@ -1035,7 +1035,7 @@ async def lock_legal_entity(
 
 
 @router.post(
-    "/{legal_entity_id}/unlock",
+    "/legal-entities/{legal_entity_id}/unlock",
     response_model=LegalEntityResponseSchema,
     summary="Unlock legal entity",
     operation_id="legal_unlock_legal_entity",
@@ -1109,7 +1109,7 @@ async def unlock_legal_entity(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/{legal_entity_id}/tax-profile",
+    "/legal-entities/{legal_entity_id}/tax-profile",
     response_model=TaxProfileResponseSchema,
     summary="Get tax profile",
     operation_id="legal_get_tax_profile",
@@ -1150,7 +1150,7 @@ async def get_tax_profile(
 
 
 @router.put(
-    "/{legal_entity_id}/tax-profile",
+    "/legal-entities/{legal_entity_id}/tax-profile",
     response_model=TaxProfileResponseSchema,
     summary="Update tax profile",
     operation_id="legal_update_tax_profile",
@@ -1221,7 +1221,7 @@ async def update_tax_profile(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/{legal_entity_id}/branches",
+    "/legal-entities/{legal_entity_id}/branches",
     response_model=BranchResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create branch",
@@ -1286,7 +1286,7 @@ async def create_branch(
 
 
 @router.get(
-    "/{legal_entity_id}/branches",
+    "/legal-entities/{legal_entity_id}/branches",
     response_model=list[BranchResponseSchema],
     summary="List branches",
     operation_id="legal_list_branches",
@@ -1333,7 +1333,7 @@ async def list_branches(
 
 
 @router.get(
-    "/{legal_entity_id}/branches/{branch_id}",
+    "/legal-entities/{legal_entity_id}/branches/{branch_id}",
     response_model=BranchResponseSchema,
     summary="Get branch by ID",
     operation_id="legal_get_branch",
@@ -1376,7 +1376,7 @@ async def get_branch(
 
 
 @router.put(
-    "/{legal_entity_id}/branches/{branch_id}",
+    "/legal-entities/{legal_entity_id}/branches/{branch_id}",
     response_model=BranchResponseSchema,
     summary="Update branch",
     operation_id="legal_update_branch",
@@ -1443,7 +1443,7 @@ async def update_branch(
 
 
 @router.delete(
-    "/{legal_entity_id}/branches/{branch_id}",
+    "/legal-entities/{legal_entity_id}/branches/{branch_id}",
     response_model=dict[str, Any],
     summary="Close branch",
     operation_id="legal_close_branch",
@@ -1488,7 +1488,7 @@ async def close_branch(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/consolidation-groups",
+    "/legal-entities/consolidation-groups",
     response_model=ConsolidationGroupResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create consolidation group",
@@ -1545,7 +1545,7 @@ async def create_consolidation_group(
 
 
 @router.get(
-    "/consolidation-groups",
+    "/legal-entities/consolidation-groups",
     response_model=list[ConsolidationGroupResponseSchema],
     summary="List consolidation groups",
     operation_id="legal_list_consolidation_groups",
@@ -1583,7 +1583,7 @@ async def list_consolidation_groups(
 
 
 @router.get(
-    "/consolidation-groups/{group_id}",
+    "/legal-entities/consolidation-groups/{group_id}",
     response_model=ConsolidationGroupResponseSchema,
     summary="Get consolidation group by ID",
     operation_id="legal_get_consolidation_group",
@@ -1622,7 +1622,7 @@ async def get_consolidation_group(
 
 
 @router.put(
-    "/consolidation-groups/{group_id}",
+    "/legal-entities/consolidation-groups/{group_id}",
     response_model=ConsolidationGroupResponseSchema,
     summary="Update consolidation group",
     operation_id="legal_update_consolidation_group",
@@ -1681,7 +1681,7 @@ async def update_consolidation_group(
 
 
 @router.delete(
-    "/consolidation-groups/{group_id}",
+    "/legal-entities/consolidation-groups/{group_id}",
     response_model=dict[str, Any],
     summary="Deactivate consolidation group",
     operation_id="legal_deactivate_consolidation_group",
@@ -1719,7 +1719,7 @@ async def deactivate_consolidation_group(
 
 
 @router.post(
-    "/consolidation-groups/{group_id}/members/{legal_entity_id}",
+    "/legal-entities/consolidation-groups/{group_id}/members/{legal_entity_id}",
     response_model=dict[str, Any],
     summary="Add member to consolidation group",
     operation_id="legal_add_group_member",
@@ -1759,7 +1759,7 @@ async def add_group_member(
 
 
 @router.delete(
-    "/consolidation-groups/{group_id}/members/{legal_entity_id}",
+    "/legal-entities/consolidation-groups/{group_id}/members/{legal_entity_id}",
     response_model=dict[str, Any],
     summary="Remove member from consolidation group",
     operation_id="legal_remove_group_member",
@@ -1803,7 +1803,7 @@ async def remove_group_member(
 # ----------------------------------------------------------------------------
 
 @router.get(
-    "/{legal_entity_id}/history",
+    "/legal-entities/{legal_entity_id}/history",
     response_model=list[dict[str, Any]],
     summary="Get legal entity history",
     operation_id="legal_get_legal_entity_history",
@@ -1834,7 +1834,7 @@ async def get_legal_entity_history(
 
 
 @router.get(
-    "/{legal_entity_id}/status",
+    "/legal-entities/{legal_entity_id}/status",
     response_model=dict[str, Any],
     summary="Get legal entity status",
     operation_id="legal_get_legal_entity_status",

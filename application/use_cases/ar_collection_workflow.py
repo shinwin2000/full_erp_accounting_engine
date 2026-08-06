@@ -235,7 +235,7 @@ class ARCollectionWorkflowUseCase:
     async def _identify_overdue_invoices(
         self, command: ARCollectionWorkflowCommand
     ) -> CollectionWorkflowResult:
-        invoices = await self._ar_service.list_invoices(
+        invoices = await self._ar_service.list_invoices_raw(
             legal_entity_id=command.legal_entity_id,
             customer_id=command.customer_id,
             status="APPROVED",

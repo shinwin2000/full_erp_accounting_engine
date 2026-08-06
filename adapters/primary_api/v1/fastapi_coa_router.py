@@ -861,7 +861,7 @@ async def list_accounts(
     search: str | None = Query(None, description="Search in code or name"),
     include_inactive: bool = Query(False, description="Include inactive accounts"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=2000, description="Items per page"),
     _permission: None = Depends(require_permission("coa:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
