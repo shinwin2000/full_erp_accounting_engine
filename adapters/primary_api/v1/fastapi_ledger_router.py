@@ -18,6 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.database.session_factory_sqlalchemy import get_async_session
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_legal_entity,
     require_permission,
@@ -288,10 +291,15 @@ class AccountActivitySchema(BaseModel):
     closing_balance: Decimal
 
 
-async def get_ledger_service(request: Request) -> Any:
+async def get_ledger_service(
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> Any:
     from application.service_layer.service_ledger import LedgerService
     container = request.app.state.container
-    return await container.resolve_async(LedgerService)
+    ledger_service = await container.resolve_async(LedgerService)
+    ledger_service._ledger_repo.session = session
+    return ledger_service
 
 
 router = APIRouter(prefix="/ledger", tags=["General Ledger"])

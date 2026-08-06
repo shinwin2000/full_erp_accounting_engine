@@ -3,7 +3,8 @@
 # =============================================================================
 
 # service_employee.py - Complete rewrite with full event publishing
-# v5.9.3 - Added audit decorator and authority checks for mutation methods
+# v5.9.4 - Fixed event parameter names: use 'id' instead of 'employee_id'
+#          to match actual event definitions.
 
 #!/usr/bin/env python3
 
@@ -214,7 +215,7 @@ class EmployeeService:
             event = EmployeeCreatedEvent(
                 aggregate_id=employee.id,
                 aggregate_version=employee.version,
-                employee_id=employee.id,
+                id=employee.id,  # Perbaikan: gunakan 'id' bukan 'employee_id'
                 employee_code=employee.employee_code,
                 employee_name=employee.full_name,
                 legal_entity_id=employee.legal_entity_id,
@@ -296,7 +297,7 @@ class EmployeeService:
             event = EmployeeStructureUpdatedEvent(
                 aggregate_id=employee.id,
                 aggregate_version=employee.version,
-                employee_id=employee.id,
+                id=employee.id,  # Perbaikan: gunakan 'id' bukan 'employee_id'
                 employee_name=employee.full_name,
                 old_basic_salary=employee.basic_salary,
                 new_basic_salary=employee.basic_salary,
@@ -362,7 +363,7 @@ class EmployeeService:
             event = EmployeeStructureUpdatedEvent(
                 aggregate_id=employee.id,
                 aggregate_version=employee.version,
-                employee_id=employee.id,
+                id=employee.id,  # Perbaikan: gunakan 'id' bukan 'employee_id'
                 employee_name=employee.full_name,
                 old_basic_salary=old_basic,
                 new_basic_salary=employee.basic_salary,
@@ -422,7 +423,7 @@ class EmployeeService:
             event = EmployeeBPJSUpdatedEvent(
                 aggregate_id=employee.id,
                 aggregate_version=employee.version,
-                employee_id=employee.id,
+                id=employee.id,  # Perbaikan: gunakan 'id' bukan 'employee_id'
                 employee_code=employee.employee_code,
                 changes=changes,
                 updated_by=str(updated_by) if updated_by else "system",
@@ -467,7 +468,7 @@ class EmployeeService:
             event = EmployeePTKPUpdatedEvent(
                 aggregate_id=employee.id,
                 aggregate_version=employee.version,
-                employee_id=employee.id,
+                id=employee.id,  # Perbaikan: gunakan 'id' bukan 'employee_id'
                 employee_code=employee.employee_code,
                 old_marital_status=old_marital,
                 new_marital_status=employee.marital_status.value,
@@ -515,7 +516,7 @@ class EmployeeService:
             event = EmployeeResignedEvent(
                 aggregate_id=employee.id,
                 aggregate_version=employee.version,
-                employee_id=employee.id,
+                id=employee.id,  # Perbaikan: gunakan 'id' bukan 'employee_id'
                 employee_code=employee.employee_code,
                 resignation_date=resignation_date,
                 reason=reason,

@@ -37,10 +37,6 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
-from application.dto_objects.coa_request import (
-    AccountCreateRequest,
-    AccountUpdateRequest,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -367,7 +363,8 @@ async def create_account(
             return AccountResponseSchema(**cached)
 
     try:
-        create_dto = AccountCreateRequest(
+        result = await coa_service.create_account_write(
+            legal_entity_id=legal_entity_id,
             account_code=request.account_code,
             account_name=request.account_name,
             account_type=request.account_type.value,
@@ -384,9 +381,7 @@ async def create_account(
             category=request.category,
             budget_control=request.budget_control,
             created_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
         )
-        result = await coa_service.create_account(create_dto)
         response = AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
@@ -552,8 +547,9 @@ async def update_account(
             return AccountResponseSchema(**cached)
 
     try:
-        update_dto = AccountUpdateRequest(
-            id=account_id,
+        result = await coa_service.update_account_write(
+            account_id=account_id,
+            legal_entity_id=legal_entity_id,
             account_name=request.account_name,
             description=request.description,
             status=request.status.value if request.status else None,
@@ -565,9 +561,7 @@ async def update_account(
             category=request.category,
             budget_control=request.budget_control,
             updated_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
         )
-        result = await coa_service.update_account(update_dto)
         if not result:
             raise HTTPException(status_code=404, detail="Account not found or cannot be updated")
         response = AccountResponseSchema(

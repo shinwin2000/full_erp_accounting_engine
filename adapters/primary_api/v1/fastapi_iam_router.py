@@ -16,7 +16,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid5, NAMESPACE_DNS
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -30,6 +30,7 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 from application.service_layer.service_iam import AuthenticationError
 from domain.iam.user_entity import UserStatus
+from domain.iam.permission_vo import PermissionUtils
 
 # Import async_session_maker dari lokasi yang benar
 from infrastructure.persistence_orm.database import async_session_maker
@@ -414,6 +415,17 @@ async def get_iam_service(request: Request) -> Any:
 
 router = APIRouter(tags=["IAM"])
 
+_PERMISSION_UUID_NAMESPACE = NAMESPACE_DNS
+
+
+def _permission_to_uuid(permission: str) -> UUID:
+    """Permission di sistem ini disimpan sebagai string "resource:action"
+    (lihat PermissionUtils.STANDARD_PERMISSIONS), bukan UUID. Endpoint
+    /iam/iam/permissions dan /iam/iam/roles butuh bentuk UUID, jadi kita
+    turunkan UUID yang stabil (deterministik) dari string permission-nya
+    supaya konsisten antar-request/antar-endpoint."""
+    return uuid5(_PERMISSION_UUID_NAMESPACE, permission)
+
 
 # ----------------------------------------------------------------------------
 # HEALTH CHECKS
@@ -534,7 +546,7 @@ async def list_users(
     role_id: UUID | None = Query(None, description="Filter by role"),
     legal_entity_id_filter: UUID | None = Query(None, description="Filter by legal entity"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     _permission: None = Depends(require_permission("iam:user_read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
@@ -543,44 +555,70 @@ async def list_users(
     service.set_context(session, legal_entity_id)
 
     try:
-        result = await service.list_users(
-            status=status.value if status else None,
-            is_active=is_active,
-            search=search,
-            role_id=role_id,
-            legal_entity_id_filter=legal_entity_id_filter,
-            page=page,
-            page_size=page_size,
+        # CATATAN PERBAIKAN: IAMService.list_users() cuma menerima
+        # legal_entity_id/status/limit/offset (bukan is_active/search/role_id/
+        # legal_entity_id_filter/page/page_size), dan UserEntity punya bentuk
+        # yang jauh berbeda dari UserResponseSchema (mis. nama lengkap/
+        # department/phone ada di dalam u.profile, timestamp ada di dalam
+        # u.audit, dsb). Filter tambahan & mapping field dilakukan di sini.
+        raw_users = await service.list_users(
+            legal_entity_id=legal_entity_id_filter,
+            status=status,
+            limit=5000,
+            offset=0,
         )
 
-        return [
-            UserResponseSchema(
-                id=u.id,
+        def _matches(u: Any) -> bool:
+            if is_active is not None:
+                user_is_active = u.status == UserStatus.ACTIVE
+                if user_is_active != is_active:
+                    return False
+            if role_id is not None and role_id not in (u.role_ids or []):
+                return False
+            if search:
+                needle = search.lower()
+                haystacks = [u.username or "", u.email or "", u.profile.full_name or ""]
+                if not any(needle in h.lower() for h in haystacks):
+                    return False
+            return True
+
+        filtered = [u for u in raw_users if _matches(u)]
+        start = (page - 1) * page_size
+        page_items = filtered[start : start + page_size]
+
+        def _to_response(u: Any) -> UserResponseSchema:
+            created_by_uuid: UUID | None
+            try:
+                created_by_uuid = UUID(u.audit.created_by)
+            except (ValueError, TypeError, AttributeError):
+                created_by_uuid = None
+            return UserResponseSchema(
+                id=u.user_id,
                 username=u.username,
                 email=u.email,
-                full_name=u.full_name,
-                department=u.department,
-                job_title=u.job_title,
-                phone_number=u.phone_number,
+                full_name=u.profile.full_name,
+                department=u.profile.department,
+                job_title=u.profile.position,
+                phone_number=u.profile.phone,
                 status=UserStatus(u.status),
-                is_active=u.is_active,
-                is_locked=u.is_locked,
-                is_superuser=u.is_superuser,
-                must_change_password=u.must_change_password,
+                is_active=u.status == UserStatus.ACTIVE,
+                is_locked=u.locked_until is not None,
+                is_superuser=False,
+                must_change_password=False,
                 mfa_enabled=u.mfa_enabled,
-                last_login_at=u.last_login_at,
-                last_password_change=u.last_password_change,
-                legal_entity_ids=u.legal_entity_ids,
+                last_login_at=u.audit.last_login_at,
+                last_password_change=u.audit.last_password_change_at,
+                legal_entity_ids=[u.legal_entity_id],
                 role_ids=u.role_ids,
-                notes=u.notes,
-                created_at=u.created_at,
-                updated_at=u.updated_at,
-                created_by=u.created_by,
-                created_by_name=u.created_by_name,
-                version=u.version,
+                notes=None,
+                created_at=u.audit.created_at,
+                updated_at=u.audit.updated_at,
+                created_by=created_by_uuid,
+                created_by_name=u.audit.created_by,
+                version=u.audit.version,
             )
-            for u in result.items
-        ]
+
+        return [_to_response(u) for u in page_items]
     except Exception as e:
         logger.exception(f"Failed to list users: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1139,26 +1177,49 @@ async def list_roles(
     service.set_context(session, legal_entity_id)
 
     try:
-        roles = await service.list_roles(
-            status=status.value if status else None,
-            is_active=is_active,
-        )
+        # CATATAN PERBAIKAN: IAMService.list_roles() tidak menerima filter
+        # apapun (signature aslinya cuma `list_roles(self)`), dan RoleEntity
+        # punya nama field beda (role_id/role_name/permissions/is_system,
+        # bukan id/name/permission_ids/is_system_role). permissions adalah
+        # set[str] "resource:action", jadi di-derive jadi UUID stabil lewat
+        # _permission_to_uuid() supaya konsisten dengan /iam/iam/permissions.
+        # r.status adalah domain.iam.role_entity.RoleStatus (enum TERPISAH
+        # dari RoleStatus lokal router ini), jadi dibandingkan/dikonversi
+        # lewat .value, bukan langsung.
+        raw_roles = await service.list_roles()
+
+        def _matches(r: Any) -> bool:
+            if status is not None and r.status.value != status.value:
+                return False
+            if is_active is not None:
+                role_is_active = r.status.value == "active"
+                if role_is_active != is_active:
+                    return False
+            return True
+
+        roles = [r for r in raw_roles if _matches(r)]
+
+        def _to_role_status(value: str) -> RoleStatus:
+            try:
+                return RoleStatus(value)
+            except ValueError:
+                return RoleStatus.INACTIVE
 
         return [
             RoleResponseSchema(
-                id=r.id,
-                name=r.name,
+                id=r.role_id,
+                name=r.role_name,
                 description=r.description,
                 parent_role_id=r.parent_role_id,
-                parent_role_name=r.parent_role_name,
-                is_system_role=r.is_system_role,
-                status=RoleStatus(r.status),
-                is_active=r.is_active,
-                permission_ids=r.permission_ids,
+                parent_role_name=None,
+                is_system_role=r.is_system,
+                status=_to_role_status(r.status.value),
+                is_active=r.status.value == "active",
+                permission_ids=[_permission_to_uuid(p) for p in sorted(r.permissions)],
                 created_at=r.created_at,
                 updated_at=r.updated_at,
-                created_by=r.created_by,
-                created_by_name=r.created_by_name,
+                created_by=None,
+                created_by_name=r.created_by,
                 version=r.version,
             )
             for r in roles
@@ -1518,19 +1579,31 @@ async def list_permissions(
     service.set_context(session, legal_entity_id)
 
     try:
-        permissions = await service.list_permissions(resource=resource)
+        # CATATAN PERBAIKAN: IAMService tidak punya method list_permissions()
+        # sama sekali (belum diimplementasikan). Katalog permission yang
+        # benar-benar ada di sistem ini adalah
+        # PermissionUtils.STANDARD_PERMISSIONS (domain/iam/permission_vo.py),
+        # daftar string statis berformat "resource:action". Kita pakai itu
+        # sebagai sumber data, dengan id UUID stabil (deterministik) via
+        # _permission_to_uuid().
+        all_permissions = sorted(PermissionUtils.STANDARD_PERMISSIONS)
+
+        def _to_schema(perm: str) -> PermissionResponseSchema:
+            res, _, action = perm.partition(":")
+            return PermissionResponseSchema(
+                id=_permission_to_uuid(perm),
+                name=perm,
+                resource=res,
+                action=action,
+                description=None,
+                is_system=True,
+                created_at=datetime.now(UTC),
+            )
 
         return [
-            PermissionResponseSchema(
-                id=p.id,
-                name=p.name,
-                resource=p.resource,
-                action=p.action,
-                description=p.description,
-                is_system=p.is_system,
-                created_at=p.created_at,
-            )
-            for p in permissions
+            _to_schema(perm)
+            for perm in all_permissions
+            if resource is None or perm.split(":", 1)[0] == resource
         ]
     except Exception as e:
         logger.exception(f"Failed to list permissions: {type(e).__name__}")
@@ -2031,25 +2104,18 @@ async def get_user_sessions(
     service.set_context(session, legal_entity_id)
 
     try:
-        sessions = await service.get_user_sessions(current_user.user_id)
-
-        return [
-            SessionResponseSchema(
-                id=s.id,
-                session_token=s.session_token,
-                user_id=s.user_id,
-                user_name=s.user_name,
-                ip_address=s.ip_address,
-                user_agent=s.user_agent,
-                device_id=s.device_id,
-                expires_at=s.expires_at,
-                last_accessed_at=s.last_accessed_at,
-                is_active=s.is_active,
-                is_revoked=s.is_revoked,
-                created_at=s.created_at,
-            )
-            for s in sessions
-        ]
+        # CATATAN PERBAIKAN: IAMService tidak punya method get_user_sessions(),
+        # dan setelah ditelusuri, backend ini memang belum punya penyimpanan
+        # riwayat sesi login sama sekali (nggak ada tabel/repo session).
+        # Ini bukan bug wiring, tapi fitur yang belum dibangun. Supaya
+        # frontend nggak 500, endpoint ini balikin list kosong dulu sampai
+        # session tracking benar-benar diimplementasikan di backend.
+        logger.warning(
+            "get_user_sessions dipanggil tapi IAMService belum punya "
+            "penyimpanan sesi login — balikin list kosong (fitur belum "
+            "diimplementasikan)."
+        )
+        return []
     except Exception as e:
         logger.exception(f"Failed to get user sessions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2133,28 +2199,18 @@ async def get_login_attempts(
     service.set_context(session, legal_entity_id)
 
     try:
-        attempts = await service.get_login_attempts(
-            username=username,
-            success=success,
-            start_date=start_date,
-            end_date=end_date,
-            page=page,
-            page_size=page_size,
+        # CATATAN PERBAIKAN: IAMService tidak punya method get_login_attempts(),
+        # dan backend ini belum punya penyimpanan riwayat percobaan login
+        # (cuma ada counter failed_login_attempts per user, bukan log detail
+        # per percobaan). Ini fitur yang belum dibangun, bukan bug wiring.
+        # Supaya frontend nggak 500, endpoint ini balikin list kosong dulu
+        # sampai audit log login benar-benar diimplementasikan di backend.
+        logger.warning(
+            "get_login_attempts dipanggil tapi IAMService belum punya "
+            "penyimpanan riwayat percobaan login — balikin list kosong "
+            "(fitur belum diimplementasikan)."
         )
-
-        return [
-            LoginAttemptResponseSchema(
-                id=a.id,
-                username=a.username,
-                user_id=a.user_id,
-                ip_address=a.ip_address,
-                user_agent=a.user_agent,
-                success=a.success,
-                failure_reason=a.failure_reason,
-                attempted_at=a.attempted_at,
-            )
-            for a in attempts
-        ]
+        return []
     except Exception as e:
         logger.exception(f"Failed to get login attempts: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")

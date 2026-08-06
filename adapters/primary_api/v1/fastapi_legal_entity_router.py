@@ -517,15 +517,34 @@ async def list_legal_entities(
     service: Any = Depends(get_legal_entity_service),
 ) -> list[LegalEntityResponseSchema]:
     try:
-        result = await service.list_legal_entities(
+        # CATATAN PERBAIKAN: LegalEntityService.list_legal_entities() saat ini
+        # cuma menerima entity_type/status/is_active (service ini masih stub
+        # in-memory, belum tersambung ke SQLAlchemyLegalEntityRepository seperti
+        # endpoint /login-options), dan mengembalikan list biasa (bukan objek
+        # ber-.items). parent_company_id/search/page/page_size diterapkan di
+        # sini secara manual.
+        raw_result = await service.list_legal_entities(
             entity_type=entity_type.value if entity_type else None,
             status=status.value if status else None,
             is_active=is_active,
-            parent_company_id=parent_company_id,
-            search=search,
-            page=page,
-            page_size=page_size,
         )
+        entities = getattr(raw_result, "items", raw_result)
+
+        def _matches(le: Any) -> bool:
+            if parent_company_id is not None and getattr(le, "parent_company_id", None) != parent_company_id:
+                return False
+            if search:
+                needle = search.lower()
+                name = (getattr(le, "legal_name", "") or "").lower()
+                trade = (getattr(le, "trade_name", "") or "").lower()
+                if needle not in name and needle not in trade:
+                    return False
+            return True
+
+        filtered = [le for le in entities if _matches(le)]
+        start = (page - 1) * page_size
+        page_items = filtered[start : start + page_size]
+
         return [
             LegalEntityResponseSchema(
                 id=le.id,
@@ -534,14 +553,14 @@ async def list_legal_entities(
                 entity_type=LegalEntityType(le.entity_type),
                 registration_number=le.registration_number,
                 npwp=le.npwp,
-                nppp=le.nppp,
+                nppp=getattr(le, "nppp", None),
                 address=le.address,
                 city=le.city,
                 postal_code=le.postal_code,
-                province=le.province,
+                province=getattr(le, "province", None),
                 country=le.country,
                 phone=le.phone,
-                fax=le.fax,
+                fax=getattr(le, "fax", None),
                 email=le.email,
                 website=le.website,
                 established_date=le.established_date,
@@ -549,23 +568,23 @@ async def list_legal_entities(
                 fiscal_year_end=le.fiscal_year_end,
                 base_currency=le.base_currency,
                 functional_currency=le.functional_currency,
-                is_taxable=le.is_taxable,
+                is_taxable=getattr(le, "is_taxable", True),
                 is_withholding_agent=le.is_withholding_agent,
                 status=LegalEntityStatus(le.status),
                 is_active=le.is_active,
-                is_locked=le.is_locked,
+                is_locked=getattr(le, "is_locked", False),
                 parent_company_id=le.parent_company_id,
-                parent_company_name=le.parent_company_name,
+                parent_company_name=getattr(le, "parent_company_name", None),
                 consolidation_group_id=le.consolidation_group_id,
-                consolidation_group_name=le.consolidation_group_name,
-                notes=le.notes,
+                consolidation_group_name=getattr(le, "consolidation_group_name", None),
+                notes=getattr(le, "notes", None),
                 created_at=le.created_at,
                 updated_at=le.updated_at,
-                created_by=le.created_by,
-                created_by_name=le.created_by_name,
+                created_by=le.created_by or UUID(int=0),
+                created_by_name=getattr(le, "created_by_name", None),
                 version=le.version,
             )
-            for le in result.items
+            for le in page_items
         ]
     except Exception as e:
         logger.exception("Failed to list legal entities: %s", e)

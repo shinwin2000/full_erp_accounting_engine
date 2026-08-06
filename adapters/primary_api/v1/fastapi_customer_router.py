@@ -516,6 +516,68 @@ async def activate_customer(
         )
 
 
+@router.delete(
+    "/customers/{customer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete (soft-delete) a customer",
+)
+async def delete_customer(
+    request: Request,
+    customer_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    user: TokenPayload = Depends(get_current_user),
+    service: CustomerService = Depends(get_service(CustomerService)),
+) -> Response:
+    """
+    Delete a customer.
+
+    Customers are never hard-deleted: doing so would break referential
+    integrity with existing AR invoices, journal entries, and audit trails.
+    DELETE performs the same soft-delete (deactivate) as
+    POST /customers/{customer_id}/deactivate, so REST-conventional
+    clients that issue DELETE don't hit a 405.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
+    """
+    method_name = "delete_customer"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    try:
+        correlation_id = get_correlation_id(request)
+        customer = await service.get_customer(customer_id)
+        if not customer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer not found",
+            )
+        await service.update_customer(
+            customer_id=customer_id,
+            is_active=False,
+            status=CustomerStatusEnum.INACTIVE.value,
+            updated_by=user.user_id,
+            correlation_id=correlation_id,
+        )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "customer_id": str(customer_id)}
+            )
+
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting customer {customer_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 @router.post(
     "/customers/{customer_id}/status",
     response_model=CustomerResponseModel,
@@ -524,7 +586,7 @@ async def activate_customer(
 async def change_customer_status(
     request: Request,
     customer_id: UUID,
-    status: CustomerStatusEnum = Body(..., description="New status"),
+    new_status: CustomerStatusEnum = Body(..., description="New status"),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
@@ -545,7 +607,7 @@ async def change_customer_status(
         correlation_id = get_correlation_id(request)
         result = await service.update_customer(
             customer_id=customer_id,
-            status=status.value,
+            status=new_status.value,
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
@@ -562,6 +624,11 @@ async def change_customer_status(
         return response
     except HTTPException:
         raise
+    except CustomerNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found",
+        )
     except Exception as e:
         logger.error(f"Error changing customer status {customer_id}: {e}", exc_info=True)
         raise HTTPException(

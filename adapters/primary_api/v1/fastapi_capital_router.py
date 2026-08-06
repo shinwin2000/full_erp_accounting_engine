@@ -267,7 +267,7 @@ async def record_capital_contribution(
             contribution_date=payload.contribution_date,
             description=payload.description,
             contributor_id=payload.contributor_id,
-            contribution_type=payload.contribution_type.value,
+            contribution_type=payload.contribution_type,
         )
         result = await service.record_capital_contribution(
             request=req,

@@ -255,7 +255,7 @@ async def create_supplier(
             contact_person=payload.contact_person,
             payment_terms_days=payload.payment_terms_days,
             credit_limit=payload.credit_limit,
-            withholding_category=payload.withholding_category.value,
+            withholding_category=payload.withholding_category,  # already str: model_config uses use_enum_values=True
             created_by=user.user_id,
             correlation_id=correlation_id,
         )
@@ -318,7 +318,7 @@ async def get_supplier(
 async def list_suppliers(
     legal_entity_id: UUID = Query(..., description="Legal entity ID"),
     is_active: bool | None = Query(None, description="Filter by active status"),
-    status: SupplierStatusEnum | None = Query(None, description="Filter by status"),
+    status_filter: SupplierStatusEnum | None = Query(None, alias="status", description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     user: TokenPayload = Depends(get_current_user),
@@ -331,7 +331,7 @@ async def list_suppliers(
         results = await service.list_suppliers(
             legal_entity_id=legal_entity_id,
             is_active=is_active,
-            status=status.value if status else None,
+            status=status_filter.value if status_filter else None,
         )
         # Apply pagination manually (since service doesn't support pagination yet)
         paginated = results[offset:offset + limit]
@@ -534,6 +534,68 @@ async def activate_supplier(
         )
 
 
+@router.delete(
+    "/suppliers/{supplier_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete (soft-delete) a supplier",
+)
+async def delete_supplier(
+    request: Request,
+    supplier_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    user: TokenPayload = Depends(get_current_user),
+    service: SupplierService = Depends(get_service(SupplierService)),
+) -> Response:
+    """
+    Delete a supplier.
+
+    Suppliers are never hard-deleted: doing so would break referential
+    integrity with existing AP invoices, journal entries, and audit trails.
+    DELETE performs the same soft-delete (deactivate) as
+    POST /suppliers/{supplier_id}/deactivate, so REST-conventional
+    clients that issue DELETE don't hit a 405.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
+    """
+    method_name = "delete_supplier"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    try:
+        correlation_id = get_correlation_id(request)
+        supplier = await service.get_supplier(supplier_id)
+        if not supplier:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Supplier not found",
+            )
+        await service.update_supplier(
+            supplier_id=supplier_id,
+            is_active=False,
+            status=SupplierStatusEnum.INACTIVE.value,
+            updated_by=user.user_id,
+            correlation_id=correlation_id,
+        )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "supplier_id": str(supplier_id)}
+            )
+
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting supplier {supplier_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+
+
 @router.post(
     "/suppliers/{supplier_id}/status",
     response_model=SupplierResponseModel,
@@ -542,7 +604,7 @@ async def activate_supplier(
 async def change_supplier_status(
     request: Request,
     supplier_id: UUID,
-    status: SupplierStatusEnum = Body(..., description="New status"),
+    new_status: SupplierStatusEnum = Body(..., description="New status"),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
@@ -563,7 +625,7 @@ async def change_supplier_status(
         correlation_id = get_correlation_id(request)
         result = await service.update_supplier(
             supplier_id=supplier_id,
-            status=status.value,
+            status=new_status.value,
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
@@ -580,6 +642,11 @@ async def change_supplier_status(
         return response
     except HTTPException:
         raise
+    except SupplierNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supplier not found",
+        )
     except Exception as e:
         logger.error(f"Error changing supplier status {supplier_id}: {e}", exc_info=True)
         raise HTTPException(

@@ -271,7 +271,7 @@ async def create_employee(
             npwp=payload.npwp,
             nik=payload.nik,
             birth_date=payload.birth_date,
-            marital_status=payload.marital_status.value,
+            marital_status=payload.marital_status,  # already a str: model_config uses use_enum_values=True
             dependents=payload.dependents,
             basic_salary=payload.basic_salary,
             position_allowance=payload.position_allowance,

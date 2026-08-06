@@ -582,6 +582,309 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             raise LedgerRepositoryError(f"Failed to get summary: {e}") from e
 
     # ========================================================================
+    # DETAILED TRIAL BALANCE (full debit/credit breakdown for reporting API)
+    # ========================================================================
+
+    async def get_trial_balance_detailed(
+        self, legal_entity_id: UUID, as_of_date: date, include_zero_balance: bool = False
+    ) -> list[dict[str, Any]]:
+        """
+        Like get_trial_balance() but keeps the full breakdown (account_id,
+        account_type, opening/movement/closing debit & credit) instead of
+        collapsing to a single net balance. Used by the ledger reporting API
+        (trial balance report, balance sheet, financial ratios, etc.) which
+        needs those fields.
+        """
+        try:
+            movement_stmt = (
+                select(
+                    LedgerEntryTable.account_id,
+                    func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("movement_debit"),
+                    func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("movement_credit"),
+                )
+                .where(
+                    LedgerEntryTable.posting_date <= as_of_date,
+                    LedgerEntryTable.legal_entity_id == legal_entity_id,
+                )
+                .group_by(LedgerEntryTable.account_id)
+                .subquery()
+            )
+            stmt = (
+                select(
+                    AccountTable.id.label("account_id"),
+                    AccountTable.account_code,
+                    AccountTable.account_name,
+                    AccountTable.account_type,
+                    AccountTable.normal_balance,
+                    AccountTable.opening_balance_debit,
+                    AccountTable.opening_balance_credit,
+                    func.coalesce(movement_stmt.c.movement_debit, 0).label("movement_debit"),
+                    func.coalesce(movement_stmt.c.movement_credit, 0).label("movement_credit"),
+                )
+                .outerjoin(movement_stmt, AccountTable.id == movement_stmt.c.account_id)
+                .where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.is_active == True,
+                )
+            )
+            if not include_zero_balance:
+                stmt = stmt.where(
+                    or_(
+                        AccountTable.opening_balance_debit > 0,
+                        AccountTable.opening_balance_credit > 0,
+                        movement_stmt.c.movement_debit > 0,
+                        movement_stmt.c.movement_credit > 0,
+                    )
+                )
+            stmt = stmt.order_by(AccountTable.account_code)
+            result = await self.session.execute(stmt)
+            rows = result.all()
+
+            lines: list[dict[str, Any]] = []
+            for row in rows:
+                opening_debit = Decimal(str(row.opening_balance_debit or 0))
+                opening_credit = Decimal(str(row.opening_balance_credit or 0))
+                movement_debit = Decimal(str(row.movement_debit or 0))
+                movement_credit = Decimal(str(row.movement_credit or 0))
+                normal = row.normal_balance
+                if normal == "debit":
+                    closing_debit = opening_debit + movement_debit - movement_credit
+                    closing_credit = Decimal(0)
+                    if closing_debit < 0:
+                        closing_credit, closing_debit = -closing_debit, Decimal(0)
+                else:
+                    closing_credit = opening_credit + movement_credit - movement_debit
+                    closing_debit = Decimal(0)
+                    if closing_credit < 0:
+                        closing_debit, closing_credit = -closing_credit, Decimal(0)
+
+                lines.append(
+                    {
+                        "account_id": row.account_id,
+                        "account_code": row.account_code,
+                        "account_name": row.account_name,
+                        "account_type": row.account_type,
+                        "opening_balance_debit": opening_debit,
+                        "opening_balance_credit": opening_credit,
+                        "movement_debit": movement_debit,
+                        "movement_credit": movement_credit,
+                        "closing_balance_debit": closing_debit,
+                        "closing_balance_credit": closing_credit,
+                    }
+                )
+            return lines
+        except Exception as e:
+            logger.error(f"Failed to get detailed trial balance: {e}")
+            raise LedgerRepositoryError(f"Failed to get trial balance: {e}") from e
+
+    # ========================================================================
+    # NET INCOME / CASH BALANCE HELPERS (arbitrary date range)
+    # ========================================================================
+
+    async def get_income_expense_breakdown(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """Per-account Revenue/Expense movement for an arbitrary date range
+        (used to build the income statement report)."""
+        try:
+            stmt = (
+                select(
+                    AccountTable.id.label("account_id"),
+                    AccountTable.account_code,
+                    AccountTable.account_name,
+                    AccountTable.account_type,
+                    func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("total_debit"),
+                    func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("total_credit"),
+                )
+                .join(LedgerEntryTable, AccountTable.id == LedgerEntryTable.account_id)
+                .where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.account_type.in_(["Revenue", "Expense"]),
+                    LedgerEntryTable.posting_date >= start_date,
+                    LedgerEntryTable.posting_date <= end_date,
+                )
+                .group_by(
+                    AccountTable.id,
+                    AccountTable.account_code,
+                    AccountTable.account_name,
+                    AccountTable.account_type,
+                )
+                .order_by(AccountTable.account_code)
+            )
+            result = await self.session.execute(stmt)
+            rows = []
+            for row in result.all():
+                total_debit = Decimal(str(row.total_debit))
+                total_credit = Decimal(str(row.total_credit))
+                amount = (
+                    total_credit - total_debit
+                    if row.account_type == "Revenue"
+                    else total_debit - total_credit
+                )
+                if amount == 0:
+                    continue
+                rows.append(
+                    {
+                        "account_id": row.account_id,
+                        "account_code": row.account_code,
+                        "account_name": row.account_name,
+                        "account_type": row.account_type,
+                        "amount": amount,
+                    }
+                )
+            return rows
+        except Exception as e:
+            logger.error(f"Failed to get income/expense breakdown: {e}")
+            raise LedgerRepositoryError(f"Failed to get income/expense breakdown: {e}") from e
+
+    async def get_net_income_for_range(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> tuple[Decimal, Decimal, Decimal]:
+        """Returns (total_revenue, total_expense, net_income) for an arbitrary date range."""
+        try:
+            stmt = (
+                select(
+                    AccountTable.account_type,
+                    func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("total_debit"),
+                    func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("total_credit"),
+                )
+                .join(LedgerEntryTable, AccountTable.id == LedgerEntryTable.account_id)
+                .where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.account_type.in_(["Revenue", "Expense"]),
+                    LedgerEntryTable.posting_date >= start_date,
+                    LedgerEntryTable.posting_date <= end_date,
+                )
+                .group_by(AccountTable.account_type)
+            )
+            result = await self.session.execute(stmt)
+            total_revenue = Decimal(0)
+            total_expense = Decimal(0)
+            for row in result.all():
+                total_debit = Decimal(str(row.total_debit))
+                total_credit = Decimal(str(row.total_credit))
+                if row.account_type == "Revenue":
+                    total_revenue += total_credit - total_debit
+                else:
+                    total_expense += total_debit - total_credit
+            return total_revenue, total_expense, total_revenue - total_expense
+        except Exception as e:
+            logger.error(f"Failed to compute net income for range: {e}")
+            raise LedgerRepositoryError(f"Failed to compute net income: {e}") from e
+
+    async def get_cash_balance(self, legal_entity_id: UUID, as_of_date: date) -> Decimal:
+        """Sum of balances of accounts flagged is_cash_account, as of a date."""
+        try:
+            stmt = select(AccountTable.id).where(
+                AccountTable.legal_entity_id == legal_entity_id,
+                AccountTable.is_cash_account == True,
+                AccountTable.is_active == True,
+            )
+            result = await self.session.execute(stmt)
+            account_ids = [row.id for row in result.all()]
+            total = Decimal(0)
+            for account_id in account_ids:
+                total += await self.get_account_balance(account_id, as_of_date)
+            return total
+        except Exception as e:
+            logger.error(f"Failed to get cash balance: {e}")
+            raise LedgerRepositoryError(f"Failed to get cash balance: {e}") from e
+
+    # ========================================================================
+    # LEDGER ENTRIES - DETAILED (joined with journal_header, paginated)
+    # ========================================================================
+
+    async def get_ledger_entries_detailed(
+        self,
+        legal_entity_id: UUID,
+        start_date: date,
+        end_date: date,
+        account_id: UUID | None = None,
+        journal_id: UUID | None = None,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Returns (entries, total_count). Joins journal_header for journal_number/
+        journal_date/posted_by since ledger_entry alone doesn't carry those."""
+        from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+
+        try:
+            base_filters = [
+                LedgerEntryTable.legal_entity_id == legal_entity_id,
+                LedgerEntryTable.posting_date >= start_date,
+                LedgerEntryTable.posting_date <= end_date,
+            ]
+            if account_id is not None:
+                base_filters.append(LedgerEntryTable.account_id == account_id)
+            if journal_id is not None:
+                base_filters.append(LedgerEntryTable.journal_id == journal_id)
+
+            count_stmt = select(func.count()).select_from(LedgerEntryTable).where(*base_filters)
+            total_count = (await self.session.execute(count_stmt)).scalar() or 0
+
+            stmt = (
+                select(
+                    LedgerEntryTable.id,
+                    LedgerEntryTable.journal_id,
+                    LedgerEntryTable.account_id,
+                    LedgerEntryTable.account_code,
+                    LedgerEntryTable.debit_amount,
+                    LedgerEntryTable.credit_amount,
+                    LedgerEntryTable.posting_date,
+                    LedgerEntryTable.description,
+                    LedgerEntryTable.reference_number,
+                    LedgerEntryTable.cost_center,
+                    LedgerEntryTable.department,
+                    LedgerEntryTable.created_at,
+                    AccountTable.account_name,
+                    JournalHeaderTable.voucher_number,
+                    JournalHeaderTable.journal_date,
+                    JournalHeaderTable.journal_type,
+                    JournalHeaderTable.posted_by,
+                    JournalHeaderTable.created_by,
+                )
+                .join(AccountTable, AccountTable.id == LedgerEntryTable.account_id)
+                .join(JournalHeaderTable, JournalHeaderTable.id == LedgerEntryTable.journal_id)
+                .where(*base_filters)
+                .order_by(LedgerEntryTable.posting_date, LedgerEntryTable.id)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+            result = await self.session.execute(stmt)
+            rows = result.all()
+
+            valid_entry_types = {"journal", "adjustment", "closing", "reversal"}
+            entries = [
+                {
+                    "id": row.id,
+                    "journal_id": row.journal_id,
+                    "journal_number": row.voucher_number,
+                    "journal_date": row.journal_date,
+                    "account_id": row.account_id,
+                    "account_code": row.account_code,
+                    "account_name": row.account_name,
+                    "debit_amount": row.debit_amount,
+                    "credit_amount": row.credit_amount,
+                    "posting_date": row.posting_date,
+                    "description": row.description or "",
+                    "reference_number": row.reference_number,
+                    "cost_center": row.cost_center,
+                    "department": row.department,
+                    "project_id": None,
+                    "entry_type": row.journal_type if row.journal_type in valid_entry_types else "journal",
+                    "created_at": row.created_at,
+                    # posted_by is required downstream; fall back to created_by,
+                    # then a nil UUID for journals that were never posted/audited.
+                    "posted_by": row.posted_by or row.created_by or UUID(int=0),
+                }
+                for row in rows
+            ]
+            return entries, total_count
+        except Exception as e:
+            logger.error(f"Failed to get detailed ledger entries: {e}")
+            raise LedgerRepositoryError(f"Failed to get ledger entries: {e}") from e
+
+    # ========================================================================
     # QUERY ENTRIES
     # ========================================================================
 
