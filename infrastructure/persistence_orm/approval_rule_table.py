@@ -124,7 +124,7 @@ class ApprovalRuleTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # ========================================================================
     # PROPERTIES
     # ========================================================================
-    @property
+    #@property
     def is_amount_in_range(self, amount: Decimal) -> bool:
         return self.min_amount <= amount <= self.max_amount
 

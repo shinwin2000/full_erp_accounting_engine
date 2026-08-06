@@ -348,12 +348,13 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_async_session_direct() -> AsyncSession:
     """
-    Alias for get_async_session() for backward compatibility.
+    Get a single AsyncSession instance directly (not a generator).
+    Use this in repository classes that manage their own session lifecycle.
     """
-    async for session in get_async_session():
-        yield session
+    factory = await get_session_factory()
+    return await factory.get_session()
 
 
 async def get_read_session() -> AsyncGenerator[AsyncSession, None]:

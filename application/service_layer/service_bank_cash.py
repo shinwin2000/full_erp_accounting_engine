@@ -617,12 +617,14 @@ class BankCashService:
     ) -> list[BankAccountResponse]:
         accounts = await self._bank_repo.list_bank_accounts(
             legal_entity_id=legal_entity_id,
-            status=status,
-            currency=currency,
-            limit=limit,
-            offset=offset,
+            is_active=None,  # ambil semua, filter status/currency di Python di bawah
         )
-        return [self._to_bank_account_response(acc) for acc in accounts]
+        responses = [self._to_bank_account_response(acc.bank_account) for acc in accounts]
+        if status is not None:
+            responses = [r for r in responses if r.status == status]
+        if currency is not None:
+            responses = [r for r in responses if r.currency_code == currency]
+        return responses[offset: offset + limit]
 
     async def get_daily_cash_position(
         self, legal_entity_id: UUID, as_of_date: date | None = None
@@ -640,12 +642,9 @@ class BankCashService:
         """
         accounts = await self._bank_repo.list_bank_accounts(
             legal_entity_id=legal_entity_id,
-            status=None,
-            currency=None,
-            limit=10_000,
-            offset=0,
+            is_active=True,
         )
-        responses = [self._to_bank_account_response(acc) for acc in accounts]
+        responses = [self._to_bank_account_response(acc.bank_account) for acc in accounts]
         return [
             DailyCashPositionDTO(
                 account_type="BANK",

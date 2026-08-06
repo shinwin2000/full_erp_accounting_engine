@@ -22,6 +22,7 @@ from uuid import UUID
 class BudgetLineCreateRequest:
     """DTO untuk membuat budget line."""
     account_id: UUID
+    account_code: str
     amount: Decimal
     note: str | None = None
 
@@ -38,7 +39,7 @@ class BudgetCreateRequest:
     effective_date: date
     expiry_date: date | None = None
     currency: str = "IDR"
-    lines: list[dict[str, Any]]  # list of {account_id, amount, note}
+    lines: list[BudgetLineCreateRequest]
     notes: str | None = None
     tags: list[str] | None = None
     created_by: UUID
@@ -103,9 +104,31 @@ class BudgetTransferRequest:
     legal_entity_id: UUID
 
 
+@dataclass(kw_only=True)
+class BudgetActionRequest:
+    """DTO untuk action pada budget (submit, approve, reject, dll)."""
+    budget_id: UUID
+    user_id: UUID
+    legal_entity_id: UUID
+    reason: str | None = None
+    notes: str | None = None
+
+
 # ============================================================================
 # RESPONSE DTOs
 # ============================================================================
+
+
+@dataclass(kw_only=True)
+class BudgetLineResponse:
+    """Response untuk budget line."""
+    id: UUID
+    account_id: UUID
+    account_code: str
+    amount: Decimal
+    note: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(kw_only=True)
@@ -123,21 +146,24 @@ class BudgetResponse:
     expiry_date: date | None
     currency: str
     total_amount: Decimal
-    actual_amount_ytd: Decimal
-    variance_amount: Decimal
-    variance_percent: float
-    consumption_percent: float
     notes: str | None
     tags: list[str] | None
     is_locked: bool
     created_at: datetime
     updated_at: datetime
-    created_by: UUID
+    created_by: UUID | None
     created_by_name: str | None
+    updated_by: UUID | None
     approved_at: datetime | None
     approved_by: UUID | None
     approved_by_name: str | None
-    lines: list[dict[str, Any]]
+    submitted_at: datetime | None
+    submitted_by: UUID | None
+    rejected_at: datetime | None
+    rejected_by: UUID | None
+    rejection_reason: str | None
+    version_number: int
+    lines: list[BudgetLineResponse]
 
 
 @dataclass(kw_only=True)
@@ -243,16 +269,29 @@ class BudgetAlertResponse:
     created_at: datetime
 
 
+@dataclass(kw_only=True)
+class BudgetListResponse:
+    """Response untuk list budget dengan pagination."""
+    items: list[BudgetResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 # ============================================================================
 # EXPORTS
 # ============================================================================
 
 __all__ = [
+    "BudgetActionRequest",
+    "BudgetAdjustRequest",
     "BudgetAlertResponse",
     "BudgetCreateRequest",
     "BudgetDashboardResponse",
     "BudgetLineCreateRequest",
+    "BudgetLineResponse",
     "BudgetLineUpdateRequest",
+    "BudgetListResponse",
     "BudgetQueryRequest",
     "BudgetResponse",
     "BudgetTransferRequest",

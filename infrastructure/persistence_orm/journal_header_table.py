@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -113,6 +114,12 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
     source_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
+    # Journal type & extras
+    journal_type: Mapped[str] = mapped_column(String(20), nullable=False, default="general")
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    attachment_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    is_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+
     # Period association (foreign key only – relationship removed to avoid mapper conflict)
     period_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("fiscal_period.id"), nullable=True
@@ -120,6 +127,26 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
 
     # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    created_by_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    approved_by_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    posted_by_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # Submit
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Reject
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Reversal reason (reversed_by/at/journal_id sudah ada di atas)
+    reversal_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Cancel
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # ========================================================================
     # OVERRIDE legal_entity_id dari LegalEntityMixin agar menggunakan schema public

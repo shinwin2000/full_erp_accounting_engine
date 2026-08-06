@@ -15,7 +15,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
-from infrastructure.database.session_factory_sqlalchemy import get_async_session
+from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
 from infrastructure.persistence_orm.bank_reconciliation_table import BankReconciliationTable
 from infrastructure.persistence_orm.bank_transaction_table import BankTransactionTable
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -44,7 +44,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
 
     async def _get_session(self):
         if self._session is None:
-            self._session = await get_async_session()
+            self._session = await get_async_session_direct()
         return self._session
 
     async def _log_audit(self, action: str, import_id: UUID, details: dict[str, Any]) -> None:

@@ -16,161 +16,230 @@ from typing import Any, ClassVar, Self
 from uuid import UUID, uuid4
 
 from .domain_events import (
-    BudgetApproved,
-    BudgetCreated,
-    BudgetLineAdjusted,
-    BudgetLineRemoved,
-    BudgetRevised,
-    BudgetStatusChanged,
+    BudgetApprovedEvent,
+    BudgetArchivedEvent,
+    BudgetCancelledEvent,
+    BudgetClosedEvent,
+    BudgetCreatedEvent,
+    BudgetLineAddedEvent,
+    BudgetLineAdjustedEvent,
+    BudgetLineRemovedEvent,
+    BudgetRejectedEvent,
+    BudgetStatusChangedEvent,
+    BudgetSubmittedEvent,
 )
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Enums
+# ENUMS
 # ============================================================================
 
 
 class BudgetStatus(Enum):
+    """Status budget - satu set superset yang mencakup semua kebutuhan router."""
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    UNDER_REVIEW = "under_review"
     APPROVED = "approved"
     REJECTED = "rejected"
-    REVISED = "revised"
+    ACTIVE = "active"
+    LOCKED = "locked"
     ARCHIVED = "archived"
+    EXPIRED = "expired"
     CANCELLED = "cancelled"
     CLOSED = "closed"
-    ON_HOLD = "on_hold"
 
     @classmethod
     def can_transition(cls, from_status: BudgetStatus, to_status: BudgetStatus) -> bool:
         allowed = {
-            cls.DRAFT: {cls.SUBMITTED, cls.CANCELLED},
-            cls.SUBMITTED: {cls.APPROVED, cls.REJECTED, cls.ON_HOLD},
-            cls.APPROVED: {cls.REVISED, cls.CLOSED, cls.ARCHIVED},
-            cls.REVISED: {cls.APPROVED, cls.CANCELLED},
-            cls.REJECTED: {cls.DRAFT},
-            cls.ON_HOLD: {cls.SUBMITTED, cls.CANCELLED},
-            cls.CANCELLED: set(),
-            cls.CLOSED: {cls.ARCHIVED},
+            cls.DRAFT: {cls.SUBMITTED, cls.CANCELLED, cls.ARCHIVED},
+            cls.SUBMITTED: {cls.UNDER_REVIEW, cls.REJECTED, cls.CANCELLED},
+            cls.UNDER_REVIEW: {cls.APPROVED, cls.REJECTED, cls.CANCELLED},
+            cls.APPROVED: {cls.ACTIVE, cls.LOCKED, cls.CANCELLED, cls.ARCHIVED},
+            cls.REJECTED: {cls.DRAFT, cls.CANCELLED, cls.ARCHIVED},
+            cls.ACTIVE: {cls.LOCKED, cls.CLOSED, cls.EXPIRED, cls.ARCHIVED},
+            cls.LOCKED: {cls.ACTIVE, cls.ARCHIVED},
             cls.ARCHIVED: set(),
+            cls.EXPIRED: {cls.ARCHIVED},
+            cls.CANCELLED: {cls.DRAFT},
+            cls.CLOSED: {cls.ARCHIVED},
         }
         return to_status in allowed.get(from_status, set())
+
+    @classmethod
+    def is_editable(cls, status: BudgetStatus) -> bool:
+        return status in (cls.DRAFT, cls.REJECTED)
+
+    @classmethod
+    def is_approvable(cls, status: BudgetStatus) -> bool:
+        return status in (cls.SUBMITTED, cls.UNDER_REVIEW)
+
+    @classmethod
+    def is_activatable(cls, status: BudgetStatus) -> bool:
+        return status == cls.APPROVED
+
+    @classmethod
+    def is_lockable(cls, status: BudgetStatus) -> bool:
+        return status in (cls.APPROVED, cls.ACTIVE)
+
+    @classmethod
+    def is_archivable(cls, status: BudgetStatus) -> bool:
+        return status in (cls.APPROVED, cls.ACTIVE, cls.CLOSED, cls.EXPIRED)
+
+    @classmethod
+    def is_closable(cls, status: BudgetStatus) -> bool:
+        return status in (cls.ACTIVE, cls.APPROVED)
+
+    @classmethod
+    def is_cancellable(cls, status: BudgetStatus) -> bool:
+        return status not in (cls.ARCHIVED, cls.CLOSED, cls.CANCELLED)
+
+    @classmethod
+    def from_string(cls, value: str) -> BudgetStatus:
+        for status in cls:
+            if status.value == value:
+                return status
+        raise ValueError(f"Unknown budget status: {value}")
+
+
+class BudgetType(Enum):
+    OPERATIONAL = "operational"
+    CAPITAL = "capital"
+    CASH = "cash"
+    PROJECT = "project"
+    DEPARTMENT = "department"
+    FIXED_ASSET = "fixed_asset"
+    SALES = "sales"
+    PRODUCTION = "production"
+    LABOR = "labor"
+
+    @classmethod
+    def from_string(cls, value: str) -> BudgetType:
+        for bt in cls:
+            if bt.value == value:
+                return bt
+        raise ValueError(f"Unknown budget type: {value}")
 
 
 class BudgetPeriod(Enum):
     MONTHLY = "monthly"
     QUARTERLY = "quarterly"
-    SEMESTER = "semester"
     YEARLY = "yearly"
-    CUSTOM = "custom"
+
+    @classmethod
+    def from_string(cls, value: str) -> BudgetPeriod:
+        for bp in cls:
+            if bp.value == value:
+                return bp
+        raise ValueError(f"Unknown budget period: {value}")
 
 
 # ============================================================================
-# Value Objects
+# VALUE OBJECTS
 # ============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass
 class BudgetLineItem:
-    """Budget line item for an account/period."""
+    """Budget line item untuk satu akun (immutable)."""
 
-    line_id: UUID
+    id: UUID
+    account_id: UUID
     account_code: str
-    account_id: UUID | None
-    period: str  # e.g., "2025-01" for monthly, "2025-Q1" for quarterly
     amount: Decimal
-    actual_amount: Decimal = Decimal(0)
-    description: str = ""
-    notes: str | None = None
+    note: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    @property
-    def variance(self) -> Decimal:
-        return (self.actual_amount - self.amount).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_EVEN
-        )
-
-    @property
-    def variance_absolute(self) -> Decimal:
-        return abs(self.variance)
-
-    @property
-    def variance_percentage(self) -> float:
-        if self.amount == 0:
-            return 0.0 if self.actual_amount == 0 else 100.0
-        return float(abs((self.actual_amount - self.amount) / self.amount * 100))
-
-    @property
-    def is_favorable(self, is_revenue_account: bool = False) -> bool:
-        """Favorable if expense actual < budget, or revenue actual > budget."""
-        if is_revenue_account:
-            return self.actual_amount > self.amount
-        return self.actual_amount < self.amount
+    def __post_init__(self):
+        if isinstance(self.amount, Decimal):
+            object.__setattr__(
+                self, "amount",
+                self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "line_id": str(self.line_id),
+            "id": str(self.id),
+            "account_id": str(self.account_id),
             "account_code": self.account_code,
-            "account_id": str(self.account_id) if self.account_id else None,
-            "period": self.period,
             "amount": str(self.amount),
-            "actual_amount": str(self.actual_amount),
-            "variance": str(self.variance),
-            "variance_percentage": self.variance_percentage,
-            "description": self.description,
-            "notes": self.notes,
+            "note": self.note,
             "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
         return cls(
-            line_id=UUID(data["line_id"]),
+            id=UUID(data["id"]),
+            account_id=UUID(data["account_id"]),
             account_code=data["account_code"],
-            account_id=UUID(data["account_id"]) if data.get("account_id") else None,
-            period=data["period"],
             amount=Decimal(data["amount"]),
-            actual_amount=Decimal(data.get("actual_amount", "0")),
-            description=data.get("description", ""),
-            notes=data.get("notes"),
-            created_at=datetime.fromisoformat(data["created_at"])
-            if "created_at" in data
-            else datetime.now(UTC),
+            note=data.get("note"),
+            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if "updated_at" in data else datetime.now(UTC),
         )
 
 
 @dataclass
 class BudgetLine:
-    """Mutable budget line for internal use."""
+    """Mutable budget line untuk internal use."""
 
-    line_id: UUID
+    id: UUID
+    account_id: UUID
     account_code: str
-    account_id: UUID | None
-    period: str
     amount: Decimal
-    actual_amount: Decimal = Decimal(0)
-    description: str = ""
+    note: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    @property
-    def variance(self) -> Decimal:
-        return self.actual_amount - self.amount
+    def __post_init__(self):
+        self.amount = self.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+    def update_amount(self, new_amount: Decimal) -> None:
+        self.amount = new_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        self.updated_at = datetime.now(UTC)
 
     def to_line_item(self) -> BudgetLineItem:
         return BudgetLineItem(
-            line_id=self.line_id,
-            account_code=self.account_code,
+            id=self.id,
             account_id=self.account_id,
-            period=self.period,
+            account_code=self.account_code,
             amount=self.amount,
-            actual_amount=self.actual_amount,
-            description=self.description,
+            note=self.note,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": str(self.id),
+            "account_id": str(self.account_id),
+            "account_code": self.account_code,
+            "amount": str(self.amount),
+            "note": self.note,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            id=UUID(data["id"]),
+            account_id=UUID(data["account_id"]),
+            account_code=data["account_code"],
+            amount=Decimal(data["amount"]),
+            note=data.get("note"),
+            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if "updated_at" in data else datetime.now(UTC),
         )
 
 
 # ============================================================================
-# Budget Aggregate Root (Immutable Base)
+# BUDGET AGGREGATE (Immutable Base)
 # ============================================================================
 
 
@@ -180,74 +249,94 @@ class Budget:
 
     id: UUID
     legal_entity_id: UUID
-    name: str
-    year: int
+    budget_code: str
+    budget_name: str
+    budget_type: BudgetType
+    fiscal_year: int
+    period: BudgetPeriod
+    version: str
     status: BudgetStatus
+    effective_date: date
+    expiry_date: date | None
+    currency: str
     lines: list[BudgetLineItem]
-    created_by: UUID
-    created_at: datetime
-    updated_at: datetime | None = None
-    updated_by: UUID | None = None
-    approved_by: UUID | None = None
-    approved_at: datetime | None = None
-    rejected_by: UUID | None = None
-    rejected_at: datetime | None = None
-    rejection_reason: str | None = None
-    closed_by: UUID | None = None
-    closed_at: datetime | None = None
-    archived_by: UUID | None = None
-    archived_at: datetime | None = None
-    version: int = 1
-    description: str = ""
-    period_type: BudgetPeriod = BudgetPeriod.YEARLY
-    start_date: date | None = None
-    end_date: date | None = None
-    currency: str = "IDR"
+    notes: str | None = None
     tags: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    is_locked: bool = False
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_by: UUID | None = None
+    updated_by: UUID | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    submitted_at: datetime | None = None
+    submitted_by: UUID | None = None
+    rejected_at: datetime | None = None
+    rejected_by: UUID | None = None
+    rejection_reason: str | None = None
+    version_number: int = 1
 
-    def __post_init__(self) -> None:
-        # Ensure amounts are quantized
-        object.__setattr__(self, "lines", [line for line in self.lines])
-        for line in self.lines:
-            object.__setattr__(
-                line, "amount", line.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
-            )
-            object.__setattr__(
-                line,
-                "actual_amount",
-                line.actual_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN),
-            )
+    def __post_init__(self):
+        # Quantize all amounts
+        for i, line in enumerate(self.lines):
+            if hasattr(line, "amount"):
+                quantized = line.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+                if quantized != line.amount:
+                    object.__setattr__(
+                        self,
+                        "lines",
+                        [
+                            BudgetLineItem(
+                                id=l.id,
+                                account_id=l.account_id,
+                                account_code=l.account_code,
+                                amount=l.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN),
+                                note=l.note,
+                                created_at=l.created_at,
+                                updated_at=l.updated_at,
+                            )
+                            if i == idx and l.amount != quantized
+                            else l
+                            for idx, l in enumerate(self.lines)
+                        ]
+                    )
+                    break
+
+    @property
+    def total_amount(self) -> Decimal:
+        return sum(line.amount for line in self.lines).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),
-            "name": self.name,
-            "year": self.year,
-            "status": self.status.value,
-            "lines": [line.to_dict() for line in self.lines],
-            "created_by": str(self.created_by),
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "updated_by": str(self.updated_by) if self.updated_by else None,
-            "approved_by": str(self.approved_by) if self.approved_by else None,
-            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
-            "rejected_by": str(self.rejected_by) if self.rejected_by else None,
-            "rejected_at": self.rejected_at.isoformat() if self.rejected_at else None,
-            "rejection_reason": self.rejection_reason,
-            "closed_by": str(self.closed_by) if self.closed_by else None,
-            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
-            "archived_by": str(self.archived_by) if self.archived_by else None,
-            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
+            "budget_code": self.budget_code,
+            "budget_name": self.budget_name,
+            "budget_type": self.budget_type.value,
+            "fiscal_year": self.fiscal_year,
+            "period": self.period.value,
             "version": self.version,
-            "description": self.description,
-            "period_type": self.period_type.value,
-            "start_date": self.start_date.isoformat() if self.start_date else None,
-            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "status": self.status.value,
+            "effective_date": self.effective_date.isoformat(),
+            "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,
             "currency": self.currency,
-            "tags": self.tags,
-            "metadata": self.metadata,
+            "total_amount": str(self.total_amount),
+            "notes": self.notes,
+            "tags": self.tags.copy() if self.tags else [],
+            "is_locked": self.is_locked,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "created_by": str(self.created_by) if self.created_by else None,
+            "updated_by": str(self.updated_by) if self.updated_by else None,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "approved_by": str(self.approved_by) if self.approved_by else None,
+            "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
+            "submitted_by": str(self.submitted_by) if self.submitted_by else None,
+            "rejected_at": self.rejected_at.isoformat() if self.rejected_at else None,
+            "rejected_by": str(self.rejected_by) if self.rejected_by else None,
+            "rejection_reason": self.rejection_reason,
+            "version_number": self.version_number,
+            "lines": [line.to_dict() for line in self.lines],
         }
 
     @classmethod
@@ -256,69 +345,60 @@ class Budget:
         return cls(
             id=UUID(data["id"]),
             legal_entity_id=UUID(data["legal_entity_id"]),
-            name=data["name"],
-            year=data["year"],
-            status=BudgetStatus(data["status"]),
+            budget_code=data["budget_code"],
+            budget_name=data["budget_name"],
+            budget_type=BudgetType.from_string(data["budget_type"]),
+            fiscal_year=data["fiscal_year"],
+            period=BudgetPeriod.from_string(data["period"]),
+            version=data["version"],
+            status=BudgetStatus.from_string(data["status"]),
+            effective_date=date.fromisoformat(data["effective_date"]),
+            expiry_date=date.fromisoformat(data["expiry_date"]) if data.get("expiry_date") else None,
+            currency=data["currency"],
             lines=lines,
-            created_by=UUID(data["created_by"]),
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"])
-            if data.get("updated_at")
-            else None,
-            updated_by=UUID(data["updated_by"]) if data.get("updated_by") else None,
-            approved_by=UUID(data["approved_by"]) if data.get("approved_by") else None,
-            approved_at=datetime.fromisoformat(data["approved_at"])
-            if data.get("approved_at")
-            else None,
-            rejected_by=UUID(data["rejected_by"]) if data.get("rejected_by") else None,
-            rejected_at=datetime.fromisoformat(data["rejected_at"])
-            if data.get("rejected_at")
-            else None,
-            rejection_reason=data.get("rejection_reason"),
-            closed_by=UUID(data["closed_by"]) if data.get("closed_by") else None,
-            closed_at=datetime.fromisoformat(data["closed_at"]) if data.get("closed_at") else None,
-            archived_by=UUID(data["archived_by"]) if data.get("archived_by") else None,
-            archived_at=datetime.fromisoformat(data["archived_at"])
-            if data.get("archived_at")
-            else None,
-            version=data.get("version", 1),
-            description=data.get("description", ""),
-            period_type=BudgetPeriod(data.get("period_type", "yearly")),
-            start_date=date.fromisoformat(data["start_date"]) if data.get("start_date") else None,
-            end_date=date.fromisoformat(data["end_date"]) if data.get("end_date") else None,
-            currency=data.get("currency", "IDR"),
+            notes=data.get("notes"),
             tags=data.get("tags", []),
-            metadata=data.get("metadata", {}),
+            is_locked=data.get("is_locked", False),
+            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if "updated_at" in data else datetime.now(UTC),
+            created_by=UUID(data["created_by"]) if data.get("created_by") else None,
+            updated_by=UUID(data["updated_by"]) if data.get("updated_by") else None,
+            approved_at=datetime.fromisoformat(data["approved_at"]) if data.get("approved_at") else None,
+            approved_by=UUID(data["approved_by"]) if data.get("approved_by") else None,
+            submitted_at=datetime.fromisoformat(data["submitted_at"]) if data.get("submitted_at") else None,
+            submitted_by=UUID(data["submitted_by"]) if data.get("submitted_by") else None,
+            rejected_at=datetime.fromisoformat(data["rejected_at"]) if data.get("rejected_at") else None,
+            rejected_by=UUID(data["rejected_by"]) if data.get("rejected_by") else None,
+            rejection_reason=data.get("rejection_reason"),
+            version_number=data.get("version_number", 1),
         )
 
 
 # ============================================================================
-# Budget Aggregate Wrapper (Stateful for mutations)
+# BUDGET AGGREGATE WRAPPER (Mutable)
 # ============================================================================
 
 
 class BudgetAggregate:
     """
-    Mutable aggregate wrapper that holds a Budget and allows state changes
-    producing new budget instances (event sourcing style).
+    Mutable aggregate wrapper that holds a Budget and allows state changes.
     """
 
-    # ---- Atribut class untuk kepatuhan static checker ----
-    version: int  # <- ini yang akan dideteksi oleh ledger_replay_checker
-    id: UUID      # <- juga dideteksi sebagai attribute
+    # Untuk kepatuhan static checker
+    version: int
+    id: UUID
 
     _snapshots: ClassVar[list[dict[str, Any]]] = []
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
-    _events: list[Any] = []
 
     def __init__(self, budget: Budget, version: int = 1):
         self._budget = budget
         self._version = version
-        self._events = []
+        self._events: list[Any] = []
         self._take_snapshot()
-        # ── Untuk kepatuhan static checker ──
+        # Untuk kepatuhan static checker
         self.id = budget.id
-        self.version = version  # instance attribute
+        self.version = version
 
     @property
     def budget(self) -> Budget:
@@ -332,212 +412,734 @@ class BudgetAggregate:
     def id(self) -> UUID:
         return self._budget.id
 
-    # ==================== ENTITY DASAR METHODS ====================
+    @property
+    def total_amount(self) -> Decimal:
+        return self._budget.total_amount
+
+    # ==================== FACTORY ====================
 
     @classmethod
     def create(
         cls,
-        id: UUID,
         legal_entity_id: UUID,
-        name: str,
-        year: int,
+        budget_code: str,
+        budget_name: str,
+        budget_type: BudgetType,
+        fiscal_year: int,
+        period: BudgetPeriod,
+        effective_date: date,
+        expiry_date: date | None,
+        currency: str,
         lines: list[BudgetLine],
         created_by: UUID,
-        description: str = "",
-        period_type: BudgetPeriod = BudgetPeriod.YEARLY,
-        start_date: date | None = None,
-        end_date: date | None = None,
-        currency: str = "IDR",
+        notes: str | None = None,
+        tags: list[str] | None = None,
     ) -> Self:
-        """Create a new budget aggregate."""
+        """Factory untuk membuat budget baru dengan status DRAFT."""
         line_items = [line.to_line_item() for line in lines]
+
         budget = Budget(
-            id=id,
+            id=uuid4(),
             legal_entity_id=legal_entity_id,
-            name=name,
-            year=year,
+            budget_code=budget_code.upper(),
+            budget_name=budget_name,
+            budget_type=budget_type,
+            fiscal_year=fiscal_year,
+            period=period,
+            version="1.0",
             status=BudgetStatus.DRAFT,
+            effective_date=effective_date,
+            expiry_date=expiry_date,
+            currency=currency,
             lines=line_items,
+            notes=notes,
+            tags=tags or [],
+            is_locked=False,
             created_by=created_by,
             created_at=datetime.now(UTC),
-            version=1,
-            description=description,
-            period_type=period_type,
-            start_date=start_date or date(year, 1, 1),
-            end_date=end_date or date(year, 12, 31),
-            currency=currency,
+            updated_at=datetime.now(UTC),
+            version_number=1,
         )
+
         instance = cls(budget, version=1)
-        instance._record_audit("CREATE", str(created_by), {"name": name, "year": year})
+        instance._record_audit("CREATE", str(created_by), {
+            "budget_code": budget_code,
+            "budget_name": budget_name,
+            "fiscal_year": fiscal_year,
+        })
         instance._register_event(
-            BudgetCreated(
-                budget_id=id,
-                budget_number=name,
-                budget_name=name,
-                fiscal_year=year,
-                user_id=created_by,
-                occurred_at=datetime.now(UTC),
+            BudgetCreatedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=1,
+                budget_id=budget.id,
+                budget_code=budget_code,
+                budget_name=budget_name,
+                fiscal_year=fiscal_year,
+                created_by=str(created_by) if created_by else None,
+                user_id=str(created_by) if created_by else None,
             )
         )
         return instance
 
-    def update(self, updated_by: UUID, **kwargs) -> Self:
-        """Update budget attributes."""
-        if self._budget.status not in (BudgetStatus.DRAFT, BudgetStatus.REJECTED):
-            raise ValueError(f"Cannot update budget in status {self._budget.status.value}")
+    # ==================== QUERY METHODS ====================
 
+    def get_line_by_id(self, line_id: UUID) -> BudgetLineItem | None:
+        for line in self._budget.lines:
+            if line.id == line_id:
+                return line
+        return None
+
+    def get_line_by_account(self, account_id: UUID) -> BudgetLineItem | None:
+        for line in self._budget.lines:
+            if line.account_id == account_id:
+                return line
+        return None
+
+    def get_lines_by_account_code(self, account_code: str) -> list[BudgetLineItem]:
+        return [line for line in self._budget.lines if line.account_code == account_code]
+
+    def get_total_lines(self) -> int:
+        return len(self._budget.lines)
+
+    def is_active(self) -> bool:
+        today = date.today()
+        return (
+            self._budget.status == BudgetStatus.ACTIVE
+            and self._budget.effective_date <= today
+            and (self._budget.expiry_date is None or self._budget.expiry_date >= today)
+        )
+
+    def is_editable(self) -> bool:
+        return BudgetStatus.is_editable(self._budget.status)
+
+    def is_approvable(self) -> bool:
+        return BudgetStatus.is_approvable(self._budget.status)
+
+    def is_activatable(self) -> bool:
+        return BudgetStatus.is_activatable(self._budget.status)
+
+    def is_lockable(self) -> bool:
+        return BudgetStatus.is_lockable(self._budget.status)
+
+    def is_archivable(self) -> bool:
+        return BudgetStatus.is_archivable(self._budget.status)
+
+    def is_closable(self) -> bool:
+        return BudgetStatus.is_closable(self._budget.status)
+
+    def is_cancellable(self) -> bool:
+        return BudgetStatus.is_cancellable(self._budget.status)
+
+    def can_transition_to(self, new_status: BudgetStatus) -> bool:
+        return BudgetStatus.can_transition(self._budget.status, new_status)
+
+    # ==================== LIFECYCLE METHODS ====================
+
+    def _change_status(self, new_status: BudgetStatus, user_id: UUID, reason: str | None = None) -> None:
+        if not self.can_transition_to(new_status):
+            raise ValueError(
+                f"Cannot transition from {self._budget.status.value} to {new_status.value}"
+            )
+
+        old_status = self._budget.status
         data = self._budget.to_dict()
-        for key, value in kwargs.items():
-            if key in data and key not in ("id", "created_at", "created_by", "version", "lines"):
-                data[key] = value
+        data["status"] = new_status.value
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
 
         new_budget = Budget.from_dict(data)
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = updated_by
-        new_budget.version = self._budget.version + 1
-
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("UPDATE", str(updated_by), {"changes": kwargs})
-        return self
 
-    def delete(self, deleted_by: UUID, reason: str | None = None) -> Self:
-        """Soft delete budget (cancel)."""
-        if self._budget.status in (BudgetStatus.APPROVED, BudgetStatus.CLOSED):
-            raise ValueError(f"Cannot delete budget in status {self._budget.status.value}")
+        self._record_audit(f"STATUS_CHANGE_{old_status.value}_TO_{new_status.value}", str(user_id), {
+            "old_status": old_status.value,
+            "new_status": new_status.value,
+            "reason": reason,
+        })
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=new_status.value,
+                changed_by=user_id,
+                reason=reason,
+            )
+        )
 
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.CANCELLED
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = deleted_by
-        new_budget.version = self._budget.version + 1
+    def submit(self, user_id: UUID, notes: str | None = None) -> None:
+        if not self.is_editable():
+            raise ValueError(f"Cannot submit budget with status {self._budget.status.value}")
+        if not self._budget.lines:
+            raise ValueError("Cannot submit budget with no lines")
 
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.SUBMITTED.value
+        data["submitted_by"] = str(user_id) if user_id else None
+        data["submitted_at"] = datetime.now(UTC).isoformat()
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("DELETE", str(deleted_by), {"reason": reason})
-        return self
 
-    def restore(self, restored_by: UUID) -> Self:
-        """Restore cancelled budget."""
-        if self._budget.status != BudgetStatus.CANCELLED:
-            raise ValueError(f"Cannot restore budget in status {self._budget.status.value}")
+        self._record_audit("SUBMIT", str(user_id), {"notes": notes})
+        self._register_event(
+            BudgetSubmittedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                submitted_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.SUBMITTED.value,
+                changed_by=user_id,
+                reason=notes,
+            )
+        )
 
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.DRAFT
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = restored_by
-        new_budget.version = self._budget.version + 1
+    def approve(self, user_id: UUID, notes: str | None = None) -> None:
+        if not self.is_approvable():
+            raise ValueError(f"Cannot approve budget with status {self._budget.status.value}")
 
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.APPROVED.value
+        data["approved_by"] = str(user_id) if user_id else None
+        data["approved_at"] = datetime.now(UTC).isoformat()
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("RESTORE", str(restored_by), {})
-        return self
 
-    def activate(self, activated_by: UUID) -> Self:
-        """Submit budget for approval."""
-        if self._budget.status != BudgetStatus.DRAFT:
-            raise ValueError(f"Cannot activate budget in status {self._budget.status.value}")
+        self._record_audit("APPROVE", str(user_id), {"notes": notes})
+        self._register_event(
+            BudgetApprovedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                approved_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.APPROVED.value,
+                changed_by=user_id,
+                reason=notes,
+            )
+        )
 
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.SUBMITTED
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = activated_by
-        new_budget.version = self._budget.version + 1
+    def reject(self, user_id: UUID, reason: str) -> None:
+        if self._budget.status not in (BudgetStatus.SUBMITTED, BudgetStatus.UNDER_REVIEW):
+            raise ValueError(f"Cannot reject budget with status {self._budget.status.value}")
 
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.REJECTED.value
+        data["rejected_by"] = str(user_id) if user_id else None
+        data["rejected_at"] = datetime.now(UTC).isoformat()
+        data["rejection_reason"] = reason
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("ACTIVATE", str(activated_by), {})
-        return self
 
-    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> Self:
-        """Reject or return to draft."""
-        if self._budget.status != BudgetStatus.SUBMITTED:
-            raise ValueError(f"Cannot deactivate budget in status {self._budget.status.value}")
+        self._record_audit("REJECT", str(user_id), {"reason": reason})
+        self._register_event(
+            BudgetRejectedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                reason=reason,
+                rejected_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.REJECTED.value,
+                changed_by=user_id,
+                reason=reason,
+            )
+        )
 
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.DRAFT
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = deactivated_by
-        new_budget.version = self._budget.version + 1
+    def activate(self, user_id: UUID) -> None:
+        if not self.is_activatable():
+            raise ValueError(f"Cannot activate budget with status {self._budget.status.value}")
+        if self._budget.effective_date > date.today():
+            raise ValueError("Cannot activate budget before effective date")
 
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.ACTIVE.value
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("DEACTIVATE", str(deactivated_by), {"reason": reason})
-        return self
 
-    def lock(self, locked_by: UUID, reason: str) -> Self:
-        """Put budget on hold."""
-        if self._budget.status not in (BudgetStatus.DRAFT, BudgetStatus.SUBMITTED):
-            raise ValueError(f"Cannot lock budget in status {self._budget.status.value}")
+        self._record_audit("ACTIVATE", str(user_id), {})
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.ACTIVE.value,
+                changed_by=user_id,
+            )
+        )
 
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.ON_HOLD
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = locked_by
-        new_budget.version = self._budget.version + 1
+    def lock(self, user_id: UUID, reason: str | None = None) -> None:
+        if not self.is_lockable():
+            raise ValueError(f"Cannot lock budget with status {self._budget.status.value}")
 
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.LOCKED.value
+        data["is_locked"] = True
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("LOCK", str(locked_by), {"reason": reason})
-        return self
 
-    def unlock(self, unlocked_by: UUID) -> Self:
-        """Release hold."""
-        if self._budget.status != BudgetStatus.ON_HOLD:
-            raise ValueError(f"Cannot unlock budget in status {self._budget.status.value}")
+        self._record_audit("LOCK", str(user_id), {"reason": reason})
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.LOCKED.value,
+                changed_by=user_id,
+                reason=reason,
+            )
+        )
 
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.DRAFT
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = unlocked_by
-        new_budget.version = self._budget.version + 1
+    def unlock(self, user_id: UUID) -> None:
+        if self._budget.status != BudgetStatus.LOCKED:
+            raise ValueError(f"Cannot unlock budget with status {self._budget.status.value}")
 
+        old_status = self._budget.status
+        new_status = BudgetStatus.ACTIVE if self.is_active() else BudgetStatus.APPROVED
+        data = self._budget.to_dict()
+        data["status"] = new_status.value
+        data["is_locked"] = False
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("UNLOCK", str(unlocked_by), {})
-        return self
+
+        self._record_audit("UNLOCK", str(user_id), {})
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=new_status.value,
+                changed_by=user_id,
+            )
+        )
+
+    def close(self, user_id: UUID) -> None:
+        if not self.is_closable():
+            raise ValueError(f"Cannot close budget with status {self._budget.status.value}")
+
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.CLOSED.value
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("CLOSE", str(user_id), {})
+        self._register_event(
+            BudgetClosedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                closed_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.CLOSED.value,
+                changed_by=user_id,
+            )
+        )
+
+    def cancel(self, user_id: UUID, reason: str) -> None:
+        if not self.is_cancellable():
+            raise ValueError(f"Cannot cancel budget with status {self._budget.status.value}")
+
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.CANCELLED.value
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("CANCEL", str(user_id), {"reason": reason})
+        self._register_event(
+            BudgetCancelledEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                cancelled_by=str(user_id) if user_id else None,
+                reason=reason,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.CANCELLED.value,
+                changed_by=user_id,
+                reason=reason,
+            )
+        )
+
+    def archive(self, user_id: UUID) -> None:
+        if not self.is_archivable():
+            raise ValueError(f"Cannot archive budget with status {self._budget.status.value}")
+
+        old_status = self._budget.status
+        data = self._budget.to_dict()
+        data["status"] = BudgetStatus.ARCHIVED.value
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("ARCHIVE", str(user_id), {})
+        self._register_event(
+            BudgetArchivedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                archived_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+        self._register_event(
+            BudgetStatusChangedEvent(
+                budget_id=self._budget.id,
+                old_status=old_status.value,
+                new_status=BudgetStatus.ARCHIVED.value,
+                changed_by=user_id,
+            )
+        )
+
+    # ==================== UPDATE METHODS ====================
+
+    def update_info(
+        self,
+        user_id: UUID,
+        budget_name: str | None = None,
+        effective_date: date | None = None,
+        expiry_date: date | None = None,
+        notes: str | None = None,
+        tags: list[str] | None = None,
+    ) -> None:
+        if not self.is_editable():
+            raise ValueError(f"Cannot update budget with status {self._budget.status.value}")
+
+        data = self._budget.to_dict()
+        if budget_name:
+            data["budget_name"] = budget_name
+        if effective_date:
+            data["effective_date"] = effective_date.isoformat()
+        if expiry_date:
+            data["expiry_date"] = expiry_date.isoformat()
+        if notes is not None:
+            data["notes"] = notes
+        if tags is not None:
+            data["tags"] = tags
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("UPDATE_INFO", str(user_id), {
+            "budget_name": budget_name,
+            "effective_date": effective_date.isoformat() if effective_date else None,
+            "expiry_date": expiry_date.isoformat() if expiry_date else None,
+        })
+
+    def add_line(self, user_id: UUID, account_id: UUID, account_code: str, amount: Decimal, note: str | None = None) -> BudgetLine:
+        if not self.is_editable():
+            raise ValueError(f"Cannot add line to budget with status {self._budget.status.value}")
+
+        # Check duplicate account
+        for line in self._budget.lines:
+            if line.account_id == account_id:
+                raise ValueError(f"Account {account_code} already exists in budget")
+
+        new_line = BudgetLine(
+            id=uuid4(),
+            account_id=account_id,
+            account_code=account_code,
+            amount=amount,
+            note=note,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        new_lines = list(self._budget.lines) + [new_line.to_line_item()]
+        data = self._budget.to_dict()
+        data["lines"] = [l.to_dict() for l in new_lines]
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("ADD_LINE", str(user_id), {
+            "account_id": str(account_id),
+            "account_code": account_code,
+            "amount": str(amount),
+        })
+        self._register_event(
+            BudgetLineAddedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                account_code=account_code,
+                amount=amount,
+                added_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+
+        return new_line
+
+    def update_line(self, user_id: UUID, line_id: UUID, amount: Decimal, note: str | None = None) -> None:
+        if not self.is_editable():
+            raise ValueError(f"Cannot update line in budget with status {self._budget.status.value}")
+
+        new_lines = []
+        old_amount = None
+        account_code = None
+
+        for line in self._budget.lines:
+            if line.id == line_id:
+                old_amount = line.amount
+                account_code = line.account_code
+                new_line = BudgetLineItem(
+                    id=line.id,
+                    account_id=line.account_id,
+                    account_code=line.account_code,
+                    amount=amount,
+                    note=note if note is not None else line.note,
+                    created_at=line.created_at,
+                    updated_at=datetime.now(UTC),
+                )
+                new_lines.append(new_line)
+            else:
+                new_lines.append(line)
+
+        if old_amount is None:
+            raise ValueError(f"Line {line_id} not found")
+
+        data = self._budget.to_dict()
+        data["lines"] = [l.to_dict() for l in new_lines]
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("UPDATE_LINE", str(user_id), {
+            "line_id": str(line_id),
+            "old_amount": str(old_amount),
+            "new_amount": str(amount),
+        })
+        self._register_event(
+            BudgetLineAdjustedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                account_code=account_code,
+                old_amount=old_amount,
+                new_amount=amount,
+                adjusted_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+
+    def remove_line(self, user_id: UUID, line_id: UUID) -> None:
+        if not self.is_editable():
+            raise ValueError(f"Cannot remove line from budget with status {self._budget.status.value}")
+
+        new_lines = []
+        removed_line = None
+
+        for line in self._budget.lines:
+            if line.id == line_id:
+                removed_line = line
+            else:
+                new_lines.append(line)
+
+        if removed_line is None:
+            raise ValueError(f"Line {line_id} not found")
+
+        data = self._budget.to_dict()
+        data["lines"] = [l.to_dict() for l in new_lines]
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("REMOVE_LINE", str(user_id), {
+            "line_id": str(line_id),
+            "account_code": removed_line.account_code,
+            "amount": str(removed_line.amount),
+        })
+        self._register_event(
+            BudgetLineRemovedEvent(
+                aggregate_id=self._budget.id,
+                aggregate_version=self._version,
+                budget_id=self._budget.id,
+                budget_code=self._budget.budget_code,
+                account_code=removed_line.account_code,
+                amount=removed_line.amount,
+                removed_by=str(user_id) if user_id else None,
+                user_id=str(user_id) if user_id else None,
+            )
+        )
+
+    # ==================== REVISION ====================
+
+    def revise(self, user_id: UUID, new_lines: list[BudgetLine], reason: str) -> None:
+        if self._budget.status != BudgetStatus.APPROVED:
+            raise ValueError(f"Cannot revise budget with status {self._budget.status.value}")
+
+        line_items = [line.to_line_item() for line in new_lines]
+        data = self._budget.to_dict()
+        data["lines"] = [l.to_dict() for l in line_items]
+        data["status"] = BudgetStatus.APPROVED.value  # tetap approved setelah revisi
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(user_id) if user_id else None
+        data["version_number"] = self._version + 1
+
+        new_budget = Budget.from_dict(data)
+        self._budget = new_budget
+        self._version += 1
+        self.version = self._version
+        self._take_snapshot()
+
+        self._record_audit("REVISE", str(user_id), {"reason": reason})
+
+    # ==================== VALIDATION ====================
 
     def validate(self) -> dict[str, Any]:
-        """Validate all invariants."""
         errors = []
         warnings = []
 
-        if not self._budget.name or len(self._budget.name.strip()) < 3:
+        if not self._budget.budget_name or len(self._budget.budget_name.strip()) < 3:
             errors.append("Budget name must be at least 3 characters")
 
-        if self._budget.year < 2000 or self._budget.year > 2100:
-            errors.append(f"Invalid budget year: {self._budget.year}")
+        if self._budget.fiscal_year < 2000 or self._budget.fiscal_year > 2100:
+            errors.append(f"Invalid budget year: {self._budget.fiscal_year}")
+
+        if self._budget.effective_date > self._budget.expiry_date if self._budget.expiry_date else False:
+            errors.append("Effective date must be before expiry date")
 
         if not self._budget.lines:
             warnings.append("Budget has no line items")
 
-        total_budget = sum(line.amount for line in self._budget.lines)
-        if total_budget == 0:
+        if self.total_amount == 0:
             warnings.append("Total budget amount is zero")
 
-        # Check for duplicate account+period
+        # Check for duplicate account
         seen = set()
         for line in self._budget.lines:
-            key = (line.account_code, line.period)
-            if key in seen:
-                errors.append(
-                    f"Duplicate budget line for account {line.account_code} period {line.period}"
-                )
-            seen.add(key)
+            if line.account_id in seen:
+                errors.append(f"Duplicate budget line for account {line.account_code}")
+            seen.add(line.account_id)
 
         return {
             "is_valid": len(errors) == 0,
@@ -547,346 +1149,83 @@ class BudgetAggregate:
             "version": self._version,
         }
 
-    def to_dict(self) -> dict[str, Any]:
-        return self._budget.to_dict()
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        budget = Budget.from_dict(data)
-        return cls(budget, version=budget.version)
+    # ==================== CLONE ====================
 
     def clone(self, new_name: str | None = None, new_year: int | None = None) -> Self:
-        """Clone budget with new ID."""
         new_id = uuid4()
-        new_name = new_name or f"{self._budget.name} (COPY)"
-        new_year = new_year or self._budget.year
+        new_code = f"{self._budget.budget_code}-CLONE"
+        new_name = new_name or f"{self._budget.budget_name} (COPY)"
+        new_year = new_year or self._budget.fiscal_year
 
         new_lines = []
         for line in self._budget.lines:
             new_lines.append(
                 BudgetLine(
-                    line_id=uuid4(),
-                    account_code=line.account_code,
+                    id=uuid4(),
                     account_id=line.account_id,
-                    period=line.period,
+                    account_code=line.account_code,
                     amount=line.amount,
-                    actual_amount=Decimal(0),
-                    description=line.description,
+                    note=line.note,
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
                 )
             )
 
         return self.create(
-            id=new_id,
             legal_entity_id=self._budget.legal_entity_id,
-            name=new_name,
-            year=new_year,
-            lines=new_lines,
-            created_by=self._budget.created_by,
-            description=f"Cloned from {self._budget.name}",
-            period_type=self._budget.period_type,
-            start_date=self._budget.start_date,
-            end_date=self._budget.end_date,
+            budget_code=new_code,
+            budget_name=new_name,
+            budget_type=self._budget.budget_type,
+            fiscal_year=new_year,
+            period=self._budget.period,
+            effective_date=self._budget.effective_date,
+            expiry_date=self._budget.expiry_date,
             currency=self._budget.currency,
+            lines=new_lines,
+            created_by=self._budget.created_by or uuid4(),
+            notes=f"Cloned from {self._budget.budget_code}",
+            tags=self._budget.tags.copy() if self._budget.tags else [],
         )
 
+    # ==================== SNAPSHOT & AUDIT ====================
+
     def snapshot(self) -> dict[str, Any]:
-        """Get current snapshot."""
         return {
             "version": self._version,
             "budget_id": str(self._budget.id),
             "status": self._budget.status.value,
-            "total_budget": str(sum(line.amount for line in self._budget.lines)),
+            "total_budget": str(self.total_amount),
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def get_version(self) -> int:
-        return self._version
+    def _take_snapshot(self) -> None:
+        snapshot = {
+            "version": self._version,
+            "budget_id": str(self._budget.id),
+            "status": self._budget.status.value,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        self._snapshots.append(snapshot)
+        if len(self._snapshots) > 50:
+            self._snapshots = self._snapshots[-25:]
 
-    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        entry = {
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "budget_id": str(self._budget.id),
+            "details": details,
+        }
+        self._audit_trail.append(entry)
+
+    def get_audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
-
-    def touch(self, touched_by: UUID) -> Self:
-        """Update timestamp without changes."""
-        new_budget = self._copy_budget()
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = touched_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("TOUCH", str(touched_by), {})
-        return self
-
-    # ==================== AGGREGATE ROOT METHODS ====================
-
-    def add_child(self, line: BudgetLine, added_by: UUID) -> Self:
-        """Add budget line item."""
-        if self._budget.status not in (BudgetStatus.DRAFT, BudgetStatus.REVISED):
-            raise ValueError(f"Cannot add line in status {self._budget.status.value}")
-
-        # Check for duplicate
-        for existing in self._budget.lines:
-            if existing.account_code == line.account_code and existing.period == line.period:
-                raise ValueError(
-                    f"Line already exists for account {line.account_code} period {line.period}"
-                )
-
-        new_lines = list(self._budget.lines) + [line.to_line_item()]
-        new_budget = self._copy_budget()
-        new_budget.lines = new_lines
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = added_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit(
-            "ADD_LINE",
-            str(added_by),
-            {"account": line.account_code, "period": line.period, "amount": str(line.amount)},
-        )
-        return self
-
-    def remove_child(self, line_id: UUID, removed_by: UUID) -> Self:
-        """Remove budget line item."""
-        if self._budget.status not in (BudgetStatus.DRAFT, BudgetStatus.REVISED):
-            raise ValueError(f"Cannot remove line in status {self._budget.status.value}")
-
-        new_lines = [line for line in self._budget.lines if line.line_id != line_id]
-        if len(new_lines) == len(self._budget.lines):
-            raise ValueError(f"Line {line_id} not found")
-
-        new_budget = self._copy_budget()
-        new_budget.lines = new_lines
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = removed_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("REMOVE_LINE", str(removed_by), {"line_id": str(line_id)})
-        self._register_event(
-            BudgetLineRemoved(
-                budget_id=self._budget.id,
-                line_id=line_id,
-                removed_by=removed_by,
-                occurred_at=datetime.now(UTC),
-            )
-        )
-        return self
-
-    def can_approve(self) -> bool:
-        return self._budget.status == BudgetStatus.SUBMITTED
-
-    def approve(self, approved_by: UUID) -> Self:
-        """Approve the budget."""
-        if not self.can_approve():
-            raise ValueError(f"Cannot approve budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.APPROVED
-        new_budget.approved_by = approved_by
-        new_budget.approved_at = datetime.now(UTC)
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = approved_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("APPROVE", str(approved_by), {})
-        self._register_event(
-            BudgetApproved(
-                budget_id=self._budget.id,
-                budget_number=self._budget.name,
-                approved_by=approved_by,
-                occurred_at=datetime.now(UTC),
-            )
-        )
-        return self
-
-    def can_reject(self) -> bool:
-        return self._budget.status == BudgetStatus.SUBMITTED
-
-    def reject(self, rejected_by: UUID, reason: str) -> Self:
-        """Reject the budget."""
-        if not self.can_reject():
-            raise ValueError(f"Cannot reject budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.REJECTED
-        new_budget.rejected_by = rejected_by
-        new_budget.rejected_at = datetime.now(UTC)
-        new_budget.rejection_reason = reason
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = rejected_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("REJECT", str(rejected_by), {"reason": reason})
-        self._register_event(
-            BudgetStatusChanged(
-                budget_id=self._budget.id,
-                old_status=BudgetStatus.SUBMITTED.value,
-                new_status=BudgetStatus.REJECTED.value,
-                changed_by=rejected_by,
-                reason=reason,
-                occurred_at=datetime.now(UTC),
-            )
-        )
-        return self
-
-    def can_cancel(self) -> bool:
-        return self._budget.status in (
-            BudgetStatus.DRAFT,
-            BudgetStatus.SUBMITTED,
-            BudgetStatus.APPROVED,
-        )
-
-    def cancel(self, cancelled_by: UUID, reason: str) -> Self:
-        """Cancel the budget."""
-        if not self.can_cancel():
-            raise ValueError(f"Cannot cancel budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.CANCELLED
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = cancelled_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("CANCEL", str(cancelled_by), {"reason": reason})
-        return self
-
-    def can_reverse(self) -> bool:
-        return self._budget.status == BudgetStatus.CANCELLED
-
-    def reverse(self, reversed_by: UUID, reason: str) -> Self:
-        """Reverse cancellation (restore)."""
-        if not self.can_reverse():
-            raise ValueError(f"Cannot reverse budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.DRAFT
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = reversed_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("REVERSE", str(reversed_by), {"reason": reason})
-        return self
-
-    def can_close(self) -> bool:
-        return self._budget.status == BudgetStatus.APPROVED
-
-    def close(self, closed_by: UUID) -> Self:
-        """Close the budget (end of period)."""
-        if not self.can_close():
-            raise ValueError(f"Cannot close budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.CLOSED
-        new_budget.closed_by = closed_by
-        new_budget.closed_at = datetime.now(UTC)
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = closed_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("CLOSE", str(closed_by), {})
-        return self
-
-    def can_reopen(self) -> bool:
-        return self._budget.status == BudgetStatus.CLOSED
-
-    def reopen(self, reopened_by: UUID, reason: str) -> Self:
-        """Reopen closed budget."""
-        if not self.can_reopen():
-            raise ValueError(f"Cannot reopen budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.APPROVED
-        new_budget.closed_by = None
-        new_budget.closed_at = None
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = reopened_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("REOPEN", str(reopened_by), {"reason": reason})
-        return self
-
-    def can_archive(self) -> bool:
-        return self._budget.status in (BudgetStatus.CLOSED, BudgetStatus.APPROVED)
-
-    def archive(self, archived_by: UUID) -> Self:
-        """Archive budget."""
-        if not self.can_archive():
-            raise ValueError(f"Cannot archive budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.ARCHIVED
-        new_budget.archived_by = archived_by
-        new_budget.archived_at = datetime.now(UTC)
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = archived_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("ARCHIVE", str(archived_by), {})
-        return self
-
-    def can_unarchive(self) -> bool:
-        return self._budget.status == BudgetStatus.ARCHIVED
-
-    def unarchive(self, unarchived_by: UUID) -> Self:
-        """Unarchive budget."""
-        if not self.can_unarchive():
-            raise ValueError(f"Cannot unarchive budget in status {self._budget.status.value}")
-
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.CLOSED
-        new_budget.archived_by = None
-        new_budget.archived_at = None
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = unarchived_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit("UNARCHIVE", str(unarchived_by), {})
-        return self
 
     # ==================== EVENT METHODS ====================
 
-    def register_event(self, event: Any) -> None:
+    def _register_event(self, event: Any) -> None:
         self._events.append(event)
 
     def get_events(self) -> list[Any]:
@@ -900,210 +1239,75 @@ class BudgetAggregate:
     def clear_events(self) -> None:
         self._events.clear()
 
-    def _register_event(self, event: Any) -> None:
+    def register_event(self, event: Any) -> None:
         self._events.append(event)
 
-    # ── Event Sourcing Methods (for checker compliance) ──
+    # ==================== SERIALIZATION ====================
 
-    def apply(self, event: Any) -> None:
-        """Apply a domain event to update state (event sourcing placeholder)."""
-        self._record_audit("APPLY_EVENT", "system", {"event_type": type(event).__name__})
+    def to_dict(self) -> dict[str, Any]:
+        return self._budget.to_dict()
 
-    def replay(self, events: list[Any]) -> None:
-        """Replay a list of events to rebuild state."""
-        for event in events:
-            self.apply(event)
-        self._record_audit("REPLAY_EVENTS", "system", {"count": len(events)})
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        budget = Budget.from_dict(data)
+        return cls(budget, version=budget.version_number)
 
-    def reconstruct(self, events: list[Any]) -> None:
-        """Reconstruct state from events (alias for replay)."""
-        self.replay(events)
+    def touch(self, touched_by: UUID) -> None:
+        data = self._budget.to_dict()
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        data["updated_by"] = str(touched_by) if touched_by else None
+        data["version_number"] = self._version + 1
 
-    # ==================== BUDGET SPECIFIC METHODS ====================
-
-    def revise(self, revised_by: UUID, new_lines: list[BudgetLine], reason: str) -> Self:
-        """Revise budget with new lines."""
-        if self._budget.status != BudgetStatus.APPROVED:
-            raise ValueError(f"Cannot revise budget in status {self._budget.status.value}")
-
-        line_items = [line.to_line_item() for line in new_lines]
-        new_budget = self._copy_budget()
-        new_budget.status = BudgetStatus.REVISED
-        new_budget.lines = line_items
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = revised_by
-        new_budget.version = self._budget.version + 1
-
+        new_budget = Budget.from_dict(data)
         self._budget = new_budget
         self._version += 1
         self.version = self._version
         self._take_snapshot()
-        self._record_audit("REVISE", str(revised_by), {"reason": reason})
-        self._register_event(
-            BudgetRevised(
-                budget_id=self._budget.id,
-                budget_number=self._budget.name,
-                version=self._budget.version,
-                revision_reason=reason,
-                revised_by=revised_by,
-                occurred_at=datetime.now(UTC),
-            )
+
+        self._record_audit("TOUCH", str(touched_by), {})
+
+    # ==================== AGGREGATE ROOT METHODS (untuk compliance) ====================
+
+    def add_child(self, line: BudgetLine, added_by: UUID) -> Self:
+        self.add_line(
+            user_id=added_by,
+            account_id=line.account_id,
+            account_code=line.account_code,
+            amount=line.amount,
+            note=line.note,
         )
         return self
 
-    def record_actual(
-        self, account_code: str, period: str, amount: Decimal, recorded_by: UUID
-    ) -> Self:
-        """Record actual amount for a specific account and period."""
-        lines = list(self._budget.lines)
-        found = False
-        for i, line in enumerate(lines):
-            if line.account_code == account_code and line.period == period:
-                new_line = BudgetLineItem(
-                    line_id=line.line_id,
-                    account_code=line.account_code,
-                    account_id=line.account_id,
-                    period=line.period,
-                    amount=line.amount,
-                    actual_amount=amount,
-                    description=line.description,
-                    notes=line.notes,
-                    created_at=line.created_at,
-                )
-                lines[i] = new_line
-                found = True
-                break
-        if not found:
-            raise ValueError(f"No budget line found for account {account_code} period {period}")
-
-        new_budget = self._copy_budget()
-        new_budget.lines = lines
-        new_budget.updated_at = datetime.now(UTC)
-        new_budget.updated_by = recorded_by
-        new_budget.version = self._budget.version + 1
-
-        self._budget = new_budget
-        self._version += 1
-        self.version = self._version
-        self._take_snapshot()
-        self._record_audit(
-            "RECORD_ACTUAL",
-            str(recorded_by),
-            {"account": account_code, "period": period, "amount": str(amount)},
-        )
-        self._register_event(
-            BudgetLineAdjusted(
-                budget_id=self._budget.id,
-                line_id=lines[i].line_id,
-                actual_amount=amount,
-                recorded_by=recorded_by,
-                occurred_at=datetime.now(UTC),
-            )
-        )
+    def remove_child(self, line_id: UUID, removed_by: UUID) -> Self:
+        self.remove_line(user_id=removed_by, line_id=line_id)
         return self
+
+    # ==================== VARIANCE METHODS ====================
 
     def get_total_budget(self) -> Decimal:
-        return sum(line.amount for line in self._budget.lines)
+        return self.total_amount
 
-    def get_total_actual(self) -> Decimal:
-        return sum(line.actual_amount for line in self._budget.lines)
+    def get_total_actual(self, actuals: dict[UUID, Decimal] | None = None) -> Decimal:
+        if actuals is None:
+            return Decimal(0)
+        total = Decimal(0)
+        for line in self._budget.lines:
+            total += actuals.get(line.account_id, Decimal(0))
+        return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
-    def get_total_variance(self) -> Decimal:
-        return self.get_total_actual() - self.get_total_budget()
+    def get_total_variance(self, actuals: dict[UUID, Decimal] | None = None) -> Decimal:
+        return self.get_total_actual(actuals) - self.total_amount
 
-    def get_variance_percentage(self) -> float:
-        total_budget = self.get_total_budget()
+    def get_variance_percentage(self, actuals: dict[UUID, Decimal] | None = None) -> float:
+        total_budget = self.total_amount
         if total_budget == 0:
             return 0.0
-        return float(abs(self.get_total_variance()) / total_budget * 100)
-
-    def get_lines_by_period(self, period: str) -> list[BudgetLineItem]:
-        return [line for line in self._budget.lines if line.period == period]
-
-    def get_lines_by_account(self, account_code: str) -> list[BudgetLineItem]:
-        return [line for line in self._budget.lines if line.account_code == account_code]
-
-    def get_favorable_lines(self, is_revenue_account: callable = None) -> list[BudgetLineItem]:
-        """Get lines with favorable variance."""
-        favorable = []
-        for line in self._budget.lines:
-            is_revenue = False
-            if is_revenue_account:
-                is_revenue = is_revenue_account(line.account_code)
-            if line.is_favorable(is_revenue):
-                favorable.append(line)
-        return favorable
-
-    def get_unfavorable_lines(self, is_revenue_account: callable = None) -> list[BudgetLineItem]:
-        """Get lines with unfavorable variance."""
-        unfavorable = []
-        for line in self._budget.lines:
-            is_revenue = False
-            if is_revenue_account:
-                is_revenue = is_revenue_account(line.account_code)
-            if not line.is_favorable(is_revenue):
-                unfavorable.append(line)
-        return unfavorable
-
-    # ==================== PRIVATE METHODS ====================
-
-    def _copy_budget(self) -> Budget:
-        """Create a copy of current budget."""
-        return Budget(
-            id=self._budget.id,
-            legal_entity_id=self._budget.legal_entity_id,
-            name=self._budget.name,
-            year=self._budget.year,
-            status=self._budget.status,
-            lines=list(self._budget.lines),
-            created_by=self._budget.created_by,
-            created_at=self._budget.created_at,
-            updated_at=self._budget.updated_at,
-            updated_by=self._budget.updated_by,
-            approved_by=self._budget.approved_by,
-            approved_at=self._budget.approved_at,
-            rejected_by=self._budget.rejected_by,
-            rejected_at=self._budget.rejected_at,
-            rejection_reason=self._budget.rejection_reason,
-            closed_by=self._budget.closed_by,
-            closed_at=self._budget.closed_at,
-            archived_by=self._budget.archived_by,
-            archived_at=self._budget.archived_at,
-            version=self._budget.version,
-            description=self._budget.description,
-            period_type=self._budget.period_type,
-            start_date=self._budget.start_date,
-            end_date=self._budget.end_date,
-            currency=self._budget.currency,
-            tags=self._budget.tags.copy(),
-            metadata=self._budget.metadata.copy(),
-        )
-
-    def _take_snapshot(self) -> None:
-        snapshot = {
-            "version": self._version,
-            "budget_id": str(self._budget.id),
-            "status": self._budget.status.value,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-        self._snapshots.append(snapshot)
-        if len(self._snapshots) > 10:
-            self._snapshots.pop(0)
-
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
-        entry = {
-            "action": action,
-            "performed_by": performed_by,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "version": self._version,
-            "budget_id": str(self._budget.id),
-            "details": details,
-        }
-        self._audit_trail.append(entry)
+        total_variance = self.get_total_variance(actuals)
+        return float(abs(total_variance) / total_budget * 100)
 
 
 # ============================================================================
-# Repository Interface (Real Implementation)
+# BUDGET REPOSITORY (In-Memory)
 # ============================================================================
 
 
@@ -1117,38 +1321,42 @@ class BudgetRepository:
 
     async def get_by_name(self, name: str, legal_entity_id: UUID) -> BudgetAggregate | None:
         for agg in self._storage.values():
-            if agg.budget.name == name and agg.budget.legal_entity_id == legal_entity_id:
+            if agg.budget.budget_name == name and agg.budget.legal_entity_id == legal_entity_id:
+                return agg
+        return None
+
+    async def get_by_code(self, code: str, legal_entity_id: UUID) -> BudgetAggregate | None:
+        for agg in self._storage.values():
+            if agg.budget.budget_code == code and agg.budget.legal_entity_id == legal_entity_id:
                 return agg
         return None
 
     async def get_by_year(self, year: int, legal_entity_id: UUID) -> list[BudgetAggregate]:
         return [
-            agg
-            for agg in self._storage.values()
-            if agg.budget.year == year and agg.budget.legal_entity_id == legal_entity_id
+            agg for agg in self._storage.values()
+            if agg.budget.fiscal_year == year and agg.budget.legal_entity_id == legal_entity_id
         ]
 
-    async def get_by_status(
-        self, status: BudgetStatus, legal_entity_id: UUID
-    ) -> list[BudgetAggregate]:
+    async def get_by_status(self, status: BudgetStatus, legal_entity_id: UUID) -> list[BudgetAggregate]:
         return [
-            agg
-            for agg in self._storage.values()
+            agg for agg in self._storage.values()
             if agg.budget.status == status and agg.budget.legal_entity_id == legal_entity_id
         ]
 
     async def get_all(self, legal_entity_id: UUID) -> list[BudgetAggregate]:
         return [
-            agg for agg in self._storage.values() if agg.budget.legal_entity_id == legal_entity_id
+            agg for agg in self._storage.values()
+            if agg.budget.legal_entity_id == legal_entity_id
         ]
 
     async def exists(self, budget_id: UUID) -> bool:
         return budget_id in self._storage
 
     async def count(self, legal_entity_id: UUID) -> int:
-        return len(
-            [agg for agg in self._storage.values() if agg.budget.legal_entity_id == legal_entity_id]
-        )
+        return len([
+            agg for agg in self._storage.values()
+            if agg.budget.legal_entity_id == legal_entity_id
+        ])
 
     async def save(self, aggregate: BudgetAggregate) -> None:
         self._storage[aggregate.id] = aggregate
@@ -1162,7 +1370,7 @@ class BudgetRepository:
 
 
 # ============================================================================
-# Exports
+# EXPORTS
 # ============================================================================
 
 __all__ = [
@@ -1173,4 +1381,5 @@ __all__ = [
     "BudgetPeriod",
     "BudgetRepository",
     "BudgetStatus",
+    "BudgetType",
 ]

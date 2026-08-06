@@ -23,7 +23,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.dto_objects.journal_request import JournalEntryRequestDTO
+from application.dto_objects.journal_request import JournalEntryRequestDTO, JournalQueryParams
 from application.dto_objects.journal_response import (
     JournalEntryResponseDTO,
     JournalLineResponseDTO,
@@ -51,7 +51,7 @@ from domain.journal.state_machine import JournalStateMachine
 from domain.shared_value_objects.document_number_vo import DocumentNumber
 from ports.primary.account_repository_port import AccountRepositoryPort
 from ports.primary.event_publisher_port import EventPublisherPort
-from ports.primary.journal_repository_port import JournalRepositoryPort
+from ports.primary.journal_repository_port import JournalListResult, JournalRepositoryPort
 from ports.primary.ledger_repository_port import LedgerRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
 
@@ -1043,26 +1043,31 @@ class JournalService:
             return None
         return self._to_response(agg.journal)
 
-    async def list_journals(
-        self,
-        legal_entity_id: UUID,
-        from_date: date | None = None,
-        to_date: date | None = None,
-        status: str | None = None,
-        journal_type: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[JournalEntryResponseDTO]:
-        journals = await self._journal_repo.list(
-            legal_entity_id=legal_entity_id,
-            from_date=from_date,
-            to_date=to_date,
-            status=status,
-            journal_type=journal_type,
-            limit=limit,
-            offset=offset,
+    async def list_journals(self, params: JournalQueryParams) -> JournalListResult:
+        """
+        List jurnal dengan filter dan paginasi untuk endpoint GET /journals.
+
+        CATATAN: method ini sengaja TIDAK lewat self._to_response()/JournalEntry
+        karena keduanya tidak kompatibel dengan objek Journal yang dikembalikan
+        oleh JournalRepositoryPort (lihat journal_repository_port.py). Method
+        ini murni delegasi baca (read-only) ke repository, mengembalikan
+        JournalListResult yang field-nya sudah cocok dengan JournalListResponseSchema
+        di fastapi_journal_router.py.
+        """
+        return await self._journal_repo.list(
+            legal_entity_id=params.legal_entity_id,
+            status=params.status,
+            journal_type=params.journal_type,
+            source_type=params.source_type,
+            start_date=params.start_date,
+            end_date=params.end_date,
+            journal_number=params.journal_number,
+            reference_number=params.reference_number,
+            account_code=params.account_code,
+            created_by=params.created_by,
+            page=params.page,
+            page_size=params.page_size,
         )
-        return [self._to_response(j) for j in journals]
 
     async def validate_journal(self, request: JournalEntryRequestDTO) -> JournalValidationResultDTO:
         errors = []

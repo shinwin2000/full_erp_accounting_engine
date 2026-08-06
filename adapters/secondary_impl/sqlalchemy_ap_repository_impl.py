@@ -503,7 +503,7 @@ class SQLAlchemyAPRepository(APRepositoryPort):
     async def _fetch_invoices(self, where_conditions, order_by=None, limit=None, offset=None) -> list[APInvoiceAggregate]:
         """Helper to fetch invoices with lines, payments, credit notes in batch."""
         stmt = select(APInvoiceTable).where(and_(*where_conditions))
-        if order_by:
+        if order_by is not None:
             stmt = stmt.order_by(order_by)
         if limit:
             stmt = stmt.limit(limit)

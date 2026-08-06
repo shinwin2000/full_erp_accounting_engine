@@ -263,17 +263,17 @@ _reg(ModuleConfig(
 ))
 _reg(ModuleConfig(
     key="iam_security", label="Keamanan Akun: Sesi, MFA & Password", category="Master Data", icon="🔐",
-    base_path="/iam/iam", custom_page=True,
+    base_path="/iam", custom_page=True,
     description="Manajemen sesi login, setup MFA, riwayat percobaan login, ganti password.",
 ))
 _reg(ModuleConfig(
     key="iam_roles", label="Role & Permission", category="Master Data", icon="🔑",
-    base_path="/iam/iam", list_path="/roles", custom_page=True,
+    base_path="/iam", list_path="/roles", custom_page=True,
     description="Manajemen role, permission, dan assignment role ke user.",
 ))
 _reg(ModuleConfig(
     key="iam_users", label="Pengguna & Role", category="Master Data", icon="🔐",
-    base_path="/iam/iam", list_path="/users",
+    base_path="/iam", list_path="/users",
     columns=[("username", "Username"), ("email", "Email"), ("full_name", "Nama"),
              ("department", "Departemen"), ("is_active", "Aktif"), ("is_locked", "Terkunci")],
     form_fields=[

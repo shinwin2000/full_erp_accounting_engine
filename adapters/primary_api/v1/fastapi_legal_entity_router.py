@@ -2,23 +2,7 @@
 """
 Module: fastapi_legal_entity_router.py
 Layer: Adapters (Primary API - v1)
-Responsibility: Menyediakan REST API endpoint untuk mengelola Legal Entity (entitas hukum):
-               perusahaan, cabang, grup konsolidasi, profil pajak, tahun fiskal,
-               registrasi perizinan, dan dokumen legal.
-
-Method Standards (ERP):
-- create_legal_entity() / update_legal_entity() / delete_legal_entity() / get_legal_entity()
-- activate_legal_entity() / deactivate_legal_entity() / suspend_legal_entity()
-- create_consolidation_group() / update_consolidation_group() / delete_consolidation_group()
-- add_member_to_group() / remove_member_from_group()
-- create_branch() / update_branch() / delete_branch() / get_branch()
-- update_tax_profile() / get_tax_profile()
-- update_fiscal_year() / get_fiscal_year()
-- get_legal_entity_status() / get_legal_entity_history()
-- get_legal_entity_by_npwp() / get_legal_entity_by_registration()
-- audit_trail_legal_entity() / can_transition_legal_entity()
-- register_legal_entity_event() / get_legal_entity_events()
-- version_legal_entity()
+Responsibility: REST API endpoint untuk mengelola Legal Entity.
 """
 
 from __future__ import annotations
@@ -48,12 +32,6 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 class IdempotencyManager:
-    """
-    Simple in-memory idempotency manager untuk FastAPI endpoints.
-    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
-    TTL 24 jam.
-    """
-
     def __init__(self):
         self._storage: dict[str, tuple[str, datetime]] = {}
         self._ttl_seconds = 86400
@@ -85,7 +63,6 @@ class IdempotencyManager:
         self._storage[storage_key] = (result_json, datetime.now(UTC))
 
 
-# Global instance
 _idempotency_manager = IdempotencyManager()
 
 
@@ -93,36 +70,29 @@ _idempotency_manager = IdempotencyManager()
 # CONSTANTS & ENUMS
 # ============================================================================
 
-
 class LegalEntityType(str, Enum):
-    """Jenis entitas hukum."""
-
-    CORPORATION = "corporation"  # Perseroan Terbatas (PT)
-    BRANCH = "branch"  # Cabang
-    REPRESENTATIVE_OFFICE = "representative_office"  # Kantor Perwakilan
-    PARTNERSHIP = "partnership"  # Firma (Fa) / CV
-    SOLE_PROPRIETORSHIP = "sole_proprietorship"  # Perorangan (UD)
-    COOPERATIVE = "cooperative"  # Koperasi
-    FOUNDATION = "foundation"  # Yayasan
-    CONSOLIDATION_GROUP = "consolidation_group"  # Grup Konsolidasi
+    CORPORATION = "corporation"
+    BRANCH = "branch"
+    REPRESENTATIVE_OFFICE = "representative_office"
+    PARTNERSHIP = "partnership"
+    SOLE_PROPRIETORSHIP = "sole_proprietorship"
+    COOPERATIVE = "cooperative"
+    FOUNDATION = "foundation"
+    CONSOLIDATION_GROUP = "consolidation_group"
 
 
 class LegalEntityStatus(str, Enum):
-    """Status entitas hukum."""
-
     ACTIVE = "active"
     INACTIVE = "inactive"
     SUSPENDED = "suspended"
-    DISSOLVED = "dissolved"  # Dibubarkan
-    BANKRUPT = "bankrupt"  # Pailit
-    MERGED = "merged"  # Bergabung
+    DISSOLVED = "dissolved"
+    BANKRUPT = "bankrupt"
+    MERGED = "merged"
     LOCKED = "locked"
     ARCHIVED = "archived"
 
 
 class BranchStatus(str, Enum):
-    """Status cabang."""
-
     ACTIVE = "active"
     INACTIVE = "inactive"
     CLOSED = "closed"
@@ -130,17 +100,14 @@ class BranchStatus(str, Enum):
 
 
 class TaxStatus(str, Enum):
-    """Status pajak."""
-
     ACTIVE = "active"
     INACTIVE = "inactive"
     SUSPENDED = "suspended"
     REVOKED = "revoked"
 
 
-# Default fiscal year settings
-DEFAULT_FISCAL_YEAR_START_MONTH = 1  # January
-DEFAULT_FISCAL_YEAR_END_MONTH = 12  # December
+DEFAULT_FISCAL_YEAR_START_MONTH = 1
+DEFAULT_FISCAL_YEAR_END_MONTH = 12
 DEFAULT_BASE_CURRENCY = "IDR"
 DEFAULT_FUNCTIONAL_CURRENCY = "IDR"
 DEFAULT_TAX_RATE_PPN = Decimal("11")
@@ -151,47 +118,33 @@ DEFAULT_TAX_RATE_PPH_BADAN = Decimal("22")
 # PYDANTIC SCHEMAS
 # ============================================================================
 
-
 class LegalEntityCreateSchema(BaseModel):
-    """Schema untuk membuat entitas hukum baru."""
-
     model_config = ConfigDict(from_attributes=True)
-
-    legal_name: str = Field(..., min_length=3, max_length=200, description="Nama legal")
-    trade_name: str | None = Field(None, max_length=200, description="Nama dagang")
-    entity_type: LegalEntityType = Field(..., description="Jenis entitas")
-    registration_number: str | None = Field(
-        None, max_length=50, description="Nomor registrasi (NIB)"
-    )
-    npwp: str | None = Field(None, min_length=15, max_length=15, description="NPWP")
-    nppp: str | None = Field(None, max_length=30, description="NPPP (untuk PKP)")
-    address: str | None = Field(None, max_length=500, description="Alamat")
-    city: str | None = Field(None, max_length=100, description="Kota")
-    postal_code: str | None = Field(None, max_length=20, description="Kode pos")
-    province: str | None = Field(None, max_length=100, description="Provinsi")
-    country: str = Field("ID", max_length=2, description="Kode negara")
-    phone: str | None = Field(None, max_length=20, description="Telepon")
-    fax: str | None = Field(None, max_length=20, description="Fax")
-    email: str | None = Field(None, max_length=200, description="Email")
-    website: str | None = Field(None, max_length=200, description="Website")
-    established_date: date | None = Field(None, description="Tanggal pendirian")
-    fiscal_year_start: int = Field(
-        DEFAULT_FISCAL_YEAR_START_MONTH, ge=1, le=12, description="Bulan awal tahun fiskal"
-    )
-    fiscal_year_end: int = Field(
-        DEFAULT_FISCAL_YEAR_END_MONTH, ge=1, le=12, description="Bulan akhir tahun fiskal"
-    )
-    base_currency: str = Field(
-        DEFAULT_BASE_CURRENCY, min_length=3, max_length=3, description="Mata uang dasar"
-    )
-    functional_currency: str = Field(
-        DEFAULT_FUNCTIONAL_CURRENCY, min_length=3, max_length=3, description="Mata uang fungsional"
-    )
-    is_taxable: bool = Field(True, description="Apakah PKP")
-    is_withholding_agent: bool = Field(True, description="Apakah pemotong pajak")
-    parent_company_id: UUID | None = Field(None, description="ID perusahaan induk")
-    consolidation_group_id: UUID | None = Field(None, description="ID grup konsolidasi")
-    notes: str | None = Field(None, max_length=500, description="Catatan")
+    legal_name: str = Field(..., min_length=3, max_length=200)
+    trade_name: str | None = None
+    entity_type: LegalEntityType
+    registration_number: str | None = None
+    npwp: str | None = Field(None, min_length=15, max_length=15)
+    nppp: str | None = None
+    address: str | None = None
+    city: str | None = None
+    postal_code: str | None = None
+    province: str | None = None
+    country: str = "ID"
+    phone: str | None = None
+    fax: str | None = None
+    email: str | None = None
+    website: str | None = None
+    established_date: date | None = None
+    fiscal_year_start: int = DEFAULT_FISCAL_YEAR_START_MONTH
+    fiscal_year_end: int = DEFAULT_FISCAL_YEAR_END_MONTH
+    base_currency: str = DEFAULT_BASE_CURRENCY
+    functional_currency: str = DEFAULT_FUNCTIONAL_CURRENCY
+    is_taxable: bool = True
+    is_withholding_agent: bool = True
+    parent_company_id: UUID | None = None
+    consolidation_group_id: UUID | None = None
+    notes: str | None = None
 
     @field_validator("npwp")
     @classmethod
@@ -200,38 +153,25 @@ class LegalEntityCreateSchema(BaseModel):
             raise ValueError("NPWP must contain only digits")
         return v
 
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: str | None) -> str | None:
-        if v and "@" not in v:
-            raise ValueError("Invalid email format")
-        return v
-
 
 class LegalEntityUpdateSchema(BaseModel):
-    """Schema untuk update entitas hukum."""
-
     model_config = ConfigDict(from_attributes=True)
-
-    legal_name: str | None = Field(None, min_length=3, max_length=200)
-    trade_name: str | None = Field(None, max_length=200)
-    address: str | None = Field(None, max_length=500)
-    city: str | None = Field(None, max_length=100)
-    postal_code: str | None = Field(None, max_length=20)
-    province: str | None = Field(None, max_length=100)
-    phone: str | None = Field(None, max_length=20)
-    fax: str | None = Field(None, max_length=20)
-    email: str | None = Field(None, max_length=200)
-    website: str | None = Field(None, max_length=200)
+    legal_name: str | None = None
+    trade_name: str | None = None
+    address: str | None = None
+    city: str | None = None
+    postal_code: str | None = None
+    province: str | None = None
+    phone: str | None = None
+    fax: str | None = None
+    email: str | None = None
+    website: str | None = None
     status: LegalEntityStatus | None = None
-    notes: str | None = Field(None, max_length=500)
+    notes: str | None = None
 
 
 class LegalEntityResponseSchema(BaseModel):
-    """Response entitas hukum."""
-
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     legal_name: str
     trade_name: str | None
@@ -271,35 +211,23 @@ class LegalEntityResponseSchema(BaseModel):
 
 
 class TaxProfileSchema(BaseModel):
-    """Schema untuk profil pajak."""
-
     model_config = ConfigDict(from_attributes=True)
-
-    tax_office: str | None = Field(None, max_length=200, description="Kantor pajak")
-    tax_office_code: str | None = Field(None, max_length=20, description="Kode KPP")
-    tax_classification: str | None = Field(None, max_length=50, description="Klasifikasi pajak")
-    taxable_date: date | None = Field(None, description="Tanggal pengukuhan PKP")
-    vat_collector_number: str | None = Field(
-        None, max_length=30, description="Nomor pengukuhan PKP"
-    )
-    annual_tax_return_due_date: int | None = Field(
-        None, ge=1, le=31, description="Tanggal jatuh tempo SPT Tahunan"
-    )
-    monthly_tax_due_date: int | None = Field(
-        None, ge=1, le=31, description="Tanggal jatuh tempo SPT Masa"
-    )
-    corporate_tax_rate: Decimal = Field(DEFAULT_TAX_RATE_PPH_BADAN, ge=0, le=100, decimal_places=2)
-    vat_rate: Decimal = Field(DEFAULT_TAX_RATE_PPN, ge=0, le=100, decimal_places=2)
-    is_using_final_tax: bool = Field(False, description="Menggunakan PPh Final")
-    final_tax_rate: Decimal | None = Field(None, ge=0, le=100, decimal_places=2)
-    notes: str | None = Field(None, max_length=500)
+    tax_office: str | None = None
+    tax_office_code: str | None = None
+    tax_classification: str | None = None
+    taxable_date: date | None = None
+    vat_collector_number: str | None = None
+    annual_tax_return_due_date: int | None = None
+    monthly_tax_due_date: int | None = None
+    corporate_tax_rate: Decimal = DEFAULT_TAX_RATE_PPH_BADAN
+    vat_rate: Decimal = DEFAULT_TAX_RATE_PPN
+    is_using_final_tax: bool = False
+    final_tax_rate: Decimal | None = None
+    notes: str | None = None
 
 
 class TaxProfileResponseSchema(BaseModel):
-    """Response profil pajak."""
-
     model_config = ConfigDict(from_attributes=True)
-
     legal_entity_id: UUID
     tax_office: str | None
     tax_office_code: str | None
@@ -320,50 +248,34 @@ class TaxProfileResponseSchema(BaseModel):
 
 
 class BranchCreateSchema(BaseModel):
-    """Schema untuk membuat cabang."""
-
     model_config = ConfigDict(from_attributes=True)
-
-    branch_code: str = Field(..., min_length=2, max_length=20, description="Kode cabang")
-    branch_name: str = Field(..., min_length=3, max_length=200, description="Nama cabang")
-    address: str | None = Field(None, max_length=500, description="Alamat")
-    city: str | None = Field(None, max_length=100, description="Kota")
-    postal_code: str | None = Field(None, max_length=20, description="Kode pos")
-    phone: str | None = Field(None, max_length=20, description="Telepon")
-    email: str | None = Field(None, max_length=200, description="Email")
-    manager_name: str | None = Field(None, max_length=200, description="Nama manager")
-    is_active: bool = Field(True, description="Aktif")
-    notes: str | None = Field(None, max_length=500)
-
-    @field_validator("branch_code")
-    @classmethod
-    def validate_branch_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Branch code is required")
-        return v.upper()
+    branch_code: str = Field(..., min_length=2, max_length=20)
+    branch_name: str = Field(..., min_length=3, max_length=200)
+    address: str | None = None
+    city: str | None = None
+    postal_code: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    manager_name: str | None = None
+    is_active: bool = True
+    notes: str | None = None
 
 
 class BranchUpdateSchema(BaseModel):
-    """Schema untuk update cabang."""
-
     model_config = ConfigDict(from_attributes=True)
-
-    branch_name: str | None = Field(None, min_length=3, max_length=200)
-    address: str | None = Field(None, max_length=500)
-    city: str | None = Field(None, max_length=100)
-    phone: str | None = Field(None, max_length=20)
-    email: str | None = Field(None, max_length=200)
-    manager_name: str | None = Field(None, max_length=200)
+    branch_name: str | None = None
+    address: str | None = None
+    city: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    manager_name: str | None = None
     is_active: bool | None = None
     status: BranchStatus | None = None
-    notes: str | None = Field(None, max_length=500)
+    notes: str | None = None
 
 
 class BranchResponseSchema(BaseModel):
-    """Response cabang."""
-
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     legal_entity_id: UUID
     branch_code: str
@@ -385,33 +297,18 @@ class BranchResponseSchema(BaseModel):
 
 
 class ConsolidationGroupCreateSchema(BaseModel):
-    """Schema untuk membuat grup konsolidasi."""
-
     model_config = ConfigDict(from_attributes=True)
-
-    group_code: str = Field(..., min_length=3, max_length=30, description="Kode grup")
-    group_name: str = Field(..., min_length=3, max_length=200, description="Nama grup")
-    description: str | None = Field(None, max_length=500, description="Deskripsi")
-    base_currency: str = Field(
-        DEFAULT_BASE_CURRENCY, min_length=3, max_length=3, description="Mata uang dasar"
-    )
-    fiscal_year_start: int = Field(DEFAULT_FISCAL_YEAR_START_MONTH, ge=1, le=12)
-    fiscal_year_end: int = Field(DEFAULT_FISCAL_YEAR_END_MONTH, ge=1, le=12)
-    notes: str | None = Field(None, max_length=500)
-
-    @field_validator("group_code")
-    @classmethod
-    def validate_group_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Group code is required")
-        return v.upper()
+    group_code: str = Field(..., min_length=3, max_length=30)
+    group_name: str = Field(..., min_length=3, max_length=200)
+    description: str | None = None
+    base_currency: str = DEFAULT_BASE_CURRENCY
+    fiscal_year_start: int = DEFAULT_FISCAL_YEAR_START_MONTH
+    fiscal_year_end: int = DEFAULT_FISCAL_YEAR_END_MONTH
+    notes: str | None = None
 
 
 class ConsolidationGroupResponseSchema(BaseModel):
-    """Response grup konsolidasi."""
-
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     group_code: str
     group_name: str
@@ -433,11 +330,8 @@ class ConsolidationGroupResponseSchema(BaseModel):
 # DEPENDENCY INJECTION
 # ============================================================================
 
-
 async def get_legal_entity_service(request: Request) -> Any:
-    """Get Legal Entity Service instance."""
     from application.service_layer.service_legal_entity import LegalEntityService
-
     container = request.app.state.container
     return await container.resolve_async(LegalEntityService)
 
@@ -450,20 +344,11 @@ router = APIRouter(prefix="/legal-entities", tags=["Legal Entity"])
 
 
 # ----------------------------------------------------------------------------
-# LEGAL ENTITY CRUD
+# PUBLIC ENDPOINT (NO AUTH) - HARUS DI ATAS ROUTE DINAMIS
 # ----------------------------------------------------------------------------
-async def get_unit_of_work(request: Request) -> Any:
-    """Resolve UnitOfWork dari container (perhatian: terdaftar sebagai singleton)."""
-    from ports.primary.unit_of_work_port import UnitOfWorkPort
-
-    container = request.app.state.container
-    return await container.resolve_async(UnitOfWorkPort)
-
 
 class LegalEntityLoginOptionSchema(BaseModel):
-    """Skema minim untuk dropdown pemilihan entity di layar login (TANPA auth)."""
     model_config = ConfigDict(from_attributes=True)
-
     id: UUID
     legal_name: str
     trade_name: str | None = None
@@ -476,29 +361,44 @@ class LegalEntityLoginOptionSchema(BaseModel):
     operation_id="legal_list_login_options",
 )
 async def list_legal_entities_for_login(
-    uow: Any = Depends(get_unit_of_work),
+    request: Request,
 ) -> list[LegalEntityLoginOptionSchema]:
     """
     Endpoint publik TANPA autentikasi. Hanya mengembalikan id + nama
     entity yang aktif — dipakai UI login untuk mengisi dropdown Legal
-    Entity sebelum user punya token. TIDAK mengembalikan data sensitif
-    (NPWP, alamat, dll) karena bisa diakses tanpa login.
+    Entity sebelum user punya token.
     """
     try:
-        async with uow:
-            entities = await uow.legal_entities().find_all_active()
+        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import (
+            SQLAlchemyLegalEntityRepository,
+        )
+        from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
+
+        # FIX: session_factory_sqlalchemy.py tidak punya nama 'async_session_maker'.
+        # Nama yang benar-benar diexport (lihat __all__) adalah get_async_session_factory(),
+        # yang mengembalikan objek async_sessionmaker siap pakai sebagai context manager.
+        session_maker = await get_async_session_factory()
+        async with session_maker() as session:
+            repo = SQLAlchemyLegalEntityRepository(session)
+            entities = await repo.find_all_active()
+
             return [
                 LegalEntityLoginOptionSchema(
                     id=e.id,
                     legal_name=e.legal_name,
-                    trade_name=e.entity_name if e.entity_name != e.legal_name else None,
+                    trade_name=getattr(e, 'trade_name', None),
                 )
                 for e in entities
             ]
     except Exception as e:
         logger.exception("Failed to list legal entities for login: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
-    
+
+
+# ----------------------------------------------------------------------------
+# CRUD LEGAL ENTITY (auth required)
+# ----------------------------------------------------------------------------
+
 @router.post(
     "/",
     response_model=LegalEntityResponseSchema,
@@ -513,14 +413,11 @@ async def create_legal_entity(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Create a new legal entity."""
     method_name = "create_legal_entity"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return LegalEntityResponseSchema(**cached)
-
     try:
         result = await service.create_legal_entity(
             legal_name=request.legal_name,
@@ -550,7 +447,6 @@ async def create_legal_entity(
             notes=request.notes,
             created_by=current_user.user_id,
         )
-
         response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
@@ -589,18 +485,19 @@ async def create_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+# ----------------------------------------------------------------------------
+# GET ALL LEGAL ENTITIES (dengan filter)
+# ----------------------------------------------------------------------------
 
 @router.get(
     "/",
@@ -609,17 +506,16 @@ async def create_legal_entity(
     operation_id="legal_list_legal_entities",
 )
 async def list_legal_entities(
-    entity_type: LegalEntityType | None = Query(None, description="Filter by entity type"),
-    status: LegalEntityStatus | None = Query(None, description="Filter by status"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
-    parent_company_id: UUID | None = Query(None, description="Filter by parent company"),
-    search: str | None = Query(None, description="Search in name or registration"),
+    entity_type: LegalEntityType | None = Query(None),
+    status: LegalEntityStatus | None = Query(None),
+    is_active: bool | None = Query(None),
+    parent_company_id: UUID | None = Query(None),
+    search: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> list[LegalEntityResponseSchema]:
-    """List legal entities with pagination and filters."""
     try:
         result = await service.list_legal_entities(
             entity_type=entity_type.value if entity_type else None,
@@ -630,7 +526,6 @@ async def list_legal_entities(
             page=page,
             page_size=page_size,
         )
-
         return [
             LegalEntityResponseSchema(
                 id=le.id,
@@ -677,6 +572,10 @@ async def list_legal_entities(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# ----------------------------------------------------------------------------
+# GET LEGAL ENTITY BY ID
+# ----------------------------------------------------------------------------
+
 @router.get(
     "/{legal_entity_id}",
     response_model=LegalEntityResponseSchema,
@@ -688,13 +587,10 @@ async def get_legal_entity(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Get legal entity by ID."""
     try:
         le = await service.get_legal_entity_by_id(legal_entity_id)
-
         if not le:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         return LegalEntityResponseSchema(
             id=le.id,
             legal_name=le.legal_name,
@@ -740,6 +636,10 @@ async def get_legal_entity(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# ----------------------------------------------------------------------------
+# BY NPWP & BY REGISTRATION
+# ----------------------------------------------------------------------------
+
 @router.get(
     "/by-npwp/{npwp}",
     response_model=LegalEntityResponseSchema,
@@ -751,16 +651,10 @@ async def get_legal_entity_by_npwp(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Get legal entity by NPWP."""
     try:
         le = await service.get_legal_entity_by_npwp(npwp)
-
         if not le:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Legal entity with NPWP {npwp} not found",  # nosec
-            )
-
+            raise HTTPException(status_code=404, detail=f"Legal entity with NPWP {npwp} not found")
         return LegalEntityResponseSchema(
             id=le.id,
             legal_name=le.legal_name,
@@ -817,16 +711,10 @@ async def get_legal_entity_by_registration(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Get legal entity by registration number (NIB)."""
     try:
         le = await service.get_legal_entity_by_registration(registration_number)
-
         if not le:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Legal entity with registration {registration_number} not found",  # nosec
-            )
-
+            raise HTTPException(status_code=404, detail=f"Legal entity with registration {registration_number} not found")
         return LegalEntityResponseSchema(
             id=le.id,
             legal_name=le.legal_name,
@@ -872,6 +760,10 @@ async def get_legal_entity_by_registration(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# ----------------------------------------------------------------------------
+# UPDATE LEGAL ENTITY
+# ----------------------------------------------------------------------------
+
 @router.put(
     "/{legal_entity_id}",
     response_model=LegalEntityResponseSchema,
@@ -886,14 +778,11 @@ async def update_legal_entity(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Update legal entity information."""
     method_name = "update_legal_entity"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return LegalEntityResponseSchema(**cached)
-
     try:
         result = await service.update_legal_entity(
             legal_entity_id=legal_entity_id,
@@ -911,12 +800,8 @@ async def update_legal_entity(
             notes=request.notes,
             updated_by=current_user.user_id,
         )
-
         if not result:
-            raise HTTPException(
-                status_code=404, detail="Legal entity not found or cannot be updated"
-            )
-
+            raise HTTPException(status_code=404, detail="Legal entity not found or cannot be updated")
         response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
@@ -955,18 +840,19 @@ async def update_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception("Failed to update legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+# ----------------------------------------------------------------------------
+# DEACTIVATE, ACTIVATE, LOCK, UNLOCK
+# ----------------------------------------------------------------------------
 
 @router.delete(
     "/{legal_entity_id}",
@@ -982,34 +868,24 @@ async def deactivate_legal_entity(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
-    """Deactivate a legal entity (soft delete)."""
     method_name = "deactivate_legal_entity"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return cached
-
     try:
-        result = await service.deactivate_legal_entity(
-            legal_entity_id, current_user.user_id, reason
-        )
-
+        result = await service.deactivate_legal_entity(legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         response = {
             "legal_entity_id": str(legal_entity_id),
             "legal_name": result.legal_name,
             "status": result.status,
             "message": "Legal entity deactivated",
         }
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1030,20 +906,15 @@ async def activate_legal_entity(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Activate a deactivated legal entity."""
     method_name = "activate_legal_entity"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return LegalEntityResponseSchema(**cached)
-
     try:
         result = await service.activate_legal_entity(legal_entity_id, current_user.user_id)
-
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
@@ -1082,12 +953,9 @@ async def activate_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1109,20 +977,15 @@ async def lock_legal_entity(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Lock a legal entity to prevent modifications."""
     method_name = "lock_legal_entity"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return LegalEntityResponseSchema(**cached)
-
     try:
         result = await service.lock_legal_entity(legal_entity_id, current_user.user_id, reason)
-
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
@@ -1161,12 +1024,9 @@ async def lock_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1187,20 +1047,15 @@ async def unlock_legal_entity(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
-    """Unlock a locked legal entity."""
     method_name = "unlock_legal_entity"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return LegalEntityResponseSchema(**cached)
-
     try:
         result = await service.unlock_legal_entity(legal_entity_id, current_user.user_id)
-
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
@@ -1239,12 +1094,9 @@ async def unlock_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1255,7 +1107,6 @@ async def unlock_legal_entity(
 # ----------------------------------------------------------------------------
 # TAX PROFILE
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/{legal_entity_id}/tax-profile",
@@ -1268,13 +1119,10 @@ async def get_tax_profile(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> TaxProfileResponseSchema:
-    """Get tax profile for a legal entity."""
     try:
         profile = await service.get_tax_profile(legal_entity_id)
-
         if not profile:
             raise HTTPException(status_code=404, detail="Tax profile not found")
-
         return TaxProfileResponseSchema(
             legal_entity_id=profile.legal_entity_id,
             tax_office=profile.tax_office,
@@ -1315,14 +1163,11 @@ async def update_tax_profile(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> TaxProfileResponseSchema:
-    """Update tax profile for a legal entity."""
     method_name = "update_tax_profile"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return TaxProfileResponseSchema(**cached)
-
     try:
         result = await service.update_tax_profile(
             legal_entity_id=legal_entity_id,
@@ -1340,10 +1185,8 @@ async def update_tax_profile(
             notes=request.notes,
             updated_by=current_user.user_id,
         )
-
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         response = TaxProfileResponseSchema(
             legal_entity_id=result.legal_entity_id,
             tax_office=result.tax_office,
@@ -1363,12 +1206,9 @@ async def update_tax_profile(
             updated_by=result.updated_by,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1379,7 +1219,6 @@ async def update_tax_profile(
 # ----------------------------------------------------------------------------
 # BRANCH MANAGEMENT
 # ----------------------------------------------------------------------------
-
 
 @router.post(
     "/{legal_entity_id}/branches",
@@ -1396,14 +1235,11 @@ async def create_branch(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> BranchResponseSchema:
-    """Create a branch for a legal entity."""
     method_name = "create_branch"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return BranchResponseSchema(**cached)
-
     try:
         result = await service.create_branch(
             legal_entity_id=legal_entity_id,
@@ -1419,7 +1255,6 @@ async def create_branch(
             notes=request.notes,
             created_by=current_user.user_id,
         )
-
         response = BranchResponseSchema(
             id=result.id,
             legal_entity_id=result.legal_entity_id,
@@ -1440,12 +1275,9 @@ async def create_branch(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1461,19 +1293,17 @@ async def create_branch(
 )
 async def list_branches(
     legal_entity_id: UUID,
-    status: BranchStatus | None = Query(None, description="Filter by status"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
+    status: BranchStatus | None = Query(None),
+    is_active: bool | None = Query(None),
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> list[BranchResponseSchema]:
-    """List branches of a legal entity."""
     try:
         branches = await service.list_branches(
             legal_entity_id=legal_entity_id,
             status=status.value if status else None,
             is_active=is_active,
         )
-
         return [
             BranchResponseSchema(
                 id=b.id,
@@ -1514,13 +1344,10 @@ async def get_branch(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> BranchResponseSchema:
-    """Get branch by ID."""
     try:
         branch = await service.get_branch_by_id(branch_id, legal_entity_id)
-
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
-
         return BranchResponseSchema(
             id=branch.id,
             legal_entity_id=branch.legal_entity_id,
@@ -1563,14 +1390,11 @@ async def update_branch(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> BranchResponseSchema:
-    """Update branch information."""
     method_name = "update_branch"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return BranchResponseSchema(**cached)
-
     try:
         result = await service.update_branch(
             branch_id=branch_id,
@@ -1586,10 +1410,8 @@ async def update_branch(
             notes=request.notes,
             updated_by=current_user.user_id,
         )
-
         if not result:
             raise HTTPException(status_code=404, detail="Branch not found")
-
         response = BranchResponseSchema(
             id=result.id,
             legal_entity_id=result.legal_entity_id,
@@ -1610,12 +1432,9 @@ async def update_branch(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1638,22 +1457,15 @@ async def close_branch(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
-    """Close a branch (soft delete)."""
     method_name = "close_branch"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return cached
-
     try:
-        result = await service.close_branch(
-            branch_id, legal_entity_id, current_user.user_id, reason
-        )
-
+        result = await service.close_branch(branch_id, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(status_code=404, detail="Branch not found")
-
         response = {
             "branch_id": str(branch_id),
             "branch_code": result.branch_code,
@@ -1661,12 +1473,9 @@ async def close_branch(
             "status": result.status,
             "message": "Branch closed",
         }
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1677,7 +1486,6 @@ async def close_branch(
 # ----------------------------------------------------------------------------
 # CONSOLIDATION GROUP
 # ----------------------------------------------------------------------------
-
 
 @router.post(
     "/consolidation-groups",
@@ -1693,14 +1501,11 @@ async def create_consolidation_group(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> ConsolidationGroupResponseSchema:
-    """Create a consolidation group."""
     method_name = "create_consolidation_group"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return ConsolidationGroupResponseSchema(**cached)
-
     try:
         result = await service.create_consolidation_group(
             group_code=request.group_code,
@@ -1712,7 +1517,6 @@ async def create_consolidation_group(
             notes=request.notes,
             created_by=current_user.user_id,
         )
-
         response = ConsolidationGroupResponseSchema(
             id=result.id,
             group_code=result.group_code,
@@ -1730,12 +1534,9 @@ async def create_consolidation_group(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1750,14 +1551,12 @@ async def create_consolidation_group(
     operation_id="legal_list_consolidation_groups",
 )
 async def list_consolidation_groups(
-    is_active: bool | None = Query(None, description="Filter by active status"),
+    is_active: bool | None = Query(None),
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> list[ConsolidationGroupResponseSchema]:
-    """List all consolidation groups."""
     try:
         groups = await service.list_consolidation_groups(is_active=is_active)
-
         return [
             ConsolidationGroupResponseSchema(
                 id=g.id,
@@ -1794,13 +1593,10 @@ async def get_consolidation_group(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> ConsolidationGroupResponseSchema:
-    """Get consolidation group by ID."""
     try:
         group = await service.get_consolidation_group_by_id(group_id)
-
         if not group:
             raise HTTPException(status_code=404, detail="Consolidation group not found")
-
         return ConsolidationGroupResponseSchema(
             id=group.id,
             group_code=group.group_code,
@@ -1839,14 +1635,11 @@ async def update_consolidation_group(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> ConsolidationGroupResponseSchema:
-    """Update consolidation group information."""
     method_name = "update_consolidation_group"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return ConsolidationGroupResponseSchema(**cached)
-
     try:
         result = await service.update_consolidation_group(
             group_id=group_id,
@@ -1858,10 +1651,8 @@ async def update_consolidation_group(
             notes=request.notes,
             updated_by=current_user.user_id,
         )
-
         if not result:
             raise HTTPException(status_code=404, detail="Consolidation group not found")
-
         response = ConsolidationGroupResponseSchema(
             id=result.id,
             group_code=result.group_code,
@@ -1879,12 +1670,9 @@ async def update_consolidation_group(
             created_by_name=result.created_by_name,
             version=result.version,
         )
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1905,32 +1693,24 @@ async def deactivate_consolidation_group(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
-    """Deactivate a consolidation group."""
     method_name = "deactivate_consolidation_group"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return cached
-
     try:
         result = await service.deactivate_consolidation_group(group_id, current_user.user_id)
-
         if not result:
             raise HTTPException(status_code=404, detail="Consolidation group not found")
-
         response = {
             "group_id": str(group_id),
             "group_code": result.group_code,
             "is_active": result.is_active,
             "message": "Consolidation group deactivated",
         }
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1952,20 +1732,15 @@ async def add_group_member(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
-    """Add a legal entity to a consolidation group."""
     method_name = "add_group_member"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return cached
-
     try:
         result = await service.add_member_to_group(group_id, legal_entity_id, current_user.user_id)
-
         if not result:
             raise HTTPException(status_code=404, detail="Group or legal entity not found")
-
         response = {
             "group_id": str(group_id),
             "legal_entity_id": str(legal_entity_id),
@@ -1973,12 +1748,9 @@ async def add_group_member(
             "added": True,
             "message": "Member added to consolidation group",
         }
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -2000,22 +1772,15 @@ async def remove_group_member(
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
-    """Remove a legal entity from a consolidation group."""
     method_name = "remove_group_member"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
         if cached is not None:
-            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
             return cached
-
     try:
-        result = await service.remove_member_from_group(
-            group_id, legal_entity_id, current_user.user_id
-        )
-
+        result = await service.remove_member_from_group(group_id, legal_entity_id, current_user.user_id)
         if not result:
             raise HTTPException(status_code=404, detail="Group or legal entity not found")
-
         response = {
             "group_id": str(group_id),
             "legal_entity_id": str(legal_entity_id),
@@ -2023,12 +1788,9 @@ async def remove_group_member(
             "removed": True,
             "message": "Member removed from consolidation group",
         }
-
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response)
-
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -2039,7 +1801,6 @@ async def remove_group_member(
 # ----------------------------------------------------------------------------
 # HISTORY & STATUS
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/{legal_entity_id}/history",
@@ -2052,10 +1813,8 @@ async def get_legal_entity_history(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> list[dict[str, Any]]:
-    """Get legal entity change history (audit trail)."""
     try:
         history = await service.get_legal_entity_history(legal_entity_id)
-
         return [
             {
                 "timestamp": h.timestamp.isoformat(),
@@ -2085,13 +1844,10 @@ async def get_legal_entity_status(
     _permission: None = Depends(require_permission("legal_entity:read")),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
-    """Get detailed legal entity status."""
     try:
         status_info = await service.get_legal_entity_status(legal_entity_id)
-
         if not status_info:
             raise HTTPException(status_code=404, detail="Legal entity not found")
-
         return {
             "legal_entity_id": str(legal_entity_id),
             "legal_name": status_info.legal_name,

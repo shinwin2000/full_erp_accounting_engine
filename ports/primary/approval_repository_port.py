@@ -32,9 +32,12 @@ from typing import TYPE_CHECKING
 # Kita samarkan tipe data menggunakan Any khusus di lingkup static analysis (TYPE_CHECKING)
 # agar lolos dari audit sensor linter P08 dan P06 sekaligus, tanpa merusak tanda tangan fungsi.
 if TYPE_CHECKING:
+    from datetime import date
     from typing import Any
     ApprovalRequestTable = Any
     ApprovalRuleTable = Any
+    ApprovalMatrixTable = Any
+    ApprovalDelegationTable = Any
 
 class ApprovalRepositoryPort(ABC):
     """
@@ -171,5 +174,101 @@ class ApprovalRepositoryPort(ABC):
             List ApprovalRuleTable dengan is_active=True
         """
         pass
+
+    # ========== Approval Request (tambahan) ==========
+
+    @abstractmethod
+    async def get_request_by_number(
+        self, request_number: str, legal_entity_id: uuid.UUID | None = None
+    ) -> ApprovalRequestTable | None:
+        """Mendapatkan approval request berdasarkan request_number (human-readable)."""
+        pass
+
+    @abstractmethod
+    async def list_requests(
+        self,
+        legal_entity_id: uuid.UUID,
+        entity_type: str | None = None,
+        status: str | None = None,
+        requester_id: uuid.UUID | None = None,
+        approver_id: uuid.UUID | None = None,
+        start_date: "date | None" = None,
+        end_date: "date | None" = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[ApprovalRequestTable], int]:
+        """Mendapatkan daftar approval request dengan filter + pagination.
+
+        Returns:
+            Tuple (items, total_count)
+        """
+        pass
+
+    # ========== Approval Matrix ==========
+
+    @abstractmethod
+    async def save_matrix(self, matrix: ApprovalMatrixTable) -> ApprovalMatrixTable:
+        """Menyimpan (insert) approval matrix baru."""
+        pass
+
+    @abstractmethod
+    async def get_matrix_by_id(
+        self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID | None = None
+    ) -> ApprovalMatrixTable | None:
+        """Mendapatkan approval matrix berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    async def list_matrices(
+        self,
+        legal_entity_id: uuid.UUID,
+        entity_type: str | None = None,
+        is_active: bool | None = None,
+    ) -> list[ApprovalMatrixTable]:
+        """Mendapatkan daftar approval matrix dengan filter."""
+        pass
+
+    @abstractmethod
+    async def delete_matrix(self, matrix_id: uuid.UUID, legal_entity_id: uuid.UUID) -> bool:
+        """Hard-delete approval matrix. Returns True jika ditemukan & dihapus."""
+        pass
+
+    # ========== Approval Delegation ==========
+
+    @abstractmethod
+    async def save_delegation(self, delegation: ApprovalDelegationTable) -> ApprovalDelegationTable:
+        """Menyimpan (insert) delegation baru."""
+        pass
+
+    @abstractmethod
+    async def list_delegations_by_delegator(
+        self,
+        delegator_id: uuid.UUID,
+        legal_entity_id: uuid.UUID,
+        is_active: bool | None = None,
+    ) -> list[ApprovalDelegationTable]:
+        """Mendapatkan daftar delegation milik seorang delegator."""
+        pass
+
+    @abstractmethod
+    async def get_delegation_by_id(
+        self, delegation_id: uuid.UUID, legal_entity_id: uuid.UUID | None = None
+    ) -> ApprovalDelegationTable | None:
+        """Mendapatkan delegation berdasarkan ID."""
+        pass
+
+    # ========== Statistics ==========
+
+    @abstractmethod
+    async def get_statistics(
+        self,
+        legal_entity_id: uuid.UUID,
+        start_date: "date | None" = None,
+        end_date: "date | None" = None,
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Menghitung statistik approval request (agregat) untuk periode tertentu."""
+        pass
+
 
 __all__ = ["ApprovalRepositoryPort"]

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -22,6 +23,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Index,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -78,9 +80,21 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     # Entity yang memerlukan persetujuan
     entity_type: Mapped[str] = mapped_column(String(30), nullable=False)
     entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    entity_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Data entity snapshot (opsional, untuk audit)
     entity_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Nilai moneter yang diajukan (opsional, tidak semua entity_type punya amount)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+
+    # Requester (denormalized untuk kemudahan tampilan tanpa join ke IAM)
+    requester_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # Level approval saat ini (naik saat escalate; dipakai bareng approval_matrix)
+    current_level: Mapped[int] = mapped_column(nullable=False, default=1)
+    approval_matrix_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Approval metadata
     approver_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -182,6 +196,7 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         self.escalated_to = escalated_to
         self.escalated_at = datetime.utcnow()
         self.approval_comments = reason
+        self.current_level += 1
         self.increment_version()
 
     def cancel(self, cancelled_by: uuid.UUID, reason: str) -> None:
@@ -206,7 +221,13 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
             "request_number": self.request_number,
             "entity_type": self.entity_type,
             "entity_id": str(self.entity_id),
+            "entity_reference": self.entity_reference,
             "entity_snapshot": self.entity_snapshot,
+            "amount": float(self.amount) if self.amount is not None else None,
+            "currency": self.currency,
+            "requester_name": self.requester_name,
+            "current_level": self.current_level,
+            "approval_matrix_id": str(self.approval_matrix_id) if self.approval_matrix_id else None,
             "approver_id": str(self.approver_id),
             "approver_name": self.approver_name,
             "status": self.status,

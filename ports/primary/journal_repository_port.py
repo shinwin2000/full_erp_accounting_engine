@@ -8,6 +8,7 @@ Responsibility: Port interface untuk repository Journal (Book of Original Entry)
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -91,6 +92,21 @@ class Journal:
         cancellation_reason: str | None = None,
         attachment_ids: list[UUID] | None = None,
         version: int = 1,
+        # -- Field tambahan (lihat migration journal_header_fix_001) --
+        reference_number: str | None = None,
+        source_type: str = "manual",
+        source_id: UUID | None = None,
+        notes: str | None = None,
+        is_locked: bool = False,
+        created_by_name: str | None = None,
+        approved_by_name: str | None = None,
+        posted_by_name: str | None = None,
+        rejected_by: UUID | None = None,
+        rejected_at: datetime | None = None,
+        rejection_reason: str | None = None,
+        reversal_reason: str | None = None,
+        cancelled_by: UUID | None = None,
+        cancelled_at: datetime | None = None,
     ):
         self.id = id
         self.voucher_number = voucher_number
@@ -121,6 +137,56 @@ class Journal:
         self.cancellation_reason = cancellation_reason
         self.attachment_ids = attachment_ids or []
         self.version = version
+        # -- Field tambahan --
+        self.reference_number = reference_number
+        self.source_type = source_type
+        self.source_id = source_id
+        self.notes = notes
+        self.is_locked = is_locked
+        self.created_by_name = created_by_name
+        self.approved_by_name = approved_by_name
+        self.posted_by_name = posted_by_name
+        self.rejected_by = rejected_by
+        self.rejected_at = rejected_at
+        self.rejection_reason = rejection_reason
+        self.reversal_reason = reversal_reason
+        self.cancelled_by = cancelled_by
+        self.cancelled_at = cancelled_at
+
+    # ------------------------------------------------------------------
+    # Alias supaya konsisten dengan penamaan di router/schema, tanpa perlu
+    # rename field asli (menghindari resiko merusak kode lain yang sudah
+    # memakai .voucher_number / .reversed_journal_id).
+    # ------------------------------------------------------------------
+    @property
+    def journal_number(self) -> str:
+        return self.voucher_number
+
+    @journal_number.setter
+    def journal_number(self, value: str) -> None:
+        self.voucher_number = value
+
+    @property
+    def reversal_journal_id(self) -> UUID | None:
+        return self.reversed_journal_id
+
+    @reversal_journal_id.setter
+    def reversal_journal_id(self, value: UUID | None) -> None:
+        self.reversed_journal_id = value
+
+    @property
+    def is_balanced(self) -> bool:
+        return abs(self.total_debit - self.total_credit) < Decimal("0.01")
+
+
+@dataclass
+class JournalListResult:
+    """Hasil query list jurnal dengan paginasi."""
+
+    items: list[Journal] = field(default_factory=list)
+    total: int = 0
+    total_debit: Decimal = Decimal(0)
+    total_credit: Decimal = Decimal(0)
 
 
 class JournalRepositoryPort(ABC):
@@ -220,6 +286,25 @@ class JournalRepositoryPort(ABC):
         """Ambil jurnal yang menunggu approval."""
         pass
 
+    @abstractmethod
+    async def list(
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        journal_type: str | None = None,
+        source_type: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        journal_number: str | None = None,
+        reference_number: str | None = None,
+        account_code: str | None = None,
+        created_by: UUID | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> "JournalListResult":
+        """List jurnal dengan filter dan paginasi (dipakai endpoint GET /journals)."""
+        pass
+
     # ---------- Workflow ----------
     @abstractmethod
     async def submit(self, journal_id: UUID, user_id: UUID) -> bool:
@@ -276,6 +361,7 @@ class JournalRepositoryPort(ABC):
 __all__ = [
     "Journal",
     "JournalLine",
+    "JournalListResult",
     "JournalRepositoryPort",
     "JournalStatus",
     "JournalType",

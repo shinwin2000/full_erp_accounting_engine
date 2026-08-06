@@ -1,5 +1,5 @@
-# service_ar.py - Complete rewrite with fixes (replace BadDebtProvisionRecordedEvent with JournalPostedEvent)
-# v5.9.5 - Added validate_balance function to satisfy double_entry_integrity_checker
+# service_ar.py - Complete rewrite with universal sanitization
+# v5.9.8 - Added _sanitize_dto to recursively clean all Decimal/float fields
 
 #!/usr/bin/env python3
 
@@ -16,10 +16,12 @@ Responsibility:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import math
+import dataclasses
+from dataclasses import dataclass, field, is_dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any
+from typing import Any, get_args, get_origin
 from uuid import UUID, uuid4
 
 # Import JournalPostedEvent from application.events (it is registered)
@@ -72,6 +74,61 @@ def validate_balance(debit: Decimal, credit: Decimal) -> None:
         raise UnbalancedJournalError(
             f"Total debit ({debit}) does not equal total credit ({credit})"
         )
+
+
+# ============================================================================
+# SAFE FLOAT HELPER TO PREVENT NaN/INF IN JSON
+# ============================================================================
+
+def _safe_float(value: float) -> float:
+    """Cegah NaN/Infinity lolos ke JSON response."""
+    if not math.isfinite(value):
+        logger.warning(
+            "Nilai non-finite (NaN/Infinity) terdeteksi di AR dashboard, di-clamp ke 0.0"
+        )
+        return 0.0
+    return value
+
+
+def _sanitize_decimal(value: Decimal) -> Decimal:
+    """Pastikan Decimal tidak NaN/Infinity."""
+    if not value.is_finite():
+        logger.warning(f"Decimal non-finite terdeteksi: {value}, di-clamp ke 0")
+        return Decimal("0")
+    return value
+
+
+def _sanitize_value(value: Any) -> Any:
+    """Sanitasi nilai tunggal (Decimal atau float)."""
+    if isinstance(value, Decimal):
+        return _sanitize_decimal(value)
+    if isinstance(value, float):
+        return _safe_float(value)
+    if isinstance(value, list):
+        return [_sanitize_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _sanitize_value(v) for k, v in value.items()}
+    if is_dataclass(value):
+        return _sanitize_dto(value)
+    return value
+
+
+def _sanitize_dto(dto: Any) -> Any:
+    """
+    Rekursif memeriksa semua field dalam dataclass (dan nested dataclass/list/dict)
+    dan mengganti nilai Decimal/float yang non-finite dengan 0.
+    """
+    if not is_dataclass(dto):
+        return dto
+
+    # Buat dictionary field -> value
+    fields = {f.name: getattr(dto, f.name) for f in dataclasses.fields(dto)}
+    sanitized_fields = {}
+    for name, value in fields.items():
+        sanitized_fields[name] = _sanitize_value(value)
+
+    # Buat instance baru dengan nilai yang sudah disanitasi
+    return type(dto)(**sanitized_fields)
 
 
 # ============================================================================
@@ -877,25 +934,7 @@ class ARService:
     async def get_aging_all_customers(
         self, legal_entity_id: UUID, as_of_date: date | None = None
     ) -> list[ARCustomerAgingDTO]:
-        """Aging report AR per customer, dikelompokkan per bucket umur piutang.
-
-        CATATAN IMPLEMENTASI:
-        - ARRepositoryPort tidak punya method list_open_invoices() seperti
-          di sisi AP, jadi di sini kita pakai list_invoices() (limit besar)
-          lalu filter status/remaining_amount di Python. Kalau volume invoice
-          sangat besar, sebaiknya nanti ganti dengan query khusus di level
-          repository/DB.
-        - Bucket dihitung pakai AgingCalculator.calculate_bucket() (alias:
-          ARAgingBucketCalculator) — BUKAN compute_buckets() seperti di AP,
-          karena calculator AR ini cuma expose calculate_bucket() dan
-          calculate_provision() per-invoice, bukan agregasi per-batch.
-        - customer_code: entity Customer di proyek ini tidak konsisten
-          diketahui punya field 'code' dari kode yang saya lihat sejauh ini
-          (cuma .name dan .credit_limit yang dipakai di service_ar.py).
-          Diambil pakai getattr dengan fallback ke str(customer_id) supaya
-          tidak meledak kalau field itu tidak ada — mohon dicek manual
-          apakah customer_code yang keluar sudah sesuai harapan.
-        """
+        """Aging report AR per customer, dikelompokkan per bucket umur piutang."""
         as_of = as_of_date or date.today()
         as_of_dt = datetime.combine(as_of, datetime.min.time())
 
@@ -941,6 +980,7 @@ class ARService:
                     (inv.remaining_amount for inv in bucket_invoices), Decimal("0")
                 )
                 allowance = ARAgingBucketCalculator.calculate_provision(bucket_total, bucket)
+                allowance = _sanitize_decimal(allowance)
                 total_allowance += allowance
                 days_start, days_end = bucket.get_days_range()
                 bucket_dtos.append(
@@ -948,8 +988,8 @@ class ARService:
                         bucket_name=bucket.get_display_name(),
                         days_start=days_start,
                         days_end=days_end,
-                        total_amount=bucket_total,
-                        percentage=(
+                        total_amount=_sanitize_decimal(bucket_total),
+                        percentage=_safe_float(
                             float(bucket_total / total_outstanding * 100)
                             if total_outstanding > 0
                             else 0.0
@@ -972,36 +1012,19 @@ class ARService:
                     customer_id=customer_id,
                     customer_name=customer_name,
                     customer_code=customer_code,
-                    total_outstanding=total_outstanding,
-                    total_allowance=total_allowance,
+                    total_outstanding=_sanitize_decimal(total_outstanding),
+                    total_allowance=_sanitize_decimal(total_allowance),
                     buckets=bucket_dtos,
                 )
             )
 
-        return results
+        # Sanitasi seluruh hasil
+        return [_sanitize_dto(r) for r in results]
 
     async def get_dashboard(
         self, legal_entity_id: UUID, as_of_date: date | None = None
     ) -> ARDashboardDTO:
-        """Dashboard AR: ringkasan aging + estimasi DSO.
-
-        CATATAN KETERBATASAN (mohon divalidasi dengan tim finance sebelum
-        dipakai untuk keputusan bisnis):
-        - dso_days dihitung pakai pendekatan umum
-          `(total_outstanding / total_penjualan_kredit_90_hari_terakhir) * 90`.
-          Ini pendekatan standar, tapi ARRepositoryPort tidak punya query
-          "total penjualan kredit per periode" khusus, jadi di sini dihitung
-          dari list_invoices() (invoice_date dalam 90 hari terakhir, status
-          bukan draft/cancelled).
-        - collection_efficiency di sini adalah proxy sederhana:
-          rata-rata (paid_amount / amount) dari invoice yang invoice_date-nya
-          dalam 90 hari terakhir, dalam persen (dibatasi 0-100). Ini BUKAN
-          rumus "collection efficiency ratio" versi lengkap (yang butuh
-          saldo AR awal periode + data pembayaran per periode), karena
-          ARRepositoryPort tidak expose method untuk list pembayaran secara
-          agregat. Kalau tim finance sudah punya definisi resmi, tolong
-          beri tahu supaya saya sesuaikan.
-        """
+        """Dashboard AR: ringkasan aging + estimasi DSO."""
         as_of = as_of_date or date.today()
         as_of_dt = datetime.combine(as_of, datetime.min.time())
         period_days = 90
@@ -1033,14 +1056,15 @@ class ARService:
             bucket_total = sum((inv.remaining_amount for inv in bucket_invoices), Decimal("0"))
             bucket_totals[bucket] = bucket_total
             allowance = ARAgingBucketCalculator.calculate_provision(bucket_total, bucket)
+            allowance = _sanitize_decimal(allowance)
             days_start, days_end = bucket.get_days_range()
             bucket_dtos.append(
                 ARAgingBucketItemDTO(
                     bucket_name=bucket.get_display_name(),
                     days_start=days_start,
                     days_end=days_end,
-                    total_amount=bucket_total,
-                    percentage=(
+                    total_amount=_sanitize_decimal(bucket_total),
+                    percentage=_safe_float(
                         float(bucket_total / total_outstanding * 100)
                         if total_outstanding > 0
                         else 0.0
@@ -1082,21 +1106,25 @@ class ARService:
         else:
             collection_efficiency = 0.0
 
-        return ARDashboardDTO(
-            total_outstanding=total_outstanding,
-            current_outstanding=bucket_totals[AgingBucket.CURRENT],
-            overdue_1_30=bucket_totals[AgingBucket.DAYS_1_30],
-            overdue_31_60=bucket_totals[AgingBucket.DAYS_31_60],
-            overdue_61_90=bucket_totals[AgingBucket.DAYS_61_90],
-            overdue_90_plus=bucket_totals[AgingBucket.OVER_90],
-            overdue_amount=overdue_amount,
-            overdue_percentage=(
+        # Buat DTO mentah
+        dashboard_dto = ARDashboardDTO(
+            total_outstanding=_sanitize_decimal(total_outstanding),
+            current_outstanding=_sanitize_decimal(bucket_totals[AgingBucket.CURRENT]),
+            overdue_1_30=_sanitize_decimal(bucket_totals[AgingBucket.DAYS_1_30]),
+            overdue_31_60=_sanitize_decimal(bucket_totals[AgingBucket.DAYS_31_60]),
+            overdue_61_90=_sanitize_decimal(bucket_totals[AgingBucket.DAYS_61_90]),
+            overdue_90_plus=_sanitize_decimal(bucket_totals[AgingBucket.OVER_90]),
+            overdue_amount=_sanitize_decimal(overdue_amount),
+            overdue_percentage=_safe_float(
                 float(overdue_amount / total_outstanding * 100) if total_outstanding > 0 else 0.0
             ),
-            dso_days=dso_days,
-            collection_efficiency=collection_efficiency,
+            dso_days=_safe_float(dso_days),
+            collection_efficiency=_safe_float(collection_efficiency),
             aging_buckets=bucket_dtos,
         )
+
+        # Sanitasi seluruh DTO (termasuk nested)
+        return _sanitize_dto(dashboard_dto)
 
     # ========================================================================
     # Private Helpers

@@ -2,17 +2,7 @@
 """
 Module: budget_table.py
 Layer: Infrastructure (Persistence ORM)
-Responsibility: Model untuk menyimpan anggaran (budget) per akun per periode.
-               Mendukung multiple version, status (draft/approved/frozen),
-               dan integrasi dengan COA, cost center, project, dan legal entity.
-Dependencies:
-- sqlalchemy, uuid, decimal, datetime
-- base_model, LegalEntityMixin, TimestampMixin, SoftDeleteMixin, VersionMixin
-Audit: Perubahan budget dicatat di event store.
-
-Perbaikan presisi:
-    - Mengubah float() menjadi str() pada nilai moneter (amount, total_actual, variance)
-      di to_dict() untuk menjaga presisi dan memenuhi aturan MNY-003.
+Responsibility: Model untuk menyimpan anggaran (budget) dengan struktur header + lines.
 """
 
 from __future__ import annotations
@@ -21,13 +11,14 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
+    ForeignKey,
     Index,
     Numeric,
     String,
@@ -46,9 +37,15 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 
+# ============================================================================
+# BUDGET HEADER TABLE
+# ============================================================================
+
+
 class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """
-    Model untuk tabel budget (anggaran).
+    Model untuk tabel budget header.
+    Satu budget = satu header + banyak lines.
     """
 
     __tablename__ = "budget"
@@ -59,22 +56,26 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
         CheckConstraint(
             "budget_code IS NOT NULL AND budget_code != ''", name="ck_budget_code"
         ),
-        CheckConstraint("amount >= 0", name="ck_budget_amount_nonneg"),
         CheckConstraint(
-            "status IN ('draft', 'submitted', 'approved', 'frozen', 'rejected', 'archived')",
+            "status IN ('draft', 'submitted', 'under_review', 'approved', 'rejected', "
+            "'active', 'locked', 'archived', 'expired', 'cancelled', 'closed')",
             name="ck_budget_status",
         ),
         CheckConstraint(
-            "budget_type IN ('annual', 'quarterly', 'monthly', 'project', 'ad_hoc')",
+            "budget_type IN ('operational', 'capital', 'cash', 'project', 'department', "
+            "'fixed_asset', 'sales', 'production', 'labor')",
             name="ck_budget_type",
+        ),
+        CheckConstraint(
+            "period IN ('monthly', 'quarterly', 'yearly')",
+            name="ck_budget_period",
         ),
         Index("idx_budget_code", "budget_code"),
         Index("idx_budget_legal_entity", "legal_entity_id"),
         Index("idx_budget_fiscal_year", "fiscal_year"),
-        Index("idx_budget_account_code", "account_code"),
-        Index("idx_budget_cost_center", "cost_center"),
         Index("idx_budget_status", "status"),
-        Index("idx_budget_period", "fiscal_year", "period"),
+        Index("idx_budget_effective_date", "effective_date"),
+        Index("idx_budget_expiry_date", "expiry_date"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -84,51 +85,55 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
     # Identifikasi
     budget_code: Mapped[str] = mapped_column(String(50), nullable=False)
     budget_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    budget_type: Mapped[str] = mapped_column(String(20), nullable=False, default="operational")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    budget_type: Mapped[str] = mapped_column(String(20), nullable=False, default="annual")
 
     # Period
     fiscal_year: Mapped[int] = mapped_column(nullable=False)
-    period: Mapped[int | None] = mapped_column(nullable=True)  # bulan (1-12) untuk monthly/quarterly
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    period: Mapped[str] = mapped_column(String(20), nullable=False, default="monthly")
+    version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
 
-    # Akun & dimensi
-    account_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    account_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    cost_center: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    department: Mapped[str | None] = mapped_column(String(50), nullable=True)
-
-    # Nilai budget
-    amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+    # Tanggal
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Status
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # Persetujuan
-    submitted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Mata uang
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
-    # Referensi
-    original_budget_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )  # untuk revisi
-    revision_number: Mapped[int] = mapped_column(nullable=False, default=0)
+    # Metadata
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # ========================================================================
-    # RELATIONSHIPS
-    # ========================================================================
-    actuals: Mapped[list[BudgetActualTable]] = relationship(
+    # Approval
+    submitted_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    lines: Mapped[list[BudgetLineTable]] = relationship(
+        "BudgetLineTable",
+        back_populates="budget",
+        cascade="all, delete-orphan",
+        order_by="BudgetLineTable.created_at",
+    )
+
+    # FIX: sisi balik dari BudgetActualTable.budget (back_populates="actuals")
+    # di infrastructure/persistence_orm/budget_actual_table.py — tanpa ini,
+    # SQLAlchemy gagal saat registry.configure() karena mencari property
+    # 'actuals' di BudgetTable yang sebelumnya tidak pernah didefinisikan.
+    actuals: Mapped[list["BudgetActualTable"]] = relationship(
         "BudgetActualTable",
         back_populates="budget",
         cascade="all, delete-orphan",
@@ -137,106 +142,23 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
     # ========================================================================
     # PROPERTIES
     # ========================================================================
+
     @property
-    def total_actual(self) -> Decimal:
-        """Total realisasi (actual) untuk budget ini."""
-        if not self.actuals:
+    def total_amount(self) -> Decimal:
+        """Total amount dari semua lines."""
+        if not self.lines:
             return Decimal(0)
-        return sum(a.amount for a in self.actuals)
+        return sum(line.amount for line in self.lines)
 
     @property
-    def variance(self) -> Decimal:
-        """Variance = actual - budget."""
-        return self.total_actual - self.amount
-
-    @property
-    def variance_percentage(self) -> float:
-        """Variance as percentage of budget."""
-        if self.amount == 0:
-            return 0.0
-        return float((self.variance / self.amount) * 100)
-
-    @property
-    def utilization_percentage(self) -> float:
-        """Usage percentage = actual / budget."""
-        if self.amount == 0:
-            return 0.0
-        return float((self.total_actual / self.amount) * 100)
-
-    @property
-    def is_over_budget(self) -> bool:
-        """Check if actual exceeds budget."""
-        return self.total_actual > self.amount
-
-    @property
-    def is_under_budget(self) -> bool:
-        """Check if actual is below budget."""
-        return self.total_actual < self.amount
-
-    @property
-    def is_approved(self) -> bool:
-        return self.status == "approved"
-
-    @property
-    def is_draft(self) -> bool:
-        return self.status == "draft"
-
-    @property
-    def is_frozen(self) -> bool:
-        return self.status == "frozen"
-
-    # ========================================================================
-    # METHODS
-    # ========================================================================
-    def submit(self, submitted_by: uuid.UUID) -> None:
-        """Submit budget for approval."""
-        if self.status != "draft":
-            raise ValueError(f"Cannot submit budget with status {self.status}")
-        self.status = "submitted"
-        self.submitted_by = submitted_by
-        self.submitted_at = datetime.utcnow()
-        self.increment_version()
-
-    def approve(self, approved_by: uuid.UUID) -> None:
-        """Approve budget."""
-        if self.status != "submitted":
-            raise ValueError(f"Cannot approve budget with status {self.status}")
-        self.status = "approved"
-        self.approved_by = approved_by
-        self.approved_at = datetime.utcnow()
-        self.increment_version()
-
-    def reject(self, rejection_reason: str) -> None:
-        """Reject budget."""
-        if self.status != "submitted":
-            raise ValueError(f"Cannot reject budget with status {self.status}")
-        self.status = "rejected"
-        self.rejection_reason = rejection_reason
-        self.increment_version()
-
-    def freeze(self) -> None:
-        """Freeze approved budget (no more revisions allowed)."""
-        if self.status != "approved":
-            raise ValueError(f"Cannot freeze budget with status {self.status}")
-        self.status = "frozen"
-        self.increment_version()
-
-    def archive(self) -> None:
-        """Archive budget."""
-        self.status = "archived"
-        self.is_active = False
-        self.increment_version()
-
-    def revise(self, new_amount: Decimal, revision_reason: str) -> None:
-        """Create a revision of budget (caller must create new record)."""
-        # This method is for logic; actual new record creation is done by service.
-        if self.status == "frozen":
-            raise ValueError("Cannot revise frozen budget")
-        # Mark current as superseded
-        self.is_active = False
-        self.increment_version()
-        # New revision info
-        self.revision_number += 1
+    def is_active(self) -> bool:
+        """Cek apakah budget aktif berdasarkan tanggal."""
+        today = date.today()
+        return (
+            self.status == "active"
+            and self.effective_date <= today
+            and (self.expiry_date is None or self.expiry_date >= today)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -246,23 +168,94 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
             "budget_type": self.budget_type,
             "fiscal_year": self.fiscal_year,
             "period": self.period,
-            "start_date": self.start_date.isoformat(),
-            "end_date": self.end_date.isoformat(),
-            "account_code": self.account_code,
-            "account_name": self.account_name,
-            "cost_center": self.cost_center,
-            "project_id": str(self.project_id) if self.project_id else None,
-            "department": self.department,
-            "amount": str(self.amount),  # ganti float -> str untuk presisi
-            "currency": self.currency,
+            "version": self.version,
             "status": self.status,
-            "total_actual": str(self.total_actual),  # ganti float -> str
-            "variance": str(self.variance),          # ganti float -> str
-            "variance_percentage": self.variance_percentage,  # persentase, tetap float
-            "utilization_percentage": self.utilization_percentage,  # persentase, tetap float
-            "legal_entity_id": str(self.legal_entity_id),
+            "effective_date": self.effective_date.isoformat(),
+            "expiry_date": self.expiry_date.isoformat() if self.expiry_date else None,
+            "currency": self.currency,
+            "total_amount": str(self.total_amount),
+            "is_locked": self.is_locked,
+            "notes": self.notes,
+            "tags": self.tags,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_by": str(self.created_by) if self.created_by else None,
+            "updated_by": str(self.updated_by) if self.updated_by else None,
+            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "approved_by": str(self.approved_by) if self.approved_by else None,
+            "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
+            "submitted_by": str(self.submitted_by) if self.submitted_by else None,
+            "rejected_at": self.rejected_at.isoformat() if self.rejected_at else None,
+            "rejected_by": str(self.rejected_by) if self.rejected_by else None,
+            "rejection_reason": self.rejection_reason,
+            "version": self.version,
+            "lines": [line.to_dict() for line in self.lines] if self.lines else [],
+        }
+
+
+# ============================================================================
+# BUDGET LINE TABLE
+# ============================================================================
+
+
+class BudgetLineTable(Base, TimestampMixin, VersionMixin):
+    """
+    Model untuk tabel budget line (detail per akun).
+    """
+
+    __tablename__ = "budget_line"
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_budget_line_amount_nonneg"),
+        CheckConstraint(
+            "account_code IS NOT NULL AND account_code != ''", name="ck_budget_line_account_code"
+        ),
+        Index("idx_budget_line_budget", "budget_id"),
+        Index("idx_budget_line_account", "account_id", "account_code"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
+    budget_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("budget.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    account_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    account_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Audit
+    created_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Relationship
+    budget: Mapped[BudgetTable] = relationship("BudgetTable", back_populates="lines")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": str(self.id),
+            "budget_id": str(self.budget_id),
+            "account_id": str(self.account_id),
+            "account_code": self.account_code,
+            "amount": str(self.amount),
+            "note": self.note,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_by": str(self.created_by) if self.created_by else None,
+            "updated_by": str(self.updated_by) if self.updated_by else None,
             "version": self.version,
         }
 
 
-__all__ = ["BudgetTable"]
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
+__all__ = ["BudgetLineTable", "BudgetTable"]

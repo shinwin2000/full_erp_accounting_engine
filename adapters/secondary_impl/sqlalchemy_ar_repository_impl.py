@@ -61,11 +61,18 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         self._legal_entity_id = legal_entity_id
         self._audit_log: list[dict[str, Any]] = []
 
-    async def _get_session(self) -> AsyncSession:
+    @property
+    def session(self) -> AsyncSession:
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            raise ARRepositoryError("Session not set – call set_session() before using repository")
         return self._session
+
+    @session.setter
+    def session(self, value: AsyncSession) -> None:
+        self._session = value
+
+    async def _get_session(self) -> AsyncSession:
+        return self.session
 
     def _get_legal_entity_id(self) -> UUID:
         if self._legal_entity_id is None:
@@ -610,7 +617,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         """Helper untuk mengambil invoice dengan lines, payments, credit notes, debit notes dalam batch."""
         session = await self._get_session()
         stmt = select(ARInvoiceTable).where(and_(*where_conditions))
-        if order_by:
+        if order_by is not None:
             stmt = stmt.order_by(order_by)
         if limit:
             stmt = stmt.limit(limit)

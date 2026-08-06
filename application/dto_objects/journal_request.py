@@ -398,9 +398,14 @@ class JournalQueryParams:
     start_date: datetime | None = None
     end_date: datetime | None = None
     journal_type: str | None = None
+    source_type: str | None = None
     status: str | None = None
+    journal_number: str | None = None
+    reference_number: str | None = None
+    account_code: str | None = None
+    created_by: UUID | None = None
     page: int = 1
-    per_page: int = 20
+    page_size: int = 20
 
     def __post_init__(self) -> None:
         if self.start_date and self.start_date.tzinfo is None:
@@ -414,15 +419,19 @@ class JournalQueryParams:
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
             "journal_type": self.journal_type,
+            "source_type": self.source_type,
             "status": self.status,
+            "journal_number": self.journal_number,
+            "reference_number": self.reference_number,
+            "account_code": self.account_code,
+            "created_by": str(self.created_by) if self.created_by else None,
             "page": self.page,
-            "per_page": self.per_page,
+            "page_size": self.page_size,
         }
 
     def get_offset(self) -> int:
         """Calculate offset for pagination."""
-        return (self.page - 1) * self.per_page
-
+        return (self.page - 1) * self.page_size
 
 # === 13. RECURRING JOURNAL TEMPLATE DTO ===
 

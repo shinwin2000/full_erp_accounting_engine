@@ -40,7 +40,7 @@ from application.dto_objects.ap_response import (
 # Import event yang diperlukan dari application.events (registry)
 from application.events import ThreeWayMatchResultEvent
 from domain.shared_value_objects.document_number_vo import DocumentNumber
-from domain.subledger_ap.aging_bucket_vo import APAgingBucketCalculator
+from domain.subledger_ap.aging_bucket_vo import AgingBucket, AgingBucketVO, APAgingBucketCalculator
 from domain.subledger_ap.credit_note_entity import APCreditNote
 from domain.subledger_ap.domain_events import (
     CreditNoteIssuedEvent,
@@ -671,28 +671,88 @@ class APService:
 
     async def get_aging_all_vendors(
         self, legal_entity_id: UUID, as_of_date: date | None = None
-    ) -> APAgingReportDTO:
-        """Alias untuk get_aging_report() dengan vendor_id=None (semua vendor).
-
-        Ditambahkan karena fastapi_ap_router.py memanggil
-        `ap_svc.get_aging_all_vendors(legal_entity_id, as_of_date)` — nama
-        method ini tidak pernah ada di APService (menyebabkan
-        AttributeError), padahal logic yang sama persis sudah ada dan
-        teruji di get_aging_report() di bawah. Method ini murni pemetaan
-        nama, tidak menduplikasi logic.
+    ) -> list[Any]:
+        """Aging report per-vendor (breakdown), sesuai kebutuhan
+        fastapi_ap_router.py:get_all_ap_aging yang mengharapkan list
+        per-vendor — bukan agregat total (itu tugas get_aging_report()).
         """
-        return await self.get_aging_report(
-            legal_entity_id, as_of_date=as_of_date, vendor_id=None
-        )
+        as_of = as_of_date or date.today()
+        as_of_dt = datetime.combine(as_of, datetime.min.time())
+        invoices = await self._ap_repo.list_open_invoices(legal_entity_id, vendor_id=None)
+
+        invoices_by_vendor: dict[UUID, list] = {}
+        for inv in invoices:
+            invoices_by_vendor.setdefault(inv.vendor_id, []).append(inv)
+
+        results = []
+        for vendor_id, vendor_invoices in invoices_by_vendor.items():
+            vendor_name = vendor_invoices[0].vendor_name
+            vendor_code = getattr(vendor_invoices[0], "vendor_code", "")
+
+            bucket_totals: dict[AgingBucket, Decimal] = {b: Decimal("0") for b in AgingBucket}
+            invoices_by_bucket: dict[AgingBucket, list] = {b: [] for b in AgingBucket}
+            for inv in vendor_invoices:
+                due_dt = datetime.combine(inv.due_date, datetime.min.time())
+                bucket = self._aging_calculator.calculate_bucket(due_dt, as_of_dt)
+                bucket_totals[bucket] += inv.outstanding_amount
+                invoices_by_bucket[bucket].append(inv)
+
+            total_outstanding = sum(bucket_totals.values(), Decimal("0"))
+
+            buckets = []
+            for b in AgingBucket:
+                days_start, days_end = b.get_days_range()
+                buckets.append(
+                    type("APAgingBucketItem", (), {
+                        "bucket_name": b.get_display_name(),
+                        "days_start": days_start,
+                        "days_end": days_end,
+                        "total_amount": bucket_totals[b],
+                        "percentage": (
+                            float(bucket_totals[b] / total_outstanding * 100)
+                            if total_outstanding > 0 else 0.0
+                        ),
+                        "invoices": [
+                            {
+                                "invoice_id": str(inv.id),
+                                "invoice_number": inv.invoice_number,
+                                "due_date": inv.due_date.isoformat(),
+                                "outstanding_amount": str(inv.outstanding_amount),
+                            }
+                            for inv in invoices_by_bucket[b]
+                        ],
+                    })()
+                )
+
+            results.append(
+                type("APVendorAgingItem", (), {
+                    "vendor_id": vendor_id,
+                    "vendor_name": vendor_name,
+                    "vendor_code": vendor_code,
+                    "total_outstanding": total_outstanding,
+                    "buckets": buckets,
+                })()
+            )
+
+        return results
 
     async def get_aging_report(
         self, legal_entity_id: UUID, as_of_date: date | None = None, vendor_id: UUID | None = None
     ) -> APAgingReportDTO:
         """Get AP aging report."""
         as_of = as_of_date or date.today()
+        as_of_dt = datetime.combine(as_of, datetime.min.time())
         invoices = await self._ap_repo.list_open_invoices(legal_entity_id, vendor_id=vendor_id)
-        buckets = self._aging_calculator.compute_buckets(invoices, as_of)
+
+        bucket_totals: dict[AgingBucket, Decimal] = {b: Decimal("0") for b in AgingBucket}
+        for inv in invoices:
+            due_dt = datetime.combine(inv.due_date, datetime.min.time())
+            bucket = self._aging_calculator.calculate_bucket(due_dt, as_of_dt)
+            bucket_totals[bucket] += inv.outstanding_amount
+
+        buckets = [AgingBucketVO(bucket=b, amount=bucket_totals[b]) for b in AgingBucket]
         total_ap = sum(b.amount for b in buckets)
+
         vendor_balances = {}
         for inv in invoices:
             vid = str(inv.vendor_id)
@@ -700,12 +760,12 @@ class APService:
 
         return APAgingReportDTO(
             legal_entity_id=legal_entity_id,
+            legal_entity_name="",  # TODO: isi dari LegalEntityRepositoryPort kalau field ini perlu ditampilkan di UI
             as_of_date=as_of,
             buckets=buckets,
             total_ap=total_ap,
             vendor_balances=vendor_balances,
         )
-
     # ========================================================================
     # Credit Note
     # ========================================================================

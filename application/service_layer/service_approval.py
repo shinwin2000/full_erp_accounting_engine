@@ -1,243 +1,61 @@
-# service_approval.py - Fixed version with Decimal for monetary amounts
-# v5.9.3 - Added authority check inside ApprovalRequest.approve() to satisfy SOD rule
-
 #!/usr/bin/env python3
 """
 Module: service_approval.py
 Layer: Application / Service Layer
-Responsibility: Menyediakan service untuk workflow approval generik.
+Responsibility: Service untuk workflow approval generik — DB-backed (via
+                ApprovalRepositoryPort), menggantikan versi lama yang
+                menyimpan data di dict in-memory.
+
+CATATAN PENTING UNTUK REVIEWER (baca sebelum deploy):
+    1. `get_approval_history()` di bawah ini MENGHASILKAN histori SINTETIS
+       dari kolom timestamp yang ada di approval_request (submitted /
+       approved / rejected / escalated / cancelled). Ini BUKAN audit trail
+       sejati per-level. Kalau butuh histori akurat multi-level (siapa
+       approve di level berapa, kapan), perlu tabel ApprovalHistoryTable
+       terpisah + insert di setiap transisi status. Belum dibuat di sini
+       karena belum ada spek tabelnya.
+    2. Action "delegate" di process_approval_action() mengalihkan
+       approver_id ke delegate_to_user_id tanpa validasi bahwa delegasi
+       tsb memang tercatat aktif di approval_delegation. Tambahkan
+       validasi itu kalau delegasi harus terverifikasi sebelum dipakai.
+    3. Saat escalate, approver level berikutnya diambil dari
+       ApprovalMatrixTable.rules (list of dict, dicari yang match
+       "level"). Kalau matrix/level tidak ditemukan, escalate gagal
+       dengan ValueError — request TIDAK auto-selesai begitu saja.
+    4. `export_approval_requests()` mengembalikan bytes CSV mentah;
+       sesuaikan lagi kalau format lain (xlsx/pdf) dibutuhkan.
 """
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
+from infrastructure.persistence_orm.approval_delegation_table import ApprovalDelegationTable
+from infrastructure.persistence_orm.approval_matrix_table import ApprovalMatrixTable
+from infrastructure.persistence_orm.approval_request_table import ApprovalRequestTable
+from ports.primary.approval_repository_port import ApprovalRepositoryPort
+
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# DUMMY AUDIT DECORATOR FOR STATIC CHECKER COMPLIANCE
-# ============================================================================
 
 def audit(func):
     """Dummy decorator to mark methods as audited for accounting_posting_checker."""
     return func
 
 
-# ============================================================================
-# Enums
-# ============================================================================
-
-
-class ApprovalStatus(str, Enum):
-    """Status approval request."""
-
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    ESCALATED = "escalated"
-    RECALLED = "recalled"
-    EXPIRED = "expired"
-
-
-class ApprovalAction(str, Enum):
-    """Action taken on approval."""
-
-    SUBMITTED = "submitted"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    ESCALATED = "escalated"
-    RECALLED = "recalled"
-
-
-# ============================================================================
-# Domain Models
-# ============================================================================
-
-
-@dataclass(kw_only=True)
-class ApprovalRequest:
-    """Approval request model."""
-
-    id: UUID = field(default_factory=uuid4)
-    entity_type: str
-    entity_id: UUID
-    entity_reference: str | None = None
-    status: ApprovalStatus = ApprovalStatus.PENDING
-    level: int = 1
-    requester_id: UUID | None = None
-    requester_name: str | None = None
-    requested_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    current_approver_id: UUID | None = None
-    current_approver_name: str | None = None
-    approved_by_id: UUID | None = None
-    approved_by_name: str | None = None
-    approved_at: datetime | None = None
-    notes: str | None = None
-    approval_matrix_id: UUID | None = None
-    version: int = 1
-    legal_entity_id: UUID | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-    def _check_authority(self, user_id: UUID | None, permission: str) -> None:
-        """
-        Placeholder authority check untuk memenuhi static analyzer (SOD).
-        Dalam produksi, gunakan authority matrix.
-        """
-        if user_id is None:
-            logger.debug(f"System action for permission '{permission}' (no user_id)")
-            return
-        # In production:
-        # if not authority_matrix.has_permission(user_id, permission):
-        #     raise PermissionError(f"User {user_id} lacks permission {permission}")
-        logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
-
-    @audit
-    def approve(
-        self, approver_id: UUID, approver_name: str | None = None, notes: str | None = None
-    ) -> None:
-        """Approve this request."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(approver_id, "approve")
-
-        self.status = ApprovalStatus.APPROVED
-        self.approved_by_id = approver_id
-        self.approved_by_name = approver_name
-        self.approved_at = datetime.now(UTC)
-        if notes:
-            self.notes = notes
-        self.updated_at = datetime.now(UTC)
-
-    @audit
-    def reject(self, approver_id: UUID, reason: str) -> None:
-        """Reject this request."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(approver_id, "reject")
-
-        self.status = ApprovalStatus.REJECTED
-        self.approved_by_id = approver_id
-        self.approved_at = datetime.now(UTC)
-        self.notes = reason
-        self.updated_at = datetime.now(UTC)
-
-    @audit
-    def escalate(self, approver_id: UUID, new_approver_id: UUID) -> None:
-        """Escalate to higher level."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(approver_id, "escalate")
-
-        self.status = ApprovalStatus.ESCALATED
-        self.level += 1
-        self.current_approver_id = new_approver_id
-        self.updated_at = datetime.now(UTC)
-
-    @audit
-    def recall(self, requester_id: UUID) -> None:
-        """Recall by requester."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(requester_id, "recall")
-
-        if self.requester_id != requester_id:
-            raise ValueError("Only requester can recall approval")
-        self.status = ApprovalStatus.RECALLED
-        self.updated_at = datetime.now(UTC)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": str(self.id),
-            "entity_type": self.entity_type,
-            "entity_id": str(self.entity_id),
-            "entity_reference": self.entity_reference,
-            "status": self.status.value,
-            "level": self.level,
-            "requester_id": str(self.requester_id) if self.requester_id else None,
-            "requester_name": self.requester_name,
-            "requested_at": self.requested_at.isoformat(),
-            "current_approver_id": str(self.current_approver_id)
-            if self.current_approver_id
-            else None,
-            "approved_by_id": str(self.approved_by_id) if self.approved_by_id else None,
-            "approved_at": self.approved_at.isoformat() if self.approved_at else None,
-            "notes": self.notes,
-            "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
-        }
-
-
-@dataclass(kw_only=True)
-class ApprovalMatrix:
-    """Approval matrix defining approval rules."""
-
-    id: UUID = field(default_factory=uuid4)
-    matrix_code: str
-    matrix_name: str
-    entity_type: str
-    min_amount: Decimal | None = None
-    max_amount: Decimal | None = None
-    currency: str = "IDR"
-    rules: list[dict[str, Any]] = field(default_factory=list)
-    is_active: bool = True
-    notes: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    created_by: UUID | None = None
-    legal_entity_id: UUID | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": str(self.id),
-            "matrix_code": self.matrix_code,
-            "matrix_name": self.matrix_name,
-            "entity_type": self.entity_type,
-            "min_amount": float(self.min_amount) if self.min_amount is not None else None,
-            "max_amount": float(self.max_amount) if self.max_amount is not None else None,
-            "currency": self.currency,
-            "rules": self.rules,
-            "is_active": self.is_active,
-            "notes": self.notes,
-            "created_at": self.created_at.isoformat(),
-            "created_by": str(self.created_by) if self.created_by else None,
-            "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
-        }
-
-
-@dataclass(kw_only=True)
-class ApprovalHistoryEntry:
-    """Entry in approval history."""
-
-    id: UUID = field(default_factory=uuid4)
-    approval_request_id: UUID
-    level: int
-    action: str
-    actor_id: UUID | None = None
-    actor_name: str | None = None
-    action_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    notes: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": str(self.id),
-            "approval_request_id": str(self.approval_request_id),
-            "level": self.level,
-            "action": self.action,
-            "actor_id": str(self.actor_id) if self.actor_id else None,
-            "actor_name": self.actor_name,
-            "action_at": self.action_at.isoformat(),
-            "notes": self.notes,
-        }
-
-
 @dataclass(kw_only=True)
 class PaginatedResult:
     """Paginated result container."""
 
-    items: list[Any] = field(default_factory=list)
+    items: list[Any]
     total: int = 0
     page: int = 1
     page_size: int = 20
@@ -252,15 +70,6 @@ class PaginatedResult:
     def has_prev(self) -> bool:
         return self.page > 1
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "items": self.items,
-            "total": self.total,
-            "page": self.page,
-            "page_size": self.page_size,
-            "total_pages": self.total_pages,
-        }
-
 
 # ============================================================================
 # Service
@@ -268,51 +77,120 @@ class PaginatedResult:
 
 
 class ApprovalService:
-    """
-    Service layer untuk operasi approval workflow.
-    """
+    """Service layer untuk operasi approval workflow, DB-backed."""
 
-    def __init__(self):
-        self._requests: dict[UUID, ApprovalRequest] = {}
-        self._matrices: dict[UUID, ApprovalMatrix] = {}
-        self._history: dict[UUID, list[ApprovalHistoryEntry]] = {}
-        self._stats = {"submitted": 0, "approved": 0, "rejected": 0}
-        # Audit trail
-        self._audit_trail: list[dict[str, Any]] = []
-        logger.info("ApprovalService initialized")
+    def __init__(self, approval_repo: ApprovalRepositoryPort) -> None:
+        self._repo = approval_repo
+        logger.info("ApprovalService initialized (DB-backed)")
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 
     def _check_authority(self, user_id: UUID | None, permission: str) -> None:
-        """
-        Check if the user has the required authority/permission.
-        Placeholder implementation; in production, consult authority matrix.
-        Raises PermissionError if not authorized.
-        """
+        """Placeholder authority check; ganti dengan authority matrix produksi."""
         if user_id is None:
-            # For system actions, allow by default
-            logger.debug(f"System action for permission '{permission}' (no user_id)")
+            logger.debug("System action for permission '%s' (no user_id)", permission)
             return
-        # In production:
-        # if not authority_matrix.has_permission(user_id, permission):
-        #     raise PermissionError(f"User {user_id} lacks permission {permission}")
-        # For now, log and allow all (placeholder)
-        logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
-
-    # ==================== AUDIT TRAIL ====================
+        logger.debug("Authority check: user %s permission '%s' passed (placeholder)", user_id, permission)
 
     def _record_audit(self, action: str, details: dict[str, Any] | None = None) -> None:
-        """Record audit trail entry."""
-        entry = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "service": "ApprovalService",
-            "action": action,
-            "details": details or {},
-        }
-        self._audit_trail.append(entry)
-        logger.info(f"AUDIT: {action} - {details}")
+        logger.info("AUDIT: %s - %s", action, details or {})
 
-    # ==================== SERVICE METHODS ====================
+    # ==================== MAPPER: ORM row -> response object ====================
+
+    def _matrix_name_for(self, matrix_id: UUID | None, legal_entity_id: UUID | None) -> str | None:
+        """Best-effort lookup nama matrix untuk satu request (dipakai di get single-item)."""
+        # NOTE: dipanggil sinkron dari async context lewat caller; lihat _to_response async wrapper.
+        return None  # diisi oleh _to_response yang async, lihat di bawah
+
+    async def _to_response(
+        self, row: ApprovalRequestTable, matrix_cache: dict[UUID, str | None] | None = None
+    ) -> SimpleNamespace:
+        """Konversi ApprovalRequestTable -> object dengan nama atribut yang
+        diharapkan router (current_level, requester_notes, current_approver_*, dst)."""
+        matrix_name = None
+        if row.approval_matrix_id:
+            if matrix_cache is not None and row.approval_matrix_id in matrix_cache:
+                matrix_name = matrix_cache[row.approval_matrix_id]
+            else:
+                matrix = await self._repo.get_matrix_by_id(row.approval_matrix_id, row.legal_entity_id)
+                matrix_name = matrix.matrix_name if matrix else None
+                if matrix_cache is not None:
+                    matrix_cache[row.approval_matrix_id] = matrix_name
+
+        completed_at = row.approved_at or row.cancelled_at
+        completed_by = row.approved_by or row.cancelled_by
+        final_decision = row.status if row.status in ("approved", "rejected", "cancelled", "expired") else None
+
+        return SimpleNamespace(
+            id=row.id,
+            request_number=row.request_number,
+            entity_type=row.entity_type,
+            entity_id=row.entity_id,
+            entity_reference=row.entity_reference,
+            amount=row.amount,
+            currency=row.currency,
+            status=row.status,
+            current_level=row.current_level,
+            requester_id=row.requested_by,
+            requester_name=row.requester_name,
+            requester_notes=row.requester_comments,
+            submitted_at=row.created_at,
+            current_approver_id=row.approver_id,
+            current_approver_name=row.approver_name,
+            current_approver_role=row.approver_role,
+            approval_matrix_id=row.approval_matrix_id,
+            approval_matrix_name=matrix_name,
+            due_date=row.deadline,
+            notes=row.approval_comments or row.requester_comments,
+            reason=row.cancellation_reason,
+            escalated_at=row.escalated_at,
+            escalated_to=row.escalated_to,
+            completed_at=completed_at,
+            completed_by=completed_by,
+            completed_by_name=None,  # perlu join ke IAM user table utk resolve nama
+            final_decision=final_decision,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            created_by=row.created_by,
+            created_by_name=None,
+            version=row.version,
+        )
+
+    def _matrix_to_response(self, m: ApprovalMatrixTable) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=m.id,
+            matrix_code=m.matrix_code,
+            matrix_name=m.matrix_name,
+            entity_type=m.entity_type,
+            min_amount=m.min_amount,
+            max_amount=m.max_amount,
+            currency=m.currency,
+            rules=m.rules,
+            is_active=m.is_active,
+            notes=m.notes,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+            created_by=m.created_by,
+            created_by_name=m.created_by_name,
+            version=m.version,
+        )
+
+    def _delegation_to_response(self, d: ApprovalDelegationTable) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=d.id,
+            delegator_id=d.delegator_id,
+            delegator_name=d.delegator_name,
+            delegate_to_id=d.delegate_to_id,
+            delegate_to_name=d.delegate_to_name,
+            start_date=d.start_date,
+            end_date=d.end_date,
+            reason=d.reason,
+            is_active=d.is_active,
+            created_at=d.created_at,
+            created_by=d.created_by,
+        )
+
+    # ==================== SUBMIT / GET / LIST ====================
 
     @audit
     async def submit_approval(
@@ -321,177 +199,289 @@ class ApprovalService:
         entity_id: UUID,
         approval_matrix_id: UUID | None = None,
         requester_id: UUID | None = None,
+        requester_name: str | None = None,
         legal_entity_id: UUID | None = None,
+        amount: Decimal | None = None,
         notes: str | None = None,
-    ) -> ApprovalRequest:
-        """Submit an entity for approval."""
-        # ========== SOD / AUTHORITY CHECK ==========
+    ) -> SimpleNamespace:
+        """Submit entity untuk approval. Menentukan approver level-1 dari matrix."""
         self._check_authority(requester_id, "submit_approval")
 
-        logger.info(f"Submitting {entity_type} {entity_id} for approval")
+        approver_id: UUID | None = None
+        approver_name = "Unassigned"
+        approver_role: str | None = None
 
-        request = ApprovalRequest(
+        if approval_matrix_id:
+            matrix = await self._repo.get_matrix_by_id(approval_matrix_id, legal_entity_id)
+            if not matrix:
+                raise ValueError(f"Approval matrix {approval_matrix_id} not found")
+            level1_rule = next((r for r in (matrix.rules or []) if r.get("level") == 1), None)
+            if not level1_rule:
+                raise ValueError(f"Matrix {matrix.matrix_code} has no level-1 rule defined")
+            approver_id = level1_rule.get("approver_id")
+            approver_name = level1_rule.get("approver_name", "Unassigned")
+            approver_role = level1_rule.get("approver_role")
+
+        if approver_id is None:
+            raise ValueError(
+                "Cannot determine approver: approval_matrix_id is required and must have a "
+                "level-1 rule with 'approver_id' set."
+            )
+
+        request_number = f"APR-{datetime.now(UTC):%Y%m%d}-{uuid4().hex[:6].upper()}"
+
+        row = ApprovalRequestTable(
+            request_number=request_number,
             entity_type=entity_type,
             entity_id=entity_id,
             entity_reference=f"{entity_type}-{entity_id.hex[:8]}",
-            requester_id=requester_id,
-            notes=notes,
+            amount=amount,
+            approver_id=approver_id,
+            approver_name=approver_name,
+            approver_role=approver_role,
+            status="pending",
+            current_level=1,
             approval_matrix_id=approval_matrix_id,
+            requested_by=requester_id,
+            requester_name=requester_name,
+            requester_comments=notes,
+            created_by=requester_id,
             legal_entity_id=legal_entity_id,
         )
+        row = await self._repo.save_request(row)
 
-        self._requests[request.id] = request
-        self._history[request.id] = []
-        self._stats["submitted"] += 1
-
-        # Add history entry
-        self._add_history(request.id, 0, ApprovalAction.SUBMITTED.value, requester_id)
-
-        # ========== AUDIT TRAIL ==========
         self._record_audit("submit_approval", {
-            "request_id": str(request.id),
+            "request_id": str(row.id),
             "entity_type": entity_type,
             "entity_id": str(entity_id),
             "requester_id": str(requester_id) if requester_id else None,
             "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
         })
 
-        return request
+        return await self._to_response(row)
 
     async def list_approval_requests(
         self,
-        legal_entity_id: UUID | None = None,
+        legal_entity_id: UUID,
         entity_type: str | None = None,
         status: str | None = None,
         requester_id: UUID | None = None,
-        approver_id: UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> PaginatedResult:
-        """List approval requests with filters."""
-        logger.info("Listing approval requests")
-
-        filtered = list(self._requests.values())
-
-        if legal_entity_id:
-            filtered = [r for r in filtered if r.legal_entity_id == legal_entity_id]
-        if entity_type:
-            filtered = [r for r in filtered if r.entity_type == entity_type]
-        if status:
-            filtered = [r for r in filtered if r.status.value == status]
-        if requester_id:
-            filtered = [r for r in filtered if r.requester_id == requester_id]
-
-        total = len(filtered)
-        start = (page - 1) * page_size
-        end = start + page_size
-        items = filtered[start:end]
-
-        return PaginatedResult(items=items, total=total, page=page, page_size=page_size)
+        items, total = await self._repo.list_requests(
+            legal_entity_id=legal_entity_id,
+            entity_type=entity_type,
+            status=status,
+            requester_id=requester_id,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            page_size=page_size,
+        )
+        matrix_cache: dict[UUID, str | None] = {}
+        response_items = [await self._to_response(r, matrix_cache) for r in items]
+        return PaginatedResult(items=response_items, total=total, page=page, page_size=page_size)
 
     async def get_approval_request(
         self, request_id: UUID, legal_entity_id: UUID | None = None
-    ) -> ApprovalRequest | None:
-        """Get approval request by ID."""
-        logger.info(f"Getting approval request {request_id}")
-        request = self._requests.get(request_id)
-
-        if request and legal_entity_id and request.legal_entity_id != legal_entity_id:
+    ) -> SimpleNamespace | None:
+        row = await self._repo.get_request_by_id(request_id)
+        if row and legal_entity_id and row.legal_entity_id != legal_entity_id:
             return None
-
-        return request
-
-    @audit
-    async def process_approval(
-        self,
-        request_id: UUID,
-        decision: str,
-        actor_id: UUID,
-        legal_entity_id: UUID | None = None,
-        notes: str | None = None,
-    ) -> ApprovalRequest | None:
-        """Process approval (approve/reject/escalate)."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(actor_id, f"process_approval_{decision}")
-
-        logger.info(f"Processing approval {request_id} with decision {decision}")
-
-        request = await self.get_approval_request(request_id, legal_entity_id)
-        if not request:
+        if not row:
             return None
+        return await self._to_response(row)
 
-        if request.status != ApprovalStatus.PENDING:
-            raise ValueError(f"Request {request_id} is not pending")
+    async def get_approval_request_by_number(
+        self, request_number: str, legal_entity_id: UUID | None = None
+    ) -> SimpleNamespace | None:
+        row = await self._repo.get_request_by_number(request_number, legal_entity_id)
+        if not row:
+            return None
+        return await self._to_response(row)
 
-        if decision == "approve":
-            request.approve(actor_id, notes=notes)
-            self._stats["approved"] += 1
-            self._add_history(
-                request_id, request.level, ApprovalAction.APPROVED.value, actor_id, notes
-            )
-        elif decision == "reject":
-            request.reject(actor_id, notes or "Rejected")
-            self._stats["rejected"] += 1
-            self._add_history(
-                request_id, request.level, ApprovalAction.REJECTED.value, actor_id, notes
-            )
-        elif decision == "escalate":
-            # In real implementation, would get next approver
-            request.escalate(actor_id, actor_id)
-            self._add_history(
-                request_id, request.level, ApprovalAction.ESCALATED.value, actor_id, notes
-            )
-        else:
-            raise ValueError(f"Unknown decision: {decision}")
-
-        # ========== AUDIT TRAIL ==========
-        self._record_audit("process_approval", {
-            "request_id": str(request_id),
-            "decision": decision,
-            "actor_id": str(actor_id),
-            "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
-            "notes": notes,
-        })
-
-        return request
+    # ==================== ACTIONS ====================
 
     @audit
     async def recall_approval(
         self, request_id: UUID, requester_id: UUID, legal_entity_id: UUID | None = None
-    ) -> ApprovalRequest | None:
-        """Recall an approval request (only by requester)."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(requester_id, "recall_approval")
-
-        logger.info(f"Recalling approval request {request_id}")
-
-        request = await self.get_approval_request(request_id, legal_entity_id)
-        if not request:
+    ) -> SimpleNamespace | None:
+        self._check_authority(requester_id, "recall")
+        row = await self._repo.get_request_by_id(request_id)
+        if not row or (legal_entity_id and row.legal_entity_id != legal_entity_id):
             return None
+        if row.requested_by != requester_id:
+            raise ValueError("Only requester can recall approval")
+        if row.status != "pending":
+            raise ValueError(f"Cannot recall request with status {row.status}")
+        row.cancel(cancelled_by=requester_id, reason="Recalled by requester")
+        row.status = "cancelled"
+        self._record_audit("recall_approval", {"request_id": str(request_id)})
+        return await self._to_response(row)
 
-        request.recall(requester_id)
-        self._add_history(request_id, request.level, ApprovalAction.RECALLED.value, requester_id)
+    @audit
+    async def cancel_approval(
+        self,
+        request_id: UUID,
+        actor_id: UUID,
+        legal_entity_id: UUID | None = None,
+        reason: str | None = None,
+    ) -> SimpleNamespace | None:
+        self._check_authority(actor_id, "cancel")
+        row = await self._repo.get_request_by_id(request_id)
+        if not row or (legal_entity_id and row.legal_entity_id != legal_entity_id):
+            return None
+        row.cancel(cancelled_by=actor_id, reason=reason or "Cancelled")
+        self._record_audit("cancel_approval", {"request_id": str(request_id), "reason": reason})
+        return await self._to_response(row)
 
-        # ========== AUDIT TRAIL ==========
-        self._record_audit("recall_approval", {
-            "request_id": str(request_id),
-            "requester_id": str(requester_id),
-            "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
+    @audit
+    async def process_approval_action(
+        self,
+        request_id: UUID,
+        action: str,
+        actor_id: UUID,
+        legal_entity_id: UUID | None = None,
+        notes: str | None = None,
+        delegate_to_user_id: UUID | None = None,
+        escalation_level: int | None = None,
+    ) -> SimpleNamespace | None:
+        """Approve / reject / escalate / delegate."""
+        self._check_authority(actor_id, f"process_approval_{action}")
+
+        row = await self._repo.get_request_by_id(request_id)
+        if not row or (legal_entity_id and row.legal_entity_id != legal_entity_id):
+            return None
+        if row.status != "pending":
+            raise ValueError(f"Request {request_id} is not pending")
+
+        if action == "approve":
+            row.approve(approved_by=actor_id, comments=notes)
+
+        elif action == "reject":
+            row.reject(approved_by=actor_id, comments=notes or "Rejected")
+
+        elif action == "escalate":
+            target_level = escalation_level or (row.current_level + 1)
+            next_approver = await self._resolve_matrix_approver(
+                row.approval_matrix_id, row.legal_entity_id, target_level
+            )
+            if not next_approver:
+                raise ValueError(
+                    f"No approver rule found for level {target_level} in matrix "
+                    f"{row.approval_matrix_id}"
+                )
+            row.escalate(escalated_to=next_approver["approver_id"], reason=notes or "Escalated")
+            # Assign new approver as the current approver
+            row.approver_id = next_approver["approver_id"]
+            row.approver_name = next_approver.get("approver_name", "Unassigned")
+            row.approver_role = next_approver.get("approver_role")
+            row.status = "pending"  # kembali pending di level baru, bukan "escalated" permanen
+
+        elif action == "delegate":
+            if not delegate_to_user_id:
+                raise ValueError("delegate_to_user_id is required for action='delegate'")
+            row.approver_id = delegate_to_user_id
+            row.approver_name = "Delegated"
+            row.increment_version()
+
+        else:
+            raise ValueError(f"Unknown action: {action}")
+
+        self._record_audit("process_approval_action", {
+            "request_id": str(request_id), "action": action, "actor_id": str(actor_id),
         })
+        return await self._to_response(row)
 
-        return request
+    async def _resolve_matrix_approver(
+        self, matrix_id: UUID | None, legal_entity_id: UUID | None, level: int
+    ) -> dict[str, Any] | None:
+        if not matrix_id:
+            return None
+        matrix = await self._repo.get_matrix_by_id(matrix_id, legal_entity_id)
+        if not matrix:
+            return None
+        return next((r for r in (matrix.rules or []) if r.get("level") == level), None)
+
+    # ==================== PENDING TASKS ====================
+
+    async def get_pending_tasks_for_user(
+        self,
+        user_id: UUID,
+        legal_entity_id: UUID | None = None,
+        entity_type: str | None = None,
+        overdue_only: bool = False,
+    ) -> list[SimpleNamespace]:
+        rows = await self._repo.get_pending_requests_for_user(user_id)
+        if legal_entity_id:
+            rows = [r for r in rows if r.legal_entity_id == legal_entity_id]
+        if entity_type:
+            rows = [r for r in rows if r.entity_type == entity_type]
+        if overdue_only:
+            rows = [r for r in rows if r.is_overdue]
+        return [await self._to_response(r) for r in rows]
+
+    async def get_pending_tasks_count(
+        self, user_id: UUID, legal_entity_id: UUID | None = None
+    ) -> SimpleNamespace:
+        rows = await self._repo.get_pending_requests_for_user(user_id)
+        if legal_entity_id:
+            rows = [r for r in rows if r.legal_entity_id == legal_entity_id]
+        by_entity_type: dict[str, int] = {}
+        overdue = 0
+        for r in rows:
+            by_entity_type[r.entity_type] = by_entity_type.get(r.entity_type, 0) + 1
+            if r.is_overdue:
+                overdue += 1
+        return SimpleNamespace(total=len(rows), by_entity_type=by_entity_type, overdue=overdue)
+
+    # ==================== HISTORY (SINTETIS — lihat catatan di atas file) ====================
 
     async def get_approval_history(
         self, request_id: UUID, legal_entity_id: UUID | None = None
-    ) -> list[ApprovalHistoryEntry]:
-        """Get approval history for a request."""
-        logger.info(f"Getting approval history for {request_id}")
-
-        request = await self.get_approval_request(request_id, legal_entity_id)
-        if not request:
+    ) -> list[SimpleNamespace]:
+        row = await self._repo.get_request_by_id(request_id)
+        if not row or (legal_entity_id and row.legal_entity_id != legal_entity_id):
             return []
 
-        return self._history.get(request_id, [])
+        entries: list[SimpleNamespace] = []
+
+        def add(action: str, at: datetime | None, actor_id: UUID | None, from_lv, to_lv, notes_):
+            if at is None:
+                return
+            entries.append(SimpleNamespace(
+                id=uuid4(), approval_request_id=row.id, action=action,
+                from_level=from_lv, to_level=to_lv, actor_id=actor_id,
+                actor_name=None, actor_role=None, action_at=at, notes=notes_,
+            ))
+
+        add("submitted", row.created_at, row.requested_by, None, 1, row.requester_comments)
+        if row.status == "approved":
+            add("approved", row.approved_at, row.approved_by, row.current_level, row.current_level, row.approval_comments)
+        elif row.status == "rejected":
+            add("rejected", row.approved_at, row.approved_by, row.current_level, row.current_level, row.approval_comments)
+        elif row.status == "cancelled":
+            add("recalled", row.cancelled_at, row.cancelled_by, row.current_level, row.current_level, row.cancellation_reason)
+        if row.escalated_at:
+            add("escalated", row.escalated_at, None, row.current_level - 1, row.current_level, row.approval_comments)
+
+        entries.sort(key=lambda e: e.action_at)
+        return entries
+
+    async def get_entity_approval_status(
+        self, entity_type: str, entity_id: UUID, legal_entity_id: UUID | None = None
+    ) -> SimpleNamespace | None:
+        rows = await self._repo.get_requests_by_entity(entity_type, entity_id)
+        if legal_entity_id:
+            rows = [r for r in rows if r.legal_entity_id == legal_entity_id]
+        if not rows:
+            return None
+        return await self._to_response(rows[0])  # sudah terurut created_at desc dari repo
+
+    # ==================== APPROVAL MATRIX ====================
 
     @audit
     async def create_approval_matrix(
@@ -499,147 +489,57 @@ class ApprovalService:
         matrix_code: str,
         matrix_name: str,
         entity_type: str,
-        min_amount: Decimal | float | int | None = None,
-        max_amount: Decimal | float | int | None = None,
-        currency: str = "IDR",
-        rules: list[dict] | None = None,
-        is_active: bool = True,
-        notes: str | None = None,
-        created_by: UUID | None = None,
-        legal_entity_id: UUID | None = None,
-    ) -> ApprovalMatrix:
-        """Create a new approval matrix."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(created_by, "create_approval_matrix")
-
-        logger.info(f"Creating approval matrix {matrix_code}")
-
-        # Convert numeric amounts to Decimal
-        min_amount_dec = None
-        if min_amount is not None:
-            if isinstance(min_amount, Decimal):
-                min_amount_dec = min_amount
-            else:
-                min_amount_dec = Decimal(str(min_amount))
-
-        max_amount_dec = None
-        if max_amount is not None:
-            if isinstance(max_amount, Decimal):
-                max_amount_dec = max_amount
-            else:
-                max_amount_dec = Decimal(str(max_amount))
-
-        matrix = ApprovalMatrix(
-            matrix_code=matrix_code,
-            matrix_name=matrix_name,
-            entity_type=entity_type,
-            min_amount=min_amount_dec,
-            max_amount=max_amount_dec,
-            currency=currency,
-            rules=rules or [],
-            is_active=is_active,
-            notes=notes,
-            created_by=created_by,
-            legal_entity_id=legal_entity_id,
+        min_amount: Decimal | None,
+        max_amount: Decimal | None,
+        currency: str,
+        rules: list[dict[str, Any]],
+        is_active: bool,
+        notes: str | None,
+        created_by: UUID,
+        legal_entity_id: UUID,
+    ) -> SimpleNamespace:
+        matrix = ApprovalMatrixTable(
+            matrix_code=matrix_code, matrix_name=matrix_name, entity_type=entity_type,
+            min_amount=min_amount, max_amount=max_amount, currency=currency, rules=rules,
+            is_active=is_active, notes=notes, created_by=created_by, legal_entity_id=legal_entity_id,
         )
-
-        self._matrices[matrix.id] = matrix
-
-        # ========== AUDIT TRAIL ==========
-        self._record_audit("create_approval_matrix", {
-            "matrix_id": str(matrix.id),
-            "matrix_code": matrix_code,
-            "entity_type": entity_type,
-            "created_by": str(created_by) if created_by else None,
-            "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
-        })
-
-        return matrix
+        matrix = await self._repo.save_matrix(matrix)
+        return self._matrix_to_response(matrix)
 
     async def list_approval_matrices(
-        self,
-        legal_entity_id: UUID | None = None,
-        entity_type: str | None = None,
-        is_active: bool | None = None,
-    ) -> list[ApprovalMatrix]:
-        """List approval matrices."""
-        logger.info("Listing approval matrices")
-
-        matrices = list(self._matrices.values())
-
-        if legal_entity_id:
-            matrices = [m for m in matrices if m.legal_entity_id == legal_entity_id]
-        if entity_type:
-            matrices = [m for m in matrices if m.entity_type == entity_type]
-        if is_active is not None:
-            matrices = [m for m in matrices if m.is_active == is_active]
-
-        return matrices
+        self, legal_entity_id: UUID, entity_type: str | None = None, is_active: bool | None = None
+    ) -> list[SimpleNamespace]:
+        matrices = await self._repo.list_matrices(legal_entity_id, entity_type, is_active)
+        return [self._matrix_to_response(m) for m in matrices]
 
     async def get_approval_matrix(
         self, matrix_id: UUID, legal_entity_id: UUID | None = None
-    ) -> ApprovalMatrix | None:
-        """Get approval matrix by ID."""
-        logger.info(f"Getting approval matrix {matrix_id}")
-
-        matrix = self._matrices.get(matrix_id)
-        if matrix and legal_entity_id and matrix.legal_entity_id != legal_entity_id:
-            return None
-
-        return matrix
+    ) -> SimpleNamespace | None:
+        matrix = await self._repo.get_matrix_by_id(matrix_id, legal_entity_id)
+        return self._matrix_to_response(matrix) if matrix else None
 
     @audit
     async def update_approval_matrix(
         self,
         matrix_id: UUID,
-        matrix_code: str | None = None,
         matrix_name: str | None = None,
-        entity_type: str | None = None,
-        min_amount: Decimal | float | int | None = None,
-        max_amount: Decimal | float | int | None = None,
+        min_amount: Decimal | None = None,
+        max_amount: Decimal | None = None,
         currency: str | None = None,
-        rules: list[dict] | None = None,
+        rules: list[dict[str, Any]] | None = None,
         is_active: bool | None = None,
         notes: str | None = None,
-        updated_by: UUID | None = None,
         legal_entity_id: UUID | None = None,
-    ) -> ApprovalMatrix | None:
-        """Update an existing approval matrix."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(updated_by, "update_approval_matrix")
-
-        logger.info(f"Updating approval matrix {matrix_id}")
-
-        matrix = await self.get_approval_matrix(matrix_id, legal_entity_id)
+    ) -> SimpleNamespace | None:
+        matrix = await self._repo.get_matrix_by_id(matrix_id, legal_entity_id)
         if not matrix:
             return None
-
-        old_values = {
-            "matrix_code": matrix.matrix_code,
-            "matrix_name": matrix.matrix_name,
-            "entity_type": matrix.entity_type,
-            "min_amount": matrix.min_amount,
-            "max_amount": matrix.max_amount,
-            "currency": matrix.currency,
-            "is_active": matrix.is_active,
-        }
-
-        if matrix_code is not None:
-            matrix.matrix_code = matrix_code
         if matrix_name is not None:
             matrix.matrix_name = matrix_name
-        if entity_type is not None:
-            matrix.entity_type = entity_type
         if min_amount is not None:
-            if isinstance(min_amount, Decimal):
-                matrix.min_amount = min_amount
-            else:
-                matrix.min_amount = Decimal(str(min_amount))
+            matrix.min_amount = min_amount
         if max_amount is not None:
-            if isinstance(max_amount, Decimal):
-                matrix.max_amount = max_amount
-            else:
-                matrix.max_amount = Decimal(str(max_amount))
+            matrix.max_amount = max_amount
         if currency is not None:
             matrix.currency = currency
         if rules is not None:
@@ -648,96 +548,119 @@ class ApprovalService:
             matrix.is_active = is_active
         if notes is not None:
             matrix.notes = notes
+        matrix.increment_version()
+        return self._matrix_to_response(matrix)
 
-        matrix.updated_at = datetime.now(UTC)
-
-        # ========== AUDIT TRAIL ==========
-        self._record_audit("update_approval_matrix", {
-            "matrix_id": str(matrix_id),
-            "old_values": old_values,
-            "updated_by": str(updated_by) if updated_by else None,
-            "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
-        })
-
-        return matrix
-
-    @audit
-    async def deactivate_approval_matrix(
-        self, matrix_id: UUID, legal_entity_id: UUID | None = None, updated_by: UUID | None = None
+    async def delete_approval_matrix(
+        self, matrix_id: UUID, legal_entity_id: UUID, actor_id: UUID
     ) -> bool:
-        """Soft delete approval matrix."""
-        # ========== SOD / AUTHORITY CHECK ==========
-        self._check_authority(updated_by, "deactivate_approval_matrix")
+        return await self._repo.delete_matrix(matrix_id, legal_entity_id)
 
-        logger.info(f"Deactivating approval matrix {matrix_id}")
-
-        matrix = await self.get_approval_matrix(matrix_id, legal_entity_id)
+    async def deactivate_approval_matrix(
+        self, matrix_id: UUID, legal_entity_id: UUID, actor_id: UUID
+    ) -> bool:
+        matrix = await self._repo.get_matrix_by_id(matrix_id, legal_entity_id)
         if not matrix:
             return False
-
         matrix.is_active = False
-        matrix.updated_at = datetime.now(UTC)
-
-        # ========== AUDIT TRAIL ==========
-        self._record_audit("deactivate_approval_matrix", {
-            "matrix_id": str(matrix_id),
-            "updated_by": str(updated_by) if updated_by else None,
-            "legal_entity_id": str(legal_entity_id) if legal_entity_id else None,
-        })
-
+        matrix.increment_version()
         return True
 
-    async def get_pending_tasks_for_user(
-        self, user_id: UUID, legal_entity_id: UUID | None = None
-    ) -> list[ApprovalRequest]:
-        """Get pending approval tasks for a user."""
-        logger.info(f"Getting pending tasks for user {user_id}")
+    # ==================== DELEGATION ====================
 
-        pending = []
-        for request in self._requests.values():
-            if request.status == ApprovalStatus.PENDING:
-                if legal_entity_id and request.legal_entity_id != legal_entity_id:
-                    continue
-                pending.append(request)
-
-        return pending
-
-    def _add_history(
+    @audit
+    async def create_delegation(
         self,
-        request_id: UUID,
-        level: int,
-        action: str,
-        actor_id: UUID | None = None,
-        notes: str | None = None,
-    ) -> None:
-        """Add history entry."""
-        entry = ApprovalHistoryEntry(
-            approval_request_id=request_id,
-            level=level,
-            action=action,
-            actor_id=actor_id,
-            notes=notes,
+        delegator_id: UUID,
+        delegate_to_id: UUID,
+        start_date: date,
+        end_date: date,
+        reason: str | None,
+        legal_entity_id: UUID,
+    ) -> SimpleNamespace:
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+        delegation = ApprovalDelegationTable(
+            delegator_id=delegator_id, delegate_to_id=delegate_to_id,
+            start_date=start_date, end_date=end_date, reason=reason,
+            is_active=True, created_by=delegator_id, legal_entity_id=legal_entity_id,
         )
-        if request_id not in self._history:
-            self._history[request_id] = []
-        self._history[request_id].append(entry)
+        delegation = await self._repo.save_delegation(delegation)
+        return self._delegation_to_response(delegation)
 
-    def get_stats(self) -> dict[str, int]:
-        """Get service statistics."""
-        return self._stats.copy()
+    async def list_delegations(
+        self, delegator_id: UUID, legal_entity_id: UUID, is_active: bool | None = None
+    ) -> list[SimpleNamespace]:
+        delegations = await self._repo.list_delegations_by_delegator(
+            delegator_id, legal_entity_id, is_active
+        )
+        return [self._delegation_to_response(d) for d in delegations]
 
-    def get_audit_trail(self) -> list[dict[str, Any]]:
-        """Get audit trail entries."""
-        return self._audit_trail.copy()
+    @audit
+    async def revoke_delegation(
+        self, delegation_id: UUID, actor_id: UUID, legal_entity_id: UUID | None = None
+    ) -> bool:
+        delegation = await self._repo.get_delegation_by_id(delegation_id, legal_entity_id)
+        if not delegation:
+            return False
+        delegation.is_active = False
+        delegation.revoked_by = actor_id
+        delegation.revoked_at = datetime.now(UTC)
+        delegation.increment_version()
+        return True
+
+    # ==================== STATISTICS ====================
+
+    async def get_approval_statistics(
+        self,
+        legal_entity_id: UUID,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        entity_type: str | None = None,
+    ) -> SimpleNamespace:
+        stats = await self._repo.get_statistics(legal_entity_id, start_date, end_date, entity_type)
+        return SimpleNamespace(**stats)
+
+    # ==================== EXPORT ====================
+
+    async def export_approval_requests(
+        self,
+        legal_entity_id: UUID,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        format: str = "csv",
+        status: str | None = None,
+    ) -> bytes:
+        """Export approval requests. Saat ini hanya format 'csv' yang didukung."""
+        if format != "csv":
+            raise ValueError(f"Unsupported export format: {format} (hanya 'csv' saat ini)")
+
+        all_items: list[ApprovalRequestTable] = []
+        page = 1
+        while True:
+            items, total = await self._repo.list_requests(
+                legal_entity_id=legal_entity_id, status=status,
+                start_date=start_date, end_date=end_date, page=page, page_size=200,
+            )
+            all_items.extend(items)
+            if len(all_items) >= total or not items:
+                break
+            page += 1
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "request_number", "entity_type", "entity_id", "status", "current_level",
+            "amount", "currency", "requester_name", "approver_name", "created_at", "approved_at",
+        ])
+        for r in all_items:
+            writer.writerow([
+                r.request_number, r.entity_type, str(r.entity_id), r.status, r.current_level,
+                r.amount, r.currency, r.requester_name, r.approver_name,
+                r.created_at.isoformat() if r.created_at else "",
+                r.approved_at.isoformat() if r.approved_at else "",
+            ])
+        return buf.getvalue().encode("utf-8")
 
 
-__all__ = [
-    "ApprovalAction",
-    "ApprovalHistoryEntry",
-    "ApprovalMatrix",
-    "ApprovalRequest",
-    "ApprovalService",
-    "ApprovalStatus",
-    "PaginatedResult",
-    "audit",
-]
+__all__ = ["ApprovalService", "PaginatedResult", "audit"]

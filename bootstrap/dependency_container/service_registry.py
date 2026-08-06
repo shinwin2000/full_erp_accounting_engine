@@ -139,7 +139,7 @@ class ServiceRegistrar:
             from application.service_layer.service_ap import APService
             from application.service_layer.service_ar import ARService
             from application.service_layer.service_bank_cash import BankCashService
-
+            from application.service_layer.service_budget import BudgetService
             # Service Capital & Fiscal Period
             from application.service_layer.service_capital import CapitalService
             from application.service_layer.service_coa import COAService
@@ -166,6 +166,11 @@ class ServiceRegistrar:
             from application.service_layer.service_payment import PaymentService
             from application.service_layer.service_supplier import SupplierService
 
+            # FIX: ApprovalService juga tidak pernah terdaftar di sini, padahal
+            # fastapi_approval_router.py memanggil container.resolve_async(ApprovalService).
+            # Akibatnya semua endpoint /api/v1/approval/* gagal dengan DependencyNotFoundError.
+            from application.service_layer.service_approval import ApprovalService
+
             container.register_singleton(COAService, COAService)
             container.register_singleton(JournalService, JournalService)
             container.register_singleton(LedgerService, LedgerService)
@@ -174,6 +179,7 @@ class ServiceRegistrar:
             container.register_singleton(InventoryService, InventoryService)
             container.register_singleton(FixedAssetService, FixedAssetService)
             container.register_singleton(BankCashService, BankCashService)
+            container.register_singleton(BudgetService, BudgetService)
             container.register_singleton(TaxService, TaxService)
             container.register_singleton(CoretaxService, CoretaxService)
             container.register_singleton(PayrollService, PayrollService)
@@ -183,7 +189,9 @@ class ServiceRegistrar:
             container.register_singleton(CustomerService, CustomerService)
             container.register_singleton(PaymentService, PaymentService)
             container.register_singleton(LegalEntityService, LegalEntityService)
+            container.register_singleton(ApprovalService, ApprovalService)
             logger.info("LegalEntityService registered")
+            logger.info("ApprovalService registered")
 
             # ----- Registrasi CapitalService dengan factory yang aman -----
             async def _create_capital_service():

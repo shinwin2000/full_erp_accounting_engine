@@ -23,7 +23,12 @@ from sqlalchemy.orm import selectinload
 from domain.journal.journal_entity import JournalStatus, JournalType
 from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
 from infrastructure.persistence_orm.journal_line_table import JournalLineTable
-from ports.primary.journal_repository_port import Journal, JournalLine, JournalRepositoryPort
+from ports.primary.journal_repository_port import (
+    Journal,
+    JournalLine,
+    JournalListResult,
+    JournalRepositoryPort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +58,8 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
+            self._session = await get_async_session_direct()
         return self._session
 
     def _get_legal_entity_id(self) -> UUID:
@@ -97,10 +102,15 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
         }
         status = status_map.get(header.status, JournalStatus.DRAFT)
 
+        journal_type_map = {t.value: t for t in JournalType}
+        journal_type = journal_type_map.get(
+            getattr(header, "journal_type", None), JournalType.GENERAL
+        )
+
         return Journal(
             id=header.id,
             voucher_number=header.voucher_number,
-            journal_type=JournalType.GENERAL,  # default karena tidak ada di tabel
+            journal_type=journal_type,
             status=status,
             journal_date=header.journal_date,
             posting_date=header.posted_at.date() if header.posted_at else None,
@@ -114,8 +124,8 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             created_at=header.created_at or datetime.now(UTC),
             updated_by=UUID(int=0),  # tidak ada di ORM
             updated_at=header.updated_at or datetime.now(UTC),
-            submitted_by=None,  # tidak ada di ORM
-            submitted_at=None,
+            submitted_by=getattr(header, "submitted_by", None),
+            submitted_at=getattr(header, "submitted_at", None),
             approved_by=header.approved_by,
             approved_at=header.approved_at,
             posted_by=header.posted_by,
@@ -124,9 +134,23 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             reversed_at=header.reversed_at,
             reversed_journal_id=header.reversed_journal_id,
             original_journal_id=header.original_journal_id,
-            cancellation_reason=None,  # tidak ada di ORM
-            attachment_ids=[],
+            cancellation_reason=getattr(header, "cancellation_reason", None),
+            attachment_ids=getattr(header, "attachment_ids", None) or [],
             version=header.version or 1,
+            reference_number=header.reference_number,
+            source_type=getattr(header, "source_type", "manual"),
+            source_id=getattr(header, "source_id", None),
+            notes=getattr(header, "notes", None),
+            is_locked=getattr(header, "is_locked", False),
+            created_by_name=getattr(header, "created_by_name", None),
+            approved_by_name=getattr(header, "approved_by_name", None),
+            posted_by_name=getattr(header, "posted_by_name", None),
+            rejected_by=getattr(header, "rejected_by", None),
+            rejected_at=getattr(header, "rejected_at", None),
+            rejection_reason=getattr(header, "rejection_reason", None),
+            reversal_reason=getattr(header, "reversal_reason", None),
+            cancelled_by=getattr(header, "cancelled_by", None),
+            cancelled_at=getattr(header, "cancelled_at", None),
         )
 
     async def _to_orm_header(self, journal: Journal) -> JournalHeaderTable:
@@ -157,7 +181,25 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             original_journal_id=journal.original_journal_id,
             reversed_journal_id=journal.reversed_journal_id,
             version=journal.version + 1,
-            # submitted_by, submitted_at, cancellation_reason TIDAK ADA
+            journal_type=journal.journal_type.value if journal.journal_type else "general",
+            reference_number=journal.reference_number,
+            source_type=journal.source_type or "manual",
+            source_id=journal.source_id,
+            notes=journal.notes,
+            attachment_ids=journal.attachment_ids or [],
+            is_locked=journal.is_locked,
+            created_by_name=journal.created_by_name,
+            approved_by_name=journal.approved_by_name,
+            posted_by_name=journal.posted_by_name,
+            submitted_by=journal.submitted_by,
+            submitted_at=journal.submitted_at,
+            rejected_by=journal.rejected_by,
+            rejected_at=journal.rejected_at,
+            rejection_reason=journal.rejection_reason,
+            reversal_reason=journal.reversal_reason,
+            cancelled_by=journal.cancelled_by,
+            cancelled_at=journal.cancelled_at,
+            cancellation_reason=journal.cancellation_reason,
         )
 
     async def _to_orm_lines(self, journal: Journal) -> list[JournalLineTable]:
@@ -511,6 +553,96 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
 
     async def get_pending_approval(self, legal_entity_id: UUID) -> list[Journal]:
         return await self.find_by_status(JournalStatus.SUBMITTED, legal_entity_id)
+
+    async def list(
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        journal_type: str | None = None,
+        source_type: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        journal_number: str | None = None,
+        reference_number: str | None = None,
+        account_code: str | None = None,
+        created_by: UUID | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> JournalListResult:
+        """List jurnal dengan filter dan paginasi (dipakai endpoint GET /journals)."""
+        session = await self._get_session()
+        try:
+            conditions = [
+                JournalHeaderTable.legal_entity_id == legal_entity_id,
+                JournalHeaderTable.deleted_at.is_(None),
+            ]
+            if status:
+                conditions.append(JournalHeaderTable.status == status)
+            if journal_type:
+                conditions.append(JournalHeaderTable.journal_type == journal_type)
+            if source_type:
+                conditions.append(JournalHeaderTable.source_type == source_type)
+            if start_date:
+                start_date_only = start_date.date() if hasattr(start_date, "date") else start_date
+                conditions.append(JournalHeaderTable.journal_date >= start_date_only)
+            if end_date:
+                end_date_only = end_date.date() if hasattr(end_date, "date") else end_date
+                conditions.append(JournalHeaderTable.journal_date <= end_date_only)
+            if journal_number:
+                conditions.append(JournalHeaderTable.voucher_number.ilike(f"%{journal_number}%"))
+            if reference_number:
+                conditions.append(JournalHeaderTable.reference_number.ilike(f"%{reference_number}%"))
+            if created_by:
+                conditions.append(JournalHeaderTable.created_by == created_by)
+
+            base_query = select(JournalHeaderTable).where(*conditions)
+
+            if account_code:
+                account_journal_ids = (
+                    select(JournalLineTable.journal_id)
+                    .where(JournalLineTable.account_code == account_code)
+                    .distinct()
+                    .subquery()
+                )
+                base_query = base_query.join(
+                    account_journal_ids,
+                    JournalHeaderTable.id == account_journal_ids.c.journal_id,
+                )
+
+            base_query_subq = base_query.subquery()
+
+            count_stmt = select(func.count()).select_from(base_query_subq)
+            total = (await session.execute(count_stmt)).scalar() or 0
+
+            sum_stmt = select(
+                func.coalesce(func.sum(base_query_subq.c.total_debit), 0),
+                func.coalesce(func.sum(base_query_subq.c.total_credit), 0),
+            )
+            sum_debit, sum_credit = (await session.execute(sum_stmt)).one()
+
+            page = max(page, 1)
+            page_size = max(min(page_size, 200), 1)
+
+            stmt = (
+                base_query.order_by(desc(JournalHeaderTable.journal_date), desc(JournalHeaderTable.created_at))
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .options(selectinload(JournalHeaderTable.lines))
+            )
+            result = await session.execute(stmt)
+            headers = result.scalars().unique().all()
+
+            items = [self._to_domain(h, h.lines) for h in headers]
+
+            return JournalListResult(
+                items=items,
+                total=total,
+                total_debit=Decimal(str(sum_debit)),
+                total_credit=Decimal(str(sum_credit)),
+            )
+        except Exception as e:
+            logger.error(f"Failed to list journals: {e}")
+            raise JournalRepositoryError(f"Failed to list journals: {e}") from e
 
     # ========================================================================
     # WORKFLOW (sesuai port)
