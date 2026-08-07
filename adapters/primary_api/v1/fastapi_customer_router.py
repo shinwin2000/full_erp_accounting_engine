@@ -448,7 +448,7 @@ async def update_customer(
         _handle_common_errors(e, "updating customer", customer_id)
 
 
-@router.delete("/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_customer(
     customer_id: UUID,
     user: TokenPayload = Depends(get_current_user),
@@ -630,7 +630,7 @@ async def update_address(
         _handle_common_errors(e, "updating address", address_id)
 
 
-@router.delete("/customers/{customer_id}/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/customers/{customer_id}/addresses/{address_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_address(
     customer_id: UUID,
     address_id: UUID,
@@ -686,7 +686,7 @@ async def update_contact(
         _handle_common_errors(e, "updating contact", contact_id)
 
 
-@router.delete("/customers/{customer_id}/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/customers/{customer_id}/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_contact(
     customer_id: UUID,
     contact_id: UUID,
@@ -736,7 +736,7 @@ async def add_attachment(
         _handle_common_errors(e, "adding attachment", customer_id)
 
 
-@router.delete("/customers/{customer_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/customers/{customer_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_attachment(
     customer_id: UUID,
     attachment_id: UUID,
@@ -778,7 +778,7 @@ async def add_note(
         _handle_common_errors(e, "adding note", customer_id)
 
 
-@router.delete("/customers/{customer_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/customers/{customer_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_note(
     customer_id: UUID,
     note_id: UUID,
@@ -820,7 +820,7 @@ async def add_tag(
         _handle_common_errors(e, "adding tag", customer_id)
 
 
-@router.delete("/customers/{customer_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/customers/{customer_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def remove_tag(
     customer_id: UUID,
     tag_id: UUID,
