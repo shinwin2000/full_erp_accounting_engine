@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+
 """
 Module: forensic_replayer.py
 Layer: Audit

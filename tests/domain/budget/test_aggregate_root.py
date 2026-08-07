@@ -1,13 +1,12 @@
 # tests/domain/budget/test_aggregate_root.py
 """
 Unit tests for aggregate_root.py.
-Covers all public methods with strong assertions using real data.
+Covers all public methods using the actual API.
 All tests PASS.
 """
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -20,115 +19,8 @@ from domain.budget.aggregate_root import (
     BudgetPeriod,
     BudgetRepository,
     BudgetStatus,
+    BudgetType,
 )
-from domain.budget.domain_events import BudgetLineAdjusted
-
-
-# ============================================================================
-# MONKEY-PATCH: Ubah is_favorable dari property menjadi method yang menerima argumen.
-# Ini diperlukan karena di kode produksi, get_favorable_lines memanggil
-# line.is_favorable(is_revenue) dengan argumen, tetapi is_favorable adalah property.
-# ============================================================================
-def _patched_is_favorable(self, is_revenue_account: bool = False) -> bool:
-    if is_revenue_account:
-        return self.actual_amount > self.amount
-    return self.actual_amount < self.amount
-
-BudgetLineItem.is_favorable = _patched_is_favorable
-
-# ============================================================================
-# MONKEY-PATCH: Property 'id' dan 'version' pada BudgetAggregate tidak memiliki setter,
-# tetapi __init__ melakukan self.id = budget.id dan self.version = version.
-# Kami tambahkan setter agar tidak error. Ini hanya untuk keperluan test.
-# ============================================================================
-if not hasattr(BudgetAggregate, '_id_setter_applied'):
-    _orig_id_getter = BudgetAggregate.id.fget
-    def _id_setter(self, value):
-        self._id = value
-    BudgetAggregate.id = property(_orig_id_getter, _id_setter)
-
-    _orig_version_getter = BudgetAggregate.version.fget
-    def _version_setter(self, value):
-        self._version = value
-    BudgetAggregate.version = property(_orig_version_getter, _version_setter)
-
-    BudgetAggregate._id_setter_applied = True
-
-# ============================================================================
-# MONKEY-PATCH: BudgetAggregate.update menggunakan modifikasi pada Budget yang frozen.
-# Kita ganti method update dengan versi yang menggunakan object.__setattr__.
-# ============================================================================
-_original_update = BudgetAggregate.update
-def _patched_update(self, updated_by, **kwargs):
-    if self._budget.status not in (BudgetStatus.DRAFT, BudgetStatus.REJECTED):
-        raise ValueError(f"Cannot update budget in status {self._budget.status.value}")
-    data = self._budget.to_dict()
-    for key, value in kwargs.items():
-        if key in data and key not in ("id", "created_at", "created_by", "version", "lines"):
-            data[key] = value
-    new_budget = Budget.from_dict(data)
-    object.__setattr__(new_budget, 'updated_at', datetime.now(UTC))
-    object.__setattr__(new_budget, 'updated_by', updated_by)
-    object.__setattr__(new_budget, 'version', self._budget.version + 1)
-    self._budget = new_budget
-    self._version += 1
-    self.version = self._version
-    self._take_snapshot()
-    self._record_audit("UPDATE", str(updated_by), {"changes": kwargs})
-    return self
-BudgetAggregate.update = _patched_update
-
-# ============================================================================
-# MONKEY-PATCH: BudgetAggregate.record_actual juga menggunakan assignment ke lines.
-# Kita gunakan object.__setattr__ agar tidak memicu FrozenInstanceError.
-# ============================================================================
-_original_record_actual = BudgetAggregate.record_actual
-def _patched_record_actual(self, account_code, period, amount, recorded_by):
-    lines = list(self._budget.lines)
-    found = False
-    for i, line in enumerate(lines):
-        if line.account_code == account_code and line.period == period:
-            new_line = BudgetLineItem(
-                line_id=line.line_id,
-                account_code=line.account_code,
-                account_id=line.account_id,
-                period=line.period,
-                amount=line.amount,
-                actual_amount=amount,
-                description=line.description,
-                notes=line.notes,
-                created_at=line.created_at,
-            )
-            lines[i] = new_line
-            found = True
-            break
-    if not found:
-        raise ValueError(f"No budget line found for account {account_code} period {period}")
-    new_budget = self._copy_budget()
-    object.__setattr__(new_budget, 'lines', lines)
-    object.__setattr__(new_budget, 'updated_at', datetime.now(UTC))
-    object.__setattr__(new_budget, 'updated_by', recorded_by)
-    object.__setattr__(new_budget, 'version', self._budget.version + 1)
-    self._budget = new_budget
-    self._version += 1
-    self.version = self._version
-    self._take_snapshot()
-    self._record_audit(
-        "RECORD_ACTUAL",
-        str(recorded_by),
-        {"account": account_code, "period": period, "amount": str(amount)},
-    )
-    event = BudgetLineAdjusted(
-        budget_id=self._budget.id,
-        line_id=lines[i].line_id,
-        actual_amount=amount,
-        recorded_by=recorded_by,
-        occurred_at=datetime.now(UTC),
-    )
-    self._register_event(event)
-    return self
-BudgetAggregate.record_actual = _patched_record_actual
-
 
 # ============================================================================
 # Fixtures
@@ -161,38 +53,34 @@ def budget_id():
 @pytest.fixture
 def sample_budget_line():
     return BudgetLine(
-        line_id=uuid4(),
+        id=uuid4(),
         account_code="5001",
         account_id=uuid4(),
-        period="2025-01",
         amount=Decimal("1000000"),
-        actual_amount=Decimal("0"),
-        description="Office supplies",
+        note="Office supplies",
     )
 
 
 @pytest.fixture
-def sample_budget_line_items(sample_budget_line):
-    return [sample_budget_line.to_line_item()]
-
-
-@pytest.fixture
-def sample_budget(legal_entity_id, user_id, budget_id, sample_budget_line_items):
+def sample_budget(legal_entity_id, user_id, budget_id, sample_budget_line):
     return Budget(
         id=budget_id,
         legal_entity_id=legal_entity_id,
-        name="2025 Budget",
-        year=2025,
+        budget_code="BUD-2025-001",
+        budget_name="2025 Budget",
+        budget_type=BudgetType.OPERATIONAL,
+        fiscal_year=2025,
+        period=BudgetPeriod.YEARLY,
+        version="1.0",
         status=BudgetStatus.DRAFT,
-        lines=sample_budget_line_items,
+        effective_date=date(2025, 1, 1),
+        expiry_date=date(2025, 12, 31),
+        currency="IDR",
+        lines=[sample_budget_line.to_line_item()],
         created_by=user_id,
         created_at=datetime.now(UTC),
-        description="Annual budget",
-        period_type=BudgetPeriod.YEARLY,
-        start_date=date(2025, 1, 1),
-        end_date=date(2025, 12, 31),
-        currency="IDR",
-        version=1,
+        updated_at=datetime.now(UTC),
+        notes="Annual budget",
     )
 
 
@@ -209,36 +97,57 @@ class TestBudgetStatus:
     def test_members(self):
         assert BudgetStatus.DRAFT.value == "draft"
         assert BudgetStatus.SUBMITTED.value == "submitted"
+        assert BudgetStatus.UNDER_REVIEW.value == "under_review"
         assert BudgetStatus.APPROVED.value == "approved"
         assert BudgetStatus.REJECTED.value == "rejected"
-        assert BudgetStatus.REVISED.value == "revised"
+        assert BudgetStatus.ACTIVE.value == "active"
+        assert BudgetStatus.LOCKED.value == "locked"
         assert BudgetStatus.ARCHIVED.value == "archived"
+        assert BudgetStatus.EXPIRED.value == "expired"
         assert BudgetStatus.CANCELLED.value == "cancelled"
         assert BudgetStatus.CLOSED.value == "closed"
-        assert BudgetStatus.ON_HOLD.value == "on_hold"
 
     def test_can_transition(self):
         assert BudgetStatus.can_transition(BudgetStatus.DRAFT, BudgetStatus.SUBMITTED) is True
         assert BudgetStatus.can_transition(BudgetStatus.DRAFT, BudgetStatus.CANCELLED) is True
         assert BudgetStatus.can_transition(BudgetStatus.DRAFT, BudgetStatus.APPROVED) is False
-        assert BudgetStatus.can_transition(BudgetStatus.SUBMITTED, BudgetStatus.APPROVED) is True
+        assert BudgetStatus.can_transition(BudgetStatus.SUBMITTED, BudgetStatus.UNDER_REVIEW) is True
         assert BudgetStatus.can_transition(BudgetStatus.SUBMITTED, BudgetStatus.REJECTED) is True
-        assert BudgetStatus.can_transition(BudgetStatus.APPROVED, BudgetStatus.REVISED) is True
-        assert BudgetStatus.can_transition(BudgetStatus.APPROVED, BudgetStatus.CLOSED) is True
-        assert BudgetStatus.can_transition(BudgetStatus.CANCELLED, BudgetStatus.DRAFT) is False
+        assert BudgetStatus.can_transition(BudgetStatus.UNDER_REVIEW, BudgetStatus.APPROVED) is True
+        assert BudgetStatus.can_transition(BudgetStatus.APPROVED, BudgetStatus.ACTIVE) is True
+        assert BudgetStatus.can_transition(BudgetStatus.APPROVED, BudgetStatus.LOCKED) is True
+        assert BudgetStatus.can_transition(BudgetStatus.ACTIVE, BudgetStatus.CLOSED) is True
+        assert BudgetStatus.can_transition(BudgetStatus.CANCELLED, BudgetStatus.DRAFT) is True
 
-
-# ============================================================================
-# Test BudgetPeriod
-# ============================================================================
 
 class TestBudgetPeriod:
     def test_members(self):
         assert BudgetPeriod.MONTHLY.value == "monthly"
         assert BudgetPeriod.QUARTERLY.value == "quarterly"
-        assert BudgetPeriod.SEMESTER.value == "semester"
         assert BudgetPeriod.YEARLY.value == "yearly"
-        assert BudgetPeriod.CUSTOM.value == "custom"
+
+    def test_from_string(self):
+        assert BudgetPeriod.from_string("monthly") == BudgetPeriod.MONTHLY
+        with pytest.raises(ValueError):
+            BudgetPeriod.from_string("invalid")
+
+
+class TestBudgetType:
+    def test_members(self):
+        assert BudgetType.OPERATIONAL.value == "operational"
+        assert BudgetType.CAPITAL.value == "capital"
+        assert BudgetType.CASH.value == "cash"
+        assert BudgetType.PROJECT.value == "project"
+        assert BudgetType.DEPARTMENT.value == "department"
+        assert BudgetType.FIXED_ASSET.value == "fixed_asset"
+        assert BudgetType.SALES.value == "sales"
+        assert BudgetType.PRODUCTION.value == "production"
+        assert BudgetType.LABOR.value == "labor"
+
+    def test_from_string(self):
+        assert BudgetType.from_string("operational") == BudgetType.OPERATIONAL
+        with pytest.raises(ValueError):
+            BudgetType.from_string("invalid")
 
 
 # ============================================================================
@@ -248,143 +157,57 @@ class TestBudgetPeriod:
 class TestBudgetLineItem:
     def test_construction(self):
         line = BudgetLineItem(
-            line_id=uuid4(),
+            id=uuid4(),
             account_code="5001",
             account_id=uuid4(),
-            period="2025-01",
             amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-            description="Test",
-            notes="Note",
+            note="Test note",
         )
         assert line.amount == Decimal("1000000")
-        assert line.actual_amount == Decimal("800000")
+        assert line.note == "Test note"
 
-    def test_variance(self):
+    def test_quantize(self):
         line = BudgetLineItem(
-            line_id=uuid4(),
+            id=uuid4(),
             account_code="5001",
             account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
+            amount=Decimal("1000000.123"),
         )
-        assert line.variance == Decimal("-200000")
-
-    def test_variance_absolute(self):
-        line = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-        )
-        assert line.variance_absolute == Decimal("200000")
-
-    def test_variance_percentage(self):
-        line = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-        )
-        assert line.variance_percentage == 20.0
-
-    def test_variance_percentage_zero_budget(self):
-        line = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("0"),
-            actual_amount=Decimal("100"),
-        )
-        assert line.variance_percentage == 100.0
-        line2 = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("0"),
-            actual_amount=Decimal("0"),
-        )
-        assert line2.variance_percentage == 0.0
-
-    def test_is_favorable_expense(self):
-        # Patch sudah mengubah is_favorable menjadi method, jadi kita panggil dengan argumen
-        line = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-        )
-        assert line.is_favorable(is_revenue_account=False) is True
-        line2 = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("1000000"),
-            actual_amount=Decimal("1200000"),
-        )
-        assert line2.is_favorable(is_revenue_account=False) is False
-
-    def test_is_favorable_revenue(self):
-        line = BudgetLineItem(
-            line_id=uuid4(),
-            account_code="4001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("1000000"),
-            actual_amount=Decimal("1200000"),
-        )
-        assert line.is_favorable(is_revenue_account=True) is True
+        assert line.amount == Decimal("1000000.12")
 
     def test_to_dict(self):
         line = BudgetLineItem(
-            line_id=uuid4(),
+            id=uuid4(),
             account_code="5001",
             account_id=uuid4(),
-            period="2025-01",
             amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-            description="Test",
-            notes="Note",
+            note="Test",
             created_at=datetime(2025, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
         )
         d = line.to_dict()
         assert d["account_code"] == "5001"
-        assert d["amount"] == "1000000"
-        assert d["actual_amount"] == "800000"
-        assert d["variance"] == "-200000"
-        assert d["variance_percentage"] == 20.0
+        assert d["amount"] == "1000000.00"
+        assert d["note"] == "Test"
 
     def test_from_dict(self):
         line_id = uuid4()
         account_id = uuid4()
         now = datetime.now(UTC)
         data = {
-            "line_id": str(line_id),
-            "account_code": "5001",
+            "id": str(line_id),
             "account_id": str(account_id),
-            "period": "2025-01",
-            "amount": "1000000",
-            "actual_amount": "800000",
-            "description": "Test",
-            "notes": "Note",
+            "account_code": "5001",
+            "amount": "1000000.00",
+            "note": "Test",
             "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
         }
         line = BudgetLineItem.from_dict(data)
-        assert line.line_id == line_id
+        assert line.id == line_id
         assert line.account_id == account_id
-        assert line.amount == Decimal("1000000")
-        assert line.actual_amount == Decimal("800000")
-        assert line.created_at == now
+        assert line.amount == Decimal("1000000.00")
+        assert line.note == "Test"
 
 
 # ============================================================================
@@ -394,43 +217,67 @@ class TestBudgetLineItem:
 class TestBudgetLine:
     def test_construction(self):
         line = BudgetLine(
-            line_id=uuid4(),
+            id=uuid4(),
             account_code="5001",
             account_id=uuid4(),
-            period="2025-01",
             amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-            description="Test",
+            note="Test",
         )
         assert line.amount == Decimal("1000000")
-        assert line.actual_amount == Decimal("800000")
+        assert line.note == "Test"
 
-    def test_variance(self):
+    def test_update_amount(self):
         line = BudgetLine(
-            line_id=uuid4(),
+            id=uuid4(),
             account_code="5001",
             account_id=uuid4(),
-            period="2025-01",
             amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
         )
-        assert line.variance == Decimal("-200000")
+        line.update_amount(Decimal("1500000"))
+        assert line.amount == Decimal("1500000.00")
 
     def test_to_line_item(self):
         line = BudgetLine(
-            line_id=uuid4(),
+            id=uuid4(),
             account_code="5001",
             account_id=uuid4(),
-            period="2025-01",
             amount=Decimal("1000000"),
-            actual_amount=Decimal("800000"),
-            description="Test",
+            note="Test",
         )
         item = line.to_line_item()
         assert isinstance(item, BudgetLineItem)
-        assert item.account_code == "5001"
         assert item.amount == Decimal("1000000")
-        assert item.actual_amount == Decimal("800000")
+        assert item.note == "Test"
+
+    def test_to_dict(self):
+        line = BudgetLine(
+            id=uuid4(),
+            account_code="5001",
+            account_id=uuid4(),
+            amount=Decimal("1000000"),
+            note="Test",
+        )
+        d = line.to_dict()
+        assert d["account_code"] == "5001"
+        assert d["amount"] == "1000000.00"
+
+    def test_from_dict(self):
+        line_id = uuid4()
+        account_id = uuid4()
+        now = datetime.now(UTC)
+        data = {
+            "id": str(line_id),
+            "account_id": str(account_id),
+            "account_code": "5001",
+            "amount": "1000000.00",
+            "note": "Test",
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+        line = BudgetLine.from_dict(data)
+        assert line.id == line_id
+        assert line.account_id == account_id
+        assert line.amount == Decimal("1000000.00")
 
 
 # ============================================================================
@@ -440,14 +287,17 @@ class TestBudgetLine:
 class TestBudget:
     def test_construction(self, sample_budget):
         assert sample_budget.id is not None
-        assert sample_budget.name == "2025 Budget"
+        assert sample_budget.budget_name == "2025 Budget"
         assert sample_budget.status == BudgetStatus.DRAFT
         assert len(sample_budget.lines) == 1
+
+    def test_total_amount(self, sample_budget):
+        assert sample_budget.total_amount == Decimal("1000000.00")
 
     def test_to_dict(self, sample_budget):
         d = sample_budget.to_dict()
         assert d["id"] == str(sample_budget.id)
-        assert d["name"] == "2025 Budget"
+        assert d["budget_name"] == "2025 Budget"
         assert d["status"] == "draft"
         assert len(d["lines"]) == 1
 
@@ -455,7 +305,7 @@ class TestBudget:
         data = sample_budget.to_dict()
         budget = Budget.from_dict(data)
         assert budget.id == sample_budget.id
-        assert budget.name == sample_budget.name
+        assert budget.budget_name == sample_budget.budget_name
         assert budget.status == sample_budget.status
         assert len(budget.lines) == 1
 
@@ -463,307 +313,407 @@ class TestBudget:
         data = {
             "id": str(uuid4()),
             "legal_entity_id": str(uuid4()),
-            "name": "Test Budget",
-            "year": 2025,
+            "budget_code": "TEST",
+            "budget_name": "Test",
+            "budget_type": "operational",
+            "fiscal_year": 2025,
+            "period": "yearly",
+            "version": "1.0",
             "status": "draft",
+            "effective_date": "2025-01-01",
+            "expiry_date": "2025-12-31",
+            "currency": "IDR",
+            "lines": [],
             "created_by": str(uuid4()),
             "created_at": datetime.now(UTC).isoformat(),
-            "lines": [],
         }
         budget = Budget.from_dict(data)
         assert len(budget.lines) == 0
 
 
 # ============================================================================
-# Test BudgetAggregate - Create
+# Test BudgetAggregate - Factory
 # ============================================================================
 
 class TestCreate:
     def test_create(self, legal_entity_id, user_id, sample_budget_line):
         agg = BudgetAggregate.create(
-            id=uuid4(),
             legal_entity_id=legal_entity_id,
-            name="2025 Budget",
-            year=2025,
+            budget_code="BUD-2025-001",
+            budget_name="2025 Budget",
+            budget_type=BudgetType.OPERATIONAL,
+            fiscal_year=2025,
+            period=BudgetPeriod.YEARLY,
+            effective_date=date(2025, 1, 1),
+            expiry_date=date(2025, 12, 31),
+            currency="IDR",
             lines=[sample_budget_line],
             created_by=user_id,
-            description="Annual budget",
-            period_type=BudgetPeriod.YEARLY,
-            start_date=date(2025, 1, 1),
-            end_date=date(2025, 12, 31),
-            currency="IDR",
+            notes="Annual budget",
+            tags=["tag1"],
         )
         assert agg.id is not None
-        assert agg.budget.name == "2025 Budget"
+        assert agg.budget.budget_name == "2025 Budget"
         assert agg.budget.status == BudgetStatus.DRAFT
         assert agg.version == 1
         assert len(agg._audit_trail) >= 1
         events = agg.get_events()
-        assert any(e.__class__.__name__ == "BudgetCreated" for e in events)
+        assert any(e.__class__.__name__ == "BudgetCreatedEvent" for e in events)
 
 
 # ============================================================================
-# Test BudgetAggregate - Entity Dasar Methods
+# Test BudgetAggregate - Query Methods
 # ============================================================================
 
-class TestEntityDasarMethods:
-    def test_update(self, sample_aggregate):
-        agg = sample_aggregate.update(
-            updated_by=uuid4(),
-            name="Updated Budget",
-            description="New description",
-        )
-        assert agg.budget.name == "Updated Budget"
-        assert agg.budget.description == "New description"
-        assert agg.version == sample_aggregate.version + 1
-        assert len(agg._audit_trail) >= 1
+class TestQueryMethods:
+    def test_get_line_by_id(self, sample_aggregate):
+        line_id = sample_aggregate.budget.lines[0].id
+        line = sample_aggregate.get_line_by_id(line_id)
+        assert line is not None
+        assert line.account_code == "5001"
 
-    def test_update_invalid_status(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4())
-        with pytest.raises(ValueError, match="Cannot update"):
-            agg.update(uuid4(), name="x")
+    def test_get_line_by_id_not_found(self, sample_aggregate):
+        line = sample_aggregate.get_line_by_id(uuid4())
+        assert line is None
 
-    def test_delete(self, sample_aggregate):
-        deleted = sample_aggregate.delete(uuid4(), "test")
-        assert deleted.budget.status == BudgetStatus.CANCELLED
-        assert deleted.version == sample_aggregate.version + 1
+    def test_get_line_by_account(self, sample_aggregate):
+        account_id = sample_aggregate.budget.lines[0].account_id
+        line = sample_aggregate.get_line_by_account(account_id)
+        assert line is not None
 
-    def test_delete_invalid_status(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        with pytest.raises(ValueError, match="Cannot delete"):
-            agg.delete(uuid4(), "test")
+    def test_get_lines_by_account_code(self, sample_aggregate):
+        lines = sample_aggregate.get_lines_by_account_code("5001")
+        assert len(lines) == 1
+        lines2 = sample_aggregate.get_lines_by_account_code("9999")
+        assert len(lines2) == 0
 
-    def test_restore(self, sample_aggregate):
-        deleted = sample_aggregate.delete(uuid4(), "test")
-        restored = deleted.restore(uuid4())
-        assert restored.budget.status == BudgetStatus.DRAFT
-        assert restored.version == deleted.version + 1
+    def test_get_total_lines(self, sample_aggregate):
+        assert sample_aggregate.get_total_lines() == 1
 
-    def test_restore_invalid_status(self, sample_aggregate):
-        with pytest.raises(ValueError, match="Cannot restore"):
-            sample_aggregate.restore(uuid4())
+    def test_is_active(self, sample_aggregate):
+        # DRAFT is not active
+        assert sample_aggregate.is_active() is False
+        # Activate and check (but activation requires approval first)
+        agg = sample_aggregate.submit(user_id=uuid4())
+        agg = agg.approve(user_id=uuid4())
+        agg = agg.activate(user_id=uuid4())
+        assert agg.is_active() is True
+
+    def test_is_editable(self, sample_aggregate):
+        assert sample_aggregate.is_editable() is True
+        agg = sample_aggregate.submit(uuid4())
+        assert agg.is_editable() is False
+
+    def test_is_approvable(self, sample_aggregate):
+        assert sample_aggregate.is_approvable() is False
+        agg = sample_aggregate.submit(uuid4())
+        assert agg.is_approvable() is True
+
+    def test_is_activatable(self, sample_aggregate):
+        assert sample_aggregate.is_activatable() is False
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        assert agg.is_activatable() is True
+
+    def test_is_lockable(self, sample_aggregate):
+        assert sample_aggregate.is_lockable() is False
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        assert agg.is_lockable() is True
+
+    def test_is_archivable(self, sample_aggregate):
+        assert sample_aggregate.is_archivable() is False
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        assert agg.is_archivable() is True
+
+    def test_is_closable(self, sample_aggregate):
+        assert sample_aggregate.is_closable() is False
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4()).activate(uuid4())
+        assert agg.is_closable() is True
+
+    def test_is_cancellable(self, sample_aggregate):
+        assert sample_aggregate.is_cancellable() is True
+        agg = sample_aggregate.cancel(uuid4(), "test")
+        assert agg.is_cancellable() is False
+
+    def test_can_transition_to(self, sample_aggregate):
+        assert sample_aggregate.can_transition_to(BudgetStatus.SUBMITTED) is True
+        assert sample_aggregate.can_transition_to(BudgetStatus.APPROVED) is False
+
+
+# ============================================================================
+# Test BudgetAggregate - Lifecycle Methods
+# ============================================================================
+
+class TestLifecycleMethods:
+    def test_submit(self, sample_aggregate):
+        agg = sample_aggregate.submit(user_id=uuid4())
+        assert agg.budget.status == BudgetStatus.SUBMITTED
+        assert agg.version == 2
+        events = agg.get_events()
+        assert any(e.__class__.__name__ == "BudgetSubmittedEvent" for e in events)
+        assert any(e.__class__.__name__ == "BudgetStatusChangedEvent" for e in events)
+
+    def test_submit_invalid_status(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4())
+        with pytest.raises(ValueError, match="Cannot submit"):
+            agg.submit(uuid4())
+
+    def test_submit_no_lines(self, sample_aggregate):
+        # Remove the line first
+        line_id = sample_aggregate.budget.lines[0].id
+        agg = sample_aggregate.remove_line(uuid4(), line_id)
+        with pytest.raises(ValueError, match="Cannot submit budget with no lines"):
+            agg.submit(uuid4())
+
+    def test_approve(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        assert agg.budget.status == BudgetStatus.APPROVED
+        assert agg.version == 3
+
+    def test_approve_invalid_status(self, sample_aggregate):
+        with pytest.raises(ValueError, match="Cannot approve"):
+            sample_aggregate.approve(uuid4())
+
+    def test_reject(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4()).reject(uuid4(), "Invalid")
+        assert agg.budget.status == BudgetStatus.REJECTED
+        assert agg.budget.rejection_reason == "Invalid"
 
     def test_activate(self, sample_aggregate):
-        activated = sample_aggregate.activate(uuid4())
-        assert activated.budget.status == BudgetStatus.SUBMITTED
-        assert activated.version == sample_aggregate.version + 1
+        # Need to set effective date to today
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        # Override effective_date to today
+        data = agg.budget.to_dict()
+        data["effective_date"] = date.today().isoformat()
+        new_budget = Budget.from_dict(data)
+        # Replace internal budget (hack for test)
+        agg._budget = new_budget
+        agg = agg.activate(uuid4())
+        assert agg.budget.status == BudgetStatus.ACTIVE
 
-    def test_activate_invalid_status(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4())
-        with pytest.raises(ValueError, match="Cannot activate"):
+    def test_activate_before_effective_date(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        # effective_date is in the future (2025-01-01, which is past if today is 2026, but we want to simulate future)
+        # We can set effective_date to future
+        data = agg.budget.to_dict()
+        data["effective_date"] = date(2030, 1, 1).isoformat()
+        new_budget = Budget.from_dict(data)
+        agg._budget = new_budget
+        with pytest.raises(ValueError, match="Cannot activate budget before effective date"):
             agg.activate(uuid4())
 
-    def test_deactivate(self, sample_aggregate):
-        activated = sample_aggregate.activate(uuid4())
-        deactivated = activated.deactivate(uuid4(), "reason")
-        assert deactivated.budget.status == BudgetStatus.DRAFT
-
-    def test_deactivate_invalid_status(self, sample_aggregate):
-        with pytest.raises(ValueError, match="Cannot deactivate"):
-            sample_aggregate.deactivate(uuid4())
-
     def test_lock(self, sample_aggregate):
-        locked = sample_aggregate.lock(uuid4(), "audit")
-        assert locked.budget.status == BudgetStatus.ON_HOLD
-        assert locked.version == sample_aggregate.version + 1
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4()).lock(uuid4())
+        assert agg.budget.status == BudgetStatus.LOCKED
+        assert agg.budget.is_locked is True
 
     def test_unlock(self, sample_aggregate):
-        locked = sample_aggregate.lock(uuid4(), "audit")
-        unlocked = locked.unlock(uuid4())
-        assert unlocked.budget.status == BudgetStatus.DRAFT
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4()).lock(uuid4())
+        agg = agg.unlock(uuid4())
+        assert agg.budget.status == BudgetStatus.APPROVED  # or ACTIVE if active
+        assert agg.budget.is_locked is False
 
+    def test_close(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4()).activate(uuid4())
+        agg = agg.close(uuid4())
+        assert agg.budget.status == BudgetStatus.CLOSED
+
+    def test_cancel(self, sample_aggregate):
+        agg = sample_aggregate.cancel(uuid4(), "test")
+        assert agg.budget.status == BudgetStatus.CANCELLED
+        events = agg.get_events()
+        assert any(e.__class__.__name__ == "BudgetCancelledEvent" for e in events)
+
+    def test_archive(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4()).archive(uuid4())
+        assert agg.budget.status == BudgetStatus.ARCHIVED
+
+    def test_archive_invalid_status(self, sample_aggregate):
+        with pytest.raises(ValueError, match="Cannot archive"):
+            sample_aggregate.archive(uuid4())
+
+
+# ============================================================================
+# Test BudgetAggregate - Update Methods
+# ============================================================================
+
+class TestUpdateMethods:
+    def test_update_info(self, sample_aggregate):
+        user = uuid4()
+        agg = sample_aggregate.update_info(
+            user_id=user,
+            budget_name="Updated Name",
+            effective_date=date(2025, 2, 1),
+            expiry_date=date(2025, 12, 31),
+            notes="New notes",
+            tags=["tag2"],
+        )
+        assert agg.budget.budget_name == "Updated Name"
+        assert agg.budget.effective_date == date(2025, 2, 1)
+        assert agg.budget.notes == "New notes"
+        assert agg.budget.tags == ["tag2"]
+        assert agg.version == 2
+
+    def test_update_info_invalid_status(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4())
+        with pytest.raises(ValueError, match="Cannot update"):
+            agg.update_info(uuid4(), budget_name="x")
+
+    def test_add_line(self, sample_aggregate):
+        user = uuid4()
+        account_id = uuid4()
+        agg = sample_aggregate.add_line(
+            user_id=user,
+            account_id=account_id,
+            account_code="5002",
+            amount=Decimal("2000000"),
+            note="New line",
+        )
+        assert len(agg.budget.lines) == 2
+        assert agg.version == 2
+        events = agg.get_events()
+        assert any(e.__class__.__name__ == "BudgetLineAddedEvent" for e in events)
+
+    def test_add_line_duplicate(self, sample_aggregate):
+        account_id = sample_aggregate.budget.lines[0].account_id
+        with pytest.raises(ValueError, match="already exists"):
+            sample_aggregate.add_line(
+                uuid4(),
+                account_id=account_id,
+                account_code="5001",
+                amount=Decimal("1000"),
+            )
+
+    def test_update_line(self, sample_aggregate):
+        line_id = sample_aggregate.budget.lines[0].id
+        user = uuid4()
+        agg = sample_aggregate.update_line(
+            user_id=user,
+            line_id=line_id,
+            amount=Decimal("1500000"),
+            note="Updated note",
+        )
+        assert agg.budget.lines[0].amount == Decimal("1500000.00")
+        assert agg.budget.lines[0].note == "Updated note"
+        assert agg.version == 2
+        events = agg.get_events()
+        assert any(e.__class__.__name__ == "BudgetLineAdjustedEvent" for e in events)
+
+    def test_update_line_not_found(self, sample_aggregate):
+        with pytest.raises(ValueError, match="not found"):
+            sample_aggregate.update_line(uuid4(), uuid4(), Decimal("1000"))
+
+    def test_remove_line(self, sample_aggregate):
+        line_id = sample_aggregate.budget.lines[0].id
+        agg = sample_aggregate.remove_line(uuid4(), line_id)
+        assert len(agg.budget.lines) == 0
+        assert agg.version == 2
+        events = agg.get_events()
+        assert any(e.__class__.__name__ == "BudgetLineRemovedEvent" for e in events)
+
+    def test_remove_line_not_found(self, sample_aggregate):
+        with pytest.raises(ValueError, match="not found"):
+            sample_aggregate.remove_line(uuid4(), uuid4())
+
+
+# ============================================================================
+# Test BudgetAggregate - Revision
+# ============================================================================
+
+class TestRevision:
+    def test_revise(self, sample_aggregate):
+        agg = sample_aggregate.submit(uuid4()).approve(uuid4())
+        new_lines = [
+            BudgetLine(
+                id=uuid4(),
+                account_id=uuid4(),
+                account_code="5003",
+                amount=Decimal("3000000"),
+            )
+        ]
+        agg = agg.revise(uuid4(), new_lines, "Increase budget")
+        assert len(agg.budget.lines) == 1
+        assert agg.budget.lines[0].account_code == "5003"
+        assert agg.budget.status == BudgetStatus.APPROVED
+        assert agg.version == 4  # submit, approve, revise (version increments each)
+
+    def test_revise_invalid_status(self, sample_aggregate):
+        with pytest.raises(ValueError, match="Cannot revise"):
+            sample_aggregate.revise(uuid4(), [], "test")
+
+
+# ============================================================================
+# Test BudgetAggregate - Validation
+# ============================================================================
+
+class TestValidation:
     def test_validate_valid(self, sample_aggregate):
         result = sample_aggregate.validate()
         assert result["is_valid"] is True
         assert result["errors"] == []
 
-    def test_validate_empty_name(self, sample_aggregate):
-        agg = sample_aggregate.update(uuid4(), name="A")
+    def test_validate_invalid_name(self, sample_aggregate):
+        agg = sample_aggregate.update_info(uuid4(), budget_name="AB")
         result = agg.validate()
         assert result["is_valid"] is False
-        assert "at least 3" in result["errors"][0]
+        assert len(result["errors"]) > 0
+        assert any("at least 3" in e for e in result["errors"])
+
+    def test_validate_invalid_year(self, sample_aggregate):
+        # Override fiscal_year via internal manipulation
+        data = sample_aggregate.budget.to_dict()
+        data["fiscal_year"] = 1999
+        new_budget = Budget.from_dict(data)
+        agg = BudgetAggregate(new_budget)
+        result = agg.validate()
+        assert result["is_valid"] is False
+        assert any("Invalid budget year" in e for e in result["errors"])
 
     def test_validate_duplicate_lines(self, sample_aggregate):
-        line = BudgetLine(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("500000"),
-        )
-        agg = sample_aggregate.add_child(line, uuid4())
-        result = agg.validate()
-        assert result["is_valid"] is False
-        assert "Duplicate" in result["errors"][0]
+        # Add line with same account_id
+        line_id = sample_aggregate.budget.lines[0].account_id
+        with pytest.raises(ValueError, match="already exists"):
+            sample_aggregate.add_line(
+                uuid4(),
+                account_id=line_id,
+                account_code="5001",
+                amount=Decimal("1000"),
+            )
 
-    def test_to_dict(self, sample_aggregate):
-        d = sample_aggregate.to_dict()
-        assert d["id"] == str(sample_aggregate.id)
-        assert d["name"] == sample_aggregate.budget.name
 
-    def test_from_dict(self, sample_aggregate):
-        data = sample_aggregate.to_dict()
-        agg = BudgetAggregate.from_dict(data)
-        assert agg.id == sample_aggregate.id
-        assert agg.budget.name == sample_aggregate.budget.name
-        assert agg.version == sample_aggregate.version
+# ============================================================================
+# Test BudgetAggregate - Clone
+# ============================================================================
 
+class TestClone:
     def test_clone(self, sample_aggregate):
         clone = sample_aggregate.clone(new_name="Clone Budget", new_year=2026)
         assert clone.id != sample_aggregate.id
-        assert clone.budget.name == "Clone Budget"
-        assert clone.budget.year == 2026
+        assert clone.budget.budget_name == "Clone Budget"
+        assert clone.budget.fiscal_year == 2026
         assert clone.budget.status == BudgetStatus.DRAFT
         assert len(clone.budget.lines) == len(sample_aggregate.budget.lines)
 
+
+# ============================================================================
+# Test BudgetAggregate - Snapshot & Audit
+# ============================================================================
+
+class TestSnapshotAndAudit:
     def test_snapshot(self, sample_aggregate):
         snap = sample_aggregate.snapshot()
         assert snap["budget_id"] == str(sample_aggregate.id)
         assert snap["version"] == sample_aggregate.version
 
-    def test_get_version(self, sample_aggregate):
-        assert sample_aggregate.get_version() == sample_aggregate.version
-
     def test_audit_trail(self, sample_aggregate):
         sample_aggregate._record_audit("TEST", "user", {})
-        trail = sample_aggregate.audit_trail()
+        trail = sample_aggregate.get_audit_trail(limit=10)
         assert len(trail) >= 1
         assert trail[-1]["action"] == "TEST"
 
     def test_touch(self, sample_aggregate):
-        old = sample_aggregate.version
-        touched = sample_aggregate.touch(uuid4())
-        assert touched.version == old + 1
-
-
-# ============================================================================
-# Test BudgetAggregate - Aggregate Root Methods
-# ============================================================================
-
-class TestAggregateRootMethods:
-    def test_add_child(self, sample_aggregate):
-        new_line = BudgetLine(
-            line_id=uuid4(),
-            account_code="5002",
-            account_id=uuid4(),
-            period="2025-02",
-            amount=Decimal("2000000"),
-        )
-        agg = sample_aggregate.add_child(new_line, uuid4())
-        assert len(agg.budget.lines) == 2
-        assert agg.version == sample_aggregate.version + 1
-        assert any(a["action"] == "ADD_LINE" for a in agg._audit_trail)
-
-    def test_add_child_duplicate(self, sample_aggregate):
-        new_line = BudgetLine(
-            line_id=uuid4(),
-            account_code="5001",
-            account_id=uuid4(),
-            period="2025-01",
-            amount=Decimal("2000000"),
-        )
-        with pytest.raises(ValueError, match="already exists"):
-            sample_aggregate.add_child(new_line, uuid4())
-
-    def test_remove_child(self, sample_aggregate):
-        line_id = sample_aggregate.budget.lines[0].line_id
-        agg = sample_aggregate.remove_child(line_id, uuid4())
-        assert len(agg.budget.lines) == 0
-        assert agg.version == sample_aggregate.version + 1
-        events = agg.get_events()
-        assert any(e.__class__.__name__ == "BudgetLineRemoved" for e in events)
-
-    def test_remove_child_not_found(self, sample_aggregate):
-        with pytest.raises(ValueError, match="not found"):
-            sample_aggregate.remove_child(uuid4(), uuid4())
-
-    def test_can_approve(self, sample_aggregate):
-        assert sample_aggregate.can_approve() is False
-        agg = sample_aggregate.activate(uuid4())
-        assert agg.can_approve() is True
-
-    def test_approve(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4())
-        approved = agg.approve(uuid4())
-        assert approved.budget.status == BudgetStatus.APPROVED
-        assert approved.budget.approved_by is not None
-        assert approved.version == agg.version + 1
-        events = approved.get_events()
-        assert any(e.__class__.__name__ == "BudgetApproved" for e in events)
-
-    def test_can_reject(self, sample_aggregate):
-        assert sample_aggregate.can_reject() is False
-        agg = sample_aggregate.activate(uuid4())
-        assert agg.can_reject() is True
-
-    def test_reject(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4())
-        rejected = agg.reject(uuid4(), "Invalid data")
-        assert rejected.budget.status == BudgetStatus.REJECTED
-        assert rejected.budget.rejection_reason == "Invalid data"
-        assert rejected.version == agg.version + 1
-
-    def test_can_cancel(self, sample_aggregate):
-        assert sample_aggregate.can_cancel() is True
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        assert agg.can_cancel() is True
-        closed = agg.close(uuid4())
-        assert closed.can_cancel() is False
-
-    def test_cancel(self, sample_aggregate):
-        cancelled = sample_aggregate.cancel(uuid4(), "test")
-        assert cancelled.budget.status == BudgetStatus.CANCELLED
-
-    def test_can_reverse(self, sample_aggregate):
-        assert sample_aggregate.can_reverse() is False
-        cancelled = sample_aggregate.cancel(uuid4(), "test")
-        assert cancelled.can_reverse() is True
-
-    def test_reverse(self, sample_aggregate):
-        cancelled = sample_aggregate.cancel(uuid4(), "test")
-        reversed_budget = cancelled.reverse(uuid4(), "restore")
-        assert reversed_budget.budget.status == BudgetStatus.DRAFT
-
-    def test_can_close(self, sample_aggregate):
-        assert sample_aggregate.can_close() is False
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        assert agg.can_close() is True
-
-    def test_close(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        closed = agg.close(uuid4())
-        assert closed.budget.status == BudgetStatus.CLOSED
-        assert closed.budget.closed_by is not None
-
-    def test_can_reopen(self, sample_aggregate):
-        assert sample_aggregate.can_reopen() is False
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4()).close(uuid4())
-        assert agg.can_reopen() is True
-
-    def test_reopen(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4()).close(uuid4())
-        reopened = agg.reopen(uuid4(), "test")
-        assert reopened.budget.status == BudgetStatus.APPROVED
-
-    def test_can_archive(self, sample_aggregate):
-        assert sample_aggregate.can_archive() is False
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        assert agg.can_archive() is True
-
-    def test_archive(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        archived = agg.archive(uuid4())
-        assert archived.budget.status == BudgetStatus.ARCHIVED
-
-    def test_can_unarchive(self, sample_aggregate):
-        assert sample_aggregate.can_unarchive() is False
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4()).archive(uuid4())
-        assert agg.can_unarchive() is True
-
-    def test_unarchive(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4()).archive(uuid4())
-        unarchived = agg.unarchive(uuid4())
-        assert unarchived.budget.status == BudgetStatus.CLOSED
+        old_version = sample_aggregate.version
+        agg = sample_aggregate.touch(uuid4())
+        assert agg.version == old_version + 1
 
 
 # ============================================================================
@@ -772,174 +722,56 @@ class TestAggregateRootMethods:
 
 class TestEventMethods:
     def test_register_event(self, sample_aggregate):
-        event = MagicMock()
+        event = object()
         sample_aggregate.register_event(event)
         events = sample_aggregate.get_events()
         assert len(events) == 1
         assert events[0] is event
 
-    def test_get_events(self, sample_aggregate):
-        events = sample_aggregate.get_events()
-        assert isinstance(events, list)
-
     def test_pull_events(self, sample_aggregate):
-        event = MagicMock()
+        event = object()
         sample_aggregate.register_event(event)
         pulled = sample_aggregate.pull_events()
         assert len(pulled) == 1
+        assert pulled[0] is event
         assert len(sample_aggregate._events) == 0
 
     def test_clear_events(self, sample_aggregate):
-        sample_aggregate.register_event(MagicMock())
+        sample_aggregate.register_event(object())
         sample_aggregate.clear_events()
         assert len(sample_aggregate._events) == 0
-
-    def test_apply(self, sample_aggregate):
-        event = MagicMock()
-        sample_aggregate.apply(event)
-        trail = sample_aggregate._audit_trail
-        assert any(a["action"] == "APPLY_EVENT" for a in trail)
-
-    def test_replay(self, sample_aggregate):
-        events = [MagicMock(), MagicMock()]
-        sample_aggregate.replay(events)
-        trail = sample_aggregate._audit_trail
-        assert any(a["action"] == "REPLAY_EVENTS" for a in trail)
-
-    def test_reconstruct(self, sample_aggregate):
-        events = [MagicMock()]
-        sample_aggregate.reconstruct(events)
-        trail = sample_aggregate._audit_trail
-        assert any(a["action"] == "REPLAY_EVENTS" for a in trail)
-
-
-# ============================================================================
-# Test BudgetAggregate - Budget Specific Methods
-# ============================================================================
-
-class TestBudgetSpecificMethods:
-    def test_revise(self, sample_aggregate):
-        agg = sample_aggregate.activate(uuid4()).approve(uuid4())
-        new_lines = [
-            BudgetLine(
-                line_id=uuid4(),
-                account_code="5001",
-                account_id=uuid4(),
-                period="2025-01",
-                amount=Decimal("1500000"),
-            )
-        ]
-        revised = agg.revise(uuid4(), new_lines, "Increase budget")
-        assert revised.budget.status == BudgetStatus.REVISED
-        assert revised.budget.lines[0].amount == Decimal("1500000")
-        assert revised.version == agg.version + 1
-        events = revised.get_events()
-        assert any(e.__class__.__name__ == "BudgetRevised" for e in events)
-
-    def test_record_actual(self, sample_aggregate):
-        agg = sample_aggregate.record_actual(
-            account_code="5001",
-            period="2025-01",
-            amount=Decimal("800000"),
-            recorded_by=uuid4(),
-        )
-        assert agg.budget.lines[0].actual_amount == Decimal("800000")
-        assert agg.version == sample_aggregate.version + 1
-        events = agg.get_events()
-        assert any(e.__class__.__name__ == "BudgetLineAdjusted" for e in events)
-
-    def test_record_actual_not_found(self, sample_aggregate):
-        with pytest.raises(ValueError, match="No budget line found"):
-            sample_aggregate.record_actual("9999", "2025-01", Decimal("100"), uuid4())
-
-    def test_get_total_budget(self, sample_aggregate):
-        total = sample_aggregate.get_total_budget()
-        assert total == Decimal("1000000")
-
-    def test_get_total_actual(self, sample_aggregate):
-        agg = sample_aggregate.record_actual("5001", "2025-01", Decimal("800000"), uuid4())
-        total = agg.get_total_actual()
-        assert total == Decimal("800000")
-
-    def test_get_total_variance(self, sample_aggregate):
-        agg = sample_aggregate.record_actual("5001", "2025-01", Decimal("800000"), uuid4())
-        variance = agg.get_total_variance()
-        assert variance == Decimal("-200000")
-
-    def test_get_variance_percentage(self, sample_aggregate):
-        agg = sample_aggregate.record_actual("5001", "2025-01", Decimal("800000"), uuid4())
-        pct = agg.get_variance_percentage()
-        assert pct == 20.0
-
-    def test_get_lines_by_period(self, sample_aggregate):
-        lines = sample_aggregate.get_lines_by_period("2025-01")
-        assert len(lines) == 1
-        assert lines[0].account_code == "5001"
-        lines2 = sample_aggregate.get_lines_by_period("2025-02")
-        assert len(lines2) == 0
-
-    def test_get_lines_by_account(self, sample_aggregate):
-        lines = sample_aggregate.get_lines_by_account("5001")
-        assert len(lines) == 1
-        lines2 = sample_aggregate.get_lines_by_account("9999")
-        assert len(lines2) == 0
-
-    def test_get_favorable_lines_expense(self, sample_aggregate):
-        agg = sample_aggregate.record_actual("5001", "2025-01", Decimal("800000"), uuid4())
-        favorable = agg.get_favorable_lines()
-        assert len(favorable) == 1
-        assert favorable[0].account_code == "5001"
-
-    def test_get_favorable_lines_revenue(self, sample_aggregate):
-        agg = sample_aggregate.add_child(
-            BudgetLine(
-                line_id=uuid4(),
-                account_code="4001",
-                account_id=uuid4(),
-                period="2025-01",
-                amount=Decimal("1000000"),
-            ),
-            uuid4(),
-        )
-        agg = agg.record_actual("4001", "2025-01", Decimal("1200000"), uuid4())
-
-        def is_revenue(code):
-            return code.startswith("4")
-
-        favorable = agg.get_favorable_lines(is_revenue)
-        assert len(favorable) == 1
-        assert favorable[0].account_code == "4001"
-
-    def test_get_unfavorable_lines(self, sample_aggregate):
-        agg = sample_aggregate.record_actual("5001", "2025-01", Decimal("1200000"), uuid4())
-        unfavorable = agg.get_unfavorable_lines()
-        assert len(unfavorable) == 1
-        assert unfavorable[0].account_code == "5001"
 
 
 # ============================================================================
 # Test BudgetRepository
 # ============================================================================
 
+@pytest.mark.asyncio
 class TestRepository:
-    @pytest.mark.asyncio
     async def test_save_and_get(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         retrieved = await repo.get_by_id(sample_aggregate.id)
         assert retrieved is sample_aggregate
 
-    @pytest.mark.asyncio
     async def test_get_by_name(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         retrieved = await repo.get_by_name(
-            sample_aggregate.budget.name,
+            sample_aggregate.budget.budget_name,
             sample_aggregate.budget.legal_entity_id,
         )
         assert retrieved is sample_aggregate
 
-    @pytest.mark.asyncio
+    async def test_get_by_code(self, sample_aggregate):
+        repo = BudgetRepository()
+        await repo.save(sample_aggregate)
+        retrieved = await repo.get_by_code(
+            sample_aggregate.budget.budget_code,
+            sample_aggregate.budget.legal_entity_id,
+        )
+        assert retrieved is sample_aggregate
+
     async def test_get_by_year(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
@@ -947,108 +779,38 @@ class TestRepository:
         assert len(results) == 1
         assert results[0] is sample_aggregate
 
-    @pytest.mark.asyncio
     async def test_get_by_status(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         results = await repo.get_by_status(BudgetStatus.DRAFT, sample_aggregate.budget.legal_entity_id)
         assert len(results) == 1
 
-    @pytest.mark.asyncio
     async def test_get_all(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         results = await repo.get_all(sample_aggregate.budget.legal_entity_id)
         assert len(results) == 1
 
-    @pytest.mark.asyncio
     async def test_exists(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         assert await repo.exists(sample_aggregate.id) is True
         assert await repo.exists(uuid4()) is False
 
-    @pytest.mark.asyncio
     async def test_count(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         count = await repo.count(sample_aggregate.budget.legal_entity_id)
         assert count == 1
 
-    @pytest.mark.asyncio
     async def test_delete(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         await repo.delete(sample_aggregate.id)
         assert await repo.get_by_id(sample_aggregate.id) is None
 
-    @pytest.mark.asyncio
     async def test_clear(self, sample_aggregate):
         repo = BudgetRepository()
         await repo.save(sample_aggregate)
         await repo.clear()
         assert await repo.get_by_id(sample_aggregate.id) is None
-
-
-# ============================================================================
-# Direct calls to satisfy checker (module-level)
-# ============================================================================
-
-def _trigger_all_budget_methods():
-    le_id = uuid4()
-    user = uuid4()
-
-    line = BudgetLine(
-        line_id=uuid4(),
-        account_code="5001",
-        account_id=uuid4(),
-        period="2025-01",
-        amount=Decimal("1000000"),
-    )
-    item = line.to_line_item()
-
-    # BudgetLineItem properties (variance, etc.)
-    _ = item.variance
-    _ = item.variance_absolute
-    _ = item.variance_percentage
-    # is_favorable sekarang method, jadi kita panggil dengan argumen default
-    _ = item.is_favorable()
-    _ = BudgetLineItem.from_dict(item.to_dict())
-
-    _ = line.variance
-    _ = line.to_line_item()
-
-    budget = Budget(
-        id=uuid4(),
-        legal_entity_id=le_id,
-        name="Test",
-        year=2025,
-        status=BudgetStatus.DRAFT,
-        lines=[item],
-        created_by=user,
-        created_at=datetime.now(UTC),
-    )
-    _ = Budget.from_dict(budget.to_dict())
-
-    agg = BudgetAggregate.create(
-        id=uuid4(),
-        legal_entity_id=le_id,
-        name="Test",
-        year=2025,
-        lines=[line],
-        created_by=user,
-    )
-    _ = agg.update(user, name="Updated")
-    _ = BudgetAggregate.from_dict(agg.to_dict())
-    _ = agg.record_actual("5001", "2025-01", Decimal("800000"), user)
-    _ = agg.get_total_budget()
-    _ = agg.get_total_actual()
-    _ = agg.get_total_variance()
-    _ = agg.get_variance_percentage()
-    _ = agg.get_lines_by_period("2025-01")
-    _ = agg.get_lines_by_account("5001")
-    # get_favorable_lines dan get_unfavorable_lines sekarang aman
-    _ = agg.get_favorable_lines()
-    _ = agg.get_unfavorable_lines()
-
-_trigger_all_budget_methods()

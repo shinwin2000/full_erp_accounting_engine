@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from types import SimpleNamespace
-from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -22,7 +20,6 @@ from application.service_layer.service_approval import (
     PaginatedResult,
     audit,
 )
-
 
 # =============================================================================
 # Enum definitions

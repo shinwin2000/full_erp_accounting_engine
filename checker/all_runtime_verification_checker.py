@@ -649,7 +649,7 @@ class BusinessRuleLoader:
                     loop.run_in_executor(None, self._extract_rules_from_schema),
                     timeout=60,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logging.warning("Ekstraksi business rules dari schema timeout (>60s), dilewati.")
 
     def _extract_rules_from_schema(self):
@@ -880,7 +880,7 @@ class EnhancedEndpointDiscovery:
                             timeout=60,
                         )
                         logging.info("Resolusi $ref selesai.")
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logging.warning("Resolusi $ref openapi.json timeout (>60s) — pakai spec mentah.")
                     self._parse_openapi(spec)
                 else:
@@ -1758,7 +1758,7 @@ class UltimateRuntimeExecutor:
                             logging.error(f"Login gagal dengan status {resp.status}: {text[:200]}")
                             if resp.status not in [500, 502, 503, 504, 408]:
                                 return False
-                except (asyncio.TimeoutError, aiohttp.ClientError, ConnectionError) as e:
+                except (TimeoutError, aiohttp.ClientError, ConnectionError) as e:
                     logging.warning(f"Login attempt {attempt+1} gagal: {e}")
                 except Exception as e:
                     logging.error(f"Login exception: {e}")
@@ -2157,7 +2157,7 @@ class UltimateRuntimeChecker:
                                 timeout=60,
                             )
                             logging.info("Resolusi $ref (business rules) selesai.")
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             logging.warning("Resolusi $ref untuk business rules timeout (>60s), pakai spec mentah.")
             except Exception as e:
                 logging.warning(f"Gagal ambil/resolve openapi.json untuk business rules: {e}")

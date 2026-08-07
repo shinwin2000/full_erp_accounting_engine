@@ -30,30 +30,7 @@ Perbaikan presisi (MNY-003):
 """
 
 
-from __future__ import annotations
-
-import hashlib
-import json
-import logging
-from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
-from enum import Enum
-from typing import Any
-from uuid import UUID
-
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
-    TokenPayload,
-    get_current_legal_entity,
-    get_current_user,
-    require_permission,
-)
-from domain.shared_value_objects.enums import TransactionType
-
-logger = logging.getLogger(__name__)
+from __future__ import annotationsimport hashlibimport jsonimport loggingfrom datetime import date, datetimefrom decimal import ROUND_HALF_UP, Decimalfrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, statusfrom fastapi.responses import Responsefrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)from domain.shared_value_objects.enums import TransactionTypelogger = logging.getLogger(__name__)
 
 # ============================================================================
 # IDEMPOTENCY MANAGER (for write operations)

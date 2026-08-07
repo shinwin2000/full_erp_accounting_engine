@@ -17,7 +17,6 @@ from infrastructure.database.session_factory_sqlalchemy import (
     get_async_session_factory,
     get_engine,
     get_read_session,
-    get_session,
     get_session_factory,
     get_session_factory_sync,
     get_test_session,
@@ -401,13 +400,6 @@ async def test_get_async_session_with_exception():
         gen.throw(ValueError("test error"))
     mock_session.rollback.assert_awaited_once()
     mock_session.close.assert_awaited_once()
-
-async def test_get_async_session_alias():
-    # get_session is alias for get_async_session
-    with patch("infrastructure.database.session_factory_sqlalchemy.get_async_session") as mock:
-        async for _ in get_session():
-            pass
-        mock.assert_called_once()
 
 async def test_get_read_session():
     mock_session = AsyncMock()

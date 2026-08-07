@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 """
 Module: authority_matrix.py
 Layer: Infrastructure / Security

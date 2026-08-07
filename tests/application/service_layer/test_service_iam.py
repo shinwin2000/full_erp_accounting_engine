@@ -27,7 +27,6 @@ from application.service_layer.service_iam import (
     UpdateRoleRequest,
     UserNotFoundError,
     UserResponse,
-    audit,
     create_iam_service,
 )
 
@@ -390,16 +389,6 @@ class TestIAMService:
             return
         # Real-code smoke assertion: call completed without raising
         assert True
-
-
-def test_audit_smoke():
-    """Smoke test for module-level function audit."""
-    try:
-        audit(func=MagicMock())
-    except (Exception, SystemExit) as e:
-        pytest.skip(f"audit needs specific input data: {e}")
-        return
-    assert True
 
 
 async def test_create_iam_service_smoke():

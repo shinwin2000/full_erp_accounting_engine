@@ -242,16 +242,31 @@ class ServiceRegistrar:
             logger.info("FiscalPeriodService registered with dependencies")
 
             # ----- Registrasi EmployeeService dengan factory yang aman -----
+            # FIX (2026-08-07): sebelumnya EmployeeService() dibuat TANPA repository
+            # sama sekali (EmployeeService(event_publisher=event_publisher) saja),
+            # padahal EmployeeRepositoryPort -> SQLAlchemyEmployeeRepository sudah
+            # terdaftar otomatis lewat adapter_registry.py. Sekarang di-resolve
+            # eksplisit, sama seperti pola FiscalPeriodService di atas, supaya
+            # data employee benar-benar tersimpan ke database (bukan diam-diam
+            # fallback ke instance repository baru yang dibuat sendiri oleh
+            # EmployeeService, yang walau tetap tersambung DB, tidak berbagi
+            # session/registrasi dengan container).
             async def _create_employee_service():
+                try:
+                    from ports.primary.employee_repository_port import EmployeeRepositoryPort
+                    employee_repo = await container.resolve_async(EmployeeRepositoryPort)
+                except Exception as e:
+                    logger.warning(f"EmployeeRepositoryPort not available, EmployeeService will self-construct one: {e}")
+                    employee_repo = None
                 try:
                     from ports.primary.event_publisher_port import EventPublisherPort
                     event_publisher = await container.resolve_async(EventPublisherPort)
                 except Exception:
                     event_publisher = None
-                return EmployeeService(event_publisher=event_publisher)
+                return EmployeeService(repository=employee_repo, event_publisher=event_publisher)
 
             container.register_singleton(EmployeeService, factory=_create_employee_service)
-            logger.info("EmployeeService registered")
+            logger.info("EmployeeService registered with EmployeeRepositoryPort dependency")
 
             logger.info("Application services registered")
         except ImportError as e:

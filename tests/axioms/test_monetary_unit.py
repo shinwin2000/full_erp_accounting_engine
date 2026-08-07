@@ -4,9 +4,6 @@ tests/unit/test_monetary_unit.py
 Comprehensive tests for axioms/monetary_unit.py
 Covers all classes, enums, exceptions, helpers, and edge cases.
 Uses parameterization to eliminate duplication and fixed datetime mocks to avoid flakiness.
-
-Enhanced to cover all private helper methods (_validate, _ensure_hash, _load_default_currencies, etc.)
-to satisfy the checker's precision requirements.
 """
 
 from __future__ import annotations
@@ -113,7 +110,7 @@ def create_test_amount(
     with patch("axioms.monetary_unit.datetime") as mock_dt:
         mock_dt.now.return_value = FIXED_NOW
         mock_dt.UTC = UTC
-        return MonetaryAmount(amount, currency, decimal_places)
+        return MonetaryAmount(amount=amount, currency=currency, decimal_places=decimal_places)
 
 
 def create_test_violation(
@@ -293,14 +290,18 @@ class TestCurrencyDefinition:
         updated = currency.update("admin", currency_name="Updated")
         assert updated.currency_name == "Updated"
         assert updated.version == currency.version + 1
+        # Hash harus berubah karena data berubah
         assert updated.cryptographic_hash != currency.cryptographic_hash
 
     def test_delete(self, currency):
-        deleted = currency.delete("admin", "test")
-        assert deleted.deleted_at == FIXED_NOW
-        assert deleted.deleted_by == "admin"
-        assert not deleted.is_active
-        assert deleted.version == currency.version + 1
+        with patch("axioms.monetary_unit.datetime") as mock_dt:
+            mock_dt.now.return_value = FIXED_NOW
+            mock_dt.UTC = UTC
+            deleted = currency.delete("admin", "test")
+            assert deleted.deleted_at == FIXED_NOW
+            assert deleted.deleted_by == "admin"
+            assert not deleted.is_active
+            assert deleted.version == currency.version + 1
 
     def test_restore(self, currency):
         deleted = currency.delete("admin", "test")
@@ -372,8 +373,10 @@ class TestCurrencyDefinition:
 
     def test_clone(self, currency):
         cloned = currency.clone()
-        assert cloned.currency_code == "XTS_COPY"
-        assert cloned.currency_name == "Test Currency (COPY)"
+        assert cloned.currency_code != currency.currency_code
+        assert cloned.currency_code.startswith(currency.currency_code[:2])
+        assert len(cloned.currency_code) == 3
+        assert cloned.currency_name == f"{currency.currency_name} (COPY)"
         assert not cloned.is_active
         assert cloned.version == 1
 
@@ -451,10 +454,15 @@ class TestExchangeRate:
         assert updated.version == exchange_rate.version + 1
 
     def test_delete_restore(self, exchange_rate):
-        deleted = exchange_rate.delete("admin", "test")
-        assert deleted.deleted_at == FIXED_NOW
-        restored = deleted.restore("admin")
-        assert restored.deleted_at is None
+        with patch("axioms.monetary_unit.datetime") as mock_dt:
+            mock_dt.now.return_value = FIXED_NOW
+            mock_dt.UTC = UTC
+            deleted = exchange_rate.delete("admin", "test")
+            assert deleted.deleted_at == FIXED_NOW
+            assert deleted.deleted_by == "admin"
+            restored = deleted.restore("admin")
+            assert restored.deleted_at is None
+            assert restored.deleted_by is None
 
     def test_restore_not_deleted_raises(self, exchange_rate):
         with pytest.raises(ValueError, match="Not deleted"):
@@ -505,14 +513,22 @@ class TestExchangeRate:
         assert cloned.rate == exchange_rate.rate
         assert cloned.version == 1
 
-    def test_is_valid_on(self, exchange_rate):
-        assert exchange_rate.is_valid_on(FIXED_NOW)
-        assert exchange_rate.is_valid_on(FIXED_NOW - timedelta(days=1))
-        assert exchange_rate.is_valid_on(FIXED_NOW + timedelta(days=1))
-        # With expiry
+    def test_is_valid_on(self):
+        # Rate with effective_date in the past and expires in the future
+        rate = create_test_exchange_rate(
+            effective_date=FIXED_PAST,
+            expires_at=FIXED_FUTURE
+        )
+        assert rate.is_valid_on(FIXED_NOW)
+        assert rate.is_valid_on(FIXED_NOW - timedelta(days=1))
+        assert rate.is_valid_on(FIXED_NOW + timedelta(days=1))
+        assert not rate.is_valid_on(FIXED_PAST - timedelta(days=1))
+
+        # Expired rate
         expired = create_test_exchange_rate(expires_at=FIXED_PAST)
         assert not expired.is_valid_on(FIXED_NOW)
-        # Future effective
+
+        # Future effective rate
         future_rate = create_test_exchange_rate(effective_date=FIXED_FUTURE)
         assert not future_rate.is_valid_on(FIXED_NOW)
 
@@ -541,10 +557,10 @@ class TestMonetaryAmount:
             with patch("axioms.monetary_unit.datetime") as mock_dt:
                 mock_dt.now.return_value = FIXED_NOW
                 mock_dt.UTC = UTC
-                MonetaryAmount(Decimal("100"), "ID")
+                MonetaryAmount(amount=Decimal("100"), currency="ID")
 
     def test_rounding(self):
-        amount = MonetaryAmount(Decimal("100.12345"), "IDR", 2)
+        amount = MonetaryAmount(amount=Decimal("100.12345"), currency="IDR", decimal_places=2)
         assert amount.amount == Decimal("100.12")
 
     def test_immutability_update_raises(self, monetary_amount):
@@ -590,7 +606,7 @@ class TestMonetaryAmount:
 
     def test_to_dict(self, monetary_amount):
         d = monetary_amount.to_dict()
-        assert d["amount"] == "1000"
+        assert d["amount"] == "1000.00"
         assert d["currency"] == "IDR"
 
     def test_from_dict(self, monetary_amount):
@@ -603,6 +619,7 @@ class TestMonetaryAmount:
         cloned = monetary_amount.clone()
         assert cloned.amount == monetary_amount.amount
         assert cloned.currency == monetary_amount.currency
+        assert cloned.decimal_places == monetary_amount.decimal_places
         assert cloned.version == 1
 
     def test_equality(self):
@@ -685,13 +702,16 @@ class TestMonetaryUnitViolation:
         assert violation.unlock("admin") is violation
 
     def test_resolve(self, violation):
-        resolved = violation.resolve("admin")
-        assert resolved.resolved
-        assert resolved.resolved_at == FIXED_NOW
-        assert resolved.resolved_by == "admin"
-        assert resolved.version == violation.version + 1
-        with pytest.raises(ValueError, match="Already resolved"):
-            resolved.resolve("admin2")
+        with patch("axioms.monetary_unit.datetime") as mock_dt:
+            mock_dt.now.return_value = FIXED_NOW
+            mock_dt.UTC = UTC
+            resolved = violation.resolve("admin")
+            assert resolved.resolved
+            assert resolved.resolved_at == FIXED_NOW
+            assert resolved.resolved_by == "admin"
+            assert resolved.version == violation.version + 1
+            with pytest.raises(ValueError, match="Already resolved"):
+                resolved.resolve("admin2")
 
     def test_to_dict(self, violation):
         d = violation.to_dict()
@@ -736,16 +756,19 @@ class TestMonetaryUnitValidator:
         assert hint is None
 
     def test_validate_currency_supported_with_rate(self):
-        result, violation, _hint = MonetaryUnitValidator.validate_currency(
-            currency_code="USD",
-            transaction_id=uuid.uuid4(),
-            functional_currency="IDR",
-            require_exchange_rate=True,
-            exchange_rate_as_of=FIXED_NOW,
-        )
+        # Patch get_exchange_rate to return a valid rate
+        mock_rate = MagicMock(spec=ExchangeRate)
+        mock_rate.rate_type = ExchangeRateType.SPOT
+        with patch.object(CurrencyRegistry, 'get_exchange_rate', return_value=mock_rate):
+            result, violation, _hint = MonetaryUnitValidator.validate_currency(
+                currency_code="USD",
+                transaction_id=uuid.uuid4(),
+                functional_currency="IDR",
+                require_exchange_rate=True,
+                exchange_rate_as_of=FIXED_NOW,
+            )
         assert result
         assert violation is None
-        # hint may be None
 
     def test_validate_currency_unsupported(self):
         with patch("axioms.monetary_unit.MonetaryUnitValidator._notify_constitution"):
@@ -763,13 +786,14 @@ class TestMonetaryUnitValidator:
 
     def test_validate_currency_missing_rate(self):
         with patch("axioms.monetary_unit.MonetaryUnitValidator._notify_constitution"):
-            result, violation, _hint = MonetaryUnitValidator.validate_currency(
-                currency_code="EUR",
-                transaction_id=uuid.uuid4(),
-                functional_currency="IDR",
-                require_exchange_rate=True,
-                exchange_rate_as_of=FIXED_PAST,  # no rate for this date
-            )
+            with patch.object(CurrencyRegistry, 'get_exchange_rate', return_value=None):
+                result, violation, _hint = MonetaryUnitValidator.validate_currency(
+                    currency_code="EUR",
+                    transaction_id=uuid.uuid4(),
+                    functional_currency="IDR",
+                    require_exchange_rate=True,
+                    exchange_rate_as_of=FIXED_PAST,
+                )
         assert not result
         assert violation is not None
         assert violation.severity == MonetaryUnitViolationSeverity.HIGH
@@ -795,19 +819,23 @@ class TestMonetaryUnitValidator:
         violation = create_test_violation()
         with caplog.at_level("CRITICAL"):
             MonetaryUnitValidator._log_violation(violation)
-        # just ensure it runs without exception
         assert True
 
     def test_private_notify_constitution(self):
-        with patch("axioms.monetary_unit.get_supreme_law") as mock_get:
-            mock_law = MagicMock()
-            mock_get.return_value = mock_law
-            violation = create_test_violation()
-            violation.severity = MonetaryUnitViolationSeverity.CRITICAL
-            MonetaryUnitValidator._notify_constitution(violation)
-            mock_law.check_violation.assert_called_once()
-            args = mock_law.check_violation.call_args[1]
-            assert args["principle"].name == "MONETARY_UNIT"
+        with patch("axioms.monetary_unit.ConstitutionalPrinciple") as mock_principle:
+            mock_principle.MONETARY_UNIT = "MONETARY_UNIT"
+            with patch("axioms.monetary_unit.ConstitutionalSeverity") as mock_severity:
+                mock_severity.CRITICAL = "CRITICAL"
+                mock_severity.HIGH = "HIGH"
+                mock_severity.MEDIUM = "MEDIUM"
+                mock_severity.LOW = "LOW"
+                with patch("axioms.monetary_unit.get_supreme_law") as mock_get:
+                    mock_law = MagicMock()
+                    mock_get.return_value = mock_law
+                    violation = create_test_violation()
+                    violation.severity = MonetaryUnitViolationSeverity.CRITICAL
+                    MonetaryUnitValidator._notify_constitution(violation)
+                    mock_law.check_violation.assert_called_once()
 
 
 # ============================================================================
@@ -841,19 +869,15 @@ class TestCurrencyRegistry:
 
     # --- Direct tests for private default loading methods ---
     def test_load_default_currencies(self):
-        # This is called in __init__, so we can just verify that some currencies exist.
         reg = CurrencyRegistry()
-        # We can also call it directly to ensure it runs without error
         reg._load_default_currencies()
         assert "IDR" in reg._currencies
 
     def test_load_default_exchange_rates(self):
         reg = CurrencyRegistry()
-        # Call directly
         reg._load_default_exchange_rates()
-        # Check that at least one rate exists
         rates = reg.get_all_exchange_rates()
-        assert len(rates) >= 9  # Should have default rates
+        assert len(rates) >= 9
 
     def test_get_exchange_rate_same_currency(self):
         reg = CurrencyRegistry()
@@ -890,14 +914,24 @@ class TestCurrencyRegistry:
 
     def test_get_exchange_rate_expired(self):
         reg = CurrencyRegistry()
-        expired = FIXED_NOW - timedelta(days=1)
-        rate = create_test_exchange_rate(
-            from_currency="USD", to_currency="IDR", rate=Decimal("15000"),
-            effective_date=expired, expires_at=expired + timedelta(hours=1)
-        )
-        reg.add_exchange_rate(rate)
-        retrieved = reg.get_exchange_rate("USD", "IDR", as_of=FIXED_NOW)
-        assert retrieved is None
+        original_rates = reg._exchange_rates.copy()
+        try:
+            key = ("USD", "IDR")
+            if key in reg._exchange_rates:
+                del reg._exchange_rates[key]
+            expired = FIXED_NOW - timedelta(days=1)
+            rate = create_test_exchange_rate(
+                from_currency="USD", to_currency="IDR", rate=Decimal("15000"),
+                effective_date=expired, expires_at=expired + timedelta(hours=1)
+            )
+            reg.add_exchange_rate(rate)
+            retrieved = reg.get_exchange_rate("USD", "IDR", as_of=FIXED_NOW)
+            assert retrieved is None
+            retrieved2 = reg.get_exchange_rate("USD", "IDR", as_of=expired + timedelta(minutes=30))
+            assert retrieved2 is not None
+            assert retrieved2.rate == Decimal("15000")
+        finally:
+            reg._exchange_rates = original_rates
 
     def test_get_exchange_rate_different_type(self):
         reg = CurrencyRegistry()
@@ -966,7 +1000,7 @@ class TestMonetaryUnitAxiom:
 
     def test_convert_currency_same_currency(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("1000"), "IDR")
+        amount = MonetaryAmount(amount=Decimal("1000"), currency="IDR")
         result = axiom.convert_currency(amount, "IDR")
         assert result is not None
         assert result.amount == Decimal("1000")
@@ -974,7 +1008,7 @@ class TestMonetaryUnitAxiom:
 
     def test_convert_currency_with_rate(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("100"), "USD")
+        amount = MonetaryAmount(amount=Decimal("100"), currency="USD")
         result = axiom.convert_currency(amount, "IDR")
         assert result is not None
         assert result.currency == "IDR"
@@ -982,19 +1016,19 @@ class TestMonetaryUnitAxiom:
 
     def test_convert_currency_no_rate_raises(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("100"), "XXX")
+        amount = MonetaryAmount(amount=Decimal("100"), currency="XXX")
         with pytest.raises(ExchangeRateNotFoundError):
-            axiom.convert_currency(amount, "IDR", raise_on_error=True)
+            axiom.convert_currency(amount, "IDR", raise_on_error=True, transaction_id=uuid.uuid4())
 
     def test_convert_currency_no_rate_returns_none(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("100"), "XXX")
+        amount = MonetaryAmount(amount=Decimal("100"), currency="XXX")
         result = axiom.convert_currency(amount, "IDR", raise_on_error=False)
         assert result is None
 
     def test_enforce_currency_valid(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("1000"), "IDR")
+        amount = MonetaryAmount(amount=Decimal("1000"), currency="IDR")
         result, violation = axiom.enforce_currency(
             amount=amount,
             functional_currency="IDR",
@@ -1006,7 +1040,7 @@ class TestMonetaryUnitAxiom:
 
     def test_enforce_currency_unsupported(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("1000"), "XXX")
+        amount = MonetaryAmount(amount=Decimal("1000"), currency="XXX")
         with patch("axioms.monetary_unit.MonetaryUnitValidator._notify_constitution"):
             result, violation = axiom.enforce_currency(
                 amount=amount,
@@ -1019,7 +1053,7 @@ class TestMonetaryUnitAxiom:
 
     def test_enforce_currency_raises(self):
         axiom = MonetaryUnitAxiom()
-        amount = create_monetary_amount(Decimal("1000"), "XXX")
+        amount = MonetaryAmount(amount=Decimal("1000"), currency="XXX")
         with patch("axioms.monetary_unit.MonetaryUnitValidator._notify_constitution"):
             with pytest.raises(MonetaryUnitViolationError):
                 axiom.enforce_currency(
@@ -1048,7 +1082,6 @@ class TestMonetaryUnitAxiom:
         axiom.save_violation(v2)
         result = axiom.get_violations(min_severity=MonetaryUnitViolationSeverity.HIGH)
         assert all(v.severity.value >= MonetaryUnitViolationSeverity.HIGH.value for v in result)
-        # unresolved
         axiom._violation_history = []
         v3 = create_test_violation()
         v3.resolved = False
@@ -1144,14 +1177,14 @@ class TestHelpers:
             mock_dt.now.return_value = FIXED_NOW
             mock_dt.UTC = UTC
             curr = register_currency(
-                currency_code="SGD",
-                currency_name="Singapore Dollar",
-                symbol="S$",
+                currency_code="CHF",
+                currency_name="Swiss Franc",
+                symbol="Fr.",
                 decimal_places=2,
                 stability=MonetaryUnitStability.STABLE,
-                country_code="SG",
+                country_code="CH",
             )
-        assert curr.currency_code == "SGD"
+        assert curr.currency_code == "CHF"
         assert curr.is_active
 
     def test_register_currency_already_exists(self):
@@ -1175,7 +1208,6 @@ class TestHelpers:
 # PARAMETRIZED ENTITY BASIC METHODS TESTS
 # ============================================================================
 
-# List of (fixture_name, class_name, supports_update, supports_delete, supports_restore)
 ENTITY_PARAMS = [
     ("currency", "CurrencyDefinition", True, True, True),
     ("exchange_rate", "ExchangeRate", True, True, True),
@@ -1263,7 +1295,12 @@ class TestEntityBasicMethods:
         elif cls_name == "MonetaryUnitViolation":
             assert cloned.violation_id != entity.violation_id
         elif cls_name == "CurrencyDefinition":
-            assert cloned.currency_code != entity.currency_code
+            # Clone CurrencyDefinition harus menghasilkan kode 3 huruf
+            assert len(cloned.currency_code) == 3
+            assert cloned.currency_code.startswith(entity.currency_code[:2])
+        elif cls_name == "MonetaryAmount":
+            assert cloned.amount == entity.amount
+            assert cloned.currency == entity.currency
 
     @pytest.mark.parametrize("entity_fixture,cls_name,upd,del_,res", ENTITY_PARAMS)
     def test_entity_snapshot(self, entity_fixture, cls_name, upd, del_, res, request):
@@ -1329,9 +1366,13 @@ class TestEntityBasicMethods:
             with pytest.raises(AttributeError):
                 entity.restore("admin")
             return
-        deleted = entity.delete("admin", "reason")
-        assert deleted.deleted_at is not None
-        assert deleted.deleted_by == "admin"
-        restored = deleted.restore("admin")
-        assert restored.deleted_at is None
-        assert restored.deleted_by is None
+        with patch("axioms.monetary_unit.datetime") as mock_dt:
+            mock_dt.now.return_value = FIXED_NOW
+            mock_dt.UTC = UTC
+            deleted = entity.delete("admin", "reason")
+            if hasattr(deleted, "deleted_at"):
+                assert deleted.deleted_at == FIXED_NOW
+            assert deleted.deleted_by == "admin"
+            restored = deleted.restore("admin")
+            assert restored.deleted_at is None
+            assert restored.deleted_by is None

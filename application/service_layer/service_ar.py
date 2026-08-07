@@ -15,13 +15,13 @@ Responsibility:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
-import dataclasses
 from dataclasses import dataclass, field, is_dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any, get_args, get_origin
+from typing import Any
 from uuid import UUID, uuid4
 
 # Import JournalPostedEvent from application.events (it is registered)

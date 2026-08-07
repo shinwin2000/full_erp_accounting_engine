@@ -192,8 +192,8 @@ class ApprovalRepositoryPort(ABC):
         status: str | None = None,
         requester_id: uuid.UUID | None = None,
         approver_id: uuid.UUID | None = None,
-        start_date: "date | None" = None,
-        end_date: "date | None" = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[ApprovalRequestTable], int]:
@@ -263,8 +263,8 @@ class ApprovalRepositoryPort(ABC):
     async def get_statistics(
         self,
         legal_entity_id: uuid.UUID,
-        start_date: "date | None" = None,
-        end_date: "date | None" = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         entity_type: str | None = None,
     ) -> dict[str, Any]:
         """Menghitung statistik approval request (agregat) untuk periode tertentu."""

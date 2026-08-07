@@ -8,6 +8,25 @@ FIX v8:
 - _to_domain_role() menggunakan perm_table.resource dan perm_table.action (bukan .name)
 - _to_domain_permission() menggunakan resource dan action (bukan name)
 - create_role dan update_role menggunakan p.resource dan p.action
+
+FIX v9 (concurrency):
+- Repository ini dipakai lewat SATU instance singleton (app.state.iam_service
+  -> _iam_repo), dibuat sekali saat startup dan dipakai bersama oleh SEMUA
+  request. Sebelumnya session & legal_entity_id per-request disimpan sebagai
+  atribut instance biasa (self._session, self._legal_entity_id), yang
+  ditimpa setiap kali set_session()/set_legal_entity_id() dipanggil.
+  Akibatnya, kalau 2+ request berjalan bersamaan (mis. dashboard yang
+  menembak banyak endpoint IAM sekaligus), request yang satu bisa memakai
+  session milik request lain di tengah jalan -> error SQLAlchemy
+  "This session is provisioning a new connection; concurrent operations
+  are not permitted", atau lebih parah, data user/legal-entity yang salah
+  ikut tercampur.
+  Diperbaiki dengan contextvars.ContextVar: nilai session & legal_entity_id
+  sekarang disimpan per-asyncio-task (setiap request FastAPI berjalan di
+  task-nya sendiri), bukan di objek instance yang dipakai bersama. Ini
+  memperbaiki race condition tanpa perlu mengubah wiring DI/bootstrap atau
+  cara router memanggil set_context()/set_session() - dari luar, perilaku
+  method-method publik di class ini tetap sama persis.
 """
 
 from __future__ import annotations
@@ -15,6 +34,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -142,33 +162,54 @@ class PasswordHelper:
 # REPOSITORY IMPLEMENTATION
 # ============================================================================
 
+# ============================================================================
+# REQUEST-SCOPED CONTEXT (per asyncio task, aman untuk request konkuren)
+# ============================================================================
+# Repository ini dipakai sebagai singleton (satu instance untuk semua
+# request), jadi context per-request TIDAK BOLEH disimpan sebagai atribut
+# instance biasa (self._session dkk) karena akan saling menimpa antar
+# request yang berjalan bersamaan. ContextVar menyimpan nilainya terpisah
+# untuk setiap asyncio Task (= setiap request FastAPI), jadi aman dipakai
+# bersama walau objek repository-nya sama.
+_iam_session_ctx: ContextVar[AsyncSession | None] = ContextVar(
+    "iam_repo_session", default=None
+)
+_iam_legal_entity_id_ctx: ContextVar[UUID | None] = ContextVar(
+    "iam_repo_legal_entity_id", default=None
+)
+
+
 class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     """Repository IAM – production grade, no fallback."""
 
     def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
-        self._session = session
-        self._legal_entity_id = legal_entity_id
+        if session is not None:
+            _iam_session_ctx.set(session)
+        if legal_entity_id is not None:
+            _iam_legal_entity_id_ctx.set(legal_entity_id)
         self._encryption = FieldEncryption()
         self._audit_log: list[dict[str, Any]] = []
 
     # ---- Setters for request-scoped context ----
     def set_session(self, session: AsyncSession) -> None:
-        self._session = session
+        _iam_session_ctx.set(session)
 
     def set_legal_entity_id(self, legal_entity_id: UUID) -> None:
-        self._legal_entity_id = legal_entity_id
+        _iam_legal_entity_id_ctx.set(legal_entity_id)
 
     # ---- Internal helpers ----
     @property
     def session(self) -> AsyncSession:
-        if self._session is None:
+        session = _iam_session_ctx.get()
+        if session is None:
             raise IAMRepositoryError("Session not set – call set_session() before using repository")
-        return self._session
+        return session
 
     def _get_legal_entity_id(self) -> UUID:
-        if self._legal_entity_id is None:
+        legal_entity_id = _iam_legal_entity_id_ctx.get()
+        if legal_entity_id is None:
             raise ValueError("legal_entity_id not set – call set_legal_entity_id() before using repository")
-        return self._legal_entity_id
+        return legal_entity_id
 
     # ---- Mapping ----
     def _to_domain(self, table: IAMUserTable) -> UserAggregate:
@@ -295,7 +336,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             password_hash=PasswordHashedVO(agg.hashed_password),
             status=agg.status,
             profile=profile,
-            legal_entity_id=agg.legal_entity_ids[0] if agg.legal_entity_ids else self._legal_entity_id,
+            legal_entity_id=agg.legal_entity_ids[0] if agg.legal_entity_ids else _iam_legal_entity_id_ctx.get(),
             role_ids=agg.role_ids,
             failed_login_attempts=agg.failed_login_count,
             locked_until=agg.locked_until,
@@ -1222,12 +1263,12 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     # ========================================================================
     # REQUEST CONTEXT SETTERS (dipanggil oleh service.set_context)
     # ========================================================================
-
-    def set_session(self, session: AsyncSession) -> None:
-        self._session = session
-
-    def set_legal_entity_id(self, legal_entity_id: UUID) -> None:
-        self._legal_entity_id = legal_entity_id
+    # CATATAN: override ini sebelumnya menulis ke self._session /
+    # self._legal_entity_id (atribut instance biasa), sehingga menimpa balik
+    # perbaikan ContextVar di base class SQLAlchemyIAMUserRepository -
+    # sekarang cukup dihapus dan biarkan resolve ke method base class yang
+    # sudah pakai ContextVar (aman untuk request konkuren). Method ini
+    # sengaja TIDAK didefinisikan ulang di sini.
 
 
 # ============================================================================

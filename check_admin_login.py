@@ -43,6 +43,7 @@ async def check_db():
     print("\n=== TES 3: Cek row admin langsung dari database ===")
     try:
         from sqlalchemy import text
+
         from infrastructure.persistence_orm.database import async_session_maker
     except ImportError as e:
         print(f"  Tidak bisa import modul project: {e}")

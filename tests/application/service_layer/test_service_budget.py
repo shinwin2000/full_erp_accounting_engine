@@ -17,7 +17,6 @@ from application.service_layer.service_budget import (
     BudgetCreateRequest,
     BudgetLineCreateRequest,
     BudgetLineRequest,
-    BudgetLineResponse,
     BudgetLineUpdateRequest,
     BudgetNotFoundError,
     BudgetPeriodClosedError,
@@ -32,9 +31,14 @@ from application.service_layer.service_budget import (
     audit,
     create_budget_service,
 )
-from domain.budget.aggregate_root import BudgetAggregate, BudgetLine, BudgetPeriod, BudgetStatus, BudgetType
+from domain.budget.aggregate_root import (
+    BudgetAggregate,
+    BudgetLine,
+    BudgetPeriod,
+    BudgetStatus,
+    BudgetType,
+)
 from ports.primary.budget_repository_port import BudgetEntity, BudgetLineEntity
-
 
 # ---------- DTO Tests ----------
 

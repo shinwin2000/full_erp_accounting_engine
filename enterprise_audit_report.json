@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-07-30T08:25:10.982666Z",
+  "timestamp": "2026-08-07T01:45:14.400674Z",
   "version": "2.0.0",
   "summary": {
-    "total_duration_seconds": 4.712,
+    "total_duration_seconds": 0.669,
     "passed": 16,
     "total_tests": 16,
     "score_percent": 100.0
@@ -12,10 +12,10 @@
       "name": "Trial Balance (Global Debit=Credit)",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 4.408,
+      "duration_seconds": 0.61,
       "severity": "WARNING",
       "details": {
-        "note": "No data"
+        "note": "Table not found"
       },
       "error": null,
       "suggested_fix": null,
@@ -26,9 +26,11 @@
       "name": "Duplicate Journal Numbers (Global)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.017,
-      "severity": "INFO",
-      "details": {},
+      "duration_seconds": 0.001,
+      "severity": "WARNING",
+      "details": {
+        "note": "Table not found"
+      },
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -38,9 +40,11 @@
       "name": "Invalid Account References (FK)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.03,
-      "severity": "INFO",
-      "details": {},
+      "duration_seconds": 0.001,
+      "severity": "WARNING",
+      "details": {
+        "note": "Tables missing"
+      },
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -50,7 +54,7 @@
       "name": "Subledger vs GL Reconciliation",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.008,
+      "duration_seconds": 0.003,
       "severity": "WARNING",
       "details": {
         "note": "No subledger"
@@ -64,7 +68,7 @@
       "name": "Negative Stock / Inventory",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.015,
+      "duration_seconds": 0.007,
       "severity": "WARNING",
       "details": {
         "note": "No inventory table"
@@ -78,9 +82,11 @@
       "name": "Transactions Outside Fiscal Period",
       "category": "BUSINESS_RULE",
       "passed": true,
-      "duration_seconds": 0.058,
-      "severity": "INFO",
-      "details": {},
+      "duration_seconds": 0.002,
+      "severity": "WARNING",
+      "details": {
+        "note": "Tables missing"
+      },
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -90,10 +96,10 @@
       "name": "Optimistic Lock Version Consistency",
       "category": "CONCURRENCY",
       "passed": true,
-      "duration_seconds": 0.013,
-      "severity": "INFO",
+      "duration_seconds": 0.01,
+      "severity": "WARNING",
       "details": {
-        "checked": 0
+        "note": "No version column found"
       },
       "error": null,
       "suggested_fix": null,
@@ -104,7 +110,7 @@
       "name": "Audit Trail Integrity (Hash Chain)",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 0.015,
+      "duration_seconds": 0.005,
       "severity": "WARNING",
       "details": {
         "note": "No audit table"
@@ -118,7 +124,7 @@
       "name": "Orphaned Records (Journal Ref)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.011,
+      "duration_seconds": 0.007,
       "severity": "WARNING",
       "details": {
         "note": "Tables missing"
@@ -132,7 +138,7 @@
       "name": "Duplicate Master Data (Account, Customer, Supplier)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.077,
+      "duration_seconds": 0.005,
       "severity": "INFO",
       "details": {},
       "error": null,
@@ -144,10 +150,10 @@
       "name": "Trial Balance by Legal Entity & Period",
       "category": "ACCOUNTING",
       "passed": true,
-      "duration_seconds": 0.015,
-      "severity": "INFO",
+      "duration_seconds": 0.002,
+      "severity": "WARNING",
       "details": {
-        "status": "All entities/periods balanced"
+        "note": "GL not found"
       },
       "error": null,
       "suggested_fix": null,
@@ -158,9 +164,11 @@
       "name": "Journal Duplicates by Period/Entity",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.01,
-      "severity": "INFO",
-      "details": {},
+      "duration_seconds": 0.002,
+      "severity": "WARNING",
+      "details": {
+        "note": "GL not found"
+      },
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -170,9 +178,11 @@
       "name": "Expanded FK Integrity (Customer, Vendor, Project)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.005,
-      "severity": "INFO",
-      "details": {},
+      "duration_seconds": 0.002,
+      "severity": "WARNING",
+      "details": {
+        "note": "GL not found"
+      },
       "error": null,
       "suggested_fix": null,
       "rca": null,
@@ -182,7 +192,7 @@
       "name": "Inventory Sanity (On-Hand, Reserved, Available)",
       "category": "DATA_INTEGRITY",
       "passed": true,
-      "duration_seconds": 0.012,
+      "duration_seconds": 0.005,
       "severity": "WARNING",
       "details": {
         "note": "No inventory table"
@@ -196,7 +206,7 @@
       "name": "Missing Posting Check (Invoice vs GL)",
       "category": "BUSINESS_FLOW",
       "passed": true,
-      "duration_seconds": 0.004,
+      "duration_seconds": 0.001,
       "severity": "INFO",
       "details": {
         "note": "No missing postings found or tables not fully compatible"
@@ -210,9 +220,11 @@
       "name": "Date Sequence Sanity (Posting vs Document)",
       "category": "BUSINESS_RULE",
       "passed": true,
-      "duration_seconds": 0.006,
-      "severity": "INFO",
-      "details": {},
+      "duration_seconds": 0.001,
+      "severity": "WARNING",
+      "details": {
+        "note": "GL not found"
+      },
       "error": null,
       "suggested_fix": null,
       "rca": null,

@@ -10,6 +10,7 @@ import asyncio
 
 async def main():
     from sqlalchemy import text
+
     from infrastructure.persistence_orm.database import async_session_maker
 
     admin_id = "d319d343-742e-44ff-b142-37386a1cdd57"
@@ -28,7 +29,7 @@ async def main():
         for t in tables:
             print(f"  - {t}")
 
-        print(f"\n=== 2. Cek row iam_user untuk admin (role_ids, is_superuser) ===")
+        print("\n=== 2. Cek row iam_user untuk admin (role_ids, is_superuser) ===")
         result2 = await session.execute(
             text("SELECT role_ids, is_superuser FROM iam_user WHERE id = :id"),
             {"id": admin_id},

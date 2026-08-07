@@ -799,6 +799,16 @@ class AuthorityMatrix:
 
     def __init__(self):
         self._guard = get_authority_matrix_guard()
+        self._session_maker = None  # akan di-inject dari luar
+
+    def set_session_maker(self, session_maker: Any) -> None:
+        """
+        Set session factory (callable yang mengembalikan session) untuk digunakan
+        saat mengambil role dari database. Harus dipanggil sekali di bootstrap
+        dengan session_maker dari infrastructure.
+        """
+        self._session_maker = session_maker
+        logger.info("AuthorityMatrix.session_maker has been set.")
 
     def has_permission(self, role_name: str, permission: str) -> bool:
         if ":" not in permission:
@@ -833,20 +843,9 @@ class AuthorityMatrix:
         Method ini yang dipanggil oleh RBACEnforcer.check_permission() sebagai
         lapisan fallback setelah pengecekan permission langsung dari DB gagal.
 
-        SEBELUM PERBAIKAN: method ini TIDAK ADA SAMA SEKALI, sehingga setiap
-        kali kode sampai di sini akan raise AttributeError. Ini adalah salah
-        satu akar penyebab 403/401 yang terjadi walau user sudah berhasil
-        login dan punya role yang valid.
-
-        PERBAIKAN LANJUTAN: SQLAlchemyIAMUserRepository (repo asli) WAJIB
-        di-set_session() dulu sebelum method apa pun (termasuk get_user_roles())
-        bisa dipanggil -- kalau tidak, dia raise IAMRepositoryError("Session
-        not set"). Karena guard ini singleton yang di-wire sekali saat startup,
-        instance repo yang dipegangnya TIDAK punya session aktif. Method ini
-        sekarang membuka session sendiri (mengikuti pola yang sama seperti
-        RBACEnforcer._get_user_permissions() di rbac_enforcer_unified.py),
-        query roles, lalu menutup session -- supaya tidak tergantung pada
-        session yang mungkin sudah ditutup/tidak ada.
+        PERBAIKAN: Sekarang tidak lagi mengimpor dari infrastructure, melainkan
+        menggunakan session_maker yang harus diset sebelumnya melalui
+        set_session_maker() di bootstrap.
         """
         user_repo = getattr(self._guard, "_user_repo", None)
         if user_repo is None:
@@ -857,12 +856,13 @@ class AuthorityMatrix:
         try:
             if hasattr(user_repo, "get_user_roles") and hasattr(user_repo, "set_session"):
                 # Repo bergaya SQLAlchemyIAMUserRepository: butuh session per-panggilan.
-                from infrastructure.database.session_factory_sqlalchemy import (
-                    get_async_session_factory,
-                )
-
-                session_maker = await get_async_session_factory()
-                db_session = session_maker()
+                if self._session_maker is None:
+                    logger.error(
+                        "is_allowed: session_maker belum diset. "
+                        "Panggil AuthorityMatrix.set_session_maker() di bootstrap."
+                    )
+                    return False
+                db_session = self._session_maker()
                 try:
                     user_repo.set_session(db_session)
                     raw_roles = await user_repo.get_user_roles(user_id)

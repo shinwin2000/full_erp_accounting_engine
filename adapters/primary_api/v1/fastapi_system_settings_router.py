@@ -6,28 +6,7 @@ Responsibility: REST API endpoint untuk system settings.
 """
 
 
-from __future__ import annotations
-
-import hashlib
-import json
-import logging
-import re
-from datetime import datetime
-from enum import Enum
-from typing import Any
-from uuid import UUID
-
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
-    TokenPayload,
-    get_current_legal_entity,
-    get_current_user,
-    require_permission,
-)
-
-logger = logging.getLogger(__name__)
+from __future__ import annotationsimport hashlibimport jsonimport loggingimport refrom datetime import datetimefrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, statusfrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)logger = logging.getLogger(__name__)
 
 # ============================================================================
 # IDEMPOTENCY MANAGER (for write operations)

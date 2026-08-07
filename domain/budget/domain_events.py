@@ -15,7 +15,6 @@ from enum import Enum
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-
 # ============================================================================
 # EVENT TYPE ENUM
 # ============================================================================

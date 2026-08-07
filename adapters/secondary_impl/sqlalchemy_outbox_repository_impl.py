@@ -545,7 +545,7 @@ class SQLAlchemyOutboxRepository(OutboxRepositoryPort):
             raise OutboxRepositoryError(f"Failed to update checkpoint: {e}") from e
 
     # ========================================================================
-    # GET OUTBOX STATS — DIPERBAIKI (tanpa query dalam loop)
+    # GET OUTBOX STATS ï¿½ DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
     async def get_outbox_stats(self) -> dict[str, int]:

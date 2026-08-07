@@ -169,21 +169,55 @@ _reg(ModuleConfig(
 _reg(ModuleConfig(
     key="customers", label="Pelanggan (Customer)", category="Master Data", icon="🧑‍💼",
     base_path="/customers", list_path="/customers",
-    columns=[("customer_code", "Kode"), ("name", "Nama"), ("city", "Kota"),
-             ("credit_limit", "Limit Kredit"), ("is_active", "Aktif")],
+    # Kolom & field di bawah ini SENGAJA pakai nama persis sama dengan
+    # CustomerResponseModel di fastapi_customer_router.py (customer_name,
+    # tax_id, dst) supaya form Ubah ter-prefill benar dari data list, dan
+    # payload create/update langsung cocok dengan request schema backend
+    # (tidak ada lagi mismatch name<->customer_name / npwp<->tax_id).
+    columns=[("customer_code", "Kode"), ("customer_name", "Nama"),
+             ("company_name", "Perusahaan"), ("city", "Kota"), ("phone", "Telepon"),
+             ("email", "Email"), ("credit_limit", "Limit Kredit"),
+             ("current_balance", "Saldo Piutang"), ("status", "Status"),
+             ("is_active", "Aktif"), ("created_at", "Dibuat")],
     form_fields=[
         FieldSpec("customer_code", "Kode Customer", required=True),
-        FieldSpec("name", "Nama", required=True),
-        FieldSpec("npwp", "NPWP"),
+        FieldSpec("customer_name", "Nama Customer", required=True),
+        FieldSpec("company_name", "Nama Perusahaan"),
+        FieldSpec("customer_type", "Tipe", FieldType.SELECT,
+                  choices=("company", "individual", "government", "non_profit"),
+                  default="company"),
+        FieldSpec("tax_id", "NPWP"),
+        FieldSpec("tax_status", "Status Pajak", FieldType.SELECT,
+                  choices=("pkp", "non_pkp"), default="pkp"),
         FieldSpec("address", "Alamat", FieldType.TEXTAREA),
         FieldSpec("city", "Kota"),
+        FieldSpec("province", "Provinsi"),
+        FieldSpec("district", "Kecamatan"),
+        FieldSpec("postal_code", "Kode Pos"),
         FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID"),
         FieldSpec("phone", "Telepon"),
+        FieldSpec("mobile", "HP"),
         FieldSpec("email", "Email"),
+        FieldSpec("website", "Website"),
         FieldSpec("contact_person", "Contact Person"),
+        FieldSpec("contact_phone", "Telepon PIC"),
+        FieldSpec("contact_email", "Email PIC"),
         FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL),
+        FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL),
+        FieldSpec("currency", "Mata Uang", default="IDR"),
+        FieldSpec("payment_term_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30),
+        FieldSpec("discount_percent", "Diskon Default (%)", FieldType.DECIMAL),
+        FieldSpec("category", "Kategori"),
+        FieldSpec("price_group", "Price Level"),
+    ],
+    actions=[
+        ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
+        ActionSpec("deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"),
     ],
     edit_http_method="PATCH",
+    description="Master Customer lengkap (identitas, pajak, alamat, finance, status). "
+                 "Untuk alamat/PIC/attachment/notes/tags/riwayat kredit & saldo, buka "
+                 "tombol '📋 Detail' pada baris terpilih.",
 ))
 _reg(ModuleConfig(
     key="suppliers", label="Pemasok (Supplier)", category="Master Data", icon="🏭",

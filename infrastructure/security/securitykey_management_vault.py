@@ -76,7 +76,7 @@ class KeyManagementVault:
             config = load_yaml_config(config_path)
             return config.get("vault", {})
         except Exception as e:
-            # ConfigNotFoundError adalah kondisi normal – tidak perlu log
+            # ConfigNotFoundError adalah kondisi normal ï¿½ tidak perlu log
             if "ConfigNotFoundError" in str(type(e).__name__) or "ConfigNotFound" in str(e):
                 # Still log at debug level to avoid silent swallow
                 logger.debug(f"Config not found, using default Vault config: {e}")

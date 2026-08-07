@@ -23,7 +23,7 @@ import asyncio
 import csv
 import io
 import logging
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -45,12 +45,7 @@ from domain.coa.account_normal_balance_vo import NormalBalance
 from domain.coa.aggregate_root import COAAggregate
 from domain.coa.domain_events import (
     AccountCreatedEvent,
-    AccountDeactivatedEvent,
-    AccountReactivatedEvent,
     AccountUpdatedEvent,
-    COAArchivedEvent,
-    COALockedEvent,
-    COAUnlockedEvent,
 )
 from domain.coa.invariants_validator import COAInvariantsValidator
 from ports.primary.account_repository_port import AccountRepositoryPort

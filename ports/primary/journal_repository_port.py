@@ -301,7 +301,7 @@ class JournalRepositoryPort(ABC):
         created_by: UUID | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> "JournalListResult":
+    ) -> JournalListResult:
         """List jurnal dengan filter dan paginasi (dipakai endpoint GET /journals)."""
         pass
 

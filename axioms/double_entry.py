@@ -455,7 +455,6 @@ class JournalEntry:
         return new_journal
 
     def lock(self, locked_by: str, reason: str) -> JournalEntry:
-        # No lock state for journal, just add to metadata
         return self
 
     def unlock(self, unlocked_by: str) -> JournalEntry:
@@ -531,6 +530,12 @@ class JournalEntry:
 
     def clone(self) -> JournalEntry:
         new_id = uuid4()
+        # Clone lines with new journal_id
+        cloned_lines = []
+        for line in self.lines:
+            cloned_line = line.clone()
+            object.__setattr__(cloned_line, "journal_id", new_id)
+            cloned_lines.append(cloned_line)
         return JournalEntry(
             journal_id=new_id,
             journal_number=f"{self.journal_number}_COPY",
@@ -538,7 +543,7 @@ class JournalEntry:
             transaction_date=self.transaction_date,
             posting_date=None,
             description=f"Copy of {self.journal_number}: {self.description}",
-            lines=[line.clone() for line in self.lines],
+            lines=cloned_lines,
             created_by=self.created_by,
             created_at=datetime.now(UTC),
             approved_by=[],
@@ -643,7 +648,6 @@ class DoubleEntryVerificationRecord:
     def _validate(self) -> None:
         if self.version < 1:
             raise ValueError("Version must be >= 1")
-        # Skip hash validation during initial construction (hash="" means not yet computed)
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Hash mismatch")
 
@@ -1210,7 +1214,6 @@ def create_journal_line_dict(
 
 
 # === 8. SINGLETON INSTANCE ALIAS (untuk import langsung) ===
-# Ini adalah perbaikan utama: menyediakan instance singleton dengan nama 'double_entry'
 double_entry = get_double_entry_axiom()
 
 

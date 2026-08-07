@@ -897,6 +897,21 @@ class IAMService:
         iam = await self._iam_repo.get()
         return list(iam.roles.values())
 
+    async def get_user_roles(self, user_id: UUID) -> list[RoleEntity]:
+        """Ambil semua Role yang di-assign ke seorang user.
+
+        CATATAN PERBAIKAN: method ini sebelumnya belum ada sama sekali,
+        padahal endpoint GET /iam/users/{user_id}/roles di router sudah
+        memanggilnya - jadi endpoint tsb selalu gagal dengan
+        AttributeError. Ditambahkan di sini mengikuti pola yang sama
+        dengan list_roles()/get_user() yang sudah ada dan terbukti jalan.
+        """
+        iam = await self._iam_repo.get()
+        user = iam.users.get(user_id)
+        if user is None:
+            raise UserNotFoundError(f"User {user_id} not found")
+        return [iam.roles[rid] for rid in user.role_ids if rid in iam.roles]
+
     async def update_role(self, role_id: UUID, request: UpdateRoleRequest, updated_by: UUID,
                           correlation_id: str | None = None) -> RoleEntity:
         self._check_authority(updated_by, "update_role")

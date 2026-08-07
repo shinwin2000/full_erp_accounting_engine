@@ -2,161 +2,112 @@
 """
 Package: infrastructure.persistence_orm
 SQLAlchemy ORM models and tables - lazy imports to avoid circular dependencies.
+
+============================================================================
+CATATAN REFACTOR (baca ini kalau bingung kenapa file ini berubah)
+============================================================================
+Root cause bug "Failed to find active entities: ... failed to locate a name
+('InventoryBatchTable')" yang bikin login gagal setelah restart komputer:
+
+1. SQLAlchemy meng-configure SELURUH mapper registry secara bersamaan saat
+   mapper pertama diakses (bukan cuma tabel yang dipakai query tsb). Jadi
+   satu relationship() yang rusak di modul mana pun akan membuat SEMUA
+   query gagal - termasuk query yang sama sekali tidak berhubungan
+   (contoh: list legal entities untuk login, gagal gara-gara relationship
+   di modul inventory).
+
+2. Sebelumnya modul ini memakai daftar manual `_MODULE_NAMES` yang harus
+   di-update tangan setiap kali ada file model baru. Daftar itu sudah
+   TIDAK SINKRON dengan file yang benar-benar ada di folder ini - minimal
+   9 file model nyata tidak pernah ikut di-import oleh load_all_models():
+   approval_delegation_table, approval_matrix_table,
+   capital_contribution_table, iam_permission_table, iam_role_table,
+   iam_session_table, login_attempt_table, outbox_message_table,
+   payroll_payslip_table.
+
+   Karena load_all_models() menelan ImportError hanya sebagai warning
+   (tidak crash), startup log tetap menampilkan "All ORM models eagerly
+   loaded ✓" walau registry-nya sebenarnya belum lengkap. Kalau ada
+   relationship() di file lain yang menunjuk (via string) ke class yang
+   didefinisikan di salah satu dari 9 file yang "hilang" itu, mapper
+   configuration akan gagal - tapi SIFATNYA TIDAK KONSISTEN, tergantung
+   modul mana yang kebetulan sudah ke-import lebih dulu lewat jalur lain
+   (router, repository, dsb). Inilah yang menjelaskan pola "kadang jalan,
+   kadang error setelah restart".
+
+3. Gejala spesifik 'InventoryBatchTable' di log kalian kemungkinan besar
+   berasal dari file .pyc BASI di folder __pycache__ lokal (sisa dari
+   sebelum class tsb di-rename menjadi InventoryFIFOLayerTable). Python
+   seharusnya otomatis meng-invalidate .pyc kalau source berubah, tapi ini
+   bisa gagal di Windows kalau ada tool (antivirus/OneDrive/backup) yang
+   menyentuh timestamp file, atau kalau ada lebih dari satu virtualenv/
+   copy project yang dipakai bergantian. Solusi cepat: hapus semua folder
+   __pycache__ di project lalu jalankan ulang (lihat catatan di README /
+   pesan chat).
+
+PERBAIKAN DI FILE INI:
+- _MODULE_NAMES sekarang di-generate OTOMATIS dengan men-scan seluruh file
+  .py di folder ini (bukan daftar manual yang gampang basi). Setiap file
+  model baru otomatis ikut ter-load tanpa perlu edit file ini lagi.
+- load_all_models() sekarang memanggil sqlalchemy.orm.configure_mappers()
+  di akhir, supaya relationship yang rusak KETAHUAN SAAT STARTUP dengan
+  pesan error yang jelas - bukan diam-diam lolos lalu meledak nanti secara
+  acak di request user (seperti kasus login di atas).
+- Semua API publik lama (load_all_models, _MODULE_NAMES, lazy __getattr__)
+  dipertahankan supaya kode lain yang sudah memakainya tidak perlu diubah.
+============================================================================
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
+import pkgutil
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# DAFTAR SEMUA MODUL YANG SEHARUSNYA ADA
+# MODUL YANG SENGAJA DIKECUALIKAN
 # ============================================================================
-_MODULE_NAMES = [
-    "account_table",
-    "aggregate_snapshot_table",
-    "aml_risk_score_table",
-    "aml_suspicious_transaction_table",
-    "amortization_schedule_table",
-    "ap_credit_note_table",
-    "ap_invoice_line_table",
-    "ap_invoice_table",
-    "ap_payment_table",
-    "approval_request_table",
-    "approval_rule_table",
-    "ar_credit_note_table",
-    "ar_debit_note_table",
-    "ar_invoice_line_table",
-    "ar_invoice_table",
-    "ar_payment_table",
-    "asset_category_alias_table",
-    "asset_category_table",
-    "audit_event_table",
-    "audit_table",
-    "bank_account_table",
-    "bank_reconciliation_alias_table",
-    "bank_reconciliation_table",
-    "bank_transaction_table",
-    "base_model",
-    "bill_of_materials_line_table",
-    "bill_of_materials_table",
-    "budget_actual_table",
-    "budget_table",
-    "cash_book_table",
-    "company_entity_table",
-    "consolidation_group_member_table",
-    "consolidation_group_table",
-    "coretax_audit_log_table",
-    "coretax_bupot_table",
-    "coretax_emeterai_table",
-    "coretax_faktur_keluaran_table",
-    "coretax_faktur_line_table",
-    "coretax_faktur_masukan_table",
-    "coretax_faktur_table",
-    "coretax_nsfp_table",
-    "coretax_ntpn_table",
-    "coretax_spt_electronic_table",
-    "coretax_spt_table",
-    "coretax_submission_log_table",
-    "coretax_webhook_inbound_table",
-    "cost_card_table",
-    "customer_table",
-    "dead_letter_table",
-    "delivery_order_lines_table",
-    "delivery_order_table",
-    "depreciation_schedule_table",
-    "derivative_instrument_table",
-    "disposal_table",
-    "employee_table",
-    "equity_tables",
-    "event_store_table",
-    "exchange_rate_table",
-    "fair_value_hierarchy_table",
-    "fiscal_period_table",
-    "fixed_asset_schedule_table",
-    "fixed_asset_table",
-    "general_ledger_table",
-    "goods_receipt_line_table",
-    "goods_receipt_note_table",
-    "goodwill_impairment_table",
-    "goodwill_table",
-    "hash_chain_table",
-    "hedge_effectiveness_test_table",
-    "hedge_instrument_table",
-    "hedged_item_table",
-    "hedging_relationship_table",
-    "iam_user_table",
-    "impairment_test_table",
-    "intangible_asset_table",
-    "intangible_revaluation_table",
-    "integrity_check_result_table",
-    "inventory_fifo_layer_table",
-    "inventory_item_table",
-    "inventory_movement_table",
-    "inventory_stock_card_table",
-    "journal_header_table",
-    "journal_line_partitioned_table",
-    "journal_line_table",
-    "journal_line_template_table",
-    "ledger_entry_partitioned_table",
-    "ledger_entry_table",
-    "ledger_entry_template_table",
-    "legal_entity_branch_table",
-    "legal_entity_table",
-    "login_attempt_orm_table",
-    "machine_table",
-    "manufacturing_cost_card_table",
-    "manufacturing_routing_table",
-    "manufacturing_wip_table",
-    "manufacturing_work_order_table",
-    "outbox_checkpoint_table",
-    "outbox_dead_letter_table",
-    "outbox_kafka_partition_checkpoint_table",
-    "outbox_relay_checkpoint_table",
-    "outbox_relay_metrics_table",
-    "outbox_table",
-    "payroll_detail_table",
-    "payroll_run_table",
-    "payslip_table",
-    "petty_cash_fund_table",
-    "project_table",
-    "projection_checkpoint_table",
-    "projection_read_models",
-    "purchase_order_lines_table",
-    "purchase_order_table",
-    "report_definition_table",
-    "report_output_table",
-    "report_schedule_table",
-    "retainer_contract_table",
-    "revaluation_table",
-    "routing_step_table",
-    "saga_orchestration_table",
-    "saga_state_table",
-    "salary_component_table",
-    "sales_invoice_table",
-    "sales_order_line_table",
-    "sales_order_lines_table",
-    "sales_order_table",
-    "snapshot_store_table",
-    "stock_card_table",
-    "stock_opname_line_table",
-    "stock_opname_lines_table",
-    "stock_opname_table",
-    "supplier_table",
-    "system_setting_table",
-    "tax_settlement_table",
-    "tax_transaction_table",
-    "time_entry_table",
-    "umkm_business_profile_alias_table",
-    "umkm_business_profile_table",
-    "umkm_journal_table",
-    "umkm_transaction_table",
-    "warehouse_table",
-    "work_order_table",
-]
+# Bukan model SQLAlchemy (Base/declarative class) - jangan ikut di-eager-load
+# sebagai "model", walaupun tetap boleh diimpor manual seperti biasa.
+_EXCLUDED_MODULE_NAMES: frozenset[str] = frozenset(
+    {
+        "__init__",
+        "database",  # helper session factory, bukan model
+        "unit_of_work",  # abstraksi UoW, bukan model
+    }
+)
+
+
+def _discover_module_names() -> list[str]:
+    """
+    Scan folder package ini dan kembalikan nama semua modul .py di
+    dalamnya (tanpa ekstensi), kecuali yang ada di _EXCLUDED_MODULE_NAMES.
+
+    Menggantikan daftar manual `_MODULE_NAMES` yang sebelumnya harus
+    di-update tangan setiap kali ada file model baru ditambahkan/dihapus,
+    dan yang sudah terbukti tidak sinkron (lihat catatan di atas).
+    """
+    package_dir = Path(__file__).resolve().parent
+    discovered: list[str] = []
+    for module_info in pkgutil.iter_modules([str(package_dir)]):
+        name = module_info.name
+        if module_info.ispkg:
+            continue
+        if name in _EXCLUDED_MODULE_NAMES:
+            continue
+        discovered.append(name)
+    return sorted(discovered)
+
+
+# Dihitung sekali saat package pertama kali diimpor. Tetap bernama
+# `_MODULE_NAMES` (dan tetap sebuah list[str]) agar kompatibel dengan kode
+# lain yang mungkin sudah membaca `infrastructure.persistence_orm._MODULE_NAMES`.
+_MODULE_NAMES: list[str] = _discover_module_names()
+
 
 # ============================================================================
 # LAZY IMPORTER
@@ -177,18 +128,59 @@ def __getattr__(name: str) -> Any:
 # ============================================================================
 # EAGER LOADER (dipanggil sekali saat startup aplikasi)
 # ============================================================================
-def load_all_models() -> None:
+def load_all_models(*, validate_mappers: bool = True) -> None:
     """Import semua modul ORM secara eksplisit agar seluruh class terdaftar
     di SQLAlchemy class registry sebelum mapper relationship di-resolve.
-    Wajib dipanggil sekali saat startup, sebelum request pertama masuk."""
+    Wajib dipanggil sekali saat startup, sebelum request pertama masuk.
+
+    Args:
+        validate_mappers: Jika True (default), langsung memanggil
+            `sqlalchemy.orm.configure_mappers()` setelah semua modul
+            diimpor. Ini membuat relationship yang rusak/salah nama
+            (misalnya menunjuk ke class yang tidak pernah ter-import)
+            GAGAL SAAT STARTUP dengan traceback yang jelas, alih-alih
+            lolos diam-diam dan baru meledak nanti secara acak saat ada
+            request user yang menyentuh mapper terkait - persis seperti
+            kasus 'InventoryBatchTable' yang membuat halaman login gagal.
+    """
+    failed_modules: list[str] = []
+
     for name in _MODULE_NAMES:
         try:
             importlib.import_module(f".{name}", __package__)
         except ImportError as e:
             logger.warning(f"Failed to eager-load ORM module '{name}': {e}")
+            failed_modules.append(name)
+
+    if failed_modules:
+        logger.warning(
+            "load_all_models(): %d modul gagal diimpor dan TIDAK ikut "
+            "terdaftar di SQLAlchemy registry: %s. Relationship apa pun "
+            "yang menunjuk ke class di modul-modul ini akan membuat "
+            "mapper configuration gagal saat pertama kali diakses.",
+            len(failed_modules),
+            failed_modules,
+        )
+
+    if validate_mappers:
+        from sqlalchemy.orm import configure_mappers
+
+        # Memaksa SQLAlchemy meresolusi & memvalidasi SEMUA relationship
+        # di SELURUH registry sekarang juga (saat startup), bukan nanti
+        # secara lazy saat request pertama masuk. Kalau ada relationship
+        # yang string target class-nya tidak ditemukan (typo, rename yang
+        # belum konsisten, modul yang lupa diimpor, dsb), exception akan
+        # muncul DI SINI dengan pesan yang jelas menyebut mapper & nama
+        # class yang bermasalah - jauh lebih mudah didiagnosis dibanding
+        # error acak di endpoint yang tidak berhubungan.
+        configure_mappers()
+        logger.info(
+            "SQLAlchemy mapper registry berhasil divalidasi (%d modul ORM dimuat) ✓",
+            len(_MODULE_NAMES) - len(failed_modules),
+        )
+
 
 # ============================================================================
 # EKSPOR (untuk memudahkan IDE dan static analysis)
 # ============================================================================
 __all__ = [*_MODULE_NAMES, "load_all_models"]
-

@@ -1,0 +1,34 @@
+================================================================================
+  SovereignImportValidator v3.0.0
+  Audit Standard : ISO/IEC 25010 | SOC 2 Type II | ISAE 3402
+  Scan ID        : 8F4BD528
+  Timestamp (UTC): 2026-08-07T01:47:25.318431Z
+  Host           : DESKTOP-6EKENHE
+  Python         : 3.11.9
+  Platform       : Windows-10-10.0.26200-SP0
+  Git Commit     : 9945167 (master)
+  Project Root   : E:\full_erp_accounting_engine
+================================================================================
+
+── RINGKASAN ──────────────────────────────────────────────────────────────────
+  Total Modul    : 1089
+  Berhasil       : 1088
+  Gagal          : 1
+  Warning        : 0
+  Durasi         : 263386.75 detik
+  Pass Rate      : 99.9%
+  Status         : ❌ GAGAL
+
+── RINGKASAN PER LAYER ─────────────────────────────────────────────────────────
+  ✅ Core Domain                     314/314 (100.0%)
+  ✅ Port Interface                  62/62 (100.0%)
+  ❌ Application Service             250/251 (99.6%)
+  ✅ Infrastructure                  434/434 (100.0%)
+  ✅ Composition Root                28/28 (100.0%)
+
+── ❌ MODUL GAGAL (1) ───────────────────────────────────────────────
+  [CRITICAL] audit/forensic_replayer
+         Module : audit.forensic_replayer
+         Error  : SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         RCA     : Unhandled SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         💡 Fix   : Tambahkan rule analisis spesifik atau periksa logika program.

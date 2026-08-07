@@ -36,7 +36,6 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
-
 # ============================================================================
 # BUDGET HEADER TABLE
 # ============================================================================
@@ -133,7 +132,7 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
     # di infrastructure/persistence_orm/budget_actual_table.py — tanpa ini,
     # SQLAlchemy gagal saat registry.configure() karena mencari property
     # 'actuals' di BudgetTable yang sebelumnya tidak pernah didefinisikan.
-    actuals: Mapped[list["BudgetActualTable"]] = relationship(
+    actuals: Mapped[list[BudgetActualTable]] = relationship(
         "BudgetActualTable",
         back_populates="budget",
         cascade="all, delete-orphan",

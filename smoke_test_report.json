@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-07-30T08:27:23.336962+00:00",
+  "timestamp": "2026-08-07T01:45:31.134685+00:00",
   "version": "7.6.1",
   "summary": {
-    "total_duration_seconds": 201.601,
+    "total_duration_seconds": 80.14,
     "passed": 16,
     "failed": 1,
     "warnings": 1,
@@ -39,7 +39,7 @@
       "name": "DI Container Integrity",
       "category": "ARCHITECTURE",
       "passed": true,
-      "duration_seconds": 4.239,
+      "duration_seconds": 3.01,
       "severity": "WARNING",
       "details": {
         "container_type": "factory",
@@ -61,19 +61,19 @@
       "name": "FastAPI App Structure",
       "category": "WEB",
       "passed": true,
-      "duration_seconds": 32.577,
+      "duration_seconds": 19.261,
       "severity": "WARNING",
       "details": {
         "app_source": "from helper get_app_instance()",
-        "route_count": 783,
-        "unique_routes": 650,
-        "duplicate_routes": 101,
+        "route_count": 784,
+        "unique_routes": 648,
+        "duplicate_routes": 102,
         "middleware_count": 4,
         "has_cors_middleware": true,
         "title": "Sovereign ERP Accounting Engine",
         "version": "1.0.0"
       },
-      "error": "Ditemukan 101 duplikasi path route (dari include_router)",
+      "error": "Ditemukan 102 duplikasi path route (dari include_router)",
       "suggested_fix": "Tinjau registrasi route untuk menghindari tumpang tindih",
       "evidence": [],
       "rca_analysis": null,
@@ -83,13 +83,13 @@
       "name": "Database Connectivity & Transaction",
       "category": "INFRASTRUCTURE",
       "passed": true,
-      "duration_seconds": 0.474,
+      "duration_seconds": 0.518,
       "severity": "INFO",
       "details": {
         "connection": "success",
         "db_type": "postgresql+asyncpg",
         "async": true,
-        "session_factory": "get_session",
+        "session_factory": "get_async_session",
         "select_1": "ok",
         "transaction_rollback": "ok",
         "rollback_on_error": "ok",
@@ -105,7 +105,7 @@
       "name": "Security Configuration Audit",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 0.221,
+      "duration_seconds": 0.011,
       "severity": "WARNING",
       "details": {
         "issues_count": 0,
@@ -116,7 +116,7 @@
           "HTTPS tidak diaktifkan di environment (risiko MITM)",
           "Tidak ada middleware security headers"
         ],
-        "secrets_checked": 22,
+        "secrets_checked": 23,
         "https_enabled": false,
         "allowed_hosts_set": true,
         "rate_limit_found": true,
@@ -153,11 +153,11 @@
       "name": "Resource Leak Detection",
       "category": "PERFORMANCE",
       "passed": true,
-      "duration_seconds": 0.878,
+      "duration_seconds": 0.712,
       "severity": "INFO",
       "details": {
-        "start_memory_mb": 330.46,
-        "end_memory_mb": 330.47,
+        "start_memory_mb": 362.33,
+        "end_memory_mb": 362.33,
         "memory_diff_mb": 0.0,
         "start_threads": 1,
         "end_threads": 1,
@@ -174,7 +174,7 @@
       "name": "API Health Check (Real Call)",
       "category": "API",
       "passed": false,
-      "duration_seconds": 1.019,
+      "duration_seconds": 0.6,
       "severity": "WARNING",
       "details": {
         "endpoints_tested": [
@@ -230,23 +230,23 @@
       "name": "Domain Models",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 9.573,
+      "duration_seconds": 0.219,
       "severity": "INFO",
       "details": {
         "domain_folder_exists": true,
         "model_files_count": 251,
-        "total_class_definitions": 1379,
+        "total_class_definitions": 1385,
         "sample_classes": [
-          "BankTransactionRecorded",
-          "OptimisticLockUtils",
-          "StandardCostValuation",
-          "MoneyError",
-          "SalaryComponent",
-          "ParentAccountNotFoundError",
-          "ActionType",
-          "PayrollRepository",
-          "BankCashInvariants",
-          "JournalLineRepository"
+          "ChainDirection",
+          "AssetTransferredEvent",
+          "WorkType",
+          "AssetDisposedEvent",
+          "UnitOfMeasure",
+          "WithholdingCategoryError",
+          "TraversalTooDeepError",
+          "CreditLimitError",
+          "StandardCostRepository",
+          "BankAccountInfo"
         ]
       },
       "error": null,
@@ -259,7 +259,7 @@
       "name": "Repository Pattern",
       "category": "DATA",
       "passed": true,
-      "duration_seconds": 68.603,
+      "duration_seconds": 37.724,
       "severity": "INFO",
       "details": {
         "repository_modules_found": [],
@@ -287,7 +287,7 @@
       "name": "CORS Configuration",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 0.005,
+      "duration_seconds": 0.0,
       "severity": "INFO",
       "details": {
         "cors_configured": true,
@@ -306,12 +306,12 @@
       "name": "Authentication / Authorization",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 26.571,
+      "duration_seconds": 0.949,
       "severity": "INFO",
       "details": {
         "auth_indicators": [
           "Middleware auth: JWTAuthMiddleware",
-          "File auth: api_oauth2_client.py, fastapi_auth_jwt_middleware.py, tax_authority_coretax_adapter_impl.py"
+          "File auth: check_admin_login.py, decode_jwt.py, api_oauth2_client.py"
         ],
         "jwt_secret_set": false,
         "has_auth_files": true
@@ -326,7 +326,7 @@
       "name": "Master Data Models (ERP)",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 5.368,
+      "duration_seconds": 7.434,
       "severity": "INFO",
       "details": {
         "core_models_defined": [
@@ -372,13 +372,13 @@
       "name": "OpenAPI Documentation & Duplicate Operation ID",
       "category": "API",
       "passed": true,
-      "duration_seconds": 7.935,
+      "duration_seconds": 2.416,
       "severity": "INFO",
       "details": {
         "openapi_json": "ok",
         "title": "Sovereign ERP Accounting Engine",
         "version": "1.0.0",
-        "paths_count": 645,
+        "paths_count": 643,
         "duplicate_operation_ids": [],
         "duplicate_count": 0
       },
@@ -392,7 +392,7 @@
       "name": "Message Broker (Publish/Consume/Ack)",
       "category": "INTEGRATION",
       "passed": true,
-      "duration_seconds": 0.071,
+      "duration_seconds": 0.032,
       "severity": "INFO",
       "details": {
         "type": "redis",
@@ -412,7 +412,7 @@
       "name": "Scheduler (Job Execution)",
       "category": "INTEGRATION",
       "passed": true,
-      "duration_seconds": 39.107,
+      "duration_seconds": 1.703,
       "severity": "INFO",
       "details": {
         "scheduler_indicators": [
@@ -434,11 +434,11 @@
       "name": "End-to-End Accounting Transaction",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 4.756,
+      "duration_seconds": 5.539,
       "severity": "INFO",
       "details": {
         "accounting_files_found": 141,
-        "total_domain_classes": 1379,
+        "total_domain_classes": 1385,
         "has_journal_entity": true,
         "has_account_entity": true,
         "has_ledger_entity": false,
@@ -453,7 +453,7 @@
     }
   ],
   "baseline": {
-    "start_memory_mb": 64.48,
+    "start_memory_mb": 64.56,
     "start_thread_count": 1
   }
 }

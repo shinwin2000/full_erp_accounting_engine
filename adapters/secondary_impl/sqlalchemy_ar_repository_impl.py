@@ -695,7 +695,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             limit=limit,
             offset=offset,
         )
-    
+
     async def find_by_customer(
         self, customer_id: UUID, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[ARInvoiceAggregate]:

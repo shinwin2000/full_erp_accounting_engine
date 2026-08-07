@@ -106,7 +106,10 @@ def create_test_journal(
         for line in lines:
             object.__setattr__(line, "journal_id", journal_id)
     else:
-        journal_id = lines[0].journal_id
+        journal_id = uuid.uuid4()
+        for line in lines:
+            object.__setattr__(line, "journal_id", journal_id)
+
     return JournalEntry(
         journal_id=journal_id,
         journal_number="JRN-202601-000001",
@@ -263,7 +266,8 @@ class TestJournalLine:
         assert "Hash mismatch" in result["errors"]
 
         # Invalid amount
-        bad_line = create_test_line(amount=Decimal("-10"))
+        bad_line = create_test_line(amount=Decimal("10"))
+        object.__setattr__(bad_line, "amount", Decimal("-10"))
         result = bad_line.validate()
         assert result["is_valid"] is False
         assert "Amount must be positive" in result["errors"]
@@ -296,9 +300,6 @@ class TestJournalLine:
         line = create_test_line()
         assert line.get_version() == 1
         assert len(line.audit_trail()) >= 1
-        line.touch("toucher")
-        assert line.version == 1  # touch returns new line? Actually touch returns new line with version+1
-        # Actually touch returns new line, not mutate in place. Let's test returned value.
         touched = line.touch("toucher")
         assert touched.version == line.version + 1
         trail = touched.audit_trail()
@@ -417,18 +418,21 @@ class TestJournalEntry:
         deactivated = activated.deactivate("admin", "test")
         assert deactivated.status == JournalStatus.DRAFT
 
-        # Cannot activate non-draft
+        # Cannot activate non-draft (activated is already SUBMITTED)
         with pytest.raises(ValueError, match="Cannot activate"):
-            journal.activate("admin")  # Already submitted after first call? Wait, first call returns new journal, original is unchanged. Let's use the returned one.
-        # Actually activate returns new journal, original remains draft, so calling activate on original works again, but we want to test failure on non-draft.
-        # We'll test with submitted status.
-        submitted = journal.activate("admin")
-        with pytest.raises(ValueError, match="Cannot activate"):
-            submitted.activate("admin")
+            activated.activate("admin")
 
-        # Cannot deactivate non-submitted
+        # Cannot deactivate non-submitted (deactivated is DRAFT)
         with pytest.raises(ValueError, match="Cannot deactivate"):
-            journal.deactivate("admin")  # original is still draft
+            deactivated.deactivate("admin")
+
+        # But we can activate a DRAFT journal (original is still DRAFT)
+        activated2 = journal.activate("admin")
+        assert activated2.status == JournalStatus.SUBMITTED
+
+        # Deactivate works on SUBMITTED
+        deactivated2 = activated2.deactivate("admin", "test")
+        assert deactivated2.status == JournalStatus.DRAFT
 
     # ---- No-op methods for JournalEntry ----
     @pytest.mark.parametrize("method_name, args", [
@@ -890,15 +894,16 @@ class TestDoubleEntryValidator:
         assert is_valid is True
         assert msg is None
 
-        # Negative amount
-        bad_line = create_test_line(amount=Decimal("-100"))
+        # Negative amount - modifikasi line yang sudah valid
+        bad_line = create_test_line(amount=Decimal("100"))
+        object.__setattr__(bad_line, "amount", Decimal("-100"))
         is_valid, msg = DoubleEntryValidator.validate_lines([bad_line])
         assert is_valid is False
         assert "non-positive" in msg
 
         # Empty account
         line = create_test_line()
-        line.account_code = ""
+        object.__setattr__(line, "account_code", "")
         is_valid, msg = DoubleEntryValidator.validate_lines([line])
         assert is_valid is False
         assert "empty account" in msg

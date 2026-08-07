@@ -9,6 +9,7 @@ import asyncio
 
 async def main():
     from sqlalchemy import text
+
     from infrastructure.persistence_orm.database import async_session_maker
 
     async with async_session_maker() as session:

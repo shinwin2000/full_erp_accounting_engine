@@ -212,7 +212,7 @@ class AgingReportRepositoryPort(ABC):
 
 
 # ============================================================================
-# HAPUS InventoryValuationRepositoryPort — sudah ada di
+# HAPUS InventoryValuationRepositoryPort ï¿½ sudah ada di
 # inventory_valuation_repository_port.py
 # ============================================================================
 
@@ -264,7 +264,7 @@ __all__ = [
     "IncomeStatementDataDTO",
     "IncomeStatementLineDTO",
     "IncomeStatementRepositoryPort",
-    # "InventoryValuationRepositoryPort",  # Dihapus — sudah ada di file terpisah
+    # "InventoryValuationRepositoryPort",  # Dihapus ï¿½ sudah ada di file terpisah
     "ReportRepositoryPort",
     "TrialBalanceRepositoryPort",
     "TrialBalanceRowDTO",

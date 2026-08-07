@@ -117,6 +117,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
     from redis.asyncio import Redis
 
 
@@ -288,6 +289,7 @@ def _setup_tracing() -> None:
 # ============================================================
 _db_url_final = settings.database_url
 import re as _re
+
 _masked = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', _db_url_final)
 logger.warning(f"[DEBUG] DATABASE_URL final yang dipakai: {_masked}")
 if "postgresql://" in _db_url_final and "+asyncpg" not in _db_url_final:

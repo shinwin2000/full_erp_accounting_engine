@@ -5,40 +5,7 @@ Layer: Adapters (Primary API - v1)
 Responsibility: REST API endpoint untuk Chart of Accounts (COA) management.
 """
 
-from __future__ import annotations
-
-import hashlib
-import json
-import logging
-from datetime import UTC, datetime
-from decimal import Decimal
-from enum import Enum
-from typing import Any
-from uuid import UUID
-
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    Header,
-    HTTPException,
-    Path,
-    Query,
-    Request,
-    UploadFile,
-    status,
-)
-from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
-    TokenPayload,
-    get_current_legal_entity,
-    get_current_user,
-    require_permission,
-)
-
-logger = logging.getLogger(__name__)
+from __future__ import annotationsimport hashlibimport jsonimport loggingfrom datetime import UTC, datetimefrom decimal import Decimalfrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import (    APIRouter,    Depends,    File,    Header,    HTTPException,    Path,    Query,    Request,    UploadFile,    status,)from fastapi.responses import Responsefrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)logger = logging.getLogger(__name__)
 
 # ============================================================================
 # IDEMPOTENCY MANAGER

@@ -59,7 +59,7 @@ class BudgetLineEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "BudgetLineEntity":
+    def from_dict(cls, data: dict) -> BudgetLineEntity:
         return cls(
             id=UUID(data["id"]),
             account_id=UUID(data["account_id"]),
@@ -173,7 +173,7 @@ class BudgetEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "BudgetEntity":
+    def from_dict(cls, data: dict) -> BudgetEntity:
         lines = [BudgetLineEntity.from_dict(line_data) for line_data in data.get("lines", [])]
         return cls(
             id=UUID(data["id"]),

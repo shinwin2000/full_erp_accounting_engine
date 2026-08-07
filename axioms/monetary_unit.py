@@ -170,6 +170,9 @@ class CurrencyDefinition:
             if hasattr(new_cur, key) and key not in ("currency_code", "created_at", "version"):
                 setattr(new_cur, key, value)
         new_cur.version = self.version + 1
+        # Reset hash agar di-recalculate
+        object.__setattr__(new_cur, "cryptographic_hash", "")
+        new_cur._ensure_hash()
         new_cur._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_cur
 
@@ -266,8 +269,12 @@ class CurrencyDefinition:
         )
 
     def clone(self) -> CurrencyDefinition:
+        # Perbaikan: buat currency_code tetap 3 huruf
+        new_code = f"{self.currency_code[:2]}X"
+        if new_code == self.currency_code:
+            new_code = f"{self.currency_code[:2]}Z"
         return CurrencyDefinition(
-            currency_code=f"{self.currency_code}_COPY",
+            currency_code=new_code,
             currency_name=f"{self.currency_name} (COPY)",
             symbol=self.symbol,
             decimal_places=self.decimal_places,
@@ -395,6 +402,9 @@ class ExchangeRate:
             ):
                 setattr(new_rate, key, value)
         new_rate.version = self.version + 1
+        # Reset hash agar di-recalculate jika diperlukan
+        object.__setattr__(new_rate, "cryptographic_hash", "")
+        new_rate._ensure_hash()
         new_rate._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_rate
 
@@ -673,7 +683,12 @@ class MonetaryAmount:
         )
 
     def clone(self) -> MonetaryAmount:
-        return MonetaryAmount(self.amount, self.currency, self.decimal_places, version=1)
+        return MonetaryAmount(
+            amount=self.amount,
+            currency=self.currency,
+            decimal_places=self.decimal_places,
+            version=1,
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -698,23 +713,43 @@ class MonetaryAmount:
             raise TypeError(f"Cannot add {type(other)}")
         if self.currency != other.currency:
             raise ValueError(f"Currency mismatch: {self.currency} vs {other.currency}")
-        return MonetaryAmount(self.amount + other.amount, self.currency, self.decimal_places)
+        return MonetaryAmount(
+            amount=self.amount + other.amount,
+            currency=self.currency,
+            decimal_places=self.decimal_places,
+        )
 
     def __sub__(self, other: object) -> MonetaryAmount:
         if not isinstance(other, MonetaryAmount):
             raise TypeError(f"Cannot subtract {type(other)}")
         if self.currency != other.currency:
             raise ValueError(f"Currency mismatch: {self.currency} vs {other.currency}")
-        return MonetaryAmount(self.amount - other.amount, self.currency, self.decimal_places)
+        return MonetaryAmount(
+            amount=self.amount - other.amount,
+            currency=self.currency,
+            decimal_places=self.decimal_places,
+        )
 
     def __mul__(self, factor: Decimal) -> MonetaryAmount:
-        return MonetaryAmount(self.amount * factor, self.currency, self.decimal_places)
+        return MonetaryAmount(
+            amount=self.amount * factor,
+            currency=self.currency,
+            decimal_places=self.decimal_places,
+        )
 
     def __truediv__(self, divisor: Decimal) -> MonetaryAmount:
-        return MonetaryAmount(self.amount / divisor, self.currency, self.decimal_places)
+        return MonetaryAmount(
+            amount=self.amount / divisor,
+            currency=self.currency,
+            decimal_places=self.decimal_places,
+        )
 
     def __neg__(self) -> MonetaryAmount:
-        return MonetaryAmount(-self.amount, self.currency, self.decimal_places)
+        return MonetaryAmount(
+            amount=-self.amount,
+            currency=self.currency,
+            decimal_places=self.decimal_places,
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, MonetaryAmount):
@@ -1183,7 +1218,6 @@ class MonetaryUnitValidator:
     def _notify_constitution(cls, violation: MonetaryUnitViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            # Determine severity mapping but not used further; kept for clarity
             _ = {
                 MonetaryUnitViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 MonetaryUnitViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
@@ -1310,7 +1344,11 @@ class MonetaryUnitAxiom:
         converted = rate.convert(amount.amount)
         target_def = self.get_currency_definition(target_currency)
         decimals = target_def.decimal_places if target_def else 2
-        return MonetaryAmount(converted, target_currency, decimals)
+        return MonetaryAmount(
+            amount=converted,
+            currency=target_currency,
+            decimal_places=decimals,
+        )
 
     def enforce_currency(
         self,
@@ -1382,7 +1420,11 @@ def get_monetary_unit_axiom() -> MonetaryUnitAxiom:
 def create_monetary_amount(
     amount: Decimal, currency: str, decimal_places: int = 2
 ) -> MonetaryAmount:
-    return MonetaryAmount(amount, currency.upper(), decimal_places)
+    return MonetaryAmount(
+        amount=amount,
+        currency=currency.upper(),
+        decimal_places=decimal_places,
+    )
 
 
 def create_exchange_rate(

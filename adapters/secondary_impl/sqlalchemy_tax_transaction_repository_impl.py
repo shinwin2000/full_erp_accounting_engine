@@ -369,7 +369,7 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         return True
 
     # ========================================================================
-    # MARK TRANSACTIONS REPORTED — DIPERBAIKI (tanpa query dalam loop)
+    # MARK TRANSACTIONS REPORTED ï¿½ DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
     async def mark_transactions_reported(

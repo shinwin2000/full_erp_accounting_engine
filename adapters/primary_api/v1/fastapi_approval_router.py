@@ -44,43 +44,23 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
-
-
 import logging
-
 from datetime import date, datetime
-
 from decimal import Decimal
-
 from enum import Enum
-
 from typing import Any
-
 from uuid import UUID
 
-
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-
 from fastapi.responses import Response
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
-
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
-
     TokenPayload,
-
     get_current_legal_entity,
-
     get_current_user,
-
     require_permission,
-
 )
-
-
 
 logger = logging.getLogger(__name__)
 

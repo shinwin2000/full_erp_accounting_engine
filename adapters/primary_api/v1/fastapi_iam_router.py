@@ -418,13 +418,29 @@ router = APIRouter(tags=["IAM"])
 _PERMISSION_UUID_NAMESPACE = NAMESPACE_DNS
 
 
-def _permission_to_uuid(permission: str) -> UUID:
+def _permission_to_uuid(permission: Any) -> UUID:
     """Permission di sistem ini disimpan sebagai string "resource:action"
     (lihat PermissionUtils.STANDARD_PERMISSIONS), bukan UUID. Endpoint
     /iam/iam/permissions dan /iam/iam/roles butuh bentuk UUID, jadi kita
     turunkan UUID yang stabil (deterministik) dari string permission-nya
-    supaya konsisten antar-request/antar-endpoint."""
-    return uuid5(_PERMISSION_UUID_NAMESPACE, permission)
+    supaya konsisten antar-request/antar-endpoint.
+
+    CATATAN PERBAIKAN: tergantung jalur datanya, `permission` yang masuk ke
+    sini kadang berupa string biasa ("journal:create"), tapi kadang berupa
+    objek PermissionVO (domain.iam.permission_vo) - misalnya saat berasal
+    langsung dari Role.permissions (set[PermissionVO]) tanpa melalui mapping
+    ke RoleEntity. uuid5() dari stdlib mensyaratkan argumen str murni, jadi
+    kita normalisasi dulu di sini supaya kedua bentuk sama-sama jalan,
+    alih-alih membiarkan TypeError "encoding without a string argument"
+    bocor ke response 500.
+    """
+    if isinstance(permission, str):
+        permission_str = permission
+    else:
+        # PermissionVO punya property `to_string` (dan __str__ yang
+        # memakainya) yang menghasilkan format "resource:action".
+        permission_str = getattr(permission, "to_string", None) or str(permission)
+    return uuid5(_PERMISSION_UUID_NAMESPACE, permission_str)
 
 
 # ----------------------------------------------------------------------------
@@ -1480,23 +1496,37 @@ async def get_user_roles(
     service.set_context(session, legal_entity_id)
 
     try:
+        # CATATAN PERBAIKAN: sama seperti list_roles() di atas - IAMService
+        # mengembalikan list[RoleEntity], yang field-nya role_id/role_name/
+        # permissions/is_system/status (bukan id/name/permission_ids/
+        # is_system_role/created_by_name seperti yang dipakai di sini
+        # sebelumnya). Karena field-nya tidak pernah cocok, endpoint ini
+        # akan selalu gagal dengan AttributeError begitu get_user_roles()
+        # di service berhasil dipanggil. Disamakan dengan mapping yang
+        # sudah terbukti benar di endpoint list_roles().
         roles = await service.get_user_roles(user_id)
+
+        def _to_role_status(value: str) -> RoleStatus:
+            try:
+                return RoleStatus(value)
+            except ValueError:
+                return RoleStatus.INACTIVE
 
         return [
             RoleResponseSchema(
-                id=r.id,
-                name=r.name,
+                id=r.role_id,
+                name=r.role_name,
                 description=r.description,
                 parent_role_id=r.parent_role_id,
-                parent_role_name=r.parent_role_name,
-                is_system_role=r.is_system_role,
-                status=RoleStatus(r.status),
-                is_active=r.is_active,
-                permission_ids=r.permission_ids,
+                parent_role_name=None,
+                is_system_role=r.is_system,
+                status=_to_role_status(r.status.value),
+                is_active=r.status.value == "active",
+                permission_ids=[_permission_to_uuid(p) for p in sorted(r.permissions)],
                 created_at=r.created_at,
                 updated_at=r.updated_at,
-                created_by=r.created_by,
-                created_by_name=r.created_by_name,
+                created_by=None,
+                created_by_name=r.created_by,
                 version=r.version,
             )
             for r in roles

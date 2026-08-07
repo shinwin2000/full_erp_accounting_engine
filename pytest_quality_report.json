@@ -1,14 +1,14 @@
 {
   "summary": {
-    "total_files": 4992,
-    "scanned_files": 1733,
-    "files_with_tests": 1311,
-    "total_asserts": 77553,
-    "strong_asserts": 75174,
-    "weak_asserts": 2379,
-    "total_lines": 2107777
+    "total_files": 5026,
+    "scanned_files": 1734,
+    "files_with_tests": 1312,
+    "total_asserts": 78294,
+    "strong_asserts": 75943,
+    "weak_asserts": 2351,
+    "total_lines": 2156909
   },
-  "quality_score": 96.9324204092685,
+  "quality_score": 96.99721562316397,
   "threshold": 70.0,
   "status": "✅ PASS",
   "weak_by_file": {
@@ -1410,38 +1410,6 @@
         "reason": "Boolean constant (True)"
       }
     ],
-    "tests\\application\\service_layer\\test_service_budget.py": [
-      {
-        "line": 277,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 288,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 299,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 310,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 320,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 330,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      }
-    ],
     "tests\\application\\service_layer\\test_service_hedge.py": [
       {
         "line": 349,
@@ -1476,52 +1444,47 @@
     ],
     "tests\\application\\service_layer\\test_service_iam.py": [
       {
-        "line": 67,
+        "line": 66,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 78,
+        "line": 77,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 89,
+        "line": 88,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 100,
+        "line": 99,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 359,
+        "line": 358,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 370,
+        "line": 369,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 381,
+        "line": 380,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 392,
+        "line": 391,
         "code": "True",
         "reason": "Boolean constant (True)"
       },
       {
-        "line": 402,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 412,
+        "line": 401,
         "code": "True",
         "reason": "Boolean constant (True)"
       }
@@ -3874,6 +3837,18 @@
         "reason": "Boolean constant (True)"
       }
     ],
+    "tests\\constitution\\test_forbidden_states.py": [
+      {
+        "line": 1240,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      },
+      {
+        "line": 1247,
+        "code": "True",
+        "reason": "Boolean constant (True)"
+      }
+    ],
     "tests\\domain\\journal\\test_state_machine.py": [
       {
         "line": 69,
@@ -3935,28 +3910,16 @@
         "reason": "Boolean constant (True)"
       }
     ],
-    "tests\\domain\\financial_statement\\test_balance_sheet_snapshot.py": [
-      {
-        "line": 321,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      }
-    ],
     "tests\\domain\\financial_statement\\test_income_statement_period.py": [
       {
-        "line": 352,
+        "line": 509,
         "code": "True",
         "reason": "Boolean constant (True)"
       }
     ],
     "tests\\domain\\financial_statement\\test_trial_balance_cube.py": [
       {
-        "line": 481,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 489,
+        "line": 660,
         "code": "True",
         "reason": "Boolean constant (True)"
       }
@@ -7397,53 +7360,6 @@
         "reason": "Boolean constant (True)"
       }
     ],
-    "tests\\kernel\\guards\\test_budget_availability.py": [
-      {
-        "line": 52,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 63,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 74,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 85,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 196,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 207,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 218,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 229,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 239,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      }
-    ],
     "tests\\kernel\\guards\\test_temporal_consistency.py": [
       {
         "line": 51,
@@ -7906,68 +7822,6 @@
       },
       {
         "line": 324,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      }
-    ],
-    "tests\\kernel\\immutable_laws\\test_traceability_enforcer.py": [
-      {
-        "line": 52,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 63,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 74,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 85,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 112,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 123,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 134,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 262,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 273,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 284,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 295,
-        "code": "True",
-        "reason": "Boolean constant (True)"
-      },
-      {
-        "line": 305,
         "code": "True",
         "reason": "Boolean constant (True)"
       }
