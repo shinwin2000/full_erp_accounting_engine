@@ -833,7 +833,7 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
             app.include_router(router, prefix=prefix, tags=[prefix_name.capitalize()])
             logger.info(f"Registered router: {module_name} @ {prefix}")
         except Exception as e:
-            logger.warning(f"Failed to load router from {module_name} (prefix={prefix_name}): {e}")
+            logger.warning(f"Failed to load router from {module_name} (prefix={prefix_name}): {e}", exc_info=True)
 
 
 # ============================================================

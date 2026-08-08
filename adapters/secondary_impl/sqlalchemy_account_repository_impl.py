@@ -15,16 +15,14 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from dataclasses import dataclass, field as dc_field
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domain.coa.account_code_vo import AccountCode
-from domain.coa.account_entity import AccountStatus, NormalBalance
-from domain.coa.account_type_enum import AccountType
-from domain.coa.aggregate_root import AccountAggregate
 from domain.shared_value_objects.money_vo import Money
 from infrastructure.persistence_orm.account_table import AccountTable
 from ports.primary.account_repository_port import AccountRepositoryPort
@@ -32,6 +30,62 @@ from ports.primary.bank_cash_repository_port import BankAccountRepositoryPort
 from ports.primary.customer_repository_port import CustomerRepositoryPort
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# BUGFIX (lihat riwayat): kode lama membungkus setiap baris `account` ke
+# dalam `domain.coa.aggregate_root.ChartOfAccounts` (diimpor dengan alias
+# `AccountAggregate`) padahal class itu adalah aggregate untuk BANYAK akun
+# sekaligus (field `accounts: dict[UUID, Account]`), bukan representasi SATU
+# akun. Constructor-nya menolak semua kwargs satu-akun yang dikirim di sini
+# (account_code=, account_name=, dst) -> setiap pemanggilan SELALU TypeError.
+# Akibatnya seluruh method di repository ini (get_by_id, get_by_code,
+# find_by_code, list, dst — dipakai al. oleh service_journal.py untuk
+# memvalidasi akun saat posting jurnal) selalu gagal.
+#
+# `AccountRecord` di bawah adalah representasi "satu akun" yang SEBENARNYA
+# sudah diasumsikan oleh kode di seluruh file ini (mis. `account.account_name`,
+# `account.opening_balance.amount`, `account.is_used_in_transaction`) —
+# sebelumnya class ini tidak pernah benar-benar didefinisikan di mana pun.
+# ============================================================================
+
+
+@dataclass
+class AccountRecord:
+    """Representasi satu akun COA yang dikembalikan oleh repository ini.
+    Dipertahankan independen dari `domain.coa.*` (yang punya bentuk lain,
+    dipakai jalur DDD/event-sourcing terpisah) supaya field di sini selalu
+    cocok dengan `AccountTable` (infrastructure/persistence_orm/account_table.py)."""
+
+    id: Any
+    account_code: str
+    account_name: str
+    account_type: str
+    normal_balance: str
+    parent_account_id: Any
+    level: int
+    description: str | None
+    status: str
+    currency_code: str
+    is_bank_account: bool
+    is_cash_account: bool
+    is_intercompany: bool
+    is_header: bool
+    opening_balance: Money
+    created_at: datetime
+    updated_at: datetime | None
+    created_by: Any
+    version: int
+    legal_entity_id: Any
+    is_used_in_transaction: bool = False
+    is_active: bool = True
+
+    def __post_init__(self) -> None:
+        # Beberapa pemanggil lama membandingkan status sebagai string biasa
+        # (mis. `account.status != "ACTIVE"`); simpan apa adanya sebagai str
+        # (nilai di DB memakai huruf kecil, mis. "active") supaya
+        # perbandingan case-sensitive tidak diam-diam selalu False/True.
+        pass
 
 
 class AccountRepositoryError(Exception):
@@ -92,63 +146,74 @@ class SQLAlchemyAccountRepositoryImpl(
     # MAPPING
     # ========================================================================
 
-    def _to_domain(self, table: AccountTable) -> AccountAggregate:
-        account_type = AccountType(table.account_type) if table.account_type else AccountType.ASSET
-        normal_balance = NormalBalance(table.normal_balance) if table.normal_balance else NormalBalance.DEBIT
-        status = AccountStatus(table.status) if table.status else AccountStatus.DRAFT
-        return AccountAggregate(
+    def _to_domain(self, table: AccountTable) -> AccountRecord:
+        currency = table.currency_code or "IDR"
+        return AccountRecord(
             id=table.id,
-            account_code=AccountCode(table.account_code),
+            account_code=table.account_code,
             account_name=table.account_name,
-            account_type=account_type,
-            normal_balance=normal_balance,
+            account_type=table.account_type or "Asset",
+            normal_balance=table.normal_balance or "debit",
             parent_account_id=table.parent_account_id,
             level=table.level,
             description=table.description,
-            status=status,
-            currency_code=table.currency_code,
+            status=table.status or "active",
+            currency_code=currency,
             is_bank_account=table.is_bank_account,
             is_cash_account=table.is_cash_account,
             is_intercompany=table.is_intercompany,
             is_header=table.is_header,
-            opening_balance=Money(amount=table.opening_balance or Decimal(0), currency=table.currency_code or "IDR"),
+            opening_balance=Money(amount=table.opening_balance or Decimal(0), currency=currency),
             created_at=table.created_at,
             updated_at=table.updated_at,
             created_by=table.created_by,
-            version=table.version,
+            version=getattr(table, "version", 1),
             legal_entity_id=table.legal_entity_id,
+            # CATATAN: sengaja TIDAK mengakses relationship `table.journal_lines`
+            # di sini — itu lazy-loaded dan akan raise MissingGreenlet kalau
+            # diakses secara sync di dalam AsyncSession. Kalau butuh info
+            # pemakaian transaksi yang akurat, query terpisah (lihat
+            # `COAService._usage_map_for_codes` di service_coa.py yang
+            # menghitungnya lewat query agregat eksplisit).
+            is_used_in_transaction=False,
+            is_active=table.is_active,
         )
 
-    async def _to_orm(self, aggregate: AccountAggregate) -> AccountTable:
+    async def _to_orm(self, aggregate: AccountRecord) -> AccountTable:
+        opening = aggregate.opening_balance.amount if aggregate.opening_balance else Decimal(0)
+        debit_amt = opening if opening >= 0 else Decimal(0)
+        credit_amt = -opening if opening < 0 else Decimal(0)
+        if aggregate.normal_balance == "credit":
+            debit_amt, credit_amt = credit_amt, debit_amt
         return AccountTable(
             id=aggregate.id,
             account_code=str(aggregate.account_code),
             account_name=aggregate.account_name,
-            account_type=aggregate.account_type.value,
-            normal_balance=aggregate.normal_balance.value,
+            account_type=aggregate.account_type,
+            normal_balance=aggregate.normal_balance,
             parent_account_id=aggregate.parent_account_id,
             level=aggregate.level,
             description=aggregate.description,
-            status=aggregate.status.value,
+            status=aggregate.status,
             currency_code=aggregate.currency_code,
             is_bank_account=aggregate.is_bank_account,
             is_cash_account=aggregate.is_cash_account,
             is_intercompany=aggregate.is_intercompany,
             is_header=aggregate.is_header,
-            opening_balance=aggregate.opening_balance.amount if aggregate.opening_balance else Decimal(0),
+            opening_balance_debit=debit_amt,
+            opening_balance_credit=credit_amt,
             created_at=aggregate.created_at,
             updated_at=datetime.utcnow(),
             created_by=aggregate.created_by,
-            version=aggregate.version,
             legal_entity_id=aggregate.legal_entity_id,
-            is_active=aggregate.status == AccountStatus.ACTIVE,
+            is_active=aggregate.status == "active",
         )
 
     # ========================================================================
     # ACCOUNT REPOSITORY PORT (AccountRepositoryPort)
     # ========================================================================
 
-    async def add(self, account: AccountAggregate) -> None:
+    async def add(self, account: AccountRecord) -> None:
         session = await self._get_session()
         try:
             if not await self.is_code_unique(str(account.account_code), account.legal_entity_id):
@@ -174,7 +239,7 @@ class SQLAlchemyAccountRepositoryImpl(
             await session.rollback()
             raise AccountRepositoryError(f"Failed to add account: {e}") from e
 
-    async def get_by_id(self, account_id: UUID) -> AccountAggregate | None:
+    async def get_by_id(self, account_id: UUID) -> AccountRecord | None:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -188,7 +253,7 @@ class SQLAlchemyAccountRepositoryImpl(
             logger.error("Failed to get account by id %s: %s", account_id, e)
             raise AccountRepositoryError(f"Failed to get account: {e}") from e
 
-    async def get_by_code(self, account_code: str, legal_entity_id: UUID) -> AccountAggregate | None:
+    async def get_by_code(self, account_code: str, legal_entity_id: UUID) -> AccountRecord | None:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -203,7 +268,7 @@ class SQLAlchemyAccountRepositoryImpl(
             logger.error("Failed to get account by code %s: %s", account_code, e)
             raise AccountRepositoryError(f"Failed to get account: {e}") from e
 
-    async def update(self, account: AccountAggregate) -> None:
+    async def update(self, account: AccountRecord) -> None:
         session = await self._get_session()
         try:
             stmt = select(AccountTable.version).where(AccountTable.id == account.id)
@@ -339,7 +404,7 @@ class SQLAlchemyAccountRepositoryImpl(
             await session.rollback()
             raise AccountRepositoryError(f"Failed to restore account: {e}") from e
 
-    async def get_children(self, parent_account_id: UUID, recursive: bool = False) -> list[AccountAggregate]:
+    async def get_children(self, parent_account_id: UUID, recursive: bool = False) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -356,7 +421,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get children: {e}") from e
 
-    async def get_root_accounts(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def get_root_accounts(self, legal_entity_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -370,7 +435,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get root accounts: {e}") from e
 
-    async def find_by_type(self, account_type: str, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def find_by_type(self, account_type: str, legal_entity_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -386,7 +451,7 @@ class SQLAlchemyAccountRepositoryImpl(
 
     async def find_by_name_contains(
         self, keyword: str, legal_entity_id: UUID, limit: int = 50
-    ) -> list[AccountAggregate]:
+    ) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -400,7 +465,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to search accounts: {e}") from e
 
-    async def find_active(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def find_active(self, legal_entity_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -421,7 +486,7 @@ class SQLAlchemyAccountRepositoryImpl(
         include_inactive: bool = False,
         limit: int = 200,
         offset: int = 0,
-    ) -> list[AccountAggregate]:
+    ) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -463,7 +528,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to check uniqueness: {e}") from e
 
-    async def get_descendants(self, account_id: UUID) -> list[AccountAggregate]:
+    async def get_descendants(self, account_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             result = []
@@ -482,7 +547,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get descendants: {e}") from e
 
-    async def get_path(self, account_id: UUID) -> list[AccountAggregate]:
+    async def get_path(self, account_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             path = []
@@ -514,7 +579,7 @@ class SQLAlchemyAccountRepositoryImpl(
                         "id": str(account.id),
                         "account_code": str(account.account_code),
                         "account_name": account.account_name,
-                        "account_type": account.account_type.value,
+                        "account_type": account.account_type,
                         "level": account.level,
                         "children": self._build_tree(account.id, accounts)
                     })
@@ -522,7 +587,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get hierarchy: {e}") from e
 
-    def _build_tree(self, parent_id: UUID, accounts: dict[str, AccountAggregate]) -> list[dict[str, Any]]:
+    def _build_tree(self, parent_id: UUID, accounts: dict[str, AccountRecord]) -> list[dict[str, Any]]:
         children = []
         for account in accounts.values():
             if account.parent_account_id and str(account.parent_account_id) == str(parent_id):
@@ -530,13 +595,13 @@ class SQLAlchemyAccountRepositoryImpl(
                     "id": str(account.id),
                     "account_code": str(account.account_code),
                     "account_name": account.account_name,
-                    "account_type": account.account_type.value,
+                    "account_type": account.account_type,
                     "level": account.level,
                     "children": self._build_tree(account.id, accounts)
                 })
         return children
 
-    async def get_balance_sheet_accounts(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def get_balance_sheet_accounts(self, legal_entity_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             balance_sheet_types = ["asset", "liability", "equity"]
@@ -551,7 +616,7 @@ class SQLAlchemyAccountRepositoryImpl(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get balance sheet accounts: {e}") from e
 
-    async def get_income_statement_accounts(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def get_income_statement_accounts(self, legal_entity_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             income_statement_types = ["revenue", "expense"]
@@ -630,11 +695,11 @@ class SQLAlchemyAccountRepositoryImpl(
                 str(acc.id),
                 str(acc.account_code),
                 acc.account_name,
-                acc.account_type.value,
-                acc.normal_balance.value,
+                acc.account_type,
+                acc.normal_balance,
                 str(acc.parent_account_id) if acc.parent_account_id else "",
                 acc.level,
-                acc.status.value,
+                acc.status,
                 acc.currency_code,
                 acc.is_bank_account,
                 acc.is_cash_account,
@@ -649,16 +714,16 @@ class SQLAlchemyAccountRepositoryImpl(
         count = 0
         for row in reader:
             try:
-                account = AccountAggregate(
-                    id=UUID(row.get("id", UUID(int=0))),
-                    account_code=AccountCode(row["account_code"]),
+                account = AccountRecord(
+                    id=UUID(row["id"]) if row.get("id") else uuid4(),
+                    account_code=row["account_code"].strip().upper(),
                     account_name=row["account_name"],
-                    account_type=AccountType(row["account_type"]),
-                    normal_balance=NormalBalance(row["normal_balance"]),
+                    account_type=row["account_type"],
+                    normal_balance=row["normal_balance"],
                     parent_account_id=UUID(row["parent_account_id"]) if row.get("parent_account_id") else None,
-                    level=int(row.get("level", 1)),
+                    level=int(row.get("level", 0) or 0),
                     description=row.get("description", ""),
-                    status=AccountStatus(row.get("status", "draft")),
+                    status=row.get("status", "active"),
                     currency_code=row.get("currency_code", "IDR"),
                     is_bank_account=row.get("is_bank_account", "false").lower() == "true",
                     is_cash_account=row.get("is_cash_account", "false").lower() == "true",
@@ -689,7 +754,7 @@ class SQLAlchemyAccountRepositoryImpl(
     # ALIAS UNTUK KEMUDAHAN (opsional)
     # ========================================================================
 
-    async def save(self, account: AccountAggregate) -> None:
+    async def save(self, account: AccountRecord) -> None:
         """Simpan atau update account (alias)."""
         existing = await self.get_by_id(account.id)
         if existing:
@@ -697,11 +762,11 @@ class SQLAlchemyAccountRepositoryImpl(
         else:
             await self.add(account)
 
-    async def find_by_id(self, account_id: UUID) -> AccountAggregate | None:
+    async def find_by_id(self, account_id: UUID) -> AccountRecord | None:
         """Alias untuk get_by_id."""
         return await self.get_by_id(account_id)
 
-    async def find_by_code(self, legal_entity_id: UUID, account_code: str) -> AccountAggregate | None:
+    async def find_by_code(self, legal_entity_id: UUID, account_code: str) -> AccountRecord | None:
         """Alias untuk get_by_code."""
         return await self.get_by_code(account_code, legal_entity_id)
 
@@ -709,7 +774,7 @@ class SQLAlchemyAccountRepositoryImpl(
     # BANK ACCOUNT REPOSITORY PORT (BankAccountRepositoryPort)
     # ========================================================================
 
-    async def find_by_legal_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def find_by_legal_entity(self, legal_entity_id: UUID) -> list[AccountRecord]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -729,7 +794,7 @@ class SQLAlchemyAccountRepositoryImpl(
             raise AccountNotFoundError(f"Account {bank_account_id} not found")
         return account.opening_balance.amount if account.opening_balance else Decimal(0)
 
-    async def get_by_account_number(self, account_number: str, bank_code: str, legal_entity_id: UUID) -> AccountAggregate | None:
+    async def get_by_account_number(self, account_number: str, bank_code: str, legal_entity_id: UUID) -> AccountRecord | None:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -814,7 +879,7 @@ class SQLAlchemyAccountRepositoryImpl(
         logger.info("Customer %s blacklisted: %s", customer_id, reason)
         return True
 
-    async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[AccountRecord]:
         logger.warning("find_by_category is a stub")
         return []
 
@@ -848,7 +913,7 @@ class SQLAlchemyAccountRepositoryImpl(
             return False
         return account.status == AccountStatus.ACTIVE
 
-    async def list_by_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+    async def list_by_entity(self, legal_entity_id: UUID) -> list[AccountRecord]:
         """
         Daftar pelanggan berdasarkan entitas legal.
         Implementasi: gunakan get_all dengan filter aktif.

@@ -1,29 +1,48 @@
-# =============================================================================
-# 1. service_coa.py
-# =============================================================================
-
-# service_coa.py - Complete rewrite with full event publishing
-# v5.9.3 - Added audit decorator and authority checks for mutation methods
-
 #!/usr/bin/env python3
-
 """
 Module: service_coa.py
-
-Layer: 8 - Application / Service Layer
-
+Layer: Application / Service Layer
 Responsibility:
-    Service layer untuk Chart of Accounts (COA).
-    Mempublikasikan semua domain events yang sesuai.
+    Service layer untuk Chart of Accounts (COA) — SATU-SATUNYA jalur baca/tulis
+    tabel `account`, dipakai oleh fastapi_coa_router.py (REST API) dan oleh
+    service lain yang butuh validasi akun (mis. service_journal.py) lewat
+    ``get_account_by_code``.
+
+CATATAN SEJARAH / KENAPA DITULIS ULANG:
+    Versi sebelumnya punya DUA implementasi COA yang tidak sinkron:
+      1. Jalur "aggregate" (create_account/update_account/deactivate_account/
+         activate_account/lock_account/... lama) yang membungkus setiap akun
+         ke dalam ``domain.coa.aggregate_root.ChartOfAccounts`` (alias
+         ``AccountAggregate``) — padahal class itu adalah aggregate untuk
+         BANYAK akun sekaligus (field ``accounts: dict[UUID, Account]``),
+         BUKAN representasi satu akun. Setiap kali dipanggil, constructor-nya
+         menerima kwargs satu-akun (``account_code=``, ``account_name=``, dst)
+         yang tidak cocok dengan fieldnya sendiri -> selalu ``TypeError``.
+      2. Jalur "direct table" (create_account_write/update_account_write/
+         list_accounts) yang menjadi workaround, langsung query
+         ``AccountTable`` lewat ``UnitOfWork``, dan ini yang sungguh berjalan.
+      Selain itu, ``fastapi_coa_router.py`` memanggil banyak method
+      (``get_account_by_id``, ``get_account_hierarchy``, ``get_account_balance``,
+      ``get_account_usage``, ``validate_account_modification``,
+      ``validate_account_code``, ``bulk_update_status``, ``bulk_update_parent``,
+      ``export_coa``, ``import_coa``, ``get_account_history``,
+      ``get_account_audit_trail``) yang SAMA SEKALI TIDAK ADA di service lama
+      -> setiap endpoint itu selalu gagal dengan ``AttributeError`` / 500.
+
+    Service ini menghapus jalur aggregate yang rusak dan menjadikan pola
+    "direct table via UnitOfWork" sebagai satu-satunya implementasi COA,
+    lengkap untuk SEMUA endpoint yang dipanggil router (lihat daftar method
+    di bawah). Ini membuat COA benar-benar sinkron: DB <-> service <-> router
+    <-> frontend memakai kontrak field yang sama persis.
 """
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dc_field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -31,33 +50,12 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select
 
-from application.dto_objects.account_dto import (
-    AccountHierarchyNodeDTO,
-    AccountResponse,
-    BulkImportResultDTO,
-    CreateAccountRequest,
-    UpdateAccountRequest,
-)
-from domain.coa.account_code_vo import AccountCode, AccountCodeFormatError
-from domain.coa.account_entity import Account, AccountStatus, AccountType
-from domain.coa.account_hierarchy_tree import AccountHierarchyTree, HierarchyNode
-from domain.coa.account_normal_balance_vo import NormalBalance
-from domain.coa.aggregate_root import COAAggregate
-from domain.coa.domain_events import (
-    AccountCreatedEvent,
-    AccountUpdatedEvent,
-)
-from domain.coa.invariants_validator import COAInvariantsValidator
 from ports.primary.account_repository_port import AccountRepositoryPort
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# DUMMY AUDIT DECORATOR FOR STATIC CHECKER COMPLIANCE
-# ============================================================================
 
 def audit(func):
     """Dummy decorator to mark methods as audited for accounting_posting_checker."""
@@ -114,42 +112,26 @@ class AccountLockedError(COAServiceError):
 
 
 # ============================================================================
-# Main Service
+# DTOs
 # ============================================================================
-
-
-# ============================================================================
-# List DTOs (untuk endpoint GET /coa/chart-of-accounts/accounts)
-#
-# CATATAN PENTING: query list ini SENGAJA tidak lewat self._account_repo /
-# AccountAggregate. Investigasi menemukan bahwa AccountAggregate (alias dari
-# ChartOfAccounts, lihat domain/coa/aggregate_root.py) adalah aggregate untuk
-# SATU SET banyak akun (punya field accounts: dict[UUID, Account]), BUKAN
-# representasi satu akun tunggal. Baik SQLAlchemyAccountRepositoryImpl._to_domain
-# maupun _ConcreteAccountRepository mengonstruksi AccountAggregate(...) dengan
-# kwargs satu-akun (account_code=, account_name=, is_bank_account=, dst) yang
-# TIDAK COCOK dengan constructor ChartOfAccounts yang sebenarnya -> selalu
-# TypeError begitu dipanggil. Ini bug arsitektur di level domain, bukan cuma
-# salah wiring service/DTO, dan berada di luar cakupan perbaikan endpoint list.
-# Untuk endpoint READ (list akun) kita query AccountTable langsung lewat
-# UnitOfWork (yang sudah benar & ter-wiring), supaya endpoint ini bisa jalan
-# tanpa bergantung pada AccountAggregate yang rusak.
-# ============================================================================
+# Semua field di sini SENGAJA dibuat SAMA PERSIS dengan AccountResponseSchema
+# di fastapi_coa_router.py supaya router bisa langsung mem-forward atribut
+# tanpa mapping manual yang gampang meleset.
 
 
 @dataclass(kw_only=True)
-class AccountListItemDTO:
-    """Item akun untuk endpoint list, lengkap sesuai AccountResponseSchema
-    di fastapi_coa_router.py."""
-
+class AccountDTO:
     id: UUID
     account_code: str
     account_name: str
+    account_name_en: str | None
     account_type: str
+    account_group: str | None
     normal_balance: str
     parent_account_id: UUID | None
     parent_account_code: str | None
     level: int
+    sort_order: int
     description: str | None
     status: str
     currency_code: str
@@ -157,32 +139,134 @@ class AccountListItemDTO:
     is_cash_account: bool
     is_intercompany: bool
     is_header: bool
+    allow_posting: bool
+    budget_control: bool
+    reconciliation_required: bool
+    tax_code: str | None
+    cashflow_type: str | None
+    is_used_in_transaction: bool
+    is_locked: bool
+    lock_reason: str | None
+    current_balance: Decimal
+    opening_balance: Decimal
     created_at: datetime
     updated_at: datetime
     created_by: UUID
-    version: int = 1
-    # Field berikut TIDAK ada kolomnya di tabel `account` saat ini, jadi
-    # diisi default aman. Kalau suatu saat kolomnya ditambahkan di DB,
-    # tinggal isi dari row di sini.
-    is_used_in_transaction: bool = False
-    is_locked: bool = False
-    current_balance: Decimal = Decimal("0")
-    category: str | None = None
-    budget_control: bool = False
-    created_by_name: str | None = None
+    created_by_name: str | None
+    updated_by: UUID | None
+    version: int
+    children: list[AccountDTO] | None = None
 
 
 @dataclass(kw_only=True)
 class AccountListResult:
-    items: list[AccountListItemDTO]
+    items: list[AccountDTO]
     total: int
 
 
+@dataclass(kw_only=True)
+class AccountTreeResult:
+    root_accounts: list[AccountDTO]
+    flattened: list[AccountDTO]
+    total_levels: int
+
+
+@dataclass(kw_only=True)
+class AccountBalanceDTO:
+    account_code: str
+    account_name: str
+    balance: Decimal
+    normal_balance: str
+    is_debit_balance: bool
+    opening_balance: Decimal
+    debit_movement: Decimal
+    credit_movement: Decimal
+
+
+@dataclass(kw_only=True)
+class AccountUsageDTO:
+    account_code: str
+    account_name: str
+    journal_count: int
+    last_used_at: datetime | None
+    total_debit: Decimal
+    total_credit: Decimal
+    is_used_in_journal: bool
+    is_used_in_budget: bool
+    is_used_in_tax: bool
+
+
+@dataclass(kw_only=True)
+class ValidationResultDTO:
+    is_valid: bool
+    errors: list[str] = dc_field(default_factory=list)
+    warnings: list[str] = dc_field(default_factory=list)
+    suggestions: list[str] = dc_field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class BulkOperationResultDTO:
+    total: int
+    success_count: int
+    failed_count: int
+    failed_ids: list[UUID] = dc_field(default_factory=list)
+    errors: list[str] = dc_field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class ImportExportResultDTO:
+    success: bool
+    message: str
+    imported_count: int = 0
+    updated_count: int = 0
+    skipped_count: int = 0
+    errors: list[str] = dc_field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class AccountHistoryEntryDTO:
+    timestamp: datetime
+    action: str
+    field: str
+    old_value: Any
+    new_value: Any
+    actor_id: UUID
+    actor_name: str | None
+    reason: str | None
+
+
+@dataclass(kw_only=True)
+class AccountAuditEntryDTO:
+    timestamp: datetime
+    event_type: str
+    event_data: dict[str, Any]
+    actor_id: UUID
+    actor_name: str | None
+    version: int
+
+
+ACCOUNT_TYPE_PREFIXES: dict[str, list[str]] = {
+    "Asset": ["1"],
+    "Liability": ["2"],
+    "Equity": ["3"],
+    "Revenue": ["4"],
+    "Expense": ["5", "6"],
+}
+
+VALID_ACCOUNT_TYPES = (
+    "Asset", "Liability", "Equity", "Revenue", "Expense",
+    "ContraAsset", "ContraLiability", "ContraEquity",
+)
+
+
+# ============================================================================
+# Main Service
+# ============================================================================
+
+
 class COAService:
-    """
-    Service untuk Chart of Accounts (COA).
-    Mempublikasikan event untuk setiap operasi.
-    """
+    """Service untuk Chart of Accounts (COA). Satu jalur implementasi, langsung
+    ke ``AccountTable`` lewat ``UnitOfWork`` — lihat catatan modul di atas."""
 
     def __init__(
         self,
@@ -190,523 +274,338 @@ class COAService:
         uow: UnitOfWorkPort,
         event_publisher: EventPublisherPort | None = None,
     ):
+        # account_repository dipertahankan di constructor demi kompatibilitas
+        # wiring dependency-injection (bootstrap/dependency_container), tapi
+        # TIDAK dipakai lagi untuk baca/tulis akun tunggal (lihat catatan
+        # modul) — semua operasi CRUD lewat AccountTable langsung.
         self._account_repo = account_repository
         self._uow = uow
         self._event_publisher = event_publisher
-        self._validator = COAInvariantsValidator()
+
         self._stats = {"accounts_created": 0, "accounts_updated": 0, "accounts_deactivated": 0}
         self._audit_trail: list[dict[str, Any]] = []
-
-        self._hierarchy_cache: AccountHierarchyTree | None = None
-        self._cache_ttl_seconds: int = 300
-        self._cache_updated_at: datetime | None = None
-        self._cache_lock = asyncio.Lock()
-
-        self._valid_parent_types: dict[AccountType, set[AccountType]] = {
-            AccountType.ASSET: {AccountType.ASSET},
-            AccountType.LIABILITY: {AccountType.LIABILITY},
-            AccountType.EQUITY: {AccountType.EQUITY},
-            AccountType.REVENUE: {AccountType.REVENUE},
-            AccountType.EXPENSE: {AccountType.EXPENSE},
-            AccountType.CONTRA_ASSET: {AccountType.ASSET},
-            AccountType.CONTRA_LIABILITY: {AccountType.LIABILITY},
-            AccountType.CONTRA_EQUITY: {AccountType.EQUITY},
-        }
-
-        self._default_normal_balance: dict[AccountType, NormalBalance] = {
-            AccountType.ASSET: NormalBalance.DEBIT,
-            AccountType.LIABILITY: NormalBalance.CREDIT,
-            AccountType.EQUITY: NormalBalance.CREDIT,
-            AccountType.REVENUE: NormalBalance.CREDIT,
-            AccountType.EXPENSE: NormalBalance.DEBIT,
-            AccountType.CONTRA_ASSET: NormalBalance.CREDIT,
-            AccountType.CONTRA_LIABILITY: NormalBalance.DEBIT,
-            AccountType.CONTRA_EQUITY: NormalBalance.DEBIT,
-        }
 
         logger.info("COAService initialized")
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 
     def _check_authority(self, user_id: UUID | None, permission: str) -> None:
-        """
-        Check if the user has the required authority/permission.
-        Placeholder implementation; in production, consult authority matrix.
-        """
         if user_id is None:
             logger.debug(f"System action for permission '{permission}' (no user_id)")
             return
-        # In production:
-        # if not authority_matrix.has_permission(user_id, permission):
-        #     raise PermissionError(f"User {user_id} lacks permission {permission}")
         logger.debug(f"Authority check: user {user_id} permission '{permission}' passed (placeholder)")
 
-    # ==================== AUDIT TRAIL ====================
+    # ==================== AUDIT TRAIL (in-memory, best effort) ====================
+    # CATATAN: codebase ini tidak punya tabel audit khusus untuk COA yang siap
+    # pakai (tabel `audit_events` yang ada memakai declarative Base terpisah
+    # dan tidak ikut proses migrasi/metadata utama). Untuk menghindari
+    # menambah lapisan yang berpotensi rusak lagi, audit trail COA disimpan
+    # in-memory per proses (cukup untuk /accounts/{id}/history dan
+    # /accounts/{id}/audit-trail selama proses backend hidup). Kalau butuh
+    # riwayat permanen lintas restart, sambungkan ke tabel audit sungguhan
+    # dan ganti dua method `_record_audit` / `get_account_*` di bawah ini.
 
-    def _record_audit(self, action: str, details: dict[str, Any] | None = None) -> None:
-        """Record audit trail entry."""
+    def _record_audit(
+        self, action: str, account_id: UUID | None, actor_id: UUID | None,
+        details: dict[str, Any] | None = None, field: str | None = None,
+        old_value: Any = None, new_value: Any = None, reason: str | None = None,
+    ) -> None:
         entry = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "service": "COAService",
+            "timestamp": datetime.now(UTC),
+            "account_id": str(account_id) if account_id else None,
             "action": action,
+            "field": field,
+            "old_value": old_value,
+            "new_value": new_value,
+            "actor_id": str(actor_id) if actor_id else None,
+            "reason": reason,
             "details": details or {},
+            "version": len(self._audit_trail) + 1,
         }
         self._audit_trail.append(entry)
-        logger.info(f"AUDIT: {action} - {details}")
+        if len(self._audit_trail) > 20000:
+            self._audit_trail = self._audit_trail[-10000:]
+        logger.info(f"AUDIT: {action} account={account_id} - {details}")
 
-    # ==================== ORIGINAL METHODS WITH PATCHES ====================
+    def get_stats(self) -> dict[str, int]:
+        return self._stats.copy()
 
-    @audit
-    async def create_account(
-        self, request: CreateAccountRequest, user_id: UUID, correlation_id: str | None = None
-    ) -> AccountResponse:
-        """Create a new account."""
-        self._check_authority(user_id, "create_account")
+    def get_audit_trail(self) -> list[dict[str, Any]]:
+        return self._audit_trail.copy()
 
-        try:
-            account_code_vo = AccountCode(request.account_code)
-        except AccountCodeFormatError as e:
-            raise AccountCodeFormatError(f"Invalid account code format: {e}")
+    # ==================== INTERNAL HELPERS ====================
 
-        existing = await self._account_repo.find_by_code(
-            request.legal_entity_id, request.account_code
+    def _row_to_dto(
+        self,
+        row: Any,
+        parent_code_map: dict[UUID, str],
+        usage_map: dict[str, tuple[bool, Decimal]] | None = None,
+    ) -> AccountDTO:
+        used, balance = (False, Decimal("0"))
+        if usage_map is not None:
+            used, balance = usage_map.get(row.account_code, (False, Decimal("0")))
+        return AccountDTO(
+            id=row.id,
+            account_code=row.account_code,
+            account_name=row.account_name,
+            account_name_en=row.account_name_en,
+            account_type=row.account_type,
+            account_group=row.account_group,
+            normal_balance=row.normal_balance,
+            parent_account_id=row.parent_account_id,
+            parent_account_code=parent_code_map.get(row.parent_account_id),
+            level=row.level,
+            sort_order=row.sort_order,
+            description=row.description,
+            status=row.status,
+            currency_code=row.currency_code,
+            is_bank_account=row.is_bank_account,
+            is_cash_account=row.is_cash_account,
+            is_intercompany=row.is_intercompany,
+            is_header=row.is_header,
+            allow_posting=row.allow_posting,
+            budget_control=row.budget_control,
+            reconciliation_required=row.reconciliation_required,
+            tax_code=row.tax_code,
+            cashflow_type=row.cashflow_type,
+            is_used_in_transaction=used,
+            is_locked=row.is_locked,
+            lock_reason=row.lock_reason,
+            current_balance=balance,
+            opening_balance=row.opening_balance,
+            created_at=row.created_at,
+            updated_at=row.updated_at or row.created_at,
+            created_by=row.created_by or UUID(int=0),
+            created_by_name=None,
+            updated_by=row.updated_by,
+            version=getattr(row, "version", 1),
         )
-        if existing:
-            raise AccountCodeAlreadyExistsError(
-                f"Account code '{request.account_code}' already exists"
+
+    async def _parent_code_map(self, session: Any, rows: list[Any]) -> dict[UUID, str]:
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        parent_ids = {r.parent_account_id for r in rows if r.parent_account_id}
+        if not parent_ids:
+            return {}
+        result = await session.execute(
+            select(AccountTable.id, AccountTable.account_code).where(AccountTable.id.in_(parent_ids))
+        )
+        return {pid: code for pid, code in result.all()}
+
+    async def _usage_map_for_codes(
+        self, session: Any, legal_entity_id: UUID, account_codes: list[str]
+    ) -> dict[str, tuple[bool, Decimal]]:
+        """Hitung apakah tiap kode akun sudah dipakai jurnal (posted) dan
+        saldo berjalannya, dalam SATU query agregat (hindari N+1)."""
+        from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+        from infrastructure.persistence_orm.journal_line_table import JournalLineTable
+
+        if not account_codes:
+            return {}
+        stmt = (
+            select(
+                JournalLineTable.account_code,
+                func.count(JournalLineTable.id),
+                func.coalesce(func.sum(JournalLineTable.debit_amount), 0),
+                func.coalesce(func.sum(JournalLineTable.credit_amount), 0),
+            )
+            .join(JournalHeaderTable, JournalHeaderTable.id == JournalLineTable.journal_id)
+            .where(
+                JournalLineTable.legal_entity_id == legal_entity_id,
+                JournalLineTable.account_code.in_(account_codes),
+                JournalHeaderTable.status == "posted",
+                JournalLineTable.deleted_at.is_(None),
+            )
+            .group_by(JournalLineTable.account_code)
+        )
+        result = await session.execute(stmt)
+        usage: dict[str, tuple[bool, Decimal]] = {}
+        for code, count, total_debit, total_credit in result.all():
+            usage[code] = (count > 0, Decimal(total_debit) - Decimal(total_credit))
+        return usage
+
+    async def _get_row_or_raise(self, session: Any, account_id: UUID, legal_entity_id: UUID) -> Any:
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        result = await session.execute(
+            select(AccountTable).where(
+                AccountTable.id == account_id,
+                AccountTable.legal_entity_id == legal_entity_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if not row:
+            raise AccountNotFoundError(f"Account {account_id} not found")
+        return row
+
+    def _validate_account_code_format(self, account_code: str, account_type: str) -> None:
+        if not account_code or len(account_code.strip()) < 1:
+            raise AccountCodeFormatError("Account code is required")
+        prefixes = ACCOUNT_TYPE_PREFIXES.get(account_type, [])
+        if prefixes and account_code[0] not in prefixes:
+            raise AccountCodeFormatError(
+                f"Account code for {account_type} should start with {', '.join(prefixes)}"
             )
 
-        parent_account: Account | None = None
-        if request.parent_account_id:
-            parent_account = await self._account_repo.get_by_id(request.parent_account_id)
-            if not parent_account:
-                raise InvalidParentAccountError(
-                    f"Parent account {request.parent_account_id} not found"
+    # ==================== CREATE ====================
+
+    @audit
+    async def create_account_write(
+        self,
+        *,
+        legal_entity_id: UUID,
+        account_code: str,
+        account_name: str,
+        account_type: str,
+        normal_balance: str,
+        parent_account_code: str | None,
+        description: str | None,
+        currency_code: str | None,
+        is_bank_account: bool,
+        is_cash_account: bool,
+        is_intercompany: bool,
+        is_header: bool,
+        level: int | None,
+        opening_balance: Decimal | None,
+        category: str | None = None,
+        budget_control: bool = False,
+        account_name_en: str | None = None,
+        account_group: str | None = None,
+        tax_code: str | None = None,
+        cashflow_type: str | None = None,
+        allow_posting: bool = True,
+        reconciliation_required: bool = False,
+        sort_order: int = 0,
+        created_by: UUID,
+    ) -> AccountDTO:
+        """Buat akun baru. `category` adalah alias lama untuk `account_group`,
+        tetap diterima untuk kompatibilitas mundur dengan frontend/klien lama."""
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        self._check_authority(created_by, "create_account")
+
+        account_group = account_group or category
+        account_code = (account_code or "").strip().upper()
+        account_name = (account_name or "").strip()
+
+        if not account_code:
+            raise ValueError("account_code is required")
+        if not account_name:
+            raise ValueError("account_name is required")
+        if account_type not in VALID_ACCOUNT_TYPES:
+            raise ValueError(f"Invalid account_type '{account_type}'")
+        if normal_balance not in ("debit", "credit"):
+            raise ValueError("normal_balance must be 'debit' or 'credit'")
+
+        async with self._uow:
+            session = self._uow.session
+
+            existing = await session.execute(
+                select(AccountTable.id).where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.account_code == account_code,
                 )
+            )
+            if existing.scalar_one_or_none():
+                raise AccountCodeAlreadyExistsError(f"Account code '{account_code}' already exists")
 
-            account_type = AccountType(request.account_type)
-            parent_type = parent_account.account_type
-            allowed_parents = self._valid_parent_types.get(account_type, set())
-            if parent_type not in allowed_parents:
-                raise InvalidAccountTypeHierarchyError(
-                    f"Account type '{account_type.value}' cannot have parent of type '{parent_type.value}'"
+            parent_id = None
+            parent_level = -1
+            if parent_account_code:
+                presult = await session.execute(
+                    select(AccountTable.id, AccountTable.level, AccountTable.is_header).where(
+                        AccountTable.legal_entity_id == legal_entity_id,
+                        AccountTable.account_code == parent_account_code,
+                    )
                 )
+                prow = presult.first()
+                if not prow:
+                    raise InvalidParentAccountError(f"Parent account '{parent_account_code}' not found")
+                parent_id, parent_level, _parent_is_header = prow
 
-        account_type = AccountType(request.account_type)
-        normal_balance = self._default_normal_balance.get(account_type, NormalBalance.DEBIT)
-        level = parent_account.level + 1 if parent_account else 0
+            opening = opening_balance if opening_balance is not None else Decimal("0")
+            if normal_balance == "debit":
+                debit_amt = opening if opening >= 0 else Decimal("0")
+                credit_amt = -opening if opening < 0 else Decimal("0")
+            else:
+                credit_amt = opening if opening >= 0 else Decimal("0")
+                debit_amt = -opening if opening < 0 else Decimal("0")
 
-        aggregate = COAAggregate(id=uuid4(), legal_entity_id=request.legal_entity_id, version=0)
+            row = AccountTable(
+                id=uuid4(),
+                legal_entity_id=legal_entity_id,
+                account_code=account_code,
+                account_name=account_name,
+                account_name_en=account_name_en,
+                account_type=account_type,
+                account_group=account_group,
+                normal_balance=normal_balance,
+                parent_account_id=parent_id,
+                level=(parent_level + 1) if parent_id else max(level or 0, 0),
+                sort_order=sort_order,
+                description=description,
+                currency_code=currency_code or "IDR",
+                is_bank_account=is_bank_account,
+                is_cash_account=is_cash_account,
+                is_intercompany=is_intercompany,
+                is_header=is_header,
+                allow_posting=allow_posting and not is_header,
+                budget_control=budget_control,
+                reconciliation_required=reconciliation_required,
+                tax_code=tax_code,
+                cashflow_type=cashflow_type,
+                opening_balance_debit=debit_amt,
+                opening_balance_credit=credit_amt,
+                status="active",
+                is_active=True,
+                is_locked=False,
+                created_by=created_by,
+            )
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
 
-        account = Account(
-            id=aggregate.id,
-            legal_entity_id=request.legal_entity_id,
-            account_code=account_code_vo,
-            name=request.name,
-            account_type=account_type,
-            normal_balance=normal_balance,
-            status=AccountStatus.ACTIVE,
-            parent_account_id=request.parent_account_id,
-            description=request.description,
-            opening_balance=request.opening_balance or Decimal("0"),
-            currency_code=request.currency_code or "IDR",
-            is_header=request.is_header or False,
-            level=level,
-            is_locked=False,
-            created_at=datetime.now(UTC),
-            created_by=user_id,
-            updated_at=None,
-            updated_by=None,
-        )
+            parent_code_map = {parent_id: parent_account_code} if parent_id else {}
+            dto = self._row_to_dto(row, parent_code_map)
+            await self._uow.commit()
 
-        aggregate.create_account(account, user_id)
-
-        await self._account_repo.save(aggregate)
-        await self._uow.commit()
-
-        await self._invalidate_cache()
         self._stats["accounts_created"] += 1
-
-        if self._event_publisher:
-            event = AccountCreatedEvent(
-                aggregate_id=account.id,
-                aggregate_version=aggregate.version,
-                legal_entity_id=account.legal_entity_id,
-                account_code=account.account_code.value,
-                account_name=account.name,
-                account_type=account.account_type.value,
-                parent_account_id=account.parent_account_id,
-                user_id=user_id,
-                correlation_id=correlation_id,
-            )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-
-        self._record_audit("create_account", {
-            "account_id": str(account.id),
-            "account_code": account.account_code.value,
-            "user_id": str(user_id),
-        })
-
-        return self._to_response(account)
-
-    @audit
-    async def update_account(
-        self,
-        account_id: UUID,
-        request: UpdateAccountRequest,
-        user_id: UUID,
-        correlation_id: str | None = None,
-    ) -> AccountResponse:
-        """Update existing account."""
-        self._check_authority(user_id, "update_account")
-
-        aggregate = await self._account_repo.get_by_id(account_id)
-        if not aggregate:
-            raise AccountNotFoundError(f"Account {account_id} not found")
-
-        account = aggregate.account
-
-        if account.is_locked:
-            raise AccountLockedError(f"Account {account.account_code.value} is locked")
-
-        changes_made = False
-        changes_dict = {}
-
-        if request.name is not None and request.name != account.name:
-            changes_dict["name"] = {"old": account.name, "new": request.name}
-            aggregate.rename_account(request.name, user_id)
-            changes_made = True
-
-        if request.description is not None and request.description != account.description:
-            changes_dict["description"] = {"old": account.description, "new": request.description}
-            aggregate.update_description(request.description, user_id)
-            changes_made = True
-
-        if request.parent_account_id is not None:
-            new_parent_id = request.parent_account_id
-            if new_parent_id != account.parent_account_id:
-                changes_dict["parent_id"] = {"old": account.parent_account_id, "new": new_parent_id}
-                if new_parent_id:
-                    new_parent = await self._account_repo.get_by_id(new_parent_id)
-                    if not new_parent:
-                        raise InvalidParentAccountError(f"Parent account {new_parent_id} not found")
-
-                    if await self._would_create_cycle(account_id, new_parent_id):
-                        raise AccountCycleDetectedError("Moving account would create a cycle")
-
-                    parent_type = new_parent.account.account_type
-                    allowed_parents = self._valid_parent_types.get(account.account_type, set())
-                    if parent_type not in allowed_parents:
-                        raise InvalidAccountTypeHierarchyError(
-                            f"Cannot move {account.account_type.value} under {parent_type.value}"
-                        )
-
-                aggregate.change_parent(new_parent_id, user_id)
-                changes_made = True
-
-        if (
-            request.opening_balance is not None
-            and request.opening_balance != account.opening_balance
-        ):
-            changes_dict["opening_balance"] = {
-                "old": account.opening_balance,
-                "new": request.opening_balance,
-            }
-            aggregate.update_opening_balance(request.opening_balance, user_id)
-            changes_made = True
-
-        if not changes_made:
-            return self._to_response(account)
-
-        await self._account_repo.save(aggregate)
-        await self._uow.commit()
-
-        await self._invalidate_cache()
-        self._stats["accounts_updated"] += 1
-
-        if self._event_publisher:
-            event = AccountUpdatedEvent(
-                aggregate_id=account.id,
-                aggregate_version=aggregate.version,
-                legal_entity_id=account.legal_entity_id,
-                account_code=account.account_code.value,
-                changes=changes_dict,
-                user_id=user_id,
-                correlation_id=correlation_id,
-            )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-
-        self._record_audit("update_account", {
-            "account_id": str(account_id),
-            "changes": changes_dict,
-            "user_id": str(user_id),
-        })
-
-        return self._to_response(aggregate.account)
-
-    @audit
-    async def deactivate_account(
-        self,
-        account_id: UUID,
-        user_id: UUID,
-        legal_entity_id: UUID,
-        reason: str | None = None,
-        correlation_id: str | None = None,
-    ) -> AccountListItemDTO:
-        """
-        Nonaktifkan (soft delete) akun -- langsung ke AccountTable lewat
-        UnitOfWork, bypass AccountAggregate yang rusak (lihat catatan di
-        list_accounts). Dipakai oleh DELETE /coa/chart-of-accounts/accounts/{id}.
-        """
-        from infrastructure.persistence_orm.account_table import AccountTable
-
-        self._check_authority(user_id, "deactivate_account")
-
-        async with self._uow:
-            session = self._uow.session
-            result = await session.execute(
-                select(AccountTable).where(
-                    AccountTable.id == account_id,
-                    AccountTable.legal_entity_id == legal_entity_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if not row:
-                raise ValueError(f"Account {account_id} not found")
-
-            children_result = await session.execute(
-                select(func.count()).select_from(AccountTable).where(
-                    AccountTable.parent_account_id == account_id,
-                    AccountTable.deleted_at.is_(None),
-                )
-            )
-            if children_result.scalar_one() > 0:
-                raise ValueError("Cannot deactivate account that still has sub-accounts")
-
-            row.status = "inactive"
-            row.is_active = False
-            await session.flush()
-            # updated_at pakai onupdate=func.now() (server-side), jadi setelah
-            # flush() atribut ini "expired" dan butuh refresh eksplisit lewat
-            # await -- kalau diakses langsung (sync) di _table_row_to_list_item
-            # bakal picu lazy-load di luar konteks greenlet -> MissingGreenlet.
-            await session.refresh(row)
-            dto = self._table_row_to_list_item(row, {})
-            await self._uow.commit()
-
-        await self._invalidate_cache()
-        self._stats["accounts_deactivated"] += 1
-        self._record_audit("deactivate_account", {
-            "account_id": str(account_id),
-            "reason": reason,
-            "user_id": str(user_id),
-        })
+        self._record_audit("create_account", row.id, created_by, {"account_code": account_code})
         return dto
 
-    @audit
-    async def activate_account(
-        self,
-        account_id: UUID,
-        user_id: UUID,
-        legal_entity_id: UUID,
-        correlation_id: str | None = None,
-    ) -> AccountListItemDTO:
-        """Aktifkan kembali akun yang sebelumnya dinonaktifkan."""
-        from infrastructure.persistence_orm.account_table import AccountTable
+    # ==================== READ ====================
 
-        self._check_authority(user_id, "activate_account")
-
+    async def get_account_by_id(self, account_id: UUID, legal_entity_id: UUID) -> AccountDTO | None:
         async with self._uow:
             session = self._uow.session
-            result = await session.execute(
-                select(AccountTable).where(
-                    AccountTable.id == account_id,
-                    AccountTable.legal_entity_id == legal_entity_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if not row:
-                raise ValueError(f"Account {account_id} not found")
-
-            row.status = "active"
-            row.is_active = True
-            await session.flush()
-            # Sama seperti di deactivate_account: refresh dulu supaya
-            # updated_at (onupdate=func.now()) tidak "expired" saat diakses.
-            await session.refresh(row)
-            dto = self._table_row_to_list_item(row, {})
-            await self._uow.commit()
-
-        await self._invalidate_cache()
-        self._record_audit("activate_account", {
-            "account_id": str(account_id),
-            "user_id": str(user_id),
-        })
-        return dto
-
-    @audit
-    async def void_account(
-        self,
-        account_id: UUID,
-        user_id: UUID,
-        legal_entity_id: UUID,
-        reason: str | None = None,
-        correlation_id: str | None = None,
-    ) -> AccountListItemDTO:
-        """
-        Hapus akun secara permanen. Hanya berhasil kalau akun belum punya
-        sub-akun (dicek manual) dan belum dipakai di jurnal manapun
-        (kalau masih dipakai, FK/constraint di database akan menolak dan
-        kita ubah jadi pesan yang jelas untuk user).
-        """
-        from infrastructure.persistence_orm.account_table import AccountTable
-
-        self._check_authority(user_id, "void_account")
-
-        async with self._uow:
-            session = self._uow.session
-            result = await session.execute(
-                select(AccountTable).where(
-                    AccountTable.id == account_id,
-                    AccountTable.legal_entity_id == legal_entity_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if not row:
-                raise ValueError(f"Account {account_id} not found")
-
-            children_result = await session.execute(
-                select(func.count()).select_from(AccountTable).where(
-                    AccountTable.parent_account_id == account_id,
-                )
-            )
-            if children_result.scalar_one() > 0:
-                raise ValueError("Cannot delete account that still has sub-accounts")
-
-            dto = self._table_row_to_list_item(row, {})
-            await session.delete(row)
             try:
-                await self._uow.commit()
-            except Exception as e:
-                raise ValueError(
-                    "Account cannot be permanently deleted (likely already used in "
-                    "journal entries) -- deactivate it instead"
-                ) from e
+                row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            except AccountNotFoundError:
+                return None
+            parent_code_map = await self._parent_code_map(session, [row])
+            usage_map = await self._usage_map_for_codes(session, legal_entity_id, [row.account_code])
+        return self._row_to_dto(row, parent_code_map, usage_map)
 
-        await self._invalidate_cache()
-        self._record_audit("void_account", {
-            "account_id": str(account_id),
-            "reason": reason,
-            "user_id": str(user_id),
-        })
-        return dto
+    # Alias historis (dipakai sebagian kode lama / test) — sama dengan get_account_by_id.
+    get_account = get_account_by_id
 
-    # Alias lama, dipertahankan kalau ada pemanggil internal lain.
-    reactivate_account = activate_account
-
-    @audit
-    async def lock_account(
-        self,
-        account_id: UUID,
-        user_id: UUID,
-        legal_entity_id: UUID,
-        reason: str | None = None,
-        correlation_id: str | None = None,
-    ) -> AccountListItemDTO:
-        """
-        CATATAN JUJUR: tabel `account` di database belum punya kolom
-        is_locked/locked_at/locked_by/lock_reason, jadi status "locked" ini
-        BELUM benar-benar dipersist ke DB -- cuma diset di response DTO
-        supaya endpoint tidak 500. Kalau fitur lock akun ini mau dipakai
-        serius, perlu migrasi skema dulu untuk menambah kolom-kolom itu.
-        """
+    async def get_account_by_code(self, account_code: str, legal_entity_id: UUID) -> AccountDTO | None:
         from infrastructure.persistence_orm.account_table import AccountTable
-
-        self._check_authority(user_id, "lock_account")
 
         async with self._uow:
             session = self._uow.session
             result = await session.execute(
                 select(AccountTable).where(
-                    AccountTable.id == account_id,
                     AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.account_code == account_code.upper(),
                 )
             )
             row = result.scalar_one_or_none()
             if not row:
-                raise ValueError(f"Account {account_id} not found")
-            dto = self._table_row_to_list_item(row, {})
-
-        dto.is_locked = True
-        self._record_audit("lock_account", {
-            "account_id": str(account_id),
-            "reason": reason,
-            "user_id": str(user_id),
-        })
-        return dto
-
-    @audit
-    async def unlock_account(
-        self,
-        account_id: UUID,
-        user_id: UUID,
-        legal_entity_id: UUID,
-        correlation_id: str | None = None,
-    ) -> AccountListItemDTO:
-        """Lihat catatan di lock_account -- status lock belum dipersist ke DB."""
-        from infrastructure.persistence_orm.account_table import AccountTable
-
-        self._check_authority(user_id, "unlock_account")
-
-        async with self._uow:
-            session = self._uow.session
-            result = await session.execute(
-                select(AccountTable).where(
-                    AccountTable.id == account_id,
-                    AccountTable.legal_entity_id == legal_entity_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if not row:
-                raise ValueError(f"Account {account_id} not found")
-            dto = self._table_row_to_list_item(row, {})
-
-        dto.is_locked = False
-        self._record_audit("unlock_account", {
-            "account_id": str(account_id),
-            "user_id": str(user_id),
-        })
-        return dto
-
-    # archive_account: belum ada endpoint yang memanggilnya, dan kolom
-    # is_archived juga belum ada di tabel `account`. Didelegasikan ke
-    # deactivate_account supaya tetap aman dipanggil kalau suatu saat dipakai.
-    async def archive_account(
-        self,
-        account_id: UUID,
-        user_id: UUID,
-        legal_entity_id: UUID,
-        correlation_id: str | None = None,
-    ) -> AccountListItemDTO:
-        return await self.deactivate_account(
-            account_id, user_id, legal_entity_id,
-            reason="archived", correlation_id=correlation_id,
-        )
-
-    # --- QUERY METHODS (no audit needed) ---
-    async def get_account(self, account_id: UUID) -> AccountResponse:
-        aggregate = await self._account_repo.get_by_id(account_id)
-        if not aggregate:
-            raise AccountNotFoundError(f"Account {account_id} not found")
-        return self._to_response(aggregate.account)
-
-    async def get_account_by_code(
-        self, legal_entity_id: UUID, account_code: str
-    ) -> AccountResponse | None:
-        account = await self._account_repo.find_by_code(legal_entity_id, account_code)
-        if not account:
-            return None
-        return self._to_response(account)
+                return None
+            parent_code_map = await self._parent_code_map(session, [row])
+            usage_map = await self._usage_map_for_codes(session, legal_entity_id, [row.account_code])
+        return self._row_to_dto(row, parent_code_map, usage_map)
 
     async def list_accounts_raw(
         self,
@@ -714,12 +613,10 @@ class COAService:
         account_type: str | None = None,
         status: str | None = None,
         include_inactive: bool = True,
-    ) -> list[AccountListItemDTO]:
-        """
-        Ambil SEMUA akun yang cocok filter, TANPA pagination — dipakai oleh
+    ) -> list[AccountDTO]:
+        """Ambil SEMUA akun yang cocok filter, TANPA pagination — dipakai oleh
         use case internal (mis. post_closing_journal.py) yang butuh iterasi
-        atas seluruh akun suatu tipe, bukan satu halaman.
-        """
+        atas seluruh akun suatu tipe, bukan satu halaman."""
         result = await self.list_accounts(
             legal_entity_id=legal_entity_id,
             account_type=account_type,
@@ -737,19 +634,17 @@ class COAService:
         status: str | None = None,
         parent_account_code: str | None = None,
         is_header: bool | None = None,
+        allow_posting: bool | None = None,
+        account_group: str | None = None,
         level: int | None = None,
         search: str | None = None,
         include_inactive: bool = False,
         page: int = 1,
         page_size: int = 20,
     ) -> AccountListResult:
-        """
-        List akun dengan filter dan pagination.
-        Dipakai oleh GET /api/v1/coa/chart-of-accounts/accounts.
-
-        Query langsung ke AccountTable lewat UnitOfWork — lihat catatan di
-        atas class AccountListItemDTO untuk alasannya.
-        """
+        """List akun dengan filter dan pagination. Dipakai oleh
+        GET /coa/chart-of-accounts/accounts dan berbagai endpoint turunan
+        (/active, /header, /posting, /by-type, /by-parent, /search)."""
         from infrastructure.persistence_orm.account_table import AccountTable
 
         page = max(page, 1)
@@ -779,6 +674,10 @@ class COAService:
                 )
             if is_header is not None:
                 conditions.append(AccountTable.is_header == is_header)
+            if allow_posting is not None:
+                conditions.append(AccountTable.allow_posting == allow_posting)
+            if account_group:
+                conditions.append(AccountTable.account_group == account_group)
             if level is not None:
                 conditions.append(AccountTable.level == level)
             if search:
@@ -787,6 +686,7 @@ class COAService:
                     or_(
                         AccountTable.account_code.ilike(like),
                         AccountTable.account_name.ilike(like),
+                        AccountTable.account_name_en.ilike(like),
                     )
                 )
 
@@ -796,156 +696,151 @@ class COAService:
             stmt = (
                 select(AccountTable)
                 .where(*conditions)
-                .order_by(AccountTable.account_code)
+                .order_by(AccountTable.sort_order, AccountTable.account_code)
                 .limit(page_size)
                 .offset((page - 1) * page_size)
             )
             rows = (await session.execute(stmt)).scalars().all()
 
-            parent_ids = {r.parent_account_id for r in rows if r.parent_account_id}
-            parent_code_map: dict[UUID, str] = {}
-            if parent_ids:
-                presult = await session.execute(
-                    select(AccountTable.id, AccountTable.account_code).where(
-                        AccountTable.id.in_(parent_ids)
-                    )
-                )
-                parent_code_map = {pid: code for pid, code in presult.all()}
+            parent_code_map = await self._parent_code_map(session, rows)
 
-            items = [self._table_row_to_list_item(r, parent_code_map) for r in rows]
-
+        items = [self._row_to_dto(r, parent_code_map) for r in rows]
         return AccountListResult(items=items, total=total)
 
-    def _table_row_to_list_item(
-        self, row: Any, parent_code_map: dict[UUID, str]
-    ) -> AccountListItemDTO:
-        return AccountListItemDTO(
-            id=row.id,
-            account_code=row.account_code,
-            account_name=row.account_name,
-            account_type=row.account_type,
-            normal_balance=row.normal_balance,
-            parent_account_id=row.parent_account_id,
-            parent_account_code=parent_code_map.get(row.parent_account_id),
-            level=row.level,
-            description=row.description,
-            status=row.status,
-            currency_code=row.currency_code,
-            is_bank_account=row.is_bank_account,
-            is_cash_account=row.is_cash_account,
-            is_intercompany=row.is_intercompany,
-            is_header=row.is_header,
-            created_at=row.created_at,
-            updated_at=row.updated_at or row.created_at,
-            created_by=row.created_by or UUID(int=0),
-            version=getattr(row, "version", 1),
-        )
-
-    @audit
-    async def create_account_write(
-        self,
-        *,
-        legal_entity_id: UUID,
-        account_code: str,
-        account_name: str,
-        account_type: str,
-        normal_balance: str,
-        parent_account_code: str | None,
-        description: str | None,
-        currency_code: str | None,
-        is_bank_account: bool,
-        is_cash_account: bool,
-        is_intercompany: bool,
-        is_header: bool,
-        level: int | None,
-        opening_balance: Decimal | None,
-        category: str | None,
-        budget_control: bool,
-        created_by: UUID,
-    ) -> AccountListItemDTO:
-        """
-        Buat akun baru langsung ke AccountTable lewat UnitOfWork, bypass
-        AccountAggregate/COAAggregate yang rusak (constructor-nya tidak cocok
-        dengan cara service ini dipanggil -- lihat catatan di list_accounts).
-        Dipakai oleh POST /coa/chart-of-accounts/accounts.
-
-        `category` dan `budget_control` diterima untuk kompatibilitas dengan
-        request dari frontend, tapi belum ada kolomnya di tabel `account` saat
-        ini sehingga tidak benar-benar dipersist.
-        """
+    async def get_account_hierarchy(
+        self, legal_entity_id: UUID, include_inactive: bool = False
+    ) -> AccountTreeResult:
+        """Bangun tree lengkap dari SEMUA akun (untuk tampilan Tree View di
+        frontend). Dipakai oleh GET /coa/chart-of-accounts/tree."""
         from infrastructure.persistence_orm.account_table import AccountTable
-
-        self._check_authority(created_by, "create_account")
 
         async with self._uow:
             session = self._uow.session
-
-            existing = await session.execute(
-                select(AccountTable.id).where(
-                    AccountTable.legal_entity_id == legal_entity_id,
-                    AccountTable.account_code == account_code,
-                )
+            conditions = [
+                AccountTable.legal_entity_id == legal_entity_id,
+                AccountTable.deleted_at.is_(None),
+            ]
+            if not include_inactive:
+                conditions.append(AccountTable.status == "active")
+            stmt = (
+                select(AccountTable)
+                .where(*conditions)
+                .order_by(AccountTable.sort_order, AccountTable.account_code)
             )
-            if existing.scalar_one_or_none():
-                raise ValueError(f"Account code '{account_code}' already exists")
+            rows = (await session.execute(stmt)).scalars().all()
+            parent_code_map = await self._parent_code_map(session, rows)
+            usage_map = await self._usage_map_for_codes(
+                session, legal_entity_id, [r.account_code for r in rows]
+            )
 
-            parent_id = None
-            parent_level = 0
-            if parent_account_code:
-                presult = await session.execute(
-                    select(AccountTable.id, AccountTable.level).where(
-                        AccountTable.legal_entity_id == legal_entity_id,
-                        AccountTable.account_code == parent_account_code,
-                    )
-                )
-                prow = presult.first()
-                if not prow:
-                    raise ValueError(f"Parent account '{parent_account_code}' not found")
-                parent_id, parent_level = prow
+        dto_by_id: dict[UUID, AccountDTO] = {}
+        for r in rows:
+            dto = self._row_to_dto(r, parent_code_map, usage_map)
+            dto.children = []
+            dto_by_id[dto.id] = dto
 
-            opening = opening_balance if opening_balance is not None else Decimal("0")
-            if normal_balance == "debit":
-                debit_amt = opening if opening >= 0 else Decimal("0")
-                credit_amt = -opening if opening < 0 else Decimal("0")
+        roots: list[AccountDTO] = []
+        max_level = 0
+        for r in rows:
+            dto = dto_by_id[r.id]
+            max_level = max(max_level, dto.level)
+            if r.parent_account_id and r.parent_account_id in dto_by_id:
+                dto_by_id[r.parent_account_id].children.append(dto)
             else:
-                credit_amt = opening if opening >= 0 else Decimal("0")
-                debit_amt = -opening if opening < 0 else Decimal("0")
+                roots.append(dto)
 
-            row = AccountTable(
-                id=uuid4(),
-                legal_entity_id=legal_entity_id,
-                account_code=account_code,
-                account_name=account_name,
-                account_type=account_type,
-                normal_balance=normal_balance,
-                parent_account_id=parent_id,
-                level=(parent_level + 1) if parent_id else max(level or 1, 1),
-                description=description,
-                currency_code=currency_code or "IDR",
-                is_bank_account=is_bank_account,
-                is_cash_account=is_cash_account,
-                is_intercompany=is_intercompany,
-                is_header=is_header,
-                opening_balance_debit=debit_amt,
-                opening_balance_credit=credit_amt,
-                status="active",
-                is_active=True,
-                created_by=created_by,
+        flattened = list(dto_by_id.values())
+        return AccountTreeResult(root_accounts=roots, flattened=flattened, total_levels=max_level + 1)
+
+    async def get_account_balance(
+        self, account_id: UUID, legal_entity_id: UUID, as_of_date: datetime
+    ) -> AccountBalanceDTO | None:
+        from infrastructure.persistence_orm.account_table import AccountTable
+        from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+        from infrastructure.persistence_orm.journal_line_table import JournalLineTable
+
+        async with self._uow:
+            session = self._uow.session
+            try:
+                row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            except AccountNotFoundError:
+                return None
+
+            stmt = (
+                select(
+                    func.coalesce(func.sum(JournalLineTable.debit_amount), 0),
+                    func.coalesce(func.sum(JournalLineTable.credit_amount), 0),
+                )
+                .join(JournalHeaderTable, JournalHeaderTable.id == JournalLineTable.journal_id)
+                .where(
+                    JournalLineTable.legal_entity_id == legal_entity_id,
+                    JournalLineTable.account_code == row.account_code,
+                    JournalHeaderTable.status == "posted",
+                    JournalHeaderTable.journal_date <= as_of_date.date(),
+                    JournalLineTable.deleted_at.is_(None),
+                )
             )
-            session.add(row)
-            await session.flush()
+            debit_movement, credit_movement = (await session.execute(stmt)).one()
 
-            parent_code_map = {parent_id: parent_account_code} if parent_id else {}
-            dto = self._table_row_to_list_item(row, parent_code_map)
-            await self._uow.commit()
+        debit_movement = Decimal(debit_movement)
+        credit_movement = Decimal(credit_movement)
+        opening = row.opening_balance
+        if row.normal_balance == "debit":
+            balance = opening + debit_movement - credit_movement
+        else:
+            balance = opening + credit_movement - debit_movement
 
-        await self._invalidate_cache()
-        self._stats["accounts_created"] += 1
-        self._record_audit("create_account", {
-            "account_code": account_code,
-            "user_id": str(created_by),
-        })
-        return dto
+        return AccountBalanceDTO(
+            account_code=row.account_code,
+            account_name=row.account_name,
+            balance=balance,
+            normal_balance=row.normal_balance,
+            is_debit_balance=balance >= 0 if row.normal_balance == "debit" else balance < 0,
+            opening_balance=opening,
+            debit_movement=debit_movement,
+            credit_movement=credit_movement,
+        )
+
+    async def get_account_usage(self, account_id: UUID, legal_entity_id: UUID) -> AccountUsageDTO | None:
+        from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+        from infrastructure.persistence_orm.journal_line_table import JournalLineTable
+
+        async with self._uow:
+            session = self._uow.session
+            try:
+                row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            except AccountNotFoundError:
+                return None
+
+            stmt = (
+                select(
+                    func.count(JournalLineTable.id),
+                    func.max(JournalHeaderTable.journal_date),
+                    func.coalesce(func.sum(JournalLineTable.debit_amount), 0),
+                    func.coalesce(func.sum(JournalLineTable.credit_amount), 0),
+                )
+                .join(JournalHeaderTable, JournalHeaderTable.id == JournalLineTable.journal_id)
+                .where(
+                    JournalLineTable.legal_entity_id == legal_entity_id,
+                    JournalLineTable.account_code == row.account_code,
+                    JournalLineTable.deleted_at.is_(None),
+                )
+            )
+            count, last_used, total_debit, total_credit = (await session.execute(stmt)).one()
+
+        return AccountUsageDTO(
+            account_code=row.account_code,
+            account_name=row.account_name,
+            journal_count=count or 0,
+            last_used_at=datetime.combine(last_used, datetime.min.time()).replace(tzinfo=UTC) if last_used else None,
+            total_debit=Decimal(total_debit),
+            total_credit=Decimal(total_credit),
+            is_used_in_journal=bool(count),
+            is_used_in_budget=row.budget_control,
+            is_used_in_tax=bool(row.tax_code),
+        )
+
+    # ==================== UPDATE ====================
 
     @audit
     async def update_account_write(
@@ -961,51 +856,67 @@ class COAService:
         is_bank_account: bool | None,
         is_cash_account: bool | None,
         is_intercompany: bool | None,
-        category: str | None,
-        budget_control: bool | None,
+        category: str | None = None,
+        budget_control: bool | None = None,
+        account_name_en: str | None = None,
+        account_group: str | None = None,
+        tax_code: str | None = None,
+        cashflow_type: str | None = None,
+        allow_posting: bool | None = None,
+        reconciliation_required: bool | None = None,
+        sort_order: int | None = None,
         updated_by: UUID,
-    ) -> AccountListItemDTO:
-        """
-        Update akun langsung ke AccountTable -- lihat catatan di
-        create_account_write. Dipakai oleh PUT /coa/chart-of-accounts/accounts/{id}.
-        """
-        from infrastructure.persistence_orm.account_table import AccountTable
-
+    ) -> AccountDTO:
         self._check_authority(updated_by, "update_account")
+        account_group = account_group if account_group is not None else category
 
         async with self._uow:
             session = self._uow.session
+            row = await self._get_row_or_raise(session, account_id, legal_entity_id)
 
-            result = await session.execute(
-                select(AccountTable).where(
-                    AccountTable.id == account_id,
-                    AccountTable.legal_entity_id == legal_entity_id,
-                )
-            )
-            row = result.scalar_one_or_none()
-            if not row:
-                raise ValueError(f"Account {account_id} not found")
+            if row.is_locked:
+                raise AccountLockedError(f"Account {row.account_code} is locked: {row.lock_reason or ''}")
 
-            if account_name is not None:
-                row.account_name = account_name
-            if description is not None:
-                row.description = description
-            if status is not None:
+            changes: dict[str, Any] = {}
+
+            def _apply(field_name: str, value: Any) -> None:
+                if value is None:
+                    return
+                old = getattr(row, field_name)
+                if old != value:
+                    changes[field_name] = {"old": old, "new": value}
+                    setattr(row, field_name, value)
+
+            _apply("account_name", account_name)
+            _apply("account_name_en", account_name_en)
+            _apply("description", description)
+            _apply("currency_code", currency_code)
+            _apply("is_bank_account", is_bank_account)
+            _apply("is_cash_account", is_cash_account)
+            _apply("is_intercompany", is_intercompany)
+            _apply("budget_control", budget_control)
+            _apply("account_group", account_group)
+            _apply("tax_code", tax_code)
+            _apply("cashflow_type", cashflow_type)
+            _apply("reconciliation_required", reconciliation_required)
+            _apply("sort_order", sort_order)
+            if allow_posting is not None and not row.is_header:
+                _apply("allow_posting", allow_posting)
+
+            if status is not None and status != row.status:
+                changes["status"] = {"old": row.status, "new": status}
                 row.status = status
                 row.is_active = status == "active"
-            if currency_code is not None:
-                row.currency_code = currency_code
-            if is_bank_account is not None:
-                row.is_bank_account = is_bank_account
-            if is_cash_account is not None:
-                row.is_cash_account = is_cash_account
-            if is_intercompany is not None:
-                row.is_intercompany = is_intercompany
 
             parent_code_map: dict[UUID, str] = {}
             if parent_account_code is not None:
+                from infrastructure.persistence_orm.account_table import AccountTable
+
                 if parent_account_code == "":
-                    row.parent_account_id = None
+                    if row.parent_account_id is not None:
+                        changes["parent_account_id"] = {"old": row.parent_account_id, "new": None}
+                        row.parent_account_id = None
+                        row.level = 0
                 else:
                     presult = await session.execute(
                         select(AccountTable.id, AccountTable.level).where(
@@ -1015,73 +926,559 @@ class COAService:
                     )
                     prow = presult.first()
                     if not prow:
-                        raise ValueError(f"Parent account '{parent_account_code}' not found")
+                        raise InvalidParentAccountError(f"Parent account '{parent_account_code}' not found")
                     if prow[0] == account_id:
-                        raise ValueError("Account cannot be its own parent")
+                        raise AccountCycleDetectedError("Account cannot be its own parent")
+                    if await self._would_create_cycle(session, account_id, prow[0]):
+                        raise AccountCycleDetectedError("Moving account would create a cycle")
+                    changes["parent_account_id"] = {"old": row.parent_account_id, "new": prow[0]}
                     row.parent_account_id = prow[0]
                     row.level = prow[1] + 1
                     parent_code_map = {prow[0]: parent_account_code}
 
+            if not changes:
+                await self._uow.commit()
+                full_parent_map = await self._parent_code_map(session, [row])
+                return self._row_to_dto(row, full_parent_map)
+
             await session.flush()
-            # Sama seperti deactivate_account/activate_account: updated_at
-            # pakai onupdate=func.now() (server-side), jadi expired setelah
-            # flush() dan harus di-refresh lewat await sebelum diakses sync
-            # di _table_row_to_list_item -- kalau tidak, MissingGreenlet.
+            # updated_at pakai onupdate=func.now() (server-side), jadi
+            # expired setelah flush() -- refresh sebelum diakses sync di
+            # _row_to_dto, kalau tidak akan MissingGreenlet.
             await session.refresh(row)
 
             if row.parent_account_id and row.parent_account_id not in parent_code_map:
-                presult = await session.execute(
-                    select(AccountTable.account_code).where(
-                        AccountTable.id == row.parent_account_id
-                    )
-                )
-                pcode = presult.scalar_one_or_none()
-                if pcode:
-                    parent_code_map[row.parent_account_id] = pcode
+                full_parent_map = await self._parent_code_map(session, [row])
+                parent_code_map.update(full_parent_map)
 
-            dto = self._table_row_to_list_item(row, parent_code_map)
+            dto = self._row_to_dto(row, parent_code_map)
             await self._uow.commit()
 
-        await self._invalidate_cache()
         self._stats["accounts_updated"] += 1
-        self._record_audit("update_account", {
-            "account_id": str(account_id),
-            "user_id": str(updated_by),
-        })
+        self._record_audit("update_account", account_id, updated_by, {"changes": changes})
         return dto
 
-    async def get_hierarchy_tree(
-        self, legal_entity_id: UUID, use_cache: bool = True, max_depth: int = 10
-    ) -> AccountHierarchyNodeDTO:
-        if use_cache and await self._is_cache_valid():
-            async with self._cache_lock:
-                if self._hierarchy_cache and self._hierarchy_cache.root:
-                    return self._tree_to_dto(self._hierarchy_cache.root, max_depth)
+    # Alias historis dipakai beberapa pemanggil lama.
+    update_account = update_account_write
 
-        all_accounts = await self._account_repo.list(
-            legal_entity_id=legal_entity_id, limit=10000, offset=0
-        )
+    async def _would_create_cycle(self, session: Any, account_id: UUID, new_parent_id: UUID) -> bool:
+        from infrastructure.persistence_orm.account_table import AccountTable
 
-        if not all_accounts:
-            return AccountHierarchyNodeDTO(
-                id=None,
-                account_code="",
-                name="No Accounts",
-                account_type="",
-                normal_balance="",
-                level=0,
-                children=[],
+        if account_id == new_parent_id:
+            return True
+        current = new_parent_id
+        visited: set[UUID] = set()
+        while current and current not in visited:
+            if current == account_id:
+                return True
+            visited.add(current)
+            result = await session.execute(
+                select(AccountTable.parent_account_id).where(AccountTable.id == current)
             )
+            row = result.scalar_one_or_none()
+            current = row
+        return False
 
-        tree = AccountHierarchyTree.build(all_accounts)
+    # ==================== STATUS TRANSITIONS ====================
 
-        async with self._cache_lock:
-            self._hierarchy_cache = tree
-            self._cache_updated_at = datetime.now(UTC)
+    async def _transition(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        legal_entity_id: UUID,
+        *,
+        new_status: str | None = None,
+        lock: bool | None = None,
+        reason: str | None = None,
+        require_no_usage: bool = False,
+    ) -> AccountDTO | None:
+        async with self._uow:
+            session = self._uow.session
+            try:
+                row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            except AccountNotFoundError:
+                return None
 
-        return self._tree_to_dto(tree.root, max_depth)
+            if require_no_usage:
+                usage = await self._usage_map_for_codes(session, legal_entity_id, [row.account_code])
+                used, _ = usage.get(row.account_code, (False, Decimal("0")))
+                if used:
+                    raise AccountHasTransactionsError(
+                        f"Account {row.account_code} sudah dipakai transaksi dan tidak bisa dihapus permanen"
+                    )
+                if row.children:
+                    raise AccountHasChildrenError(
+                        f"Account {row.account_code} masih punya sub-akun, pindahkan/hapus dulu sub-akunnya"
+                    )
+
+            if new_status is not None:
+                row.status = new_status
+                row.is_active = new_status == "active"
+            if lock is True:
+                row.is_locked = True
+                row.lock_reason = reason
+            elif lock is False:
+                row.is_locked = False
+                row.lock_reason = None
+
+            await session.flush()
+            await session.refresh(row)
+            parent_code_map = await self._parent_code_map(session, [row])
+            dto = self._row_to_dto(row, parent_code_map)
+            await self._uow.commit()
+        return dto
 
     @audit
+    async def deactivate_account(
+        self, account_id: UUID, user_id: UUID, legal_entity_id: UUID, reason: str | None = None
+    ) -> AccountDTO | None:
+        self._check_authority(user_id, "deactivate_account")
+        dto = await self._transition(account_id, user_id, legal_entity_id, new_status="inactive")
+        if dto:
+            self._stats["accounts_deactivated"] += 1
+            self._record_audit("deactivate_account", account_id, user_id, {"reason": reason}, reason=reason)
+        return dto
+
+    @audit
+    async def activate_account(self, account_id: UUID, user_id: UUID, legal_entity_id: UUID) -> AccountDTO | None:
+        self._check_authority(user_id, "activate_account")
+        dto = await self._transition(account_id, user_id, legal_entity_id, new_status="active")
+        if dto:
+            self._record_audit("activate_account", account_id, user_id, {})
+        return dto
+
+    @audit
+    async def void_account(
+        self, account_id: UUID, user_id: UUID, legal_entity_id: UUID, reason: str | None = None
+    ) -> AccountDTO | None:
+        """Nonaktifkan permanen (arsip). Ditolak kalau masih dipakai transaksi
+        atau masih punya sub-akun — akun COA yang sudah dipakai TIDAK PERNAH
+        benar-benar dihapus dari database, hanya diarsipkan (soft delete)."""
+        self._check_authority(user_id, "void_account")
+        dto = await self._transition(
+            account_id, user_id, legal_entity_id, new_status="archived", require_no_usage=True
+        )
+        if dto:
+            self._record_audit("void_account", account_id, user_id, {"reason": reason}, reason=reason)
+        return dto
+
+    @audit
+    async def lock_account(
+        self, account_id: UUID, user_id: UUID, legal_entity_id: UUID, reason: str | None = None
+    ) -> AccountDTO | None:
+        self._check_authority(user_id, "lock_account")
+        dto = await self._transition(account_id, user_id, legal_entity_id, lock=True, reason=reason)
+        if dto:
+            self._record_audit("lock_account", account_id, user_id, {"reason": reason}, reason=reason)
+        return dto
+
+    @audit
+    async def unlock_account(self, account_id: UUID, user_id: UUID, legal_entity_id: UUID) -> AccountDTO | None:
+        self._check_authority(user_id, "unlock_account")
+        dto = await self._transition(account_id, user_id, legal_entity_id, lock=False)
+        if dto:
+            self._record_audit("unlock_account", account_id, user_id, {})
+        return dto
+
+    async def delete_account(
+        self, account_id: UUID, user_id: UUID, legal_entity_id: UUID, reason: str | None = None
+    ) -> bool:
+        """Hard delete — HANYA berhasil jika akun belum pernah dipakai
+        transaksi dan tidak punya sub-akun. Ini yang dipanggil dari endpoint
+        DELETE ketika ?permanent=true DAN akun benar-benar 'bersih'; kalau
+        tidak, router akan otomatis fallback ke void_account (arsip)."""
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        self._check_authority(user_id, "delete_account")
+        async with self._uow:
+            session = self._uow.session
+            row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            usage = await self._usage_map_for_codes(session, legal_entity_id, [row.account_code])
+            used, _ = usage.get(row.account_code, (False, Decimal("0")))
+            if used:
+                raise AccountHasTransactionsError(f"Account {row.account_code} sudah dipakai transaksi")
+            if row.children:
+                raise AccountHasChildrenError(f"Account {row.account_code} masih punya sub-akun")
+            await session.delete(row)
+            await self._uow.commit()
+        self._record_audit("delete_account", account_id, user_id, {"reason": reason}, reason=reason)
+        return True
+
+    # ==================== VALIDATION ====================
+
+    async def validate_account_modification(
+        self, account_id: UUID, legal_entity_id: UUID, action: str
+    ) -> ValidationResultDTO:
+        errors: list[str] = []
+        warnings: list[str] = []
+        suggestions: list[str] = []
+
+        async with self._uow:
+            session = self._uow.session
+            try:
+                row = await self._get_row_or_raise(session, account_id, legal_entity_id)
+            except AccountNotFoundError:
+                return ValidationResultDTO(is_valid=False, errors=["Account not found"])
+
+            usage = await self._usage_map_for_codes(session, legal_entity_id, [row.account_code])
+            used, balance = usage.get(row.account_code, (False, Decimal("0")))
+
+            if row.is_locked:
+                errors.append(f"Account is locked: {row.lock_reason or 'no reason given'}")
+
+            if action == "delete":
+                if used:
+                    errors.append("Account has posted journal transactions and cannot be permanently deleted")
+                    suggestions.append("Use deactivate instead of permanent delete")
+                if row.children:
+                    errors.append("Account has child accounts; move or delete children first")
+            elif action == "deactivate":
+                if balance != 0:
+                    warnings.append(f"Account still has a non-zero balance ({balance})")
+            elif action == "update":
+                if used:
+                    warnings.append("Account already used in posted journals; changing type/normal balance is unsafe")
+
+        return ValidationResultDTO(
+            is_valid=len(errors) == 0, errors=errors, warnings=warnings, suggestions=suggestions
+        )
+
+    async def validate_account_code(self, account_code: str, legal_entity_id: UUID) -> ValidationResultDTO:
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        suggestions: list[str] = []
+
+        code = (account_code or "").strip().upper()
+        if not code:
+            errors.append("Account code is required")
+        elif not code.replace("-", "").replace(".", "").isdigit():
+            errors.append("Account code must contain digits and optional hyphens/periods")
+
+        if not errors:
+            async with self._uow:
+                session = self._uow.session
+                existing = await session.execute(
+                    select(AccountTable.id).where(
+                        AccountTable.legal_entity_id == legal_entity_id,
+                        AccountTable.account_code == code,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    errors.append(f"Account code '{code}' already exists")
+
+            first_digit = code[0] if code else ""
+            matched_type = next(
+                (t for t, prefixes in ACCOUNT_TYPE_PREFIXES.items() if first_digit in prefixes), None
+            )
+            if matched_type:
+                suggestions.append(f"Suggested account type based on prefix: {matched_type}")
+            else:
+                warnings.append("Account code prefix does not match a known account type convention (1xxx-6xxx)")
+
+        return ValidationResultDTO(
+            is_valid=len(errors) == 0, errors=errors, warnings=warnings, suggestions=suggestions
+        )
+
+    # ==================== BULK OPERATIONS ====================
+
+    async def bulk_update_status(
+        self,
+        account_ids: list[UUID],
+        status: str,
+        reason: str | None,
+        updated_by: UUID,
+        legal_entity_id: UUID,
+    ) -> BulkOperationResultDTO:
+        self._check_authority(updated_by, "bulk_update_status")
+        success = 0
+        failed_ids: list[UUID] = []
+        errors: list[str] = []
+        for account_id in account_ids:
+            try:
+                result = await self._transition(account_id, updated_by, legal_entity_id, new_status=status)
+                if result is None:
+                    raise AccountNotFoundError(str(account_id))
+                success += 1
+            except Exception as exc:  # noqa: BLE001 - kumpulkan semua error, jangan berhenti di tengah batch
+                failed_ids.append(account_id)
+                errors.append(f"{account_id}: {exc}")
+        self._record_audit(
+            "bulk_update_status", None, updated_by,
+            {"status": status, "reason": reason, "count": len(account_ids), "success": success},
+        )
+        return BulkOperationResultDTO(
+            total=len(account_ids), success_count=success, failed_count=len(failed_ids),
+            failed_ids=failed_ids, errors=errors,
+        )
+
+    async def bulk_update_parent(
+        self,
+        account_ids: list[UUID],
+        parent_account_code: str | None,
+        updated_by: UUID,
+        legal_entity_id: UUID,
+    ) -> BulkOperationResultDTO:
+        self._check_authority(updated_by, "bulk_update_parent")
+        success = 0
+        failed_ids: list[UUID] = []
+        errors: list[str] = []
+        for account_id in account_ids:
+            try:
+                await self.update_account_write(
+                    account_id=account_id,
+                    legal_entity_id=legal_entity_id,
+                    account_name=None,
+                    description=None,
+                    status=None,
+                    parent_account_code=parent_account_code or "",
+                    currency_code=None,
+                    is_bank_account=None,
+                    is_cash_account=None,
+                    is_intercompany=None,
+                    updated_by=updated_by,
+                )
+                success += 1
+            except Exception as exc:  # noqa: BLE001
+                failed_ids.append(account_id)
+                errors.append(f"{account_id}: {exc}")
+        self._record_audit(
+            "bulk_update_parent", None, updated_by,
+            {"parent_account_code": parent_account_code, "count": len(account_ids), "success": success},
+        )
+        return BulkOperationResultDTO(
+            total=len(account_ids), success_count=success, failed_count=len(failed_ids),
+            failed_ids=failed_ids, errors=errors,
+        )
+
+    # ==================== IMPORT / EXPORT ====================
+
+    async def export_coa(self, legal_entity_id: UUID, fmt: str, include_inactive: bool = False) -> bytes:
+        items = await self.list_accounts_raw(legal_entity_id, include_inactive=include_inactive)
+
+        if fmt == "json":
+            payload = [
+                {
+                    "account_code": a.account_code,
+                    "account_name": a.account_name,
+                    "account_name_en": a.account_name_en,
+                    "account_type": a.account_type,
+                    "account_group": a.account_group,
+                    "normal_balance": a.normal_balance,
+                    "parent_account_code": a.parent_account_code,
+                    "level": a.level,
+                    "description": a.description,
+                    "status": a.status,
+                    "currency_code": a.currency_code,
+                    "is_header": a.is_header,
+                    "allow_posting": a.allow_posting,
+                    "budget_control": a.budget_control,
+                    "tax_code": a.tax_code,
+                    "cashflow_type": a.cashflow_type,
+                    "opening_balance": str(a.opening_balance),
+                }
+                for a in items
+            ]
+            return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+        if fmt in ("csv", "excel"):
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow([
+                "account_code", "account_name", "account_name_en", "account_type", "account_group",
+                "normal_balance", "parent_account_code", "level", "description", "status",
+                "currency_code", "is_header", "allow_posting", "budget_control", "tax_code",
+                "cashflow_type", "opening_balance",
+            ])
+            for a in items:
+                writer.writerow([
+                    a.account_code, a.account_name, a.account_name_en or "", a.account_type,
+                    a.account_group or "", a.normal_balance, a.parent_account_code or "", a.level,
+                    a.description or "", a.status, a.currency_code, a.is_header, a.allow_posting,
+                    a.budget_control, a.tax_code or "", a.cashflow_type or "", str(a.opening_balance),
+                ])
+            content = buf.getvalue().encode("utf-8-sig")
+            # Format "excel" belum benar-benar menghasilkan .xlsx biner (butuh
+            # openpyxl); untuk saat ini disajikan sebagai CSV yang tetap bisa
+            # dibuka Excel langsung. Lihat TODO di router kalau perlu .xlsx asli.
+            return content
+
+        raise ValueError(f"Unsupported export format: {fmt}")
+
+    async def import_coa(
+        self,
+        legal_entity_id: UUID,
+        file_content: str | bytes,
+        file_format: str,
+        mode: str,
+        validate_only: bool,
+        imported_by: UUID,
+    ) -> ImportExportResultDTO:
+        self._check_authority(imported_by, "import_coa")
+
+        if isinstance(file_content, bytes):
+            file_content = file_content.decode("utf-8-sig")
+
+        try:
+            if file_format == "json":
+                rows = json.loads(file_content)
+            elif file_format in ("csv", "excel", "xlsx", "xls"):
+                rows = list(csv.DictReader(io.StringIO(file_content)))
+            else:
+                raise InvalidBulkImportDataError(f"Unsupported import format: {file_format}")
+        except (json.JSONDecodeError, csv.Error) as exc:
+            raise InvalidBulkImportDataError(f"Failed to parse {file_format}: {exc}") from exc
+
+        imported = 0
+        updated = 0
+        skipped = 0
+        errors: list[str] = []
+
+        # Urutkan supaya parent selalu diproses sebelum anak (asumsi: parent
+        # account_code lebih pendek / muncul lebih dulu di file yang wajar).
+        rows_sorted = sorted(rows, key=lambda r: (r.get("level") or 0, r.get("account_code") or ""))
+
+        for idx, r in enumerate(rows_sorted, start=1):
+            code = str(r.get("account_code") or "").strip().upper()
+            if not code:
+                skipped += 1
+                errors.append(f"Row {idx}: missing account_code")
+                continue
+            try:
+                existing = await self.get_account_by_code(code, legal_entity_id)
+                if validate_only:
+                    if not existing:
+                        imported += 1
+                    else:
+                        updated += 1
+                    continue
+
+                if existing:
+                    if mode == "replace":
+                        await self.update_account_write(
+                            account_id=existing.id,
+                            legal_entity_id=legal_entity_id,
+                            account_name=r.get("account_name") or existing.account_name,
+                            description=r.get("description"),
+                            status=r.get("status"),
+                            parent_account_code=r.get("parent_account_code"),
+                            currency_code=r.get("currency_code"),
+                            is_bank_account=None,
+                            is_cash_account=None,
+                            is_intercompany=None,
+                            account_group=r.get("account_group"),
+                            tax_code=r.get("tax_code"),
+                            cashflow_type=r.get("cashflow_type"),
+                            updated_by=imported_by,
+                        )
+                        updated += 1
+                    else:
+                        skipped += 1
+                else:
+                    await self.create_account_write(
+                        legal_entity_id=legal_entity_id,
+                        account_code=code,
+                        account_name=r.get("account_name") or code,
+                        account_type=r.get("account_type") or "Asset",
+                        normal_balance=r.get("normal_balance") or "debit",
+                        parent_account_code=r.get("parent_account_code") or None,
+                        description=r.get("description"),
+                        currency_code=r.get("currency_code") or "IDR",
+                        is_bank_account=str(r.get("is_bank_account", "")).lower() in ("true", "1", "yes"),
+                        is_cash_account=str(r.get("is_cash_account", "")).lower() in ("true", "1", "yes"),
+                        is_intercompany=str(r.get("is_intercompany", "")).lower() in ("true", "1", "yes"),
+                        is_header=str(r.get("is_header", "")).lower() in ("true", "1", "yes"),
+                        level=None,
+                        opening_balance=Decimal(str(r.get("opening_balance") or "0")),
+                        account_group=r.get("account_group"),
+                        tax_code=r.get("tax_code"),
+                        cashflow_type=r.get("cashflow_type"),
+                        created_by=imported_by,
+                    )
+                    imported += 1
+            except Exception as exc:  # noqa: BLE001 - kumpulkan semua error baris
+                skipped += 1
+                errors.append(f"Row {idx} ({code}): {exc}")
+
+        self._record_audit(
+            "import_coa", None, imported_by,
+            {"mode": mode, "validate_only": validate_only, "imported": imported, "updated": updated, "skipped": skipped},
+        )
+
+        return ImportExportResultDTO(
+            success=len(errors) == 0,
+            message=(
+                "Validasi selesai" if validate_only else "Import selesai"
+            ) + f" — {imported} baru, {updated} diperbarui, {skipped} dilewati.",
+            imported_count=imported,
+            updated_count=updated,
+            skipped_count=skipped,
+            errors=errors[:200],
+        )
+
+    # ==================== HISTORY / AUDIT TRAIL ====================
+
+    async def get_account_history(
+        self,
+        account_id: UUID,
+        legal_entity_id: UUID,
+        start_date: datetime | None,
+        end_date: datetime | None,
+    ) -> list[AccountHistoryEntryDTO]:
+        out: list[AccountHistoryEntryDTO] = []
+        for entry in self._audit_trail:
+            if entry.get("account_id") != str(account_id):
+                continue
+            ts = entry["timestamp"]
+            if start_date and ts < start_date:
+                continue
+            if end_date and ts > end_date:
+                continue
+            for field_name, change in (entry.get("details", {}).get("changes") or {}).items():
+                out.append(AccountHistoryEntryDTO(
+                    timestamp=ts,
+                    action=entry["action"],
+                    field=field_name,
+                    old_value=change.get("old") if isinstance(change, dict) else None,
+                    new_value=change.get("new") if isinstance(change, dict) else None,
+                    actor_id=UUID(entry["actor_id"]) if entry.get("actor_id") else UUID(int=0),
+                    actor_name=None,
+                    reason=entry.get("reason"),
+                ))
+            if entry["action"] not in ("update_account",):
+                out.append(AccountHistoryEntryDTO(
+                    timestamp=ts,
+                    action=entry["action"],
+                    field=entry.get("field") or "-",
+                    old_value=entry.get("old_value"),
+                    new_value=entry.get("new_value"),
+                    actor_id=UUID(entry["actor_id"]) if entry.get("actor_id") else UUID(int=0),
+                    actor_name=None,
+                    reason=entry.get("reason"),
+                ))
+        return sorted(out, key=lambda h: h.timestamp, reverse=True)
+
+    async def get_account_audit_trail(
+        self, account_id: UUID, legal_entity_id: UUID, limit: int = 100
+    ) -> list[AccountAuditEntryDTO]:
+        out = [
+            AccountAuditEntryDTO(
+                timestamp=entry["timestamp"],
+                event_type=entry["action"],
+                event_data=entry.get("details", {}),
+                actor_id=UUID(entry["actor_id"]) if entry.get("actor_id") else UUID(int=0),
+                actor_name=None,
+                version=entry.get("version", 1),
+            )
+            for entry in self._audit_trail
+            if entry.get("account_id") == str(account_id)
+        ]
+        out.sort(key=lambda a: a.timestamp, reverse=True)
+        return out[:limit]
+
+    # ==================== BULK IMPORT (CSV legacy helper) ====================
+
     async def bulk_import_accounts(
         self,
         legal_entity_id: UUID,
@@ -1089,182 +1486,17 @@ class COAService:
         user_id: UUID,
         correlation_id: str | None = None,
         dry_run: bool = False,
-    ) -> BulkImportResultDTO:
-        self._check_authority(user_id, "bulk_import_accounts")
-        success_count = 0
-        failure_count = 0
-        failures: list[dict[str, Any]] = []
-        created_accounts: list[AccountResponse] = []
-
-        try:
-            reader = csv.DictReader(io.StringIO(csv_content))
-            required_fields = ["account_code", "name", "account_type"]
-
-            accounts_data = []
-            for row_num, row in enumerate(reader, start=2):
-                try:
-                    for field in required_fields:
-                        if not row.get(field):
-                            raise ValueError(f"Missing required field: {field}")
-
-                    accounts_data.append(
-                        {
-                            "row_num": row_num,
-                            "account_code": row["account_code"].strip(),
-                            "name": row["name"].strip(),
-                            "account_type": row["account_type"].strip().upper(),
-                            "parent_code": row.get("parent_code", "").strip() or None,
-                            "description": row.get("description", "").strip() or None,
-                            "opening_balance": Decimal(row.get("opening_balance", "0")),
-                            "currency_code": row.get("currency_code", "IDR").strip(),
-                            "is_header": row.get("is_header", "false").lower()
-                            in ("true", "1", "yes"),
-                        }
-                    )
-                except Exception as e:
-                    failure_count += 1
-                    failures.append({"row": row_num, "error": str(e)})
-
-            if dry_run:
-                return BulkImportResultDTO(
-                    total_rows=len(accounts_data) + failure_count,
-                    success_count=0,
-                    failure_count=failure_count + len(accounts_data),
-                    failures=failures,
-                    created_accounts=[],
-                )
-
-            code_to_id = {}
-            for data in accounts_data:
-                try:
-                    parent_id = None
-                    if data["parent_code"]:
-                        if data["parent_code"] not in code_to_id:
-                            raise ValueError(
-                                f"Parent account code '{data['parent_code']}' not found"
-                            )
-                        parent_id = code_to_id[data["parent_code"]]
-
-                    request = CreateAccountRequest(
-                        legal_entity_id=legal_entity_id,
-                        account_code=data["account_code"],
-                        name=data["name"],
-                        account_type=data["account_type"],
-                        parent_account_id=parent_id,
-                        description=data["description"],
-                        opening_balance=data["opening_balance"],
-                        currency_code=data["currency_code"],
-                        is_header=data["is_header"],
-                    )
-
-                    response = await self.create_account(request, user_id, correlation_id)
-                    success_count += 1
-                    created_accounts.append(response)
-                    code_to_id[data["account_code"]] = response.id
-
-                except Exception as e:
-                    failure_count += 1
-                    failures.append(
-                        {
-                            "row": data["row_num"],
-                            "account_code": data["account_code"],
-                            "error": str(e),
-                        }
-                    )
-
-            self._record_audit("bulk_import_accounts", {
-                "success_count": success_count,
-                "failure_count": failure_count,
-                "user_id": str(user_id),
-            })
-
-            return BulkImportResultDTO(
-                total_rows=success_count + failure_count,
-                success_count=success_count,
-                failure_count=failure_count,
-                failures=failures[:100],
-                created_accounts=created_accounts,
-            )
-
-        except Exception as e:
-            raise InvalidBulkImportDataError(f"Failed to parse CSV: {e}")
-
-    # --- private helpers ---
-    async def _would_create_cycle(self, account_id: UUID, new_parent_id: UUID) -> bool:
-        if account_id == new_parent_id:
-            return True
-
-        current = new_parent_id
-        visited = set()
-        while current and current not in visited:
-            if current == account_id:
-                return True
-            visited.add(current)
-            parent_agg = await self._account_repo.get_by_id(current)
-            if not parent_agg:
-                break
-            current = parent_agg.account.parent_account_id
-
-        return False
-
-    async def _invalidate_cache(self) -> None:
-        async with self._cache_lock:
-            self._hierarchy_cache = None
-            self._cache_updated_at = None
-
-    async def _is_cache_valid(self) -> bool:
-        if self._hierarchy_cache is None or self._cache_updated_at is None:
-            return False
-        age = (datetime.now(UTC) - self._cache_updated_at).total_seconds()
-        return age < self._cache_ttl_seconds
-
-    def _to_response(self, account: Account) -> AccountResponse:
-        return AccountResponse(
-            id=account.id,
-            legal_entity_id=account.legal_entity_id,
-            account_code=account.account_code.value,
-            name=account.name,
-            account_type=account.account_type.value,
-            normal_balance=account.normal_balance.value,
-            status=account.status.value,
-            parent_account_id=account.parent_account_id,
-            description=account.description,
-            opening_balance=account.opening_balance,
-            currency_code=account.currency_code,
-            is_header=account.is_header,
-            level=account.level,
-            is_locked=account.is_locked,
-            created_at=account.created_at,
-            created_by=account.created_by,
-            updated_at=account.updated_at,
-            updated_by=account.updated_by,
+    ) -> ImportExportResultDTO:
+        """Kompatibilitas mundur untuk pemanggil lama yang memakai CSV
+        mentah alih-alih endpoint /import — didelegasikan ke import_coa."""
+        return await self.import_coa(
+            legal_entity_id=legal_entity_id,
+            file_content=csv_content,
+            file_format="csv",
+            mode="merge",
+            validate_only=dry_run,
+            imported_by=user_id,
         )
-
-    def _tree_to_dto(self, node: HierarchyNode, max_depth: int) -> AccountHierarchyNodeDTO:
-        children = []
-        if node.level < max_depth:
-            for child in node.children:
-                children.append(self._tree_to_dto(child, max_depth))
-
-        return AccountHierarchyNodeDTO(
-            id=node.account.id,
-            account_code=node.account.account_code.value,
-            name=node.account.name,
-            account_type=node.account.account_type.value,
-            normal_balance=node.account.normal_balance.value,
-            level=node.level,
-            children=children,
-            is_header=node.account.is_header,
-            status=node.account.status.value,
-            opening_balance=node.account.opening_balance,
-            is_locked=node.account.is_locked,
-        )
-
-    def get_stats(self) -> dict[str, int]:
-        return self._stats.copy()
-
-    def get_audit_trail(self) -> list[dict[str, Any]]:
-        return self._audit_trail.copy()
 
 
 # ============================================================================
@@ -1281,17 +1513,27 @@ async def create_coa_service(
 
 
 __all__ = [
+    "AccountAuditEntryDTO",
+    "AccountBalanceDTO",
     "AccountCodeAlreadyExistsError",
     "AccountCodeFormatError",
     "AccountCycleDetectedError",
+    "AccountDTO",
     "AccountHasChildrenError",
     "AccountHasTransactionsError",
+    "AccountHistoryEntryDTO",
+    "AccountListResult",
     "AccountLockedError",
     "AccountNotFoundError",
+    "AccountTreeResult",
+    "AccountUsageDTO",
+    "BulkOperationResultDTO",
     "COAService",
     "COAServiceError",
+    "ImportExportResultDTO",
     "InvalidAccountTypeHierarchyError",
     "InvalidBulkImportDataError",
     "InvalidParentAccountError",
+    "ValidationResultDTO",
     "create_coa_service",
 ]

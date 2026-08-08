@@ -26,16 +26,12 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 
-from application.events import (
-    CustomerBalanceUpdatedEvent,
-    CustomerCreatedEvent,
-    CustomerCreditLimitChangedEvent,
-    CustomerStatusChangedEvent,
-)
+from domain.customer_supplier_employee.domain_events import DomainEvent, DomainEventType
 from infrastructure.persistence_orm.customer_table import (
     CustomerAddressTable,
     CustomerAttachmentTable,
@@ -233,11 +229,33 @@ class CustomerService:
     # ========================================================================
 
     @audit
+    async def _generate_customer_code(self, session, legal_entity_id: UUID) -> str:
+        """
+        Auto-generate customer_code berformat CUST-0001, CUST-0002, dst,
+        per legal_entity. Ambil kode existing dengan prefix "CUST-" yang
+        angkanya paling besar, lalu +1. Ada retry di create_customer()
+        untuk menangani race condition (dua request nyaris bersamaan
+        dapat kandidat kode yang sama) lewat unique constraint di DB.
+        """
+        result = await session.execute(
+            select(CustomerTable.customer_code)
+            .where(
+                CustomerTable.legal_entity_id == legal_entity_id,
+                CustomerTable.customer_code.like("CUST-%"),
+            )
+        )
+        max_num = 0
+        for (code,) in result.all():
+            suffix = code[len("CUST-"):]
+            if suffix.isdigit():
+                max_num = max(max_num, int(suffix))
+        return f"CUST-{max_num + 1:04d}"
+
     async def create_customer(
         self,
         legal_entity_id: UUID,
-        customer_code: str,
         name: str,
+        customer_code: str | None = None,
         company_name: str | None = None,
         customer_type: str = "company",
         npwp: str | None = None,
@@ -268,76 +286,126 @@ class CustomerService:
     ) -> CustomerListItem:
         self._check_authority(created_by, "create_customer")
 
-        async with self._uow:
-            session = self._uow.session
-            existing = await session.execute(
-                select(CustomerTable).where(
-                    CustomerTable.legal_entity_id == legal_entity_id,
-                    CustomerTable.customer_code == customer_code,
-                )
-            )
-            if existing.scalar_one_or_none() is not None:
-                raise CustomerServiceError(f"Customer code {customer_code} already exists")
+        # customer_code kosong/None -> auto-generate CUST-0001, CUST-0002, dst.
+        # Retry beberapa kali kalau ada race condition (dua request nyaris
+        # bersamaan menghasilkan kandidat kode yang sama) -- unique
+        # constraint uq_customer_code_legal_entity di DB jadi jaring pengaman
+        # terakhir, IntegrityError di-tangkap lalu kode baru digenerate ulang.
+        auto_generate = not customer_code or not customer_code.strip()
+        max_attempts = 5 if auto_generate else 1
 
-            row = CustomerTable(
-                legal_entity_id=legal_entity_id,
-                customer_code=customer_code,
-                customer_name=name,
-                company_name=company_name,
-                customer_type=customer_type,
-                tax_id=npwp,
-                tax_status=tax_status,
-                is_taxable=is_taxable,
-                address=address,
-                city=city,
-                province=province,
-                district=district,
-                postal_code=postal_code,
-                country=country,
-                phone=phone,
-                mobile=mobile,
-                email=email,
-                website=website,
-                contact_person=contact_person,
-                contact_phone=contact_phone,
-                contact_email=contact_email,
-                credit_limit=credit_limit,
-                opening_balance=opening_balance,
-                current_balance=opening_balance,
-                currency=currency,
-                payment_term_days=payment_term_days,
-                discount_percent=discount_percent,
-                category=category,
-                price_group=price_group,
-                created_by=created_by,
-            )
-            session.add(row)
-            await session.flush()
-            await session.refresh(row)
-            item = _row_to_item(row)
-            await self._uow.commit()
+        for attempt in range(max_attempts):
+            async with self._uow:
+                session = self._uow.session
+
+                code_to_use = customer_code
+                if auto_generate:
+                    code_to_use = await self._generate_customer_code(session, legal_entity_id)
+                else:
+                    existing = await session.execute(
+                        select(CustomerTable).where(
+                            CustomerTable.legal_entity_id == legal_entity_id,
+                            CustomerTable.customer_code == customer_code,
+                        )
+                    )
+                    if existing.scalar_one_or_none() is not None:
+                        raise CustomerServiceError(f"Customer code {customer_code} already exists")
+
+                try:
+                    item = await self._insert_customer(
+                        session=session, legal_entity_id=legal_entity_id, customer_code=code_to_use,
+                        name=name, company_name=company_name, customer_type=customer_type, npwp=npwp,
+                        tax_status=tax_status, is_taxable=is_taxable, address=address, city=city,
+                        province=province, district=district, postal_code=postal_code, country=country,
+                        phone=phone, mobile=mobile, email=email, website=website,
+                        contact_person=contact_person, contact_phone=contact_phone,
+                        contact_email=contact_email, credit_limit=credit_limit,
+                        opening_balance=opening_balance, currency=currency,
+                        payment_term_days=payment_term_days, discount_percent=discount_percent,
+                        category=category, price_group=price_group, created_by=created_by,
+                    )
+                    await self._uow.commit()
+                    break
+                except IntegrityError:
+                    await session.rollback()
+                    if not auto_generate or attempt == max_attempts - 1:
+                        raise CustomerServiceError(
+                            f"Customer code {code_to_use} already exists (race condition)"
+                        )
+                    continue
+        else:
+            raise CustomerServiceError("Gagal generate customer_code unik setelah beberapa percobaan")
 
         self._stats["customers_created"] += 1
         await self._publish(
-            CustomerCreatedEvent(
+            DomainEvent(
+                event_id=uuid4(),
+                event_type=DomainEventType.CUSTOMER_CREATED,
                 aggregate_id=item.id,
                 aggregate_version=item.version,
-                customer_id=item.id,
-                customer_code=item.customer_code,
-                customer_name=item.customer_name,
-                npwp=item.tax_id,
-                legal_entity_id=item.legal_entity_id,
-                created_by=str(created_by) if created_by else "system",
+                event_data={
+                    "customer_id": str(item.id),
+                    "customer_code": item.customer_code,
+                    "customer_name": item.customer_name,
+                    "tax_id": item.tax_id,
+                    "legal_entity_id": str(item.legal_entity_id),
+                    "created_by": str(created_by) if created_by else "system",
+                },
                 user_id=str(created_by) if created_by else None,
                 correlation_id=correlation_id,
             ),
             correlation_id,
         )
         self._record_audit("create_customer", {
-            "customer_id": str(item.id), "customer_code": customer_code,
+            "customer_id": str(item.id), "customer_code": item.customer_code,
             "created_by": str(created_by) if created_by else None,
         })
         return item
+
+    async def _insert_customer(
+        self, session, legal_entity_id, customer_code, name, company_name,
+        customer_type, npwp, tax_status, is_taxable, address, city, province,
+        district, postal_code, country, phone, mobile, email, website,
+        contact_person, contact_phone, contact_email, credit_limit,
+        opening_balance, currency, payment_term_days, discount_percent,
+        category, price_group, created_by,
+    ) -> CustomerListItem:
+        row = CustomerTable(
+            legal_entity_id=legal_entity_id,
+            customer_code=customer_code,
+            customer_name=name,
+            company_name=company_name,
+            customer_type=customer_type,
+            tax_id=npwp,
+            tax_status=tax_status,
+            is_taxable=is_taxable,
+            address=address,
+            city=city,
+            province=province,
+            district=district,
+            postal_code=postal_code,
+            country=country,
+            phone=phone,
+            mobile=mobile,
+            email=email,
+            website=website,
+            contact_person=contact_person,
+            contact_phone=contact_phone,
+            contact_email=contact_email,
+            credit_limit=credit_limit,
+            opening_balance=opening_balance,
+            current_balance=opening_balance,
+            currency=currency,
+            payment_term_days=payment_term_days,
+            discount_percent=discount_percent,
+            category=category,
+            price_group=price_group,
+            created_by=created_by,
+        )
+        session.add(row)
+        await session.flush()
+        await session.refresh(row)
+        return _row_to_item(row)
 
     async def get_customer(self, customer_id: UUID) -> CustomerListItem | None:
         async with self._uow:
@@ -484,11 +552,18 @@ class CustomerService:
         self._stats["customers_updated"] += 1
         if "status" in changes:
             await self._publish(
-                CustomerStatusChangedEvent(
-                    aggregate_id=item.id, aggregate_version=item.version,
-                    customer_id=item.id, customer_code=item.customer_code,
-                    old_status=changes["status"]["old"], new_status=changes["status"]["new"],
-                    updated_by=str(updated_by) if updated_by else "system",
+                DomainEvent(
+                    event_id=uuid4(),
+                    event_type=DomainEventType.CUSTOMER_STATUS_CHANGED,
+                    aggregate_id=item.id,
+                    aggregate_version=item.version,
+                    event_data={
+                        "customer_id": str(item.id),
+                        "customer_code": item.customer_code,
+                        "old_status": changes["status"]["old"],
+                        "new_status": changes["status"]["new"],
+                        "changed_by": str(updated_by) if updated_by else "system",
+                    },
                     user_id=str(updated_by) if updated_by else None,
                     correlation_id=correlation_id,
                 ),
@@ -598,11 +673,18 @@ class CustomerService:
 
         self._stats["customers_updated"] += 1
         await self._publish(
-            CustomerCreditLimitChangedEvent(
-                aggregate_id=item.id, aggregate_version=item.version,
-                customer_id=item.id, customer_code=item.customer_code,
-                old_limit=old_limit, new_limit=new_limit,
-                updated_by=str(updated_by) if updated_by else "system",
+            DomainEvent(
+                event_id=uuid4(),
+                event_type=DomainEventType.CUSTOMER_CREDIT_LIMIT_CHANGED,
+                aggregate_id=item.id,
+                aggregate_version=item.version,
+                event_data={
+                    "customer_id": str(item.id),
+                    "customer_code": item.customer_code,
+                    "old_limit": str(old_limit),
+                    "new_limit": str(new_limit),
+                    "changed_by": str(updated_by) if updated_by else "system",
+                },
                 user_id=str(updated_by) if updated_by else None,
                 correlation_id=correlation_id,
             ),
@@ -661,11 +743,20 @@ class CustomerService:
 
         self._stats["customers_updated"] += 1
         await self._publish(
-            CustomerBalanceUpdatedEvent(
-                aggregate_id=customer_id, aggregate_version=row.version,
-                customer_id=customer_id, customer_code=row.customer_code,
-                old_balance=old_balance, new_balance=new_balance, delta=delta,
-                updated_by=str(updated_by) if updated_by else "system",
+            DomainEvent(
+                event_id=uuid4(),
+                event_type=DomainEventType.CUSTOMER_BALANCE_UPDATED,
+                aggregate_id=customer_id,
+                aggregate_version=row.version,
+                event_data={
+                    "customer_id": str(customer_id),
+                    "customer_code": row.customer_code,
+                    "old_balance": str(old_balance),
+                    "new_balance": str(new_balance),
+                    "delta": str(delta),
+                    "transaction_type": source or "manual",
+                    "transaction_id": reference,
+                },
                 user_id=str(updated_by) if updated_by else None,
                 correlation_id=correlation_id,
             ),

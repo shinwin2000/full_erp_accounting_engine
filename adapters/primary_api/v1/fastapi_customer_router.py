@@ -85,7 +85,10 @@ class AddressTypeEnum(str, Enum):
 
 class CreateCustomerRequest(BaseModel):
     legal_entity_id: UUID
-    customer_code: str = Field(..., min_length=1, max_length=30)
+    customer_code: str | None = Field(
+        None, max_length=30,
+        description="Kosongkan untuk auto-generate (CUST-0001, CUST-0002, dst).",
+    )
     customer_name: str = Field(..., min_length=1, max_length=200)
     company_name: str | None = Field(None, max_length=200)
     customer_type: CustomerTypeEnum = CustomerTypeEnum.COMPANY

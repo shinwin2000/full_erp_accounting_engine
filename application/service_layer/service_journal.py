@@ -343,7 +343,7 @@ class JournalService:
             account = await self._account_repo.find_by_code(request.legal_entity_id, line_dto["account_code"])
             if not account:
                 raise AccountNotFoundError(f"Account {line_dto['account_code']} not found")
-            if account.status != "ACTIVE":
+            if account.status != "active":
                 raise JournalServiceError(f"Account {line_dto['account_code']} is inactive")
 
             debit = Decimal(str(line_dto.get("debit", 0)))
@@ -1088,7 +1088,7 @@ class JournalService:
             account = await self._account_repo.find_by_code(request.legal_entity_id, line.account_code)
             if not account:
                 errors.append(f"Account {line.account_code} not found")
-            elif account.status != "ACTIVE":
+            elif account.status != "active":
                 errors.append(f"Account {line.account_code} is inactive")
 
         return JournalValidationResultDTO(

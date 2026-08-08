@@ -3,15 +3,26 @@
 Module: account_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel account (Chart of Accounts).
-               Tabel ini menyimpan data akun dalam COA, termasuk kode akun, nama,
-               tipe akun, saldo normal, level hierarki, dan status. Mendukung
-               relasi parent-child untuk hierarki akun dan hubungan dengan ledger entries.
+               Tabel ini adalah master data inti COA yang dipakai oleh hampir semua
+               modul akuntansi (Journal/GL, AP, AR, Inventory, Fixed Asset, Payroll,
+               Budget, Financial Report). Mendukung relasi parent-child (tree),
+               kontrol posting, kategori pelaporan, dan flag operasional lain yang
+               dipakai backend (service_coa.py) maupun frontend (coa_page.py).
+
+CATATAN SINKRONISASI (PENTING):
+    Kolom di model ini HARUS selalu sinkron dengan:
+      1. Migration  : backend/migrations/versions/0047_coa_extended_fields.py
+      2. Service     : backend/application/service_layer/service_coa.py
+      3. Router      : backend/adapters/primary_api/v1/fastapi_coa_router.py
+      4. Frontend    : frontend/ui/pages/coa_page.py (field CREATE_FIELDS/EDIT_FIELDS)
+    Kalau menambah/mengubah kolom di sini, keempat lapisan itu WAJIB diikutkan.
+
 Dependencies:
 - sqlalchemy.orm (Mapped, mapped_column, relationship)
 - sqlalchemy.dialects.postgresql (UUID, NUMERIC)
 - infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
-Audit: Setiap perubahan pada akun dicatat di event store.
-       Akun yang sudah memiliki transaksi tidak dapat dihapus (hanya dinonaktifkan).
+Audit: Setiap perubahan pada akun dicatat di audit trail (lihat service_coa.py._record_audit).
+       Akun yang sudah memiliki transaksi tidak dapat dihapus (hanya dinonaktifkan/soft-delete).
 """
 
 from __future__ import annotations
@@ -47,9 +58,27 @@ if TYPE_CHECKING:
     from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 
 
+# Nilai yang diperbolehkan untuk beberapa kolom ENUM-like (dijaga juga di
+# level Pydantic schema pada fastapi_coa_router.py supaya validasi terjadi
+# di edge sebelum menyentuh database).
+ACCOUNT_TYPES = (
+    "Asset",
+    "Liability",
+    "Equity",
+    "Revenue",
+    "Expense",
+    "ContraAsset",
+    "ContraLiability",
+    "ContraEquity",
+)
+NORMAL_BALANCES = ("debit", "credit")
+ACCOUNT_STATUSES = ("active", "inactive", "suspended", "locked", "archived")
+CASHFLOW_TYPES = ("operating", "investing", "financing")
+
+
 class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """
-    Model untuk tabel account (Chart of Accounts).
+    Model untuk tabel account (Chart of Accounts) — master data inti ERP.
     """
 
     __tablename__ = "account"
@@ -62,35 +91,64 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
             name="ck_account_type",
         ),
         CheckConstraint("normal_balance IN ('debit', 'credit')", name="ck_normal_balance"),
-        CheckConstraint("status IN ('active', 'inactive', 'suspended')", name="ck_account_status"),
-        CheckConstraint("level BETWEEN 1 AND 10", name="ck_account_level"),
+        CheckConstraint("status IN ('active', 'inactive', 'suspended', 'locked', 'archived')", name="ck_account_status"),
+        CheckConstraint("level BETWEEN 0 AND 10", name="ck_account_level"),
+        CheckConstraint(
+            "cashflow_type IS NULL OR cashflow_type IN ('operating', 'investing', 'financing')",
+            name="ck_account_cashflow_type",
+        ),
         Index("idx_account_account_code", "account_code"),
         Index("idx_account_type", "account_type"),
         Index("idx_account_parent", "parent_account_id"),
         Index("idx_account_legal_entity", "legal_entity_id"),
         Index("idx_account_status", "status"),
+        Index("idx_account_group", "account_group"),
+        Index("idx_account_sort_order", "sort_order"),
         {"extend_existing": True},
     )
 
-    # Account identification
+    # ========================================================================
+    # IDENTIFICATION
+    # ========================================================================
     account_code: Mapped[str] = mapped_column(String(20), nullable=False)
     account_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    account_name_en: Mapped[str | None] = mapped_column(String(200), nullable=True)
     account_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    account_group: Mapped[str | None] = mapped_column(String(100), nullable=True)
     normal_balance: Mapped[str] = mapped_column(String(6), nullable=False)
 
-    # Hierarchy (parent_account_id sudah menggunakan schema public)
+    # ========================================================================
+    # HIERARCHY (parent_account_id sudah menggunakan schema public)
+    # ========================================================================
     parent_account_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("account.id"), nullable=True
     )
-    level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
+    # ========================================================================
+    # POSTING / OPERATIONAL CONTROL
+    # ========================================================================
+    is_header: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    allow_posting: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_bank_account: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_cash_account: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_intercompany: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    is_header: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    budget_control: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reconciliation_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Tax & reporting
+    tax_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    cashflow_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # Lock (mis. dikunci setelah periode closing / audit) — independen dari
+    # status "locked"/"suspended" supaya bisa dikombinasikan (mis. akun aktif
+    # tapi dikunci sementara untuk investigasi).
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    lock_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     opening_balance_debit: Mapped[Decimal] = mapped_column(
         Numeric(20, 2), nullable=False, default=0
@@ -103,6 +161,7 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # OVERRIDE legal_entity_id dari LegalEntityMixin agar menggunakan schema public
@@ -188,6 +247,17 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
             return f"{self.parent.account_code}.{self.account_code}"
         return self.account_code
 
+    @property
+    def can_post(self) -> bool:
+        """Akun boleh dipakai sebagai baris jurnal jika tidak header, tidak
+        dikunci, mengizinkan posting, dan berstatus aktif."""
+        return (
+            self.allow_posting
+            and not self.is_header
+            and not self.is_locked
+            and self.status == "active"
+        )
+
     # ========================================================================
     # METHODS
     # ========================================================================
@@ -202,8 +272,18 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         self.status = "inactive"
         self.increment_version()
 
+    def lock(self, reason: str | None = None) -> None:
+        self.is_locked = True
+        self.lock_reason = reason
+        self.increment_version()
+
+    def unlock(self) -> None:
+        self.is_locked = False
+        self.lock_reason = None
+        self.increment_version()
+
     def can_delete(self) -> bool:
-        return len(self.ledger_entries) == 0
+        return len(self.ledger_entries) == 0 and len(self.children) == 0
 
     def set_opening_balance(self, debit: Decimal, credit: Decimal) -> None:
         self.opening_balance_debit = debit
@@ -211,4 +291,4 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         self.increment_version()
 
 
-__all__ = ["AccountTable"]
+__all__ = ["AccountTable", "ACCOUNT_TYPES", "NORMAL_BALANCES", "ACCOUNT_STATUSES", "CASHFLOW_TYPES"]

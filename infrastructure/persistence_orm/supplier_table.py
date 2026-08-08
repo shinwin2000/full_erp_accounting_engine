@@ -92,11 +92,13 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # Basic identification
     supplier_code: Mapped[str] = mapped_column(String(30), nullable=False)
     supplier_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     supplier_type: Mapped[str] = mapped_column(String(20), nullable=False, default="company")
 
     # Tax and registration
     tax_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     tax_id_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tax_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     tax_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pkp")
     registration_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
@@ -108,9 +110,11 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # Contact information
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    province: Mapped[str | None] = mapped_column(String(100), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     country: Mapped[str] = mapped_column(String(2), nullable=False, default="ID")
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
     fax: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     website: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -120,9 +124,12 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     contact_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
-    # Payment terms and bank
+    # Payment terms, credit and bank
     payment_term_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    credit_limit: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
+    opening_balance_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     bank_account_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     bank_account_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -147,6 +154,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     last_audit_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Additional metadata
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Audit
@@ -250,33 +258,61 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "id": str(self.id),
             "supplier_code": self.supplier_code,
             "supplier_name": self.supplier_name,
+            "company_name": self.company_name,
             "supplier_type": self.supplier_type,
             "tax_id": self.tax_id,
+            "tax_name": self.tax_name,
             "tax_status": self.tax_status,
+            "registration_number": self.registration_number,
             "withholding_category": self.withholding_category,
             "withholding_rate": float(self.withholding_rate),
             "has_npwp": self.has_npwp,
             "effective_withholding_rate": float(self.effective_withholding_rate),
             "address": self.address,
             "city": self.city,
+            "province": self.province,
+            "postal_code": self.postal_code,
             "country": self.country,
             "phone": self.phone,
+            "mobile": self.mobile,
+            "fax": self.fax,
             "email": self.email,
+            "website": self.website,
             "contact_person": self.contact_person,
+            "contact_phone": self.contact_phone,
+            "contact_email": self.contact_email,
             "payment_term_days": self.payment_term_days,
             "discount_percent": float(self.discount_percent),
+            "credit_limit": float(self.credit_limit),
+            "opening_balance": float(self.opening_balance),
+            "opening_balance_date": self.opening_balance_date.isoformat()
+            if self.opening_balance_date
+            else None,
             "bank_name": self.bank_name,
             "bank_account_number": self.bank_account_number,
+            "bank_account_name": self.bank_account_name,
             "lead_time_days": self.lead_time_days,
             "quality_rating": float(self.quality_rating) if self.quality_rating else 0,
             "on_time_delivery_rate": float(self.on_time_delivery_rate)
             if self.on_time_delivery_rate
             else 0,
             "category": self.category,
+            "procurement_category": self.procurement_category,
             "status": self.status,
             "is_active": self.is_active,
+            "blocked_reason": self.blocked_reason,
+            "first_purchase_date": self.first_purchase_date.isoformat()
+            if self.first_purchase_date
+            else None,
+            "last_purchase_date": self.last_purchase_date.isoformat()
+            if self.last_purchase_date
+            else None,
+            "remarks": self.remarks,
             "extra_metadata": self.extra_metadata,
             "legal_entity_id": str(self.legal_entity_id),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_by": str(self.created_by) if self.created_by else None,
             "version": self.version,
         }
 

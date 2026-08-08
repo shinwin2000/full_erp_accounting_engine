@@ -185,7 +185,6 @@ class ServiceRegistrar:
             container.register_singleton(PayrollService, PayrollService)
             container.register_singleton(ManufacturingService, ManufacturingService)
             container.register_singleton(ReportService, ReportService)
-            container.register_singleton(SupplierService, SupplierService)
             container.register_singleton(CustomerService, CustomerService)
             container.register_singleton(PaymentService, PaymentService)
             container.register_singleton(LegalEntityService, LegalEntityService)
@@ -241,32 +240,44 @@ class ServiceRegistrar:
             container.register_singleton(FiscalPeriodService, factory=_create_fiscal_period_service)
             logger.info("FiscalPeriodService registered with dependencies")
 
-            # ----- Registrasi EmployeeService dengan factory yang aman -----
-            # FIX (2026-08-07): sebelumnya EmployeeService() dibuat TANPA repository
-            # sama sekali (EmployeeService(event_publisher=event_publisher) saja),
-            # padahal EmployeeRepositoryPort -> SQLAlchemyEmployeeRepository sudah
-            # terdaftar otomatis lewat adapter_registry.py. Sekarang di-resolve
-            # eksplisit, sama seperti pola FiscalPeriodService di atas, supaya
-            # data employee benar-benar tersimpan ke database (bukan diam-diam
-            # fallback ke instance repository baru yang dibuat sendiri oleh
-            # EmployeeService, yang walau tetap tersambung DB, tidak berbagi
-            # session/registrasi dengan container).
-            async def _create_employee_service():
-                try:
-                    from ports.primary.employee_repository_port import EmployeeRepositoryPort
-                    employee_repo = await container.resolve_async(EmployeeRepositoryPort)
-                except Exception as e:
-                    logger.warning(f"EmployeeRepositoryPort not available, EmployeeService will self-construct one: {e}")
-                    employee_repo = None
+            # ----- Registrasi SupplierService dengan repository database -----
+            # FIX (refactor sinkronisasi Supplier/Vendor): sebelumnya
+            # `container.register_singleton(SupplierService, SupplierService)`
+            # memanggil constructor tanpa argumen, sehingga SupplierService
+            # jatuh ke mode in-memory dict dan TIDAK PERNAH menyimpan data ke
+            # database. Sekarang SupplierService WAJIB menerima
+            # SupplierRepositoryPort (SQLAlchemy, tabel `supplier`).
+            from adapters.secondary_impl.sqlalchemy_supplier_repository_impl import (
+                SQLAlchemySupplierRepository,
+            )
+            from ports.primary.supplier_repository_port import SupplierRepositoryPort
+
+            container.register_singleton(SQLAlchemySupplierRepository, SQLAlchemySupplierRepository)
+            container.register_singleton(SupplierRepositoryPort, SQLAlchemySupplierRepository)
+
+            async def _create_supplier_service():
+                supplier_repo = await container.resolve_async(SupplierRepositoryPort)
                 try:
                     from ports.primary.event_publisher_port import EventPublisherPort
                     event_publisher = await container.resolve_async(EventPublisherPort)
                 except Exception:
                     event_publisher = None
-                return EmployeeService(repository=employee_repo, event_publisher=event_publisher)
+                return SupplierService(repository=supplier_repo, event_publisher=event_publisher)
+
+            container.register_singleton(SupplierService, factory=_create_supplier_service)
+            logger.info("SupplierService registered with database repository")
+
+            # ----- Registrasi EmployeeService dengan factory yang aman -----
+            async def _create_employee_service():
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return EmployeeService(event_publisher=event_publisher)
 
             container.register_singleton(EmployeeService, factory=_create_employee_service)
-            logger.info("EmployeeService registered with EmployeeRepositoryPort dependency")
+            logger.info("EmployeeService registered")
 
             logger.info("Application services registered")
         except ImportError as e:

@@ -166,6 +166,7 @@ _reg(ModuleConfig(
 ))
 
 # === Master Data ============================================================
+# CUSTOMER - diambil dari versi pertama (lebih lengkap)
 _reg(ModuleConfig(
     key="customers", label="Pelanggan (Customer)", category="Master Data", icon="🧑‍💼",
     base_path="/customers", list_path="/customers",
@@ -180,7 +181,7 @@ _reg(ModuleConfig(
              ("current_balance", "Saldo Piutang"), ("status", "Status"),
              ("is_active", "Aktif"), ("created_at", "Dibuat")],
     form_fields=[
-        FieldSpec("customer_code", "Kode Customer", required=True),
+        FieldSpec("customer_code", "Kode Customer (kosongkan untuk auto: CUST-0001, dst)"),
         FieldSpec("customer_name", "Nama Customer", required=True),
         FieldSpec("company_name", "Nama Perusahaan"),
         FieldSpec("customer_type", "Tipe", FieldType.SELECT,
@@ -219,26 +220,64 @@ _reg(ModuleConfig(
                  "Untuk alamat/PIC/attachment/notes/tags/riwayat kredit & saldo, buka "
                  "tombol '📋 Detail' pada baris terpilih.",
 ))
+
+# SUPPLIER - diambil dari versi kedua (lebih lengkap)
 _reg(ModuleConfig(
     key="suppliers", label="Pemasok (Supplier)", category="Master Data", icon="🏭",
     base_path="/suppliers", list_path="/suppliers",
-    columns=[("supplier_code", "Kode"), ("name", "Nama"), ("city", "Kota"),
-             ("payment_terms_days", "Termin (hari)"), ("is_active", "Aktif")],
+    columns=[("supplier_code", "Kode"), ("name", "Nama Supplier"), ("company_name", "Perusahaan"),
+             ("city", "Kota"), ("contact_person", "PIC"), ("phone", "Telepon"),
+             ("payment_terms_days", "Termin (hari)"), ("credit_limit", "Limit Kredit"),
+             ("status", "Status"), ("is_active", "Aktif")],
     form_fields=[
-        FieldSpec("supplier_code", "Kode Supplier", required=True),
-        FieldSpec("name", "Nama", required=True),
+        # --- Informasi Umum ---
+        FieldSpec("supplier_code", "Kode Supplier", required=True,
+                  help_text="Kode unik supplier, mis. SUP-0001"),
+        FieldSpec("name", "Nama Supplier", required=True),
+        FieldSpec("company_name", "Nama Perusahaan"),
+        FieldSpec("supplier_type", "Jenis Supplier", FieldType.SELECT,
+                  choices=("individual", "company", "government", "non_profit"),
+                  default="company",
+                  help_text="individual=perorangan, company=perusahaan, government=pemerintah, non_profit=nirlaba"),
+        FieldSpec("withholding_category", "Kategori PPh", FieldType.SELECT,
+                  choices=("none", "pph23", "pph26", "both"), default="none"),
+        # --- Pajak ---
         FieldSpec("npwp", "NPWP"),
+        FieldSpec("tax_name", "Nama Wajib Pajak"),
+        # --- Kontak ---
+        FieldSpec("contact_person", "PIC (Contact Person)"),
+        FieldSpec("email", "Email"),
+        FieldSpec("phone", "Telepon"),
+        FieldSpec("mobile", "HP"),
+        FieldSpec("website", "Website"),
+        # --- Alamat ---
         FieldSpec("address", "Alamat", FieldType.TEXTAREA),
         FieldSpec("city", "Kota"),
+        FieldSpec("province", "Provinsi"),
+        FieldSpec("postal_code", "Kode Pos"),
         FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID"),
-        FieldSpec("phone", "Telepon"),
-        FieldSpec("email", "Email"),
-        FieldSpec("contact_person", "Contact Person"),
-        FieldSpec("payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER),
-        FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL),
+        # --- Bank ---
+        FieldSpec("bank_name", "Nama Bank"),
+        FieldSpec("bank_account_number", "Nomor Rekening"),
+        FieldSpec("bank_account_name", "Nama Pemilik Rekening"),
+        # --- Keuangan ---
+        FieldSpec("payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30),
+        FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL, default=0),
+        FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL, default=0),
+        FieldSpec("opening_balance_date", "Tanggal Saldo Awal", FieldType.DATE),
+        # --- Lainnya ---
+        FieldSpec("status", "Status", FieldType.SELECT,
+                  choices=("active", "inactive", "blocked", "suspended"), default="active"),
+        FieldSpec("remarks", "Catatan", FieldType.TEXTAREA),
+    ],
+    actions=[
+        ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
+        ActionSpec("deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"),
     ],
     edit_http_method="PATCH",
 ))
+
+# EMPLOYEE - sama di kedua versi (sederhana)
 _reg(ModuleConfig(
     key="employees", label="Karyawan", category="Master Data", icon="👷",
     base_path="/employees", list_path="/employees",
@@ -262,6 +301,8 @@ _reg(ModuleConfig(
     ],
     edit_http_method="PATCH",
 ))
+
+# LEGAL ENTITIES - sama di kedua versi
 _reg(ModuleConfig(
     key="legal_entities", label="Entitas Legal", category="Master Data", icon="🏢",
     base_path="/legal-entities/legal-entities", list_path="/",
@@ -295,6 +336,8 @@ _reg(ModuleConfig(
         FieldSpec("parent_company_id", "Perusahaan Induk (UUID, opsional)", FieldType.UUID),
     ],
 ))
+
+# IAM modules - sama
 _reg(ModuleConfig(
     key="iam_security", label="Keamanan Akun: Sesi, MFA & Password", category="Master Data", icon="🔐",
     base_path="/iam", custom_page=True,
@@ -330,6 +373,7 @@ _reg(ModuleConfig(
 ))
 
 # === Aktiva & Kas ============================================================
+# Semua modul di bawah ini sama di kedua versi, saya salin dari versi pertama (atau kedua, sama).
 _reg(ModuleConfig(
     key="bank_accounts", label="Rekening Bank & Kas", category="Kas & Bank", icon="🏦",
     base_path="/bank-cash/bank-cash", list_path="/bank-accounts",

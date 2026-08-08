@@ -134,15 +134,66 @@ class SQLAlchemyUnitOfWork:
         except ImportError as e:
             raise UnitOfWorkError(f"Failed to import repository adapters: {e}") from e
 
+    @staticmethod
+    def _assign_session(repo: Any, session: Any) -> None:
+        """
+        Attach `session` ke satu repository, dengan urutan prioritas yang
+        aman terhadap 3 gaya repository yang ada di proyek ini:
+
+        1. Repository dengan method `set_session(session)` eksplisit
+           (mis. SQLAlchemyIAMUserRepository) -- dipakai kalau ada, karena
+           ini kontrak paling eksplisit dan tidak beresiko memicu efek
+           samping apa pun.
+        2. Repository dengan atribut instance biasa `_session` (bukan
+           property) -- langsung timpa nilainya.
+        3. Repository dengan `session` sebagai property YANG PUNYA SETTER
+           (`@session.setter`) -- baru di-assign lewat `repo.session = ...`.
+
+        PERBAIKAN BUG (root cause "Session not set" yang tadinya
+        menjatuhkan SEMUA service yang lewat `async with self._uow:`,
+        termasuk COAService dan CustomerService):
+
+        Versi lama pakai `hasattr(repo, "session")` di level INSTANCE
+        untuk mendeteksi apakah `session` bisa di-assign. `hasattr()`
+        bekerja dengan cara memanggil getter properti tsb -- dan getter
+        `session` di sejumlah repository (mis. SQLAlchemyIAMUserRepository)
+        sengaja `raise` exception kustom (bukan AttributeError) kalau
+        session belum pernah di-set (desain fail-fast yang benar untuk
+        pemakaian LANGSUNG). Karena `hasattr()` cuma menahan AttributeError,
+        exception itu bocor dan menjatuhkan seluruh proses attach session
+        untuk SEMUA repository lain juga.
+
+        Percobaan fix pertama (cek `hasattr(type(repo), "session")` di
+        level class supaya tidak memicu getter) berhasil menghindari
+        exception itu, tapi memunculkan bug KEDUA: pada repository yang
+        `session`-nya property READ-ONLY (hanya ada getter, setter
+        sebenarnya lewat method terpisah `set_session()`), baris
+        `repo.session = ...` tetap gagal dengan
+        `AttributeError: property 'session' has no setter`.
+
+        Fix final di bawah ini menangani ketiga pola sekaligus, dan selalu
+        mengecek keberadaan `set_session()` / property setter TANPA pernah
+        memanggil getter `session` sama sekali -- baik lewat `hasattr()`
+        biasa (aman untuk method, karena method bukan property jadi tidak
+        ada getter yang terpicu) maupun lewat inspeksi `property.fset`
+        di level class (juga tidak memanggil getter).
+        """
+        if hasattr(repo, "set_session"):
+            repo.set_session(session)
+            return
+        if hasattr(repo, "_session"):
+            repo._session = session
+            return
+        prop = getattr(type(repo), "session", None)
+        if isinstance(prop, property) and prop.fset is not None:
+            repo.session = session
+
     def _attach_session_to_repositories(self) -> None:
         """Set session pada setiap repository yang sudah diinisialisasi."""
         for repo in self._repositories.values():
             if repo is None:
                 continue
-            if hasattr(repo, "_session"):
-                repo._session = self._session
-            elif hasattr(repo, "session"):
-                repo.session = self._session
+            self._assign_session(repo, self._session)
 
     # ------------------------------------------------------------------------
     # LAZY SESSION FACTORY
@@ -432,12 +483,11 @@ class SQLAlchemyUnitOfWork:
     # ------------------------------------------------------------------------
 
     def register_repository(self, name: str, repository: Any) -> None:
+        # Pakai helper yang sama dengan _attach_session_to_repositories()
+        # supaya perilakunya konsisten di semua titik attach session.
         self._repositories[name] = repository
         if self._session:
-            if hasattr(repository, "_session"):
-                repository._session = self._session
-            elif hasattr(repository, "session"):
-                repository.session = self._session
+            self._assign_session(repository, self._session)
 
     def get_repository(self, name: str) -> Any:
         if name not in self._repositories:
