@@ -5,21 +5,22 @@ Dialog form generik yang dirender otomatis dari `list[FieldSpec]`
 (lihat registry/module_registry.py). Dipakai oleh generic_list_page dan
 oleh layar-layar khusus untuk sub-form (mis. baris jurnal).
 
-REDESIGN: sebelumnya semua field ditumpuk 1 kolom vertikal di dalam
-QScrollArea -- untuk form dengan banyak field (mis. Customer, ~24 field)
-ini jadi panjang sekali dan selalu perlu scroll. Sekarang field disusun
-dalam grid 2 kolom (kiri-kanan) supaya dialog lebih lebar & lebih pendek,
-biasanya muat dalam satu layar tanpa scroll. TEXTAREA selalu full-width
-(1 baris penuh) karena secara visual lebih enak dibaca lebar daripada
-sempit. Scroll area hanya dipasang sebagai fallback kalau kontennya
-tetap lebih tinggi dari layar yang tersedia (form yang sangat panjang).
+FITUR:
+- Field dikelompokkan per `section` (jika ada) dengan judul dan garis pemisah.
+- Grid 2 kolom (atau 1 kolom jika section sedikit), TEXTAREA full-width.
+- Scroll area hanya jika konten melebihi 70% tinggi layar.
+- Tampilan dengan stylesheet modern.
+- **Tombol minimize, maximize, close** selalu aktif seperti window biasa.
+- Opsi `maximized=True` membuat dialog langsung full-screen saat muncul.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import date, datetime
 from typing import Any
 
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QLabel,
     QLineEdit,
@@ -40,16 +42,13 @@ from PySide6.QtWidgets import (
 )
 from registry.module_registry import FieldSpec, FieldType
 
-# Field bertipe ini lebih enak dibaca full-width daripada dipepetkan
-# ke satu kolom sempit.
+# Field bertipe ini selalu full-width (2 kolom penuh)
 _FULL_WIDTH_TYPES = (FieldType.TEXTAREA,)
 
-# Banyak field -> pakai 2 kolom biar dialog lebar-pendek, bukan
-# sempit-panjang. Sedikit field -> 1 kolom saja sudah cukup rapi.
-_TWO_COLUMN_THRESHOLD = 6
-
+# Minimum tinggi untuk input widget agar seragam
 _INPUT_MIN_HEIGHT = 34
 
+# Stylesheet untuk dialog
 _DIALOG_QSS = """
 QDialog {
     background: #fbfbfd;
@@ -101,7 +100,7 @@ QPushButton#secondaryButton:hover {
 
 
 class FormDialog(QDialog):
-    """Form auto-generate untuk create/edit satu record, layout grid rapi."""
+    """Form auto-generate untuk create/edit satu record, dengan kontrol window."""
 
     def __init__(
         self,
@@ -109,19 +108,30 @@ class FormDialog(QDialog):
         fields: list[FieldSpec],
         initial: dict[str, Any] | None = None,
         parent: QWidget | None = None,
+        maximized: bool = False,  # True = tampil full-screen
     ):
         super().__init__(parent)
+
+        # --- Buat dialog sebagai window biasa dengan tombol min, max, close ---
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
+        self.setWindowModality(Qt.ApplicationModal)  # tetap modal
+
         self.setWindowTitle(title)
         self.fields = fields
         self.initial = initial or {}
         self._inputs: dict[str, QWidget] = {}
+        self._maximized = maximized
+
         self.setStyleSheet(_DIALOG_QSS)
         self._build_ui()
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        num_columns = 2 if len(self.fields) > _TWO_COLUMN_THRESHOLD else 1
-
         outer = QVBoxLayout(self)
         outer.setContentsMargins(26, 22, 26, 20)
         outer.setSpacing(14)
@@ -130,48 +140,20 @@ class FormDialog(QDialog):
         title_label.setObjectName("formDialogTitle")
         outer.addWidget(title_label)
 
-        grid_host = QWidget()
-        grid = QGridLayout(grid_host)
-        grid.setHorizontalSpacing(28)
-        grid.setVerticalSpacing(12)
-        grid.setColumnStretch(1, 1)
-        if num_columns == 2:
-            grid.setColumnStretch(3, 1)
+        # Group fields by section
+        groups = self._group_by_section()
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(18)
 
-        row = 0
-        col = 0
-        for spec in self.fields:
-            widget = self._create_input(spec)
-            self._inputs[spec.name] = widget
+        for section_title, section_fields in groups.items():
+            container_layout.addWidget(self._build_section(section_title, section_fields))
 
-            label = QLabel(spec.label + (" *" if spec.required else ""))
-            label.setObjectName("formFieldLabel")
+        container_layout.addStretch()
 
-            if spec.type in _FULL_WIDTH_TYPES:
-                if col != 0:
-                    row += 1
-                    col = 0
-                grid.addWidget(label, row, 0, Qt.AlignTop | Qt.AlignRight)
-                span = (num_columns * 2) - 1
-                grid.addWidget(widget, row, 1, 1, span)
-                row += 1
-            else:
-                base = col * 2
-                grid.addWidget(label, row, base, Qt.AlignRight | Qt.AlignVCenter)
-                grid.addWidget(widget, row, base + 1)
-                col += 1
-                if col >= num_columns:
-                    col = 0
-                    row += 1
-
-        # Lebar dialog: cukup lebar utk 2 kolom biar tetap terasa lega,
-        # tapi tidak berlebihan utk form pendek 1 kolom.
-        self.setMinimumWidth(720 if num_columns == 2 else 460)
-
-        # Kalau kontennya tetap lebih tinggi dari layar yang tersedia
-        # (form sangat panjang), baru pasang scroll sebagai fallback --
-        # bukan default seperti sebelumnya.
-        content_height = grid_host.sizeHint().height()
+        # Tentukan apakah perlu scroll
+        content_height = container.sizeHint().height()
         screen = QApplication.primaryScreen()
         available_height = screen.availableGeometry().height() if screen else 900
         max_content_height = int(available_height * 0.7)
@@ -181,10 +163,10 @@ class FormDialog(QDialog):
             scroll.setWidgetResizable(True)
             scroll.setFrameShape(QScrollArea.NoFrame)
             scroll.setMaximumHeight(max_content_height)
-            scroll.setWidget(grid_host)
+            scroll.setWidget(container)
             outer.addWidget(scroll)
         else:
-            outer.addWidget(grid_host)
+            outer.addWidget(container)
 
         outer.addSpacing(4)
 
@@ -198,6 +180,81 @@ class FormDialog(QDialog):
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
+
+        # Lebar minimal berdasarkan jumlah kolom
+        max_cols = max(self._section_columns(section_fields) for section_fields in groups.values())
+        min_width = 720 if max_cols == 2 else 460
+        self.setMinimumWidth(min_width)
+
+    # ------------------------------------------------------------------
+    def _group_by_section(self) -> OrderedDict[str, list[FieldSpec]]:
+        groups: OrderedDict[str, list[FieldSpec]] = OrderedDict()
+        for spec in self.fields:
+            key = spec.section or ""
+            groups.setdefault(key, []).append(spec)
+        return groups
+
+    def _section_columns(self, fields: list[FieldSpec]) -> int:
+        if any(f.type in _FULL_WIDTH_TYPES for f in fields):
+            return 2
+        return 1 if len(fields) <= 3 else 2
+
+    def _build_section(self, title: str, specs: list[FieldSpec]) -> QWidget:
+        section_widget = QWidget()
+        section_layout = QVBoxLayout(section_widget)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(8)
+
+        if title:
+            label = QLabel(title)
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(11)
+            label.setFont(font)
+            label.setStyleSheet("color:#4C1D95; padding-top:2px;")
+            section_layout.addWidget(label)
+
+            divider = QFrame()
+            divider.setFrameShape(QFrame.HLine)
+            divider.setStyleSheet("color:#E5E7EB;")
+            section_layout.addWidget(divider)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(24)
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+
+        num_columns = self._section_columns(specs)
+        row = 0
+        col = 0
+        for spec in specs:
+            widget = self._create_input(spec)
+            self._inputs[spec.name] = widget
+
+            label_text = spec.label + (" *" if spec.required else "")
+            field_label = QLabel(label_text)
+            field_label.setObjectName("formFieldLabel")
+
+            if spec.type in _FULL_WIDTH_TYPES:
+                if col != 0:
+                    row += 1
+                    col = 0
+                span = (num_columns * 2) - 1
+                grid.addWidget(field_label, row, 0, Qt.AlignTop | Qt.AlignRight)
+                grid.addWidget(widget, row, 1, 1, span)
+                row += 1
+            else:
+                base = col * 2
+                grid.addWidget(field_label, row, base, Qt.AlignRight | Qt.AlignVCenter)
+                grid.addWidget(widget, row, base + 1)
+                col += 1
+                if col >= num_columns:
+                    col = 0
+                    row += 1
+
+        section_layout.addLayout(grid)
+        return section_widget
 
     # ------------------------------------------------------------------
     def _create_input(self, spec: FieldSpec) -> QWidget:
@@ -299,6 +356,13 @@ class FormDialog(QDialog):
 
     def result_payload(self) -> dict[str, Any]:
         return getattr(self, "_payload", {})
+
+    # ------------------------------------------------------------------
+    def showEvent(self, event):
+        """Jika maximized=True, tampilkan dalam keadaan maximize."""
+        super().showEvent(event)
+        if self._maximized:
+            self.showMaximized()
 
 
 def _extract_value(spec: FieldSpec, widget: QWidget) -> Any:

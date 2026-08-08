@@ -92,6 +92,11 @@ class GenericListPage(QWidget):
         self.export_btn.clicked.connect(self._export)
         toolbar.addWidget(self.export_btn)
 
+        if self.config.can_import:
+            self.import_btn = QPushButton("⬆ Import")
+            self.import_btn.clicked.connect(self._import)
+            toolbar.addWidget(self.import_btn)
+
         if self.config.can_edit:
             self.edit_btn = QPushButton("✎ Ubah")
             self.edit_btn.clicked.connect(self._edit_selected)
@@ -275,6 +280,35 @@ class GenericListPage(QWidget):
     def _on_write_error(self, message: str) -> None:
         QMessageBox.warning(self, "Gagal", message)
         self.status_label.setText("Gagal menyimpan.")
+
+    def _import(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, f"Import {self.config.label}", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not file_path:
+            return
+        confirm = QMessageBox.question(
+            self, "Konfirmasi Import",
+            f"Import data dari:\n{file_path}\n\nData yang sudah ada dengan kode yang sama akan dilewati/gagal, bukan ditimpa.",
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        import_path = f"{self.config.base_path}/import"
+        self.status_label.setText("Mengimpor data...")
+        run_task(
+            api_client.upload_file,
+            on_success=lambda r: self._after_write(self._import_result_message(r)),
+            on_error=self._on_write_error,
+            path=import_path,
+            file_path=file_path,
+        )
+
+    @staticmethod
+    def _import_result_message(result: Any) -> str:
+        if isinstance(result, dict) and "imported" in result:
+            return f"{result['imported']} baris berhasil diimpor."
+        return "Import selesai."
 
     def _export(self) -> None:
         from PySide6.QtWidgets import QFileDialog, QInputDialog

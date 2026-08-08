@@ -29,6 +29,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -81,14 +82,47 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     real `employee` table (infrastructure.persistence_orm.employee_table)."""
 
     def __init__(self, session: Any | None = None):
-        self._session = session
+        # `session` di sini hanya untuk kasus caller yang SENGAJA ingin
+        # mengelola siklus hidup session sendiri (mis. unit test). Untuk
+        # pemakaian normal (lewat IoC container), biarkan None.
+        self._injected_session = session
         self._audit_log: list[dict[str, Any]] = []
 
-    async def _get_session(self):
-        if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
-        return self._session
+    @asynccontextmanager
+    async def _session_scope(self):
+        """Selalu membuka AsyncSession BARU per pemanggilan (via
+        `get_async_session_direct()`) dan selalu menutupnya di akhir -
+        KECUALI session sudah di-inject eksplisit lewat konstruktor, di
+        mana lifecycle-nya jadi tanggung jawab caller.
+
+        PENTING (fix 2026-08-07): sebelumnya method ini (`_get_session`)
+        meng-cache SATU AsyncSession di `self._session` dan memakainya
+        ulang di semua pemanggilan berikutnya. Ini berbahaya karena
+        `EmployeeService`/`SQLAlchemyEmployeeRepository` didaftarkan
+        sebagai SINGLETON di IoC container (lihat
+        bootstrap/dependency_container/service_registry.py) - satu
+        AsyncSession yang sama akan dipakai bersamaan oleh SEMUA request
+        yang datang selama server hidup. `AsyncSession` SQLAlchemy tidak
+        aman dipakai oleh beberapa coroutine/request secara bersamaan;
+        ini bisa menyebabkan data salah nyasar ke request lain atau error
+        acak di bawah beban. Bug inilah juga penyebab error
+        `TypeError: object async_generator can't be used in 'await'
+        expression` sebelumnya - `get_async_session()` (tanpa `_direct`)
+        adalah FastAPI dependency generator (dipakai lewat `Depends(...)`,
+        bukan untuk di-`await` langsung). Perbaikannya memakai
+        `get_async_session_direct()`, yang memang didesain untuk dipakai
+        oleh repository yang mengurus siklus hidup session-nya sendiri.
+        """
+        if self._injected_session is not None:
+            yield self._injected_session
+            return
+
+        from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
+        session = await get_async_session_direct()
+        try:
+            yield session
+        finally:
+            await session.close()
 
     async def _log_audit(self, action: str, employee_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
@@ -116,33 +150,33 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     async def add(self, employee_data: dict[str, Any]) -> dict[str, Any]:
         """Insert a new employee row. `employee_data` keys must match
         EmployeeTable column names (see to_dict() for the canonical set)."""
-        session = await self._get_session()
-        async with session.begin():
-            row = EmployeeTable(id=employee_data.get("id") or uuid4())
-            self._apply_fields(row, employee_data)
-            session.add(row)
-            await session.flush()
-            result = EmployeeRecord(row.to_dict())
-            await self._log_audit("ADD", row.id, {"employee_code": row.employee_code})
-        return result
+        async with self._session_scope() as session:
+            async with session.begin():
+                row = EmployeeTable(id=employee_data.get("id") or uuid4())
+                self._apply_fields(row, employee_data)
+                session.add(row)
+                await session.flush()
+                result = EmployeeRecord(row.to_dict())
+                await self._log_audit("ADD", row.id, {"employee_code": row.employee_code})
+            return result
 
     async def update(self, employee_id: UUID, changes: dict[str, Any]) -> dict[str, Any] | None:
         """Partial update: only keys present in `changes` are written."""
-        session = await self._get_session()
-        async with session.begin():
-            stmt = select(EmployeeTable).where(
-                EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
-            ).with_for_update()
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            self._apply_fields(row, changes)
-            row.increment_version()
-            await session.flush()
-            data = EmployeeRecord(row.to_dict())
-            await self._log_audit("UPDATE", employee_id, {"changes": list(changes.keys())})
-        return data
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeTable).where(
+                    EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
+                ).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return None
+                self._apply_fields(row, changes)
+                row.increment_version()
+                await session.flush()
+                data = EmployeeRecord(row.to_dict())
+                await self._log_audit("UPDATE", employee_id, {"changes": list(changes.keys())})
+            return data
 
     async def save(self, employee_id: UUID | None, employee_data: dict[str, Any]) -> dict[str, Any]:
         """Upsert helper: update if `employee_id` exists, otherwise insert."""
@@ -153,115 +187,115 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
         return await self.add(employee_data)
 
     async def get_by_id(self, employee_id: UUID) -> dict[str, Any] | None:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return EmployeeRecord(row.to_dict()) if row else None
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_(None)
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return EmployeeRecord(row.to_dict()) if row else None
 
     async def get_by_code(self, employee_code: str, legal_entity_id: UUID) -> dict[str, Any] | None:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.employee_code == employee_code,
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return EmployeeRecord(row.to_dict()) if row else None
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.employee_code == employee_code,
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return EmployeeRecord(row.to_dict()) if row else None
 
     async def get_by_email(self, email: str) -> dict[str, Any] | None:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.email == email, EmployeeTable.deleted_at.is_(None)
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return EmployeeRecord(row.to_dict()) if row else None
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.email == email, EmployeeTable.deleted_at.is_(None)
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return EmployeeRecord(row.to_dict()) if row else None
 
     async def get_by_nik(self, nik: str, legal_entity_id: UUID) -> dict[str, Any] | None:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.nik == nik,
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        return EmployeeRecord(row.to_dict()) if row else None
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.nik == nik,
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return EmployeeRecord(row.to_dict()) if row else None
 
     async def delete(self, employee_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
-        session = await self._get_session()
-        async with session.begin():
-            stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return False
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return False
 
-            if permanent:
-                await session.delete(row)
-            else:
-                row.deleted_at = datetime.now(UTC)
-                row.is_active = False
-                row.employment_status = "inactive"
-                row.increment_version()
+                if permanent:
+                    await session.delete(row)
+                else:
+                    row.deleted_at = datetime.now(UTC)
+                    row.is_active = False
+                    row.employment_status = "inactive"
+                    row.increment_version()
 
-            await self._log_audit(
-                "DELETE_PERMANENT" if permanent else "SOFT_DELETE", employee_id, {"user_id": str(user_id)}
-            )
-            return True
+                await self._log_audit(
+                    "DELETE_PERMANENT" if permanent else "SOFT_DELETE", employee_id, {"user_id": str(user_id)}
+                )
+                return True
 
     async def restore(self, employee_id: UUID, user_id: UUID) -> bool:
-        session = await self._get_session()
-        stmt = (
-            update(EmployeeTable)
-            .where(EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_not(None))
-            .values(deleted_at=None, is_active=True, employment_status="active")
-        )
-        result = await session.execute(stmt)
-        await session.commit()
-        if result.rowcount > 0:
-            await self._log_audit("RESTORE", employee_id, {"user_id": str(user_id)})
-            return True
-        return False
+        async with self._session_scope() as session:
+            stmt = (
+                update(EmployeeTable)
+                .where(EmployeeTable.id == employee_id, EmployeeTable.deleted_at.is_not(None))
+                .values(deleted_at=None, is_active=True, employment_status="active")
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            if result.rowcount > 0:
+                await self._log_audit("RESTORE", employee_id, {"user_id": str(user_id)})
+                return True
+            return False
 
     async def resign(self, employee_id: UUID, resignation_date_value: date, reason: str | None) -> dict[str, Any] | None:
-        session = await self._get_session()
-        async with session.begin():
-            stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            row.resign(resignation_date_value)
-            if reason:
-                if row.extra_metadata is None:
-                    row.extra_metadata = {}
-                row.extra_metadata["resignation_reason"] = reason
-            await session.flush()
-            data = EmployeeRecord(row.to_dict())
-            await self._log_audit("RESIGN", employee_id, {"reason": reason, "date": resignation_date_value.isoformat()})
-        return data
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if not row:
+                    return None
+                row.resign(resignation_date_value)
+                if reason:
+                    if row.extra_metadata is None:
+                        row.extra_metadata = {}
+                    row.extra_metadata["resignation_reason"] = reason
+                await session.flush()
+                data = EmployeeRecord(row.to_dict())
+                await self._log_audit("RESIGN", employee_id, {"reason": reason, "date": resignation_date_value.isoformat()})
+            return data
 
     # ==================== QUERY ====================
 
     async def list_by_legal_entity(
         self, legal_entity_id: UUID, is_active: bool | None = None
     ) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        if is_active is not None:
-            stmt = stmt.where(EmployeeTable.is_active == is_active)
-        stmt = stmt.order_by(EmployeeTable.employee_code)
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            if is_active is not None:
+                stmt = stmt.where(EmployeeTable.is_active == is_active)
+            stmt = stmt.order_by(EmployeeTable.employee_code)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     async def get_all(
         self,
@@ -271,128 +305,128 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
         status: str | None = None,
         search: str | None = None,
     ) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        if status:
-            stmt = stmt.where(EmployeeTable.employment_status == status)
-        if search:
-            like = f"%{search}%"
-            stmt = stmt.where(
-                or_(
-                    EmployeeTable.full_name.ilike(like),
-                    EmployeeTable.employee_code.ilike(like),
-                    EmployeeTable.nik.ilike(like),
-                    EmployeeTable.email.ilike(like),
-                )
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
             )
-        stmt = stmt.order_by(EmployeeTable.employee_code).limit(limit).offset(offset)
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+            if status:
+                stmt = stmt.where(EmployeeTable.employment_status == status)
+            if search:
+                like = f"%{search}%"
+                stmt = stmt.where(
+                    or_(
+                        EmployeeTable.full_name.ilike(like),
+                        EmployeeTable.employee_code.ilike(like),
+                        EmployeeTable.nik.ilike(like),
+                        EmployeeTable.email.ilike(like),
+                    )
+                )
+            stmt = stmt.order_by(EmployeeTable.employee_code).limit(limit).offset(offset)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     async def count_all(
         self, legal_entity_id: UUID, status: str | None = None, search: str | None = None
     ) -> int:
-        session = await self._get_session()
-        stmt = select(func.count()).select_from(EmployeeTable).where(
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        if status:
-            stmt = stmt.where(EmployeeTable.employment_status == status)
-        if search:
-            like = f"%{search}%"
-            stmt = stmt.where(
-                or_(
-                    EmployeeTable.full_name.ilike(like),
-                    EmployeeTable.employee_code.ilike(like),
-                    EmployeeTable.nik.ilike(like),
-                    EmployeeTable.email.ilike(like),
-                )
+        async with self._session_scope() as session:
+            stmt = select(func.count()).select_from(EmployeeTable).where(
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
             )
-        result = await session.execute(stmt)
-        return result.scalar() or 0
+            if status:
+                stmt = stmt.where(EmployeeTable.employment_status == status)
+            if search:
+                like = f"%{search}%"
+                stmt = stmt.where(
+                    or_(
+                        EmployeeTable.full_name.ilike(like),
+                        EmployeeTable.employee_code.ilike(like),
+                        EmployeeTable.nik.ilike(like),
+                        EmployeeTable.email.ilike(like),
+                    )
+                )
+            result = await session.execute(stmt)
+            return result.scalar() or 0
 
     async def find_by_name_contains(
         self, name_fragment: str, legal_entity_id: UUID, limit: int = 50
     ) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.full_name.ilike(f"%{name_fragment}%"),
-            EmployeeTable.deleted_at.is_(None),
-        ).limit(limit)
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.full_name.ilike(f"%{name_fragment}%"),
+                EmployeeTable.deleted_at.is_(None),
+            ).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     async def find_by_department(self, department: str, legal_entity_id: UUID) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.department == department,
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.department == department,
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     async def find_by_status(self, employment_status: str, legal_entity_id: UUID) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.employment_status == employment_status,
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.employment_status == employment_status,
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     async def find_by_employment_status(self, employment_status: str, legal_entity_id: UUID) -> list[dict[str, Any]]:
         return await self.find_by_status(employment_status, legal_entity_id)
 
     async def find_by_manager(self, manager_id: UUID, legal_entity_id: UUID) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.manager_id == manager_id,
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.manager_id == manager_id,
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     # kept for backward-compat naming used by earlier callers
     find_by_supervisor = find_by_manager
     get_by_supervisor = find_by_manager
 
     async def update_status(self, employee_id: UUID, is_active: bool) -> None:
-        session = await self._get_session()
-        async with session.begin():
-            stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if row:
-                if is_active:
-                    row.activate()
-                else:
-                    row.deactivate()
+        async with self._session_scope() as session:
+            async with session.begin():
+                stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if row:
+                    if is_active:
+                        row.activate()
+                    else:
+                        row.deactivate()
 
     async def find_active_for_payroll(self, legal_entity_id: UUID, cutoff_date: datetime) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(EmployeeTable).where(
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.is_active == True,  # noqa: E712
-            EmployeeTable.employment_status == "active",
-            EmployeeTable.basic_salary > 0,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [EmployeeRecord(row.to_dict()) for row in rows]
+        async with self._session_scope() as session:
+            stmt = select(EmployeeTable).where(
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.is_active == True,  # noqa: E712
+                EmployeeTable.employment_status == "active",
+                EmployeeTable.basic_salary > 0,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [EmployeeRecord(row.to_dict()) for row in rows]
 
     # application/service_layer/service_payroll.py memanggil method ini dengan
     # nama `list_active_employees(legal_entity_id, cutoff_date)` - urutan
@@ -403,32 +437,32 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     # ==================== STATISTICS ====================
 
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
-        session = await self._get_session()
-        base_filter = (
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.deleted_at.is_(None),
-        )
-        total = (await session.execute(
-            select(func.count()).where(*base_filter)
-        )).scalar() or 0
-        active = (await session.execute(
-            select(func.count()).where(*base_filter, EmployeeTable.is_active == True)  # noqa: E712
-        )).scalar() or 0
-        resigned = (await session.execute(
-            select(func.count()).where(*base_filter, EmployeeTable.employment_status == "resigned")
-        )).scalar() or 0
-        dept_result = await session.execute(
-            select(EmployeeTable.department, func.count())
-            .where(*base_filter)
-            .group_by(EmployeeTable.department)
-        )
-        departments = {row[0] or "(tanpa departemen)": row[1] for row in dept_result.all()}
-        return {
-            "total_employees": total,
-            "active_employees": active,
-            "resigned_employees": resigned,
-            "departments": departments,
-        }
+        async with self._session_scope() as session:
+            base_filter = (
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.deleted_at.is_(None),
+            )
+            total = (await session.execute(
+                select(func.count()).where(*base_filter)
+            )).scalar() or 0
+            active = (await session.execute(
+                select(func.count()).where(*base_filter, EmployeeTable.is_active == True)  # noqa: E712
+            )).scalar() or 0
+            resigned = (await session.execute(
+                select(func.count()).where(*base_filter, EmployeeTable.employment_status == "resigned")
+            )).scalar() or 0
+            dept_result = await session.execute(
+                select(EmployeeTable.department, func.count())
+                .where(*base_filter)
+                .group_by(EmployeeTable.department)
+            )
+            departments = {row[0] or "(tanpa departemen)": row[1] for row in dept_result.all()}
+            return {
+                "total_employees": total,
+                "active_employees": active,
+                "resigned_employees": resigned,
+                "departments": departments,
+            }
 
     async def get_total_salary_cost(
         self, legal_entity_id: UUID, month: int | None = None, year: int | None = None
@@ -437,15 +471,15 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
         # (dipertahankan untuk kompatibilitas API port, walau tabel employee
         # saat ini hanya menyimpan gaji "current", bukan histori per bulan -
         # jadi hasilnya sama untuk periode manapun sampai ada tabel histori gaji).
-        session = await self._get_session()
-        stmt = select(func.coalesce(func.sum(EmployeeTable.basic_salary + EmployeeTable.allowances), 0)).where(
-            EmployeeTable.legal_entity_id == legal_entity_id,
-            EmployeeTable.is_active == True,  # noqa: E712
-            EmployeeTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        total = result.scalar() or 0
-        return Decimal(str(total))
+        async with self._session_scope() as session:
+            stmt = select(func.coalesce(func.sum(EmployeeTable.basic_salary + EmployeeTable.allowances), 0)).where(
+                EmployeeTable.legal_entity_id == legal_entity_id,
+                EmployeeTable.is_active == True,  # noqa: E712
+                EmployeeTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            total = result.scalar() or 0
+            return Decimal(str(total))
 
     async def get_ptkp_value(self, employee_id: UUID, year: int | None = None) -> Decimal:
         # year diterima untuk mencocokkan EmployeeRepositoryPort persis (nilai
@@ -525,8 +559,8 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def health_check(self) -> dict[str, Any]:
         try:
-            session = await self._get_session()
-            await session.execute(select(1))
+            async with self._session_scope() as session:
+                await session.execute(select(1))
             return {"status": "healthy", "repository": "EmployeeRepository", "table": EmployeeTable.__tablename__}
         except Exception as e:
             return {"status": "unhealthy", "repository": "EmployeeRepository", "error": str(e)}

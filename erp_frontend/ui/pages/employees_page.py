@@ -6,22 +6,17 @@ Halaman modul "Karyawan" (Master Data).
 Endpoint backend : /employees/employees
 
 REGENERASI OTOMATIS dari registry/module_registry.py (sumber kebenaran
-tunggal) supaya field/kolom/aksi SELALU sinkron dengan hasil audit
-terhadap schema backend asli — sebelumnya file mandiri ini py bisa jadi
-kadaluarsa dibanding registry.py setelah audit, karena keduanya sempat
-didefinisikan terpisah. Kalau perlu ubah field modul ini, ubah di
-registry.py lalu jalankan ulang skrip regenerasi, JANGAN edit file ini
-langsung supaya tidak2 desinkron lagi.
+tunggal) - JANGAN edit file ini langsung, ubah registry.py lalu
+regenerasi ulang.
 
-(regenerasi 2026-08-07: field diselaraskan ulang dengan
-adapters/primary_api/v1/fastapi_employee_router.py setelah EmployeeService
-disambungkan ke database sungguhan - lihat catatan di module_registry.py
-untuk daftar field lengkap dan alasan position_allowance/transport_allowance/
-meal_allowance/overtime_rate digabung jadi allowances+overtime_rate_multiplier.)
+(regenerasi 2026-08-07 #2: field dikelompokkan per section untuk form
+grid 2-kolom yang lebih besar dan tidak banyak scroll; ditambah aksi
+Aktifkan/Nonaktifkan dan tombol Import CSV, menyusul endpoint backend
+baru di fastapi_employee_router.py.)
 """
 from __future__ import annotations
 
-from registry.module_registry import FieldSpec, FieldType, ModuleConfig
+from registry.module_registry import ActionSpec, FieldSpec, FieldType, ModuleConfig
 from ui.widgets.generic_list_page import GenericListPage
 
 # ---------------------------------------------------------------------------
@@ -39,51 +34,55 @@ COLUMNS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Field form tambah/ubah Karyawan
+# Field form tambah/ubah Karyawan (dikelompokkan per section)
 # ---------------------------------------------------------------------------
 FORM_FIELDS = [
     # --- Identitas ---
-    FieldSpec("employee_code", "Kode Karyawan", required=True),
-    FieldSpec("full_name", "Nama Lengkap", required=True),
-    FieldSpec("nik", "NIK (KTP)"),
-    FieldSpec("npwp", "NPWP"),
-    FieldSpec("gender", "Jenis Kelamin", FieldType.SELECT, choices=("M", "F", "O",)),
-    FieldSpec("birth_place", "Tempat Lahir"),
-    FieldSpec("birth_date", "Tanggal Lahir", FieldType.DATE),
-    FieldSpec("marital_status", "Status Pernikahan", FieldType.SELECT, choices=("single", "married", "divorced", "widowed",), default="single"),
-    FieldSpec("dependents", "Jumlah Tanggungan (PTKP)", FieldType.NUMBER, default=0, help_text="Dipakai untuk menghitung status PTKP (mis. TK/0, K/1) secara otomatis"),
-    FieldSpec("religion", "Agama"),
+    FieldSpec("employee_code", "Kode Karyawan", required=True, section="Identitas"),
+    FieldSpec("full_name", "Nama Lengkap", required=True, section="Identitas"),
+    FieldSpec("nik", "NIK (KTP)", section="Identitas"),
+    FieldSpec("npwp", "NPWP", section="Identitas"),
+    FieldSpec("gender", "Jenis Kelamin", FieldType.SELECT, choices=("M", "F", "O",), section="Identitas"),
+    FieldSpec("birth_place", "Tempat Lahir", section="Identitas"),
+    FieldSpec("birth_date", "Tanggal Lahir", FieldType.DATE, section="Identitas"),
+    FieldSpec("marital_status", "Status Pernikahan", FieldType.SELECT, choices=("single", "married", "divorced", "widowed",), default="single", section="Identitas"),
+    FieldSpec("dependents", "Jumlah Tanggungan (PTKP)", FieldType.NUMBER, default=0, help_text="Dipakai untuk menghitung status PTKP (mis. TK/0, K/1) secara otomatis", section="Identitas"),
+    FieldSpec("religion", "Agama", section="Identitas"),
     # --- Kontak & Alamat ---
-    FieldSpec("email", "Email"),
-    FieldSpec("phone", "Telepon"),
-    FieldSpec("mobile", "HP"),
-    FieldSpec("address", "Alamat", FieldType.TEXTAREA),
-    FieldSpec("city", "Kota"),
-    FieldSpec("postal_code", "Kode Pos"),
+    FieldSpec("email", "Email", section="Kontak & Alamat"),
+    FieldSpec("phone", "Telepon", section="Kontak & Alamat"),
+    FieldSpec("mobile", "HP", section="Kontak & Alamat"),
+    FieldSpec("city", "Kota", section="Kontak & Alamat"),
+    FieldSpec("postal_code", "Kode Pos", section="Kontak & Alamat"),
+    FieldSpec("address", "Alamat", FieldType.TEXTAREA, section="Kontak & Alamat"),
     # --- Kepegawaian ---
-    FieldSpec("department", "Departemen"),
-    FieldSpec("division", "Divisi"),
-    FieldSpec("position", "Jabatan"),
-    FieldSpec("job_level", "Level/Grade"),
-    FieldSpec("cost_center", "Cost Center"),
-    FieldSpec("manager_id", "ID Manager/Atasan", FieldType.UUID),
-    FieldSpec("join_date", "Tanggal Bergabung", FieldType.DATE),
-    # --- Payroll ---
-    FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, default=0),
-    FieldSpec("allowances", "Total Tunjangan", FieldType.DECIMAL, default=0, help_text="Gabungan tunjangan jabatan/transport/makan dsb (satu angka total)"),
-    FieldSpec("overtime_rate_multiplier", "Pengali Tarif Lembur", FieldType.DECIMAL, default=1.5),
-    FieldSpec("bpjs_kesehatan_number", "No. BPJS Kesehatan"),
-    FieldSpec("bpjs_ketenagakerjaan_number", "No. BPJS Ketenagakerjaan"),
-    FieldSpec("bank_name", "Nama Bank"),
-    FieldSpec("bank_account_number", "No. Rekening"),
-    FieldSpec("bank_account_name", "Nama Pemilik Rekening"),
-    FieldSpec("notes", "Catatan", FieldType.TEXTAREA),
+    FieldSpec("department", "Departemen", section="Kepegawaian"),
+    FieldSpec("division", "Divisi", section="Kepegawaian"),
+    FieldSpec("position", "Jabatan", section="Kepegawaian"),
+    FieldSpec("job_level", "Level/Grade", section="Kepegawaian"),
+    FieldSpec("cost_center", "Cost Center", section="Kepegawaian"),
+    FieldSpec("manager_id", "ID Manager/Atasan", FieldType.UUID, section="Kepegawaian"),
+    FieldSpec("join_date", "Tanggal Bergabung", FieldType.DATE, section="Kepegawaian"),
+    # --- Payroll & BPJS ---
+    FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, default=0, section="Payroll & BPJS"),
+    FieldSpec("allowances", "Total Tunjangan", FieldType.DECIMAL, default=0, help_text="Gabungan tunjangan jabatan/transport/makan dsb (satu angka total)", section="Payroll & BPJS"),
+    FieldSpec("overtime_rate_multiplier", "Pengali Tarif Lembur", FieldType.DECIMAL, default=1.5, section="Payroll & BPJS"),
+    FieldSpec("bpjs_kesehatan_number", "No. BPJS Kesehatan", section="Payroll & BPJS"),
+    FieldSpec("bpjs_ketenagakerjaan_number", "No. BPJS Ketenagakerjaan", section="Payroll & BPJS"),
+    FieldSpec("bank_name", "Nama Bank", section="Payroll & BPJS"),
+    FieldSpec("bank_account_number", "No. Rekening", section="Payroll & BPJS"),
+    FieldSpec("bank_account_name", "Nama Pemilik Rekening", section="Payroll & BPJS"),
+    # --- Lainnya ---
+    FieldSpec("notes", "Catatan", FieldType.TEXTAREA, section="Lainnya"),
 ]
 
 # ---------------------------------------------------------------------------
-# Aksi workflow tambahan (tombol di toolbar, POST /{id}/{aksi})
+# Aksi workflow tambahan (tombol di menu "Aksi", POST /{id}/{aksi})
 # ---------------------------------------------------------------------------
-ACTIONS = []
+ACTIONS = [
+    ActionSpec("deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"),
+    ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
+]
 
 CONFIG = ModuleConfig(
     key="employees",
@@ -99,6 +98,7 @@ CONFIG = ModuleConfig(
     can_create=True,
     can_edit=True,
     can_delete=True,
+    can_import=True,
     search_param="search",
     edit_http_method="PATCH",
 )

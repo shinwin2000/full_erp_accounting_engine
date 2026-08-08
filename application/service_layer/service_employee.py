@@ -673,6 +673,42 @@ class EmployeeService:
     def get_stats(self) -> dict[str, int]:
         return dict(self._stats)
 
+    # ========================================================================
+    # ACTIVATE / DEACTIVATE (toggle status tanpa full resign)
+    # ========================================================================
+
+    @audit
+    async def set_active_status(
+        self, employee_id: UUID, is_active: bool, updated_by: UUID | None = None
+    ) -> dict[str, Any]:
+        self._check_authority(updated_by, "set_active_status")
+        await self._repository.update_status(employee_id, is_active)
+        employee = await self._repository.get_by_id(employee_id)
+        if not employee:
+            raise EmployeeNotFoundError(f"Employee {employee_id} not found")
+        self._record_audit("set_active_status", {
+            "employee_id": str(employee_id),
+            "is_active": is_active,
+            "updated_by": str(updated_by) if updated_by else None,
+        })
+        return employee
+
+    # ========================================================================
+    # IMPORT CSV
+    # ========================================================================
+
+    async def import_employees_csv(
+        self, csv_content: str, legal_entity_id: UUID, created_by: UUID | None = None
+    ) -> int:
+        self._check_authority(created_by, "import_employees_csv")
+        count = await self._repository.import_from_csv(csv_content, legal_entity_id, created_by)
+        self._record_audit("import_employees_csv", {
+            "legal_entity_id": str(legal_entity_id),
+            "imported": count,
+            "created_by": str(created_by) if created_by else None,
+        })
+        return count
+
 
 __all__ = [
     "EmployeeService",

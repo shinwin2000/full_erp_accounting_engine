@@ -48,6 +48,8 @@ class FieldSpec:
     choices: tuple = ()
     default: object = None
     help_text: str = ""
+    section: str = ""  # judul grup field (mis. "Identitas", "Kontak & Alamat")
+                        # untuk form besar bertab-visual, mengurangi scroll
 
     def __post_init__(self):
         if not self.label:
@@ -80,6 +82,7 @@ class ModuleConfig:
     can_create: bool = True
     can_edit: bool = True
     can_delete: bool = True
+    can_import: bool = False  # tampilkan tombol Import kalau backend modul ini punya POST {base_path}/import
     edit_http_method: str = "PUT"  # beberapa modul backend pakai PATCH, bukan PUT — lihat penjelasan di bawah
     search_param: str = "search"
     custom_page: bool = False
@@ -166,7 +169,7 @@ _reg(ModuleConfig(
 ))
 
 # === Master Data ============================================================
-# CUSTOMER - diambil dari versi pertama (lebih lengkap)
+# CUSTOMER - diambil dari versi pertama (lebih lengkap) dengan tambahan section
 _reg(ModuleConfig(
     key="customers", label="Pelanggan (Customer)", category="Master Data", icon="🧑‍💼",
     base_path="/customers", list_path="/customers",
@@ -181,35 +184,35 @@ _reg(ModuleConfig(
              ("current_balance", "Saldo Piutang"), ("status", "Status"),
              ("is_active", "Aktif"), ("created_at", "Dibuat")],
     form_fields=[
-        FieldSpec("customer_code", "Kode Customer (kosongkan untuk auto: CUST-0001, dst)"),
-        FieldSpec("customer_name", "Nama Customer", required=True),
-        FieldSpec("company_name", "Nama Perusahaan"),
+        FieldSpec("customer_code", "Kode Customer (kosongkan untuk auto: CUST-0001, dst)", section="Identitas"),
+        FieldSpec("customer_name", "Nama Customer", required=True, section="Identitas"),
+        FieldSpec("company_name", "Nama Perusahaan", section="Identitas"),
         FieldSpec("customer_type", "Tipe", FieldType.SELECT,
                   choices=("company", "individual", "government", "non_profit"),
-                  default="company"),
-        FieldSpec("tax_id", "NPWP"),
+                  default="company", section="Identitas"),
+        FieldSpec("tax_id", "NPWP", section="Identitas"),
         FieldSpec("tax_status", "Status Pajak", FieldType.SELECT,
-                  choices=("pkp", "non_pkp"), default="pkp"),
-        FieldSpec("address", "Alamat", FieldType.TEXTAREA),
-        FieldSpec("city", "Kota"),
-        FieldSpec("province", "Provinsi"),
-        FieldSpec("district", "Kecamatan"),
-        FieldSpec("postal_code", "Kode Pos"),
-        FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID"),
-        FieldSpec("phone", "Telepon"),
-        FieldSpec("mobile", "HP"),
-        FieldSpec("email", "Email"),
-        FieldSpec("website", "Website"),
-        FieldSpec("contact_person", "Contact Person"),
-        FieldSpec("contact_phone", "Telepon PIC"),
-        FieldSpec("contact_email", "Email PIC"),
-        FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL),
-        FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL),
-        FieldSpec("currency", "Mata Uang", default="IDR"),
-        FieldSpec("payment_term_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30),
-        FieldSpec("discount_percent", "Diskon Default (%)", FieldType.DECIMAL),
-        FieldSpec("category", "Kategori"),
-        FieldSpec("price_group", "Price Level"),
+                  choices=("pkp", "non_pkp"), default="pkp", section="Identitas"),
+        FieldSpec("address", "Alamat", FieldType.TEXTAREA, section="Kontak & Alamat"),
+        FieldSpec("city", "Kota", section="Kontak & Alamat"),
+        FieldSpec("province", "Provinsi", section="Kontak & Alamat"),
+        FieldSpec("district", "Kecamatan", section="Kontak & Alamat"),
+        FieldSpec("postal_code", "Kode Pos", section="Kontak & Alamat"),
+        FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID", section="Kontak & Alamat"),
+        FieldSpec("phone", "Telepon", section="Kontak & Alamat"),
+        FieldSpec("mobile", "HP", section="Kontak & Alamat"),
+        FieldSpec("email", "Email", section="Kontak & Alamat"),
+        FieldSpec("website", "Website", section="Kontak & Alamat"),
+        FieldSpec("contact_person", "Contact Person", section="Kontak & Alamat"),
+        FieldSpec("contact_phone", "Telepon PIC", section="Kontak & Alamat"),
+        FieldSpec("contact_email", "Email PIC", section="Kontak & Alamat"),
+        FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL, section="Keuangan"),
+        FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL, section="Keuangan"),
+        FieldSpec("currency", "Mata Uang", default="IDR", section="Keuangan"),
+        FieldSpec("payment_term_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30, section="Keuangan"),
+        FieldSpec("discount_percent", "Diskon Default (%)", FieldType.DECIMAL, section="Keuangan"),
+        FieldSpec("category", "Kategori", section="Lainnya"),
+        FieldSpec("price_group", "Price Level", section="Lainnya"),
     ],
     actions=[
         ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
@@ -221,7 +224,7 @@ _reg(ModuleConfig(
                  "tombol '📋 Detail' pada baris terpilih.",
 ))
 
-# SUPPLIER - diambil dari versi kedua (lebih lengkap)
+# SUPPLIER - diambil dari versi pertama (lebih lengkap) dengan tambahan section
 _reg(ModuleConfig(
     key="suppliers", label="Pemasok (Supplier)", category="Master Data", icon="🏭",
     base_path="/suppliers", list_path="/suppliers",
@@ -232,43 +235,44 @@ _reg(ModuleConfig(
     form_fields=[
         # --- Informasi Umum ---
         FieldSpec("supplier_code", "Kode Supplier", required=True,
-                  help_text="Kode unik supplier, mis. SUP-0001"),
-        FieldSpec("name", "Nama Supplier", required=True),
-        FieldSpec("company_name", "Nama Perusahaan"),
+                  help_text="Kode unik supplier, mis. SUP-0001", section="Informasi Umum"),
+        FieldSpec("name", "Nama Supplier", required=True, section="Informasi Umum"),
+        FieldSpec("company_name", "Nama Perusahaan", section="Informasi Umum"),
         FieldSpec("supplier_type", "Jenis Supplier", FieldType.SELECT,
                   choices=("individual", "company", "government", "non_profit"),
                   default="company",
-                  help_text="individual=perorangan, company=perusahaan, government=pemerintah, non_profit=nirlaba"),
+                  help_text="individual=perorangan, company=perusahaan, government=pemerintah, non_profit=nirlaba",
+                  section="Informasi Umum"),
         FieldSpec("withholding_category", "Kategori PPh", FieldType.SELECT,
-                  choices=("none", "pph23", "pph26", "both"), default="none"),
+                  choices=("none", "pph23", "pph26", "both"), default="none", section="Informasi Umum"),
         # --- Pajak ---
-        FieldSpec("npwp", "NPWP"),
-        FieldSpec("tax_name", "Nama Wajib Pajak"),
+        FieldSpec("npwp", "NPWP", section="Pajak"),
+        FieldSpec("tax_name", "Nama Wajib Pajak", section="Pajak"),
         # --- Kontak ---
-        FieldSpec("contact_person", "PIC (Contact Person)"),
-        FieldSpec("email", "Email"),
-        FieldSpec("phone", "Telepon"),
-        FieldSpec("mobile", "HP"),
-        FieldSpec("website", "Website"),
+        FieldSpec("contact_person", "PIC (Contact Person)", section="Kontak"),
+        FieldSpec("email", "Email", section="Kontak"),
+        FieldSpec("phone", "Telepon", section="Kontak"),
+        FieldSpec("mobile", "HP", section="Kontak"),
+        FieldSpec("website", "Website", section="Kontak"),
         # --- Alamat ---
-        FieldSpec("address", "Alamat", FieldType.TEXTAREA),
-        FieldSpec("city", "Kota"),
-        FieldSpec("province", "Provinsi"),
-        FieldSpec("postal_code", "Kode Pos"),
-        FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID"),
+        FieldSpec("address", "Alamat", FieldType.TEXTAREA, section="Alamat"),
+        FieldSpec("city", "Kota", section="Alamat"),
+        FieldSpec("province", "Provinsi", section="Alamat"),
+        FieldSpec("postal_code", "Kode Pos", section="Alamat"),
+        FieldSpec("country", "Negara (kode ISO 2 huruf)", default="ID", section="Alamat"),
         # --- Bank ---
-        FieldSpec("bank_name", "Nama Bank"),
-        FieldSpec("bank_account_number", "Nomor Rekening"),
-        FieldSpec("bank_account_name", "Nama Pemilik Rekening"),
+        FieldSpec("bank_name", "Nama Bank", section="Bank"),
+        FieldSpec("bank_account_number", "Nomor Rekening", section="Bank"),
+        FieldSpec("bank_account_name", "Nama Pemilik Rekening", section="Bank"),
         # --- Keuangan ---
-        FieldSpec("payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30),
-        FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL, default=0),
-        FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL, default=0),
-        FieldSpec("opening_balance_date", "Tanggal Saldo Awal", FieldType.DATE),
+        FieldSpec("payment_terms_days", "Termin Pembayaran (hari)", FieldType.NUMBER, default=30, section="Keuangan"),
+        FieldSpec("credit_limit", "Limit Kredit", FieldType.DECIMAL, default=0, section="Keuangan"),
+        FieldSpec("opening_balance", "Saldo Awal", FieldType.DECIMAL, default=0, section="Keuangan"),
+        FieldSpec("opening_balance_date", "Tanggal Saldo Awal", FieldType.DATE, section="Keuangan"),
         # --- Lainnya ---
         FieldSpec("status", "Status", FieldType.SELECT,
-                  choices=("active", "inactive", "blocked", "suspended"), default="active"),
-        FieldSpec("remarks", "Catatan", FieldType.TEXTAREA),
+                  choices=("active", "inactive", "blocked", "suspended"), default="active", section="Lainnya"),
+        FieldSpec("remarks", "Catatan", FieldType.TEXTAREA, section="Lainnya"),
     ],
     actions=[
         ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
@@ -277,29 +281,61 @@ _reg(ModuleConfig(
     edit_http_method="PATCH",
 ))
 
-# EMPLOYEE - sama di kedua versi (sederhana)
+# EMPLOYEE - diambil dari versi kedua (lebih lengkap dengan section, can_import)
 _reg(ModuleConfig(
     key="employees", label="Karyawan", category="Master Data", icon="👷",
     base_path="/employees", list_path="/employees",
-    columns=[("employee_code", "Kode"), ("full_name", "Nama"), ("nik", "NIK"),
-             ("basic_salary", "Gaji Pokok"), ("is_active", "Aktif")],
+    columns=[("employee_code", "Kode"), ("full_name", "Nama"), ("department", "Departemen"),
+             ("position", "Jabatan"), ("status", "Status"), ("email", "Email"),
+             ("phone", "Telepon"), ("is_active", "Aktif")],
     form_fields=[
-        FieldSpec("employee_code", "Kode Karyawan", required=True),
-        FieldSpec("full_name", "Nama Lengkap", required=True),
-        FieldSpec("npwp", "NPWP"),
-        FieldSpec("nik", "NIK (KTP)"),
-        FieldSpec("birth_date", "Tanggal Lahir", FieldType.DATE),
-        FieldSpec("join_date", "Tanggal Bergabung", FieldType.DATE),
+        # --- Identitas ---
+        FieldSpec("employee_code", "Kode Karyawan", required=True, section="Identitas"),
+        FieldSpec("full_name", "Nama Lengkap", required=True, section="Identitas"),
+        FieldSpec("nik", "NIK (KTP)", section="Identitas"),
+        FieldSpec("npwp", "NPWP", section="Identitas"),
+        FieldSpec("gender", "Jenis Kelamin", FieldType.SELECT, choices=("M", "F", "O"), section="Identitas"),
+        FieldSpec("birth_place", "Tempat Lahir", section="Identitas"),
+        FieldSpec("birth_date", "Tanggal Lahir", FieldType.DATE, section="Identitas"),
         FieldSpec("marital_status", "Status Pernikahan", FieldType.SELECT,
-                  choices=("single", "married", "divorced", "widowed"), default="single"),
-        FieldSpec("dependents", "Jumlah Tanggungan (PTKP)", FieldType.NUMBER, default=0),
-        FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, default=0),
-        FieldSpec("position_allowance", "Tunjangan Jabatan", FieldType.DECIMAL, default=0),
-        FieldSpec("transport_allowance", "Tunjangan Transport", FieldType.DECIMAL, default=0),
-        FieldSpec("meal_allowance", "Tunjangan Makan", FieldType.DECIMAL, default=0),
-        FieldSpec("overtime_rate", "Tarif Lembur/Jam", FieldType.DECIMAL, default=0),
+                  choices=("single", "married", "divorced", "widowed"), default="single", section="Identitas"),
+        FieldSpec("dependents", "Jumlah Tanggungan (PTKP)", FieldType.NUMBER, default=0,
+                  help_text="Dipakai untuk menghitung status PTKP (mis. TK/0, K/1) secara otomatis", section="Identitas"),
+        FieldSpec("religion", "Agama", section="Identitas"),
+        # --- Kontak & Alamat ---
+        FieldSpec("email", "Email", section="Kontak & Alamat"),
+        FieldSpec("phone", "Telepon", section="Kontak & Alamat"),
+        FieldSpec("mobile", "HP", section="Kontak & Alamat"),
+        FieldSpec("city", "Kota", section="Kontak & Alamat"),
+        FieldSpec("postal_code", "Kode Pos", section="Kontak & Alamat"),
+        FieldSpec("address", "Alamat", FieldType.TEXTAREA, section="Kontak & Alamat"),
+        # --- Kepegawaian ---
+        FieldSpec("department", "Departemen", section="Kepegawaian"),
+        FieldSpec("division", "Divisi", section="Kepegawaian"),
+        FieldSpec("position", "Jabatan", section="Kepegawaian"),
+        FieldSpec("job_level", "Level/Grade", section="Kepegawaian"),
+        FieldSpec("cost_center", "Cost Center", section="Kepegawaian"),
+        FieldSpec("manager_id", "ID Manager/Atasan", FieldType.UUID, section="Kepegawaian"),
+        FieldSpec("join_date", "Tanggal Bergabung", FieldType.DATE, section="Kepegawaian"),
+        # --- Payroll & BPJS ---
+        FieldSpec("basic_salary", "Gaji Pokok", FieldType.DECIMAL, default=0, section="Payroll & BPJS"),
+        FieldSpec("allowances", "Total Tunjangan", FieldType.DECIMAL, default=0,
+                  help_text="Gabungan tunjangan jabatan/transport/makan dsb (satu angka total)", section="Payroll & BPJS"),
+        FieldSpec("overtime_rate_multiplier", "Pengali Tarif Lembur", FieldType.DECIMAL, default=1.5, section="Payroll & BPJS"),
+        FieldSpec("bpjs_kesehatan_number", "No. BPJS Kesehatan", section="Payroll & BPJS"),
+        FieldSpec("bpjs_ketenagakerjaan_number", "No. BPJS Ketenagakerjaan", section="Payroll & BPJS"),
+        FieldSpec("bank_name", "Nama Bank", section="Payroll & BPJS"),
+        FieldSpec("bank_account_number", "No. Rekening", section="Payroll & BPJS"),
+        FieldSpec("bank_account_name", "Nama Pemilik Rekening", section="Payroll & BPJS"),
+        # --- Lainnya ---
+        FieldSpec("notes", "Catatan", FieldType.TEXTAREA, section="Lainnya"),
+    ],
+    actions=[
+        ActionSpec("deactivate", "Nonaktifkan", path_suffix="/deactivate", style="danger"),
+        ActionSpec("activate", "Aktifkan", path_suffix="/activate", style="success"),
     ],
     edit_http_method="PATCH",
+    can_import=True,
 ))
 
 # LEGAL ENTITIES - sama di kedua versi
@@ -373,7 +409,6 @@ _reg(ModuleConfig(
 ))
 
 # === Aktiva & Kas ============================================================
-# Semua modul di bawah ini sama di kedua versi, saya salin dari versi pertama (atau kedua, sama).
 _reg(ModuleConfig(
     key="bank_accounts", label="Rekening Bank & Kas", category="Kas & Bank", icon="🏦",
     base_path="/bank-cash/bank-cash", list_path="/bank-accounts",

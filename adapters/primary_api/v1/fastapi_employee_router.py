@@ -33,7 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from adapters.dependency_provider import get_service
@@ -588,6 +588,88 @@ async def delete_employee(
         raise
     except Exception as e:
         logger.error(f"Error deleting employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# ============================================================================
+# ACTIVATE / DEACTIVATE ENDPOINTS
+# ============================================================================
+
+@router.post(
+    "/employees/{employee_id}/activate",
+    response_model=EmployeeResponseModel,
+    summary="Aktifkan kembali karyawan (tanpa mengubah riwayat resign)",
+)
+async def activate_employee(
+    employee_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> EmployeeResponseModel:
+    try:
+        result = await service.set_active_status(employee_id, is_active=True, updated_by=user.user_id)
+        return to_employee_response(result)
+    except EmployeeNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    except Exception as e:
+        logger.error(f"Error activating employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post(
+    "/employees/{employee_id}/deactivate",
+    response_model=EmployeeResponseModel,
+    summary="Nonaktifkan karyawan (tanpa proses resign penuh)",
+)
+async def deactivate_employee(
+    employee_id: UUID,
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> EmployeeResponseModel:
+    try:
+        result = await service.set_active_status(employee_id, is_active=False, updated_by=user.user_id)
+        return to_employee_response(result)
+    except EmployeeNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    except Exception as e:
+        logger.error(f"Error deactivating employee {employee_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# ============================================================================
+# IMPORT CSV ENDPOINT
+# ============================================================================
+
+@router.post(
+    "/employees/import",
+    summary="Import karyawan dari file CSV",
+)
+async def import_employees(
+    legal_entity_id: UUID = Query(..., description="Legal entity ID tujuan import"),
+    file: UploadFile = File(...),
+    user: TokenPayload = Depends(get_current_user),
+    service: EmployeeService = Depends(get_service(EmployeeService)),
+) -> dict[str, Any]:
+    """
+    Import karyawan dari CSV. Kolom yang dikenali: employee_code, full_name,
+    nik, tax_id, email, phone, mobile, address, city, postal_code, position,
+    department, division, employment_status, ptkp_status, basic_salary,
+    allowances, bank_account_number, bank_name, is_active.
+
+    Baris dengan employee_code yang sudah ada akan dilewati (bukan ditimpa),
+    dan dilaporkan lewat log server - bukan menggagalkan seluruh import.
+    """
+    try:
+        raw = await file.read()
+        try:
+            csv_content = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            csv_content = raw.decode("latin-1")
+        imported = await service.import_employees_csv(
+            csv_content=csv_content, legal_entity_id=legal_entity_id, created_by=user.user_id
+        )
+        return {"imported": imported}
+    except Exception as e:
+        logger.error(f"Error importing employees: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Module: service_registry.py
 Layer: Bootstrap (Dependency Container)
@@ -354,7 +354,7 @@ class ServiceRegistrar:
             container.register_singleton(SQLAlchemyIAMRepository, SQLAlchemyIAMRepository)
             container.register_singleton(SQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork)
 
-            # Port → implementation (singleton, tapi session & legal_entity_id di-set per request)
+            # Port â†’ implementation (singleton, tapi session & legal_entity_id di-set per request)
             container.register_singleton(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
             container.register_singleton(IAMRepositoryPort, SQLAlchemyIAMRepository)
             container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
@@ -365,12 +365,12 @@ class ServiceRegistrar:
             cache = None
 
             try:
-                from infrastructure.event_publisher.event_publisher import EventPublisher
+                from adapters.secondary_impl.kafka_event_publisher_impl import KafkaEventPublisher as EventPublisher
 
                 from ports.primary.event_publisher_port import EventPublisherPort
                 container.register_singleton(EventPublisher, EventPublisher)
                 container.register_singleton(EventPublisherPort, EventPublisher)
-                event_publisher = container.resolve(EventPublisherPort)
+                event_publisher = await container.resolve_async(EventPublisherPort)
                 logger.info("EventPublisher registered")
             except ImportError:
                 logger.warning("EventPublisher not available, using None")
@@ -380,7 +380,7 @@ class ServiceRegistrar:
                 from ports.primary.token_issuer_port import TokenIssuerPort
                 container.register_singleton(JWTTokenService, JWTTokenService)
                 container.register_singleton(TokenIssuerPort, JWTTokenService)
-                token_issuer = container.resolve(TokenIssuerPort)
+                token_issuer = await container.resolve_async(TokenIssuerPort)
                 logger.info("JWTTokenService registered")
             except ImportError:
                 logger.warning("JWTTokenService not available, using None")
@@ -391,12 +391,12 @@ class ServiceRegistrar:
                 from ports.primary.cache_port import CachePort
                 container.register_singleton(RedisCache, RedisCache)
                 container.register_singleton(CachePort, RedisCache)
-                cache = container.resolve(CachePort)
+                cache = await container.resolve_async(CachePort)
                 logger.info("RedisCache registered")
             except ImportError:
                 logger.warning("RedisCache not available, using None")
 
-            # Factory untuk IAMService – repository dan UoW diambil dari container,
+            # Factory untuk IAMService â€“ repository dan UoW diambil dari container,
             # namun session & legal_entity_id akan di-set via service.set_context()
             async def _create_iam_service():
                 iam_repo = await container.resolve_async(IAMRepositoryPort)
