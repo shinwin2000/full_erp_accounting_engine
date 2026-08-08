@@ -139,3 +139,4 @@ temp/
 # Reports and generated files
 checker_reports/
 ```
+secrets/
