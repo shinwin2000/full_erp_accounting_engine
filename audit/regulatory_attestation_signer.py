@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Module: regulatory_attestation_signer.py
 Layer: Audit

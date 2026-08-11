@@ -3,6 +3,8 @@
 Module: sqlalchemy_hedge_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Hedge (lindung nilai) menggunakan SQLAlchemy.
+Perbaikan:
+  - [FIX] hedge_number → instrument_code (sesuai model HedgeInstrumentTable)
 """
 
 from __future__ import annotations
@@ -47,10 +49,11 @@ class SQLAlchemyHedgeRepository(HedgeRepositoryPort):
     # ========================================================================
 
     def _instrument_to_domain(self, table: HedgeInstrumentTable) -> HedgeInstrument:
+        # Map instrument_code → hedge_number
         return HedgeInstrument(
             id=table.id,
             legal_entity_id=table.legal_entity_id,
-            hedge_number=table.hedge_number,
+            hedge_number=table.instrument_code,          # ← perbaikan
             instrument_type=table.instrument_type,
             status=HedgeStatus(table.status) if table.status else HedgeStatus.DRAFT,
             created_at=table.created_at,
@@ -58,14 +61,22 @@ class SQLAlchemyHedgeRepository(HedgeRepositoryPort):
         )
 
     def _instrument_from_domain(self, domain: HedgeInstrument) -> HedgeInstrumentTable:
+        # Map hedge_number → instrument_code
         return HedgeInstrumentTable(
             id=domain.id,
             legal_entity_id=domain.legal_entity_id,
-            hedge_number=domain.hedge_number,
+            instrument_code=domain.hedge_number,         # ← perbaikan
             instrument_type=domain.instrument_type,
             status=domain.status.value if hasattr(domain.status, "value") else str(domain.status),
             created_at=domain.created_at,
             updated_at=domain.updated_at,
+            # Field yang wajib diisi (tidak ada di domain, isi default)
+            counterparty="",          # default, karena domain tidak punya
+            notional_amount=0,        # default
+            currency="IDR",           # default
+            start_date=datetime.utcnow().date(),
+            maturity_date=datetime.utcnow().date(),
+            fair_value=0,
         )
 
     def _hedged_item_to_domain(self, table: HedgedItemTable) -> HedgedItem:
@@ -113,7 +124,7 @@ class SQLAlchemyHedgeRepository(HedgeRepositoryPort):
     async def get_last_hedge_number(self, legal_entity_id: UUID) -> str | None:
         session = await self._get_session()
         stmt = (
-            select(HedgeInstrumentTable.hedge_number)
+            select(HedgeInstrumentTable.instrument_code)   # ← perbaikan
             .where(
                 HedgeInstrumentTable.legal_entity_id == legal_entity_id,
             )
@@ -165,7 +176,7 @@ class SQLAlchemyHedgeRepository(HedgeRepositoryPort):
             return None
         return self._hedged_item_to_domain(table)
 
-    # ===== FIX: save_effectiveness_test dengan user_id (2 required) =====
+    # ===== save_effectiveness_test dengan user_id (2 required) =====
     async def save_effectiveness_test(self, test_result: dict[str, Any], user_id: UUID) -> None:
         session = await self._get_session()
         test = HedgeEffectivenessTestTable(
@@ -179,7 +190,7 @@ class SQLAlchemyHedgeRepository(HedgeRepositoryPort):
         session.add(test)
         await session.flush()
 
-    # ===== FIX: save_hedge_adjustment dengan user_id (2 required) =====
+    # ===== save_hedge_adjustment dengan user_id (2 required) =====
     async def save_hedge_adjustment(self, adjustment: dict[str, Any], user_id: UUID) -> None:
         session = await self._get_session()
         adj = HedgeEffectivenessTestTable(

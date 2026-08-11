@@ -3,6 +3,9 @@
 Module: sqlalchemy_forex_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Forex (nilai tukar) menggunakan SQLAlchemy.
+Perbaikan:
+  - [FIX] AccountTable.currency → currency_code
+  - [FIX] AccountTable.balance dihapus (tidak ada di model)
 """
 
 from __future__ import annotations
@@ -211,7 +214,6 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
         )
         existing_row = existing.scalar_one_or_none()
         if existing_row:
-            # Update
             for key, value in table.__dict__.items():
                 if not key.startswith("_") and key != "id":
                     setattr(existing_row, key, value)
@@ -253,7 +255,6 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
     ) -> ExchangeRateEntity | None:
         """Ambil rate terakhir yang digunakan untuk revaluasi akun tertentu."""
         session = await self._get_session()
-        # Cari revaluation record terakhir untuk akun ini
         stmt = (
             select(RevaluationRecordTable)
             .where(
@@ -268,11 +269,8 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
         record = result.scalar_one_or_none()
         if not record:
             return None
-        # Dari record, kita dapatkan rate_used, tapi kita perlu ExchangeRateEntity.
-        # Kita cari rate pada tanggal yang sama dengan as_of_date.
         rate = await self.get_rate(record.currency, "IDR", record.as_of_date)
         if not rate:
-            # fallback: buat entity dari rate_used
             return ExchangeRateEntity(
                 id=uuid.uuid4(),
                 from_currency=record.currency,
@@ -286,28 +284,27 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
     async def get_foreign_currency_balances(
         self, legal_entity_id: UUID, as_of_date: date
     ) -> list[dict[str, Any]]:
-        """Dapatkan semua akun yang memiliki saldo dalam mata uang asing."""
-        # Karena tidak ada tabel saldo valas, kita gunakan data dari revaluation records.
-        # Atau dari akun-akun yang punya mata uang bukan IDR.
-        # Untuk implementasi sederhana, kita return dummy.
-        # Lebih baik query dari tabel accounts atau ledger entries.
+        """
+        Dapatkan semua akun yang memiliki mata uang asing.
+        PERBAIKAN: gunakan currency_code, hapus filter balance (tidak ada di model).
+        """
         session = await self._get_session()
-        # Coba dari account table jika ada
         try:
             from infrastructure.persistence_orm.account_table import AccountTable
-            stmt = select(AccountTable.account_code, AccountTable.currency).where(
+            stmt = select(AccountTable.account_code, AccountTable.currency_code).where(
                 AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.currency != "IDR",
-                AccountTable.balance != 0,
+                AccountTable.currency_code != "IDR",
             )
             result = await session.execute(stmt)
             rows = result.all()
             balances = []
             for row in rows:
+                # Untuk balance_fcy, perlu dihitung dari ledger entries.
+                # Sebagai fallback, kita set 0 dan serahkan ke pemanggil untuk mengisi.
                 balances.append({
                     "account_code": row.account_code,
-                    "currency": row.currency,
-                    "balance_fcy": Decimal(0),  # dummy, seharusnya dihitung dari ledger
+                    "currency": row.currency_code,
+                    "balance_fcy": Decimal(0),
                 })
             return balances
         except ImportError:
@@ -318,11 +315,7 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
         self, legal_entity_id: UUID, period_id: UUID
     ) -> list[dict[str, Any]]:
         """Dapatkan selisih kurs unrealized untuk suatu periode."""
-        # Ambil revaluation records untuk periode tersebut
         session = await self._get_session()
-        # Asumsikan period_id adalah UUID dari periode fiskal, atau kita bisa gunakan tanggal
-        # Untuk sederhana, kita ambil revaluation records yang as_of_date dalam periode
-        # Karena tidak ada mapping period -> date, kita abaikan.
         stmt = select(RevaluationRecordTable).where(
             RevaluationRecordTable.legal_entity_id == legal_entity_id,
             RevaluationRecordTable.difference != 0,
@@ -344,7 +337,6 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
     async def mark_period_closed(self, legal_entity_id: UUID, period_id: UUID) -> None:
         """Tandai periode forex sebagai tertutup."""
         session = await self._get_session()
-        # period_id bisa berupa UUID atau string. Kita asumsikan string (YYYY-MM).
         period_str = str(period_id)
         stmt = select(PeriodStatusTable).where(
             PeriodStatusTable.legal_entity_id == legal_entity_id,

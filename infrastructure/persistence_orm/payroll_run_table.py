@@ -25,6 +25,12 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
+    # NB: relasi "payslips" memakai PayslipTable (tabel 'payslip'), yaitu
+    # model yang benar-benar dipakai oleh repository aktif
+    # (sqlalchemy_payroll_repository_impl.py) dan EmployeeTable.payslips.
+    # PayrollPayslipTable (tabel 'payroll_payslip') adalah model lama yang
+    # tidak lagi dipakai di mana pun, sengaja TIDAK dihubungkan ke sini
+    # untuk menghindari konflik reverse_property/back_populates.
     from infrastructure.persistence_orm.payslip_table import PayslipTable
     from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
 
@@ -79,7 +85,7 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         cascade="all, delete-orphan",
     )
 
-    # Payslips (added for back_populates in PayslipTable)
+    # Payslips
     payslips: Mapped[list[PayslipTable]] = relationship(
         "PayslipTable",
         back_populates="payroll_run",
@@ -177,6 +183,5 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
             "notes": self.notes,
             "legal_entity_id": str(self.legal_entity_id),
         }
-
 
 __all__ = ["PayrollRunTable"]

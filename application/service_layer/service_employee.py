@@ -280,8 +280,6 @@ class EmployeeService:
                 )
                 await self._publish_event(event, f"Employee {employee['employee_code']} (created)", correlation_id)
             except Exception as e:
-                # EmployeeCreatedEvent (domain/customer_supplier_employee) expects a full
-                # EmployeeEntity aggregate that this service-layer call site cannot supply.
                 # Don't let a broken event payload block employee creation - mirrors the
                 # try/except-and-warn pattern used by CustomerService/SupplierService.
                 logger.warning(f"Failed to publish EmployeeCreatedEvent for {employee['employee_code']}: {e}")

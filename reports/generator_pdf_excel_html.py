@@ -31,15 +31,11 @@ import aiofiles  # <-- Tambahan untuk async file I/O
 # PDF generation (reportlab)
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import cm, inch
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import inch
     from reportlab.platypus import (
         Image,
-        PageBreak,
         Paragraph,
         SimpleDocTemplate,
         Spacer,
@@ -58,7 +54,7 @@ except ImportError:
 try:
     from openpyxl import Workbook
     from openpyxl.chart import BarChart, LineChart, Reference
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.styles import Alignment, Font
     from openpyxl.utils import get_column_letter
 
     OPENPYXL_AVAILABLE = True
@@ -538,7 +534,7 @@ class ReportGenerator:
         if not data:
             return [{"name": report_type[:31], "headers": [], "rows": []}]
         headers = list(data.keys())
-        rows = [[v for v in data.values()]]
+        rows = [list(data.values())]
         return [{"name": report_type[:31], "headers": headers, "rows": rows}]
 
     # ========================================================================
@@ -564,14 +560,12 @@ class ReportGenerator:
 
     @staticmethod
     def _get_content_type(suffix: str) -> str:
-        if suffix == ".pdf":
-            return "application/pdf"
-        elif suffix == ".xlsx":
-            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        elif suffix == ".html":
-            return "text/html"
-        else:
-            return "application/octet-stream"
+        content_types = {
+            ".pdf": "application/pdf",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".html": "text/html",
+        }
+        return content_types.get(suffix, "application/octet-stream")
 
 
 # ============================================================================

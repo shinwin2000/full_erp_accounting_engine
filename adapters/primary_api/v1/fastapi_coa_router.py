@@ -459,13 +459,15 @@ def _err(e: Exception) -> HTTPException:
         AccountLockedError,
         AccountNotFoundError,
         InvalidParentAccountError,
+        PostingAccountCannotHaveChildrenError,
     )
 
     if isinstance(e, AccountNotFoundError):
         return HTTPException(status_code=404, detail=str(e))
     if isinstance(e, (
         AccountCodeAlreadyExistsError, InvalidParentAccountError, AccountCycleDetectedError,
-        AccountHasChildrenError, AccountHasTransactionsError, AccountLockedError, ValueError,
+        AccountHasChildrenError, AccountHasTransactionsError, AccountLockedError,
+        PostingAccountCannotHaveChildrenError, ValueError,
     )):
         return HTTPException(status_code=422, detail=str(e))
     logger.exception("Unhandled COA error: %s", e)

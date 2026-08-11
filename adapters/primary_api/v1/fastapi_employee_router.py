@@ -33,7 +33,18 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from adapters.dependency_provider import get_service

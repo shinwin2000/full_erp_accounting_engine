@@ -1015,7 +1015,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
 
         for check_name, params in checks:
             if check_name == "foreign_exchange_limit":
-                is_ok, violation = await self.check_foreign_exchange_limit(
+                _, violation = await self.check_foreign_exchange_limit(
                     amount=params.get("amount", Decimal(0)),
                     currency=params.get("currency", "IDR"),
                     legal_entity_id=legal_entity_id,
@@ -1027,7 +1027,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
                     violations.append(violation)
 
             elif check_name == "aml_threshold":
-                is_ok, violation = await self.check_aml_threshold(
+                _, violation = await self.check_aml_threshold(
                     amount=params.get("amount", Decimal(0)),
                     customer_id=params.get("customer_id"),
                     legal_entity_id=legal_entity_id,
@@ -1050,7 +1050,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
 
             elif check_name == "aml_structuring":
                 if params.get("customer_id"):
-                    is_ok, violation = await self.check_aml_structuring(
+                    _, violation = await self.check_aml_structuring(
                         amount=params.get("amount", Decimal(0)),
                         customer_id=params["customer_id"],
                         transaction_date=params.get("transaction_date", datetime.now(UTC)),
@@ -1063,7 +1063,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
                         violations.append(violation)
 
             elif check_name == "tax_withholding":
-                is_ok, violation = await self.check_tax_withholding(
+                _, violation = await self.check_tax_withholding(
                     transaction_type=params.get("transaction_type", ""),
                     amount=params.get("amount", Decimal(0)),
                     supplier_type=params.get("supplier_type"),
@@ -1077,7 +1077,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
                     violations.append(violation)
 
             elif check_name == "transfer_pricing":
-                is_ok, violation = await self.check_transfer_pricing(
+                _, violation = await self.check_transfer_pricing(
                     amount=params.get("amount", Decimal(0)),
                     fair_market_value=params.get("fair_market_value", Decimal(0)),
                     related_party_id=params.get("related_party_id"),
@@ -1090,7 +1090,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
                     violations.append(violation)
 
             elif check_name == "fx_reporting":
-                is_ok, violation = await self.check_fx_reporting(
+                _, violation = await self.check_fx_reporting(
                     amount=params.get("amount", Decimal(0)),
                     currency=params.get("currency", "IDR"),
                     legal_entity_id=legal_entity_id,
@@ -1102,7 +1102,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
                     violations.append(violation)
 
             elif check_name == "corporate_action":
-                is_ok, violation = await self.check_corporate_action(
+                _, violation = await self.check_corporate_action(
                     action_type=params.get("action_type", ""),
                     amount=params.get("amount", Decimal(0)),
                     legal_entity_id=legal_entity_id,

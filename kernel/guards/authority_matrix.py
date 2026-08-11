@@ -891,10 +891,8 @@ class AuthorityMatrix:
             role_names = ["guest"]
 
         permission = f"{resource}:{action}"
-        for role_name in role_names:
-            if self.has_permission(role_name, permission):
-                return True
-        return False
+        # FIX: SIM110 - gunakan any() sebagai ganti for loop
+        return any(self.has_permission(role_name, permission) for role_name in role_names)
 
     def get_permissions_for_role(self, role_name: str) -> list[str]:
         role = STANDARD_ROLES.get(role_name)

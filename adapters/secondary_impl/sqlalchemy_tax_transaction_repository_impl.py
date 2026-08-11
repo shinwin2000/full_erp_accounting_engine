@@ -3,6 +3,15 @@
 Module: sqlalchemy_tax_transaction_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Tax Transaction menggunakan SQLAlchemy - LENGKAP.
+Perbaikan kolom:
+  - period_year -> tax_period_year
+  - period_month -> tax_period_month
+  - source_document_id -> reference_id
+  - source_document_type -> reference_type
+  - submission_status -> status
+  - reference_number -> transaction_number (untuk identifikasi)
+  - adjustment_reason disimpan di extra_metadata
+  - updated_by dihilangkan (tidak ada di tabel)
 """
 
 from __future__ import annotations
@@ -13,10 +22,10 @@ import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.tax_transaction_table import TaxTransactionTable
@@ -28,9 +37,6 @@ from ports.primary.tax_transaction_repository_port import (
     TaxTransactionStatus,
     TaxType,
 )
-# Tambahan: import interface TaxRepositoryPort jika ada method tambahan
-# Namun karena kita tidak punya definisi exact, kita asumsikan method tersebut ada.
-# Kita akan tambahkan dengan stub.
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +46,6 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         self._session = session
         self._audit_log: list[dict[str, Any]] = []
         self._spt_submissions: dict[UUID, SPTSubmission] = {}  # temporary in-memory store
-        # Untuk menyimpan tax return (placeholder)
         self._tax_returns: dict[str, dict] = {}  # key: f"{legal_entity_id}_{period}"
 
     async def _get_session(self) -> AsyncSession:
@@ -70,16 +75,22 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
             id=tax_transaction.id,
             tax_type=tax_transaction.tax_type.value,
             tax_amount=tax_transaction.tax_amount,
-            period_year=tax_transaction.tax_period_year,
-            period_month=tax_transaction.tax_period_month,
+            tax_period_year=tax_transaction.tax_period_year,
+            tax_period_month=tax_transaction.tax_period_month,
             legal_entity_id=tax_transaction.legal_entity_id,
-            source_document_id=tax_transaction.reference_id,
-            source_document_type=tax_transaction.reference_type,
-            reference_number=None,
-            submission_status=tax_transaction.status.value if tax_transaction.status else None,
+            reference_id=tax_transaction.reference_id,
+            reference_type=tax_transaction.reference_type,
+            transaction_number=tax_transaction.transaction_number or f"TX-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            status=tax_transaction.status.value if tax_transaction.status else "calculated",
             created_at=tax_transaction.created_at,
             created_by=tax_transaction.created_by,
             deleted_at=None,
+            # nilai default lainnya
+            transaction_date=tax_transaction.transaction_date or date.today(),
+            taxable_amount=tax_transaction.amount or Decimal(0),
+            tax_rate=Decimal(0),
+            currency="IDR",
+            is_withholding=False,
         )
         session.add(table)
         await session.flush()
@@ -91,12 +102,10 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
 
     async def update(self, tax_transaction: TaxTransaction) -> None:
         """
-        Update tax transaction with pessimistic locking to prevent race conditions.
-        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        Update tax transaction with pessimistic locking.
         """
         session = await self._get_session()
         async with session.begin():
-            # 1. Lock the row with SELECT FOR UPDATE
             stmt_lock = select(TaxTransactionTable).where(
                 TaxTransactionTable.id == tax_transaction.id
             ).with_for_update()
@@ -105,28 +114,24 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
             if not existing:
                 raise ValueError(f"Transaction {tax_transaction.id} not found")
 
-            # 2. Update the locked row
+            # Update fields
             existing.tax_type = tax_transaction.tax_type.value
             existing.tax_amount = tax_transaction.tax_amount
-            existing.period_year = tax_transaction.tax_period_year
-            existing.period_month = tax_transaction.tax_period_month
+            existing.tax_period_year = tax_transaction.tax_period_year
+            existing.tax_period_month = tax_transaction.tax_period_month
             existing.legal_entity_id = tax_transaction.legal_entity_id
-            existing.source_document_id = tax_transaction.reference_id
-            existing.source_document_type = tax_transaction.reference_type
-            existing.submission_status = tax_transaction.status.value if tax_transaction.status else None
+            existing.reference_id = tax_transaction.reference_id
+            existing.reference_type = tax_transaction.reference_type
+            existing.status = tax_transaction.status.value if tax_transaction.status else "calculated"
             existing.updated_at = datetime.utcnow()
-            existing.updated_by = tax_transaction.updated_by
+            # updated_by tidak ada di tabel, kita skip
             await session.flush()
             await self._log_audit("UPDATE", tax_transaction.id, {"tax_type": tax_transaction.tax_type.value})
 
     async def delete(self, tax_transaction_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
-        """
-        Soft delete or permanent delete with pessimistic locking.
-        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
-        """
+        """Soft delete or permanent delete with pessimistic locking."""
         session = await self._get_session()
         async with session.begin():
-            # 1. Lock the row with SELECT FOR UPDATE
             stmt_lock = select(TaxTransactionTable).where(
                 TaxTransactionTable.id == tax_transaction_id
             ).with_for_update()
@@ -135,13 +140,12 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
             if not existing:
                 return False
 
-            # 2. Perform delete on the locked row
             if permanent:
                 await session.delete(existing)
             else:
                 existing.deleted_at = datetime.utcnow()
                 existing.updated_at = datetime.utcnow()
-                existing.updated_by = user_id
+                # updated_by tidak ada, skip
             await session.flush()
             await self._log_audit("DELETE", tax_transaction_id, {"permanent": permanent, "user_id": str(user_id)})
             logger.info(f"Tax transaction {tax_transaction_id} deleted (permanent={permanent})")
@@ -160,11 +164,11 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         return self._to_domain(table)
 
     async def get_by_invoice(self, invoice_id: UUID, tax_type: str) -> TaxTransaction | None:
-        # Not in port, we can keep as extra method
+        """Extra method: find by invoice reference."""
         session = await self._get_session()
         stmt = select(TaxTransactionTable).where(
-            TaxTransactionTable.source_document_id == invoice_id,
-            TaxTransactionTable.source_document_type == "invoice",
+            TaxTransactionTable.reference_id == invoice_id,
+            TaxTransactionTable.reference_type == "invoice",
             TaxTransactionTable.tax_type == tax_type,
             TaxTransactionTable.deleted_at.is_(None),
         )
@@ -179,8 +183,8 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
     ) -> list[TaxTransaction]:
         session = await self._get_session()
         stmt = select(TaxTransactionTable).where(
-            TaxTransactionTable.source_document_type == reference_type,
-            TaxTransactionTable.source_document_id == reference_id,
+            TaxTransactionTable.reference_type == reference_type,
+            TaxTransactionTable.reference_id == reference_id,
             TaxTransactionTable.deleted_at.is_(None),
         )
         result = await session.execute(stmt)
@@ -198,8 +202,8 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         stmt = select(TaxTransactionTable).where(
             TaxTransactionTable.legal_entity_id == legal_entity_id,
             TaxTransactionTable.tax_type == tax_type.value,
-            TaxTransactionTable.period_year == year,
-            TaxTransactionTable.period_month == month,
+            TaxTransactionTable.tax_period_year == year,
+            TaxTransactionTable.tax_period_month == month,
             TaxTransactionTable.deleted_at.is_(None),
         )
         result = await session.execute(stmt)
@@ -224,22 +228,22 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         if start_year == end_year:
             conditions.append(
                 and_(
-                    TaxTransactionTable.period_year == start_year,
-                    TaxTransactionTable.period_month.between(start_month, end_month)
+                    TaxTransactionTable.tax_period_year == start_year,
+                    TaxTransactionTable.tax_period_month.between(start_month, end_month)
                 )
             )
         else:
             cond1 = and_(
-                TaxTransactionTable.period_year == start_year,
-                TaxTransactionTable.period_month >= start_month
+                TaxTransactionTable.tax_period_year == start_year,
+                TaxTransactionTable.tax_period_month >= start_month
             )
             cond2 = and_(
-                TaxTransactionTable.period_year == end_year,
-                TaxTransactionTable.period_month <= end_month
+                TaxTransactionTable.tax_period_year == end_year,
+                TaxTransactionTable.tax_period_month <= end_month
             )
             cond_mid = and_(
-                TaxTransactionTable.period_year > start_year,
-                TaxTransactionTable.period_year < end_year
+                TaxTransactionTable.tax_period_year > start_year,
+                TaxTransactionTable.tax_period_year < end_year
             )
             conditions.append(or_(cond1, cond2, cond_mid))
         stmt = select(TaxTransactionTable).where(and_(*conditions))
@@ -256,10 +260,10 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         ).where(
             TaxTransactionTable.legal_entity_id == legal_entity_id,
             TaxTransactionTable.tax_type == tax_type.value,
-            TaxTransactionTable.submission_status.in_(["submitted", "approved", "paid"]),
+            TaxTransactionTable.status.in_(["reported", "paid", "adjusted"]),
             TaxTransactionTable.deleted_at.is_(None),
-            TaxTransactionTable.period_year >= start_date.year,
-            TaxTransactionTable.period_year <= end_date.year,
+            TaxTransactionTable.tax_period_year >= start_date.year,
+            TaxTransactionTable.tax_period_year <= end_date.year,
         )
         result = await session.execute(stmt)
         return Decimal(str(result.scalar() or 0))
@@ -273,11 +277,11 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         ).where(
             TaxTransactionTable.legal_entity_id == legal_entity_id,
             TaxTransactionTable.tax_type == tax_type.value,
-            TaxTransactionTable.submission_status.in_(["submitted", "approved", "paid"]),
+            TaxTransactionTable.status.in_(["reported", "paid", "adjusted"]),
             TaxTransactionTable.tax_amount < 0,
             TaxTransactionTable.deleted_at.is_(None),
-            TaxTransactionTable.period_year >= start_date.year,
-            TaxTransactionTable.period_year <= end_date.year,
+            TaxTransactionTable.tax_period_year >= start_date.year,
+            TaxTransactionTable.tax_period_year <= end_date.year,
         )
         result = await session.execute(stmt)
         return Decimal(str(abs(result.scalar() or 0)))
@@ -369,7 +373,7 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         return True
 
     # ========================================================================
-    # MARK TRANSACTIONS REPORTED � DIPERBAIKI (tanpa query dalam loop)
+    # MARK TRANSACTIONS REPORTED
     # ========================================================================
 
     async def mark_transactions_reported(
@@ -378,7 +382,6 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         if not tax_transaction_ids:
             return 0
         session = await self._get_session()
-        # Lakukan UPDATE massal langsung tanpa SELECT per ID
         stmt = (
             update(TaxTransactionTable)
             .where(
@@ -386,9 +389,9 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
                 TaxTransactionTable.deleted_at.is_(None)
             )
             .values(
-                submission_status="reported",
+                status="reported",
                 updated_at=datetime.utcnow(),
-                updated_by=user_id,
+                # updated_by tidak ada
             )
         )
         result = await session.execute(stmt)
@@ -415,9 +418,11 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         tx = result.scalar_one_or_none()
         if not tx:
             return False
-        tx.submission_status = "paid"
+        tx.status = "paid"
+        tx.ntpn = ntpn
+        tx.payment_date = payment_date
         tx.updated_at = datetime.utcnow()
-        tx.updated_by = user_id
+        # updated_by tidak ada
         await session.flush()
         await self._log_audit("RECORD_PAYMENT", tax_transaction_id, {"amount": str(amount), "ntpn": ntpn})
         return True
@@ -429,19 +434,27 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         original_table = await session.get(TaxTransactionTable, original_tx_id)
         if not original_table:
             return None
+        # Simpan reason di extra_metadata
+        extra_metadata = {"adjustment_reason": description, "original_id": str(original_tx_id)}
         new_table = TaxTransactionTable(
             id=uuid.uuid4(),
             tax_type=original_table.tax_type,
             tax_amount=new_tax_amount,
-            period_year=original_table.period_year,
-            period_month=original_table.period_month,
+            tax_period_year=original_table.tax_period_year,
+            tax_period_month=original_table.tax_period_month,
             legal_entity_id=original_table.legal_entity_id,
-            source_document_id=original_table.source_document_id,
-            source_document_type="adjustment",
-            reference_number=f"ADJ-{original_table.reference_number}" if original_table.reference_number else None,
-            adjustment_reason=description,
+            reference_id=original_table.reference_id,
+            reference_type="adjustment",
+            transaction_number=f"ADJ-{original_table.transaction_number or 'UNK'}",
+            status="adjusted",
+            extra_metadata=extra_metadata,
             created_by=user_id,
             created_at=datetime.utcnow(),
+            transaction_date=date.today(),
+            taxable_amount=Decimal(0),
+            tax_rate=Decimal(0),
+            currency="IDR",
+            is_withholding=False,
         )
         session.add(new_table)
         await session.flush()
@@ -471,22 +484,22 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
             if start_year == end_year:
                 conditions.append(
                     and_(
-                        TaxTransactionTable.period_year == start_year,
-                        TaxTransactionTable.period_month.between(start_month or 1, end_month or 12)
+                        TaxTransactionTable.tax_period_year == start_year,
+                        TaxTransactionTable.tax_period_month.between(start_month or 1, end_month or 12)
                     )
                 )
             else:
                 cond1 = and_(
-                    TaxTransactionTable.period_year == start_year,
-                    TaxTransactionTable.period_month >= (start_month or 1)
+                    TaxTransactionTable.tax_period_year == start_year,
+                    TaxTransactionTable.tax_period_month >= (start_month or 1)
                 )
                 cond2 = and_(
-                    TaxTransactionTable.period_year == end_year,
-                    TaxTransactionTable.period_month <= (end_month or 12)
+                    TaxTransactionTable.tax_period_year == end_year,
+                    TaxTransactionTable.tax_period_month <= (end_month or 12)
                 )
                 cond_mid = and_(
-                    TaxTransactionTable.period_year > start_year,
-                    TaxTransactionTable.period_year < end_year
+                    TaxTransactionTable.tax_period_year > start_year,
+                    TaxTransactionTable.tax_period_year < end_year
                 )
                 conditions.append(or_(cond1, cond2, cond_mid))
         stmt = select(TaxTransactionTable).where(and_(*conditions))
@@ -495,21 +508,21 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            "id", "tax_type", "tax_amount", "period_year", "period_month",
-            "source_document_id", "source_document_type", "reference_number",
-            "submission_status", "legal_entity_id", "created_at"
+            "id", "tax_type", "tax_amount", "tax_period_year", "tax_period_month",
+            "reference_id", "reference_type", "transaction_number",
+            "status", "legal_entity_id", "created_at"
         ])
         for t in transactions:
             writer.writerow([
                 str(t.id),
                 t.tax_type,
                 float(t.tax_amount),
-                t.period_year,
-                t.period_month,
-                str(t.source_document_id) if t.source_document_id else "",
-                t.source_document_type or "",
-                t.reference_number or "",
-                t.submission_status or "",
+                t.tax_period_year,
+                t.tax_period_month,
+                str(t.reference_id) if t.reference_id else "",
+                t.reference_type or "",
+                t.transaction_number or "",
+                t.status or "",
                 str(t.legal_entity_id),
                 t.created_at.isoformat() if t.created_at else "",
             ])
@@ -525,14 +538,20 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
                     id=uuid.uuid4(),
                     tax_type=row["tax_type"],
                     tax_amount=Decimal(row["tax_amount"]),
-                    period_year=int(row["period_year"]),
-                    period_month=int(row["period_month"]),
-                    source_document_id=uuid.UUID(row["source_document_id"]) if row.get("source_document_id") else None,
-                    source_document_type=row.get("source_document_type"),
-                    reference_number=row.get("reference_number"),
+                    tax_period_year=int(row["tax_period_year"]),
+                    tax_period_month=int(row["tax_period_month"]),
+                    reference_id=UUID(row["reference_id"]) if row.get("reference_id") else None,
+                    reference_type=row.get("reference_type"),
+                    transaction_number=row.get("transaction_number"),
                     legal_entity_id=legal_entity_id,
                     created_by=user_id,
                     created_at=datetime.utcnow(),
+                    status=row.get("status", "calculated"),
+                    transaction_date=date.today(),
+                    taxable_amount=Decimal(0),
+                    tax_rate=Decimal(0),
+                    currency="IDR",
+                    is_withholding=False,
                 )
                 session.add(tx)
                 count += 1
@@ -558,7 +577,7 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         pending = await session.execute(
             select(func.count()).where(
                 TaxTransactionTable.legal_entity_id == legal_entity_id,
-                TaxTransactionTable.submission_status == "pending",
+                TaxTransactionTable.status == "calculated",
                 TaxTransactionTable.deleted_at.is_(None)
             )
         )
@@ -566,24 +585,16 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         submitted = await session.execute(
             select(func.count()).where(
                 TaxTransactionTable.legal_entity_id == legal_entity_id,
-                TaxTransactionTable.submission_status == "submitted",
+                TaxTransactionTable.status.in_(["reported", "paid"]),
                 TaxTransactionTable.deleted_at.is_(None)
             )
         )
         submitted_count = submitted.scalar() or 0
-        approved = await session.execute(
-            select(func.count()).where(
-                TaxTransactionTable.legal_entity_id == legal_entity_id,
-                TaxTransactionTable.submission_status == "approved",
-                TaxTransactionTable.deleted_at.is_(None)
-            )
-        )
-        approved_count = approved.scalar() or 0
         return {
             "total_transactions": total_count,
             "pending": pending_count,
             "submitted": submitted_count,
-            "approved": approved_count,
+            "approved": 0,  # Tidak ada status approved di model, kita skip
             "total_liability": 0.0,
             "total_credit": 0.0,
         }
@@ -603,37 +614,25 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
             return {"status": "unhealthy", "repository": "TaxTransactionRepository", "error": str(e)}
 
     # ========================================================================
-    # EXTRA METHODS YANG DIMINTA OLEH TaxRepositoryPort (Contract)
+    # EXTRA METHODS YANG DIMINTA OLEH TaxRepositoryPort
     # ========================================================================
 
     async def save_tax_return(self, tax_return_data: dict) -> None:
-        """
-        Simpan data SPT/Tax Return ke dalam store (placeholder).
-        Method ini diperlukan oleh interface TaxRepositoryPort.
-        """
         legal_entity_id = tax_return_data.get("legal_entity_id")
-        period = tax_return_data.get("period")  # misal "2024-01"
+        period = tax_return_data.get("period")
         if not legal_entity_id or not period:
             raise ValueError("legal_entity_id dan period wajib diisi")
         key = f"{legal_entity_id}_{period}"
         self._tax_returns[key] = tax_return_data
         logger.info(f"Tax return saved for entity {legal_entity_id} period {period}")
-        # Audit log
         await self._log_audit("SAVE_TAX_RETURN", UUID(int=0), {"legal_entity": str(legal_entity_id), "period": period})
 
-    async def find_tax_return_by_period(self, legal_entity_id: UUID, period: str) -> Optional[dict]:
-        """
-        Cari tax return berdasarkan legal entity dan periode.
-        """
+    async def find_tax_return_by_period(self, legal_entity_id: UUID, period: str) -> dict | None:
         key = f"{legal_entity_id}_{period}"
         return self._tax_returns.get(key)
 
     async def calculate_tax(self, legal_entity_id: UUID, period: str, tax_type: str) -> Decimal:
-        """
-        Hitung total pajak untuk periode tertentu (placeholder).
-        """
         session = await self._get_session()
-        # Parse period "YYYY-MM"
         try:
             year, month = map(int, period.split('-'))
         except ValueError:
@@ -642,8 +641,8 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         stmt = select(func.coalesce(func.sum(TaxTransactionTable.tax_amount), 0)).where(
             TaxTransactionTable.legal_entity_id == legal_entity_id,
             TaxTransactionTable.tax_type == tax_type,
-            TaxTransactionTable.period_year == year,
-            TaxTransactionTable.period_month == month,
+            TaxTransactionTable.tax_period_year == year,
+            TaxTransactionTable.tax_period_month == month,
             TaxTransactionTable.deleted_at.is_(None)
         )
         result = await session.execute(stmt)
@@ -656,32 +655,43 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
     # ========================================================================
 
     def _to_domain(self, table: TaxTransactionTable) -> TaxTransaction:
+        # Mapping status dari string ke enum
+        status_map = {
+            "calculated": TaxTransactionStatus.DRAFT,
+            "reported": TaxTransactionStatus.REPORTED,
+            "paid": TaxTransactionStatus.PAID,
+            "adjusted": TaxTransactionStatus.ADJUSTED,
+            "cancelled": TaxTransactionStatus.CANCELLED,
+        }
+        status = status_map.get(table.status, TaxTransactionStatus.DRAFT)
         return TaxTransaction(
             id=table.id,
             legal_entity_id=table.legal_entity_id,
             tax_type=TaxType(table.tax_type),
-            transaction_date=table.created_at.date() if table.created_at else date.today(),
-            tax_period_month=table.period_month,
-            tax_period_year=table.period_year,
-            amount=Decimal(0),
+            transaction_date=table.transaction_date,
+            tax_period_month=table.tax_period_month,
+            tax_period_year=table.tax_period_year,
+            amount=table.taxable_amount,
             tax_amount=table.tax_amount,
-            rate=Decimal(0),
-            status=TaxTransactionStatus(table.submission_status) if table.submission_status else TaxTransactionStatus.DRAFT,
-            reference_type=table.source_document_type,
-            reference_id=table.source_document_id,
+            rate=table.tax_rate,
+            status=status,
+            reference_type=table.reference_type,
+            reference_id=table.reference_id,
             description=None,
-            is_credit=False,
-            payment_date=None,
-            payment_amount=Decimal(0),
-            ntpn=None,
+            is_credit=table.tax_amount < 0 if table.tax_amount else False,
+            payment_date=table.payment_date,
+            payment_amount=table.tax_amount,  # asumsi
+            ntpn=table.ntpn,
             reported_in_spt_id=None,
             adjusted_from_id=None,
             created_at=table.created_at,
             created_by=table.created_by,
             updated_at=table.updated_at,
-            updated_by=table.updated_by,
-            version=1,
+            updated_by=None,  # tidak ada di tabel
+            version=table.version or 1,
             deleted_at=table.deleted_at,
+            # tambahan untuk kompatibilitas domain mungkin butuh transaction_number
+            transaction_number=table.transaction_number,
         )
 
 

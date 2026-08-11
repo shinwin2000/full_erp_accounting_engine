@@ -1000,7 +1000,7 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
         user_roles = user_roles or []
 
         if creator_user_id and approver_user_id:
-            is_ok, violation = await self.check_maker_checker(
+            _, violation = await self.check_maker_checker(  # is_ok ignored
                 creator_user_id,
                 approver_user_id,
                 transaction_type,
@@ -1012,7 +1012,7 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
                 violations.append(violation)
 
         if creator_user_id and user_roles:
-            is_ok, conflict_violations = await self.check_conflicting_roles(
+            _, conflict_violations = await self.check_conflicting_roles(  # is_ok ignored
                 creator_user_id,
                 user_roles,
                 transaction_id,
@@ -1023,7 +1023,7 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
                 violations.append(v)
 
         if amount is not None:
-            is_ok, violation, required_roles = await self.check_transaction_approval_limit(
+            _, violation, _ = await self.check_transaction_approval_limit(  # is_ok, required_roles ignored
                 amount,
                 user_roles,
                 transaction_type,
@@ -1035,7 +1035,7 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
                 violations.append(violation)
 
         if approvers:
-            is_ok, violation = await self.check_dual_control(
+            _, violation = await self.check_dual_control(  # is_ok ignored
                 transaction_type,
                 approvers,
                 transaction_id,

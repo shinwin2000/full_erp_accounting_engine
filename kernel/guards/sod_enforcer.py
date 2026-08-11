@@ -1051,7 +1051,7 @@ class SODEnforcer(BaseSODEnforcer):
 
         # 1. Maker-checker check
         if creator_user_id and approver_user_id:
-            is_ok, violation = await self.check_maker_checker(
+            _, violation = await self.check_maker_checker(
                 creator_user_id,
                 approver_user_id,
                 transaction_type,
@@ -1064,7 +1064,7 @@ class SODEnforcer(BaseSODEnforcer):
 
         # 2. Conflicting roles check
         if creator_user_id and user_roles:
-            is_ok, conflict_violations = await self.check_conflicting_roles(
+            _, conflict_violations = await self.check_conflicting_roles(
                 creator_user_id,
                 user_roles,
                 transaction_id,
@@ -1076,7 +1076,7 @@ class SODEnforcer(BaseSODEnforcer):
 
         # 3. Transaction approval limit
         if amount is not None:
-            is_ok, violation, required_roles = await self.check_transaction_approval_limit(
+            _, violation, _ = await self.check_transaction_approval_limit(
                 amount,
                 user_roles,
                 transaction_type,
@@ -1089,7 +1089,7 @@ class SODEnforcer(BaseSODEnforcer):
 
         # 4. Dual control / Four eyes
         if approvers:
-            is_ok, violation = await self.check_dual_control(
+            _, violation = await self.check_dual_control(
                 transaction_type,
                 approvers,
                 transaction_id,
@@ -1101,7 +1101,7 @@ class SODEnforcer(BaseSODEnforcer):
 
         # 5. Time-based check
         if created_at and approved_at and amount is not None:
-            is_ok, violation = await self.check_time_based(
+            _, violation = await self.check_time_based(
                 transaction_type,
                 amount,
                 created_at,

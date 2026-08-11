@@ -797,7 +797,7 @@ class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
 
         # Level 1: Market price from active market
         if hierarchy_level == FairValueHierarchy.LEVEL_1:
-            is_valid, violation = await self._validate_level_1(
+            _, violation = await self._validate_level_1(
                 asset_id=asset_id,
                 asset_class=asset_class,
                 legal_entity_id=legal_entity_id,
@@ -813,7 +813,7 @@ class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
 
         # Level 2: Observable inputs
         elif hierarchy_level == FairValueHierarchy.LEVEL_2:
-            is_valid, violation = await self._validate_level_2(
+            _, violation = await self._validate_level_2(
                 asset_id=asset_id,
                 asset_class=asset_class,
                 legal_entity_id=legal_entity_id,
@@ -830,7 +830,7 @@ class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
 
         # Level 3: Unobservable inputs
         elif hierarchy_level == FairValueHierarchy.LEVEL_3:
-            is_valid, violation = await self._validate_level_3(
+            _, violation = await self._validate_level_3(
                 asset_id=asset_id,
                 asset_class=asset_class,
                 legal_entity_id=legal_entity_id,

@@ -5,6 +5,9 @@ Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk konsolidasi menggunakan SQLAlchemy.
                Mendukung pengelolaan grup konsolidasi, entitas, kepemilikan,
                transaksi antar perusahaan, dan hasil konsolidasi.
+Perbaikan:
+  - [FIX] AccountTable.balance → dihitung dari JournalLineTable
+  - [FIX] AccountTable.balance_date → dihapus, gunakan journal_date dari header
 """
 
 from __future__ import annotations
@@ -107,7 +110,7 @@ class ConsolidationResultTable(Base):
     """Tabel untuk menyimpan hasil konsolidasi (rows, eliminations, NCI)."""
     __tablename__ = "consolidation_results"
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    consolidation_id = Column(PGUUID(as_uuid=True), nullable=False)  # refer ke ConsolidationGroupTable.id
+    consolidation_id = Column(PGUUID(as_uuid=True), nullable=False)
     group_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
     period_end_date = Column(Date, nullable=False)
     currency = Column(String(3), nullable=False, default="IDR")
@@ -176,7 +179,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         if not entity_ids:
             return []
         session = await self._get_session()
-        # Cari transaksi di mana dari atau ke entitas ada dalam list
         stmt = (
             select(IntercompanyTransactionTable)
             .where(
@@ -197,10 +199,9 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
     # ---- get_intercompany_balances ----
     async def get_intercompany_balances(
         self, entity_id: UUID, as_of_date: date
-    ) -> list[Any]:   # type: ignore[override]
+    ) -> list[Any]:
         """Get intercompany balances for an entity as of a date."""
         session = await self._get_session()
-        # Agregasi dari transaksi: total receivable dan payable per counterparty
         stmt = (
             select(
                 IntercompanyTransactionTable.to_entity_id.label("counterparty_id"),
@@ -222,7 +223,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         result = await session.execute(stmt)
         rows = result.all()
 
-        # Tambahkan payable (from counterparty to entity)
         stmt2 = (
             select(
                 IntercompanyTransactionTable.from_entity_id.label("counterparty_id"),
@@ -244,7 +244,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         result2 = await session.execute(stmt2)
         rows2 = result2.all()
 
-        # Gabungkan dan format
         balances = []
         for row in rows:
             balances.append({
@@ -254,7 +253,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
                 "payable": 0.0,
             })
         for row in rows2:
-            # Cek apakah counterparty sudah ada
             found = False
             for b in balances:
                 if b["counterparty_id"] == str(row.counterparty_id) and b["currency"] == row.currency:
@@ -284,8 +282,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
     ) -> None:
         """Save a consolidation result."""
         session = await self._get_session()
-        # Simpan hasil konsolidasi ke ConsolidationResultTable
-        # rows dan eliminations di-serialize ke JSON
         rows_json = json.dumps([r.to_dict() if hasattr(r, "to_dict") else r for r in rows], default=str)
         eliminations_json = json.dumps(
             [e.to_dict() if hasattr(e, "to_dict") else e for e in eliminations],
@@ -301,9 +297,8 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             eliminations_json=eliminations_json,
             nci_total=nci_total,
             created_at=created_at or datetime.utcnow(),
-            created_by=None,  # bisa ditambahkan jika ada user context
+            created_by=None,
         )
-        # Cek apakah sudah ada (update jika ada)
         existing = await session.execute(
             select(ConsolidationResultTable).where(
                 ConsolidationResultTable.consolidation_id == id
@@ -322,7 +317,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         await session.flush()
 
     # ---- get_consolidation ----
-    async def get_consolidation(self, consolidation_id: UUID) -> Any | None:   # type: ignore[override]
+    async def get_consolidation(self, consolidation_id: UUID) -> Any | None:
         """Retrieve a consolidation result by ID."""
         session = await self._get_session()
         stmt = select(ConsolidationResultTable).where(
@@ -350,7 +345,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         group_entity_id: UUID,
         from_date: date | None = None,
         to_date: date | None = None,
-    ) -> list[Any]:   # type: ignore[override]
+    ) -> list[Any]:
         """List consolidations for a group entity."""
         session = await self._get_session()
         conditions = [ConsolidationResultTable.group_entity_id == group_entity_id]
@@ -388,23 +383,49 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         val = result.scalar_one_or_none()
         return Decimal(str(val)) if val is not None else Decimal(0)
 
-    # ---- get_entity_equity ----
+    # ---- get_entity_equity (diperbaiki) ----
     async def get_entity_equity(self, entity_id: UUID, as_of_date: date) -> Decimal:
-        """Get total equity of an entity as of date (from trial balance)."""
+        """
+        Get total equity of an entity as of date.
+        PERBAIKAN: menggunakan JournalLineTable dan JournalHeaderTable untuk menghitung saldo.
+        """
         session = await self._get_session()
         try:
             from infrastructure.persistence_orm.account_table import AccountTable
-            stmt = select(
-                func.coalesce(func.sum(AccountTable.balance), 0)
-            ).where(
+            from infrastructure.persistence_orm.journal_line_table import JournalLineTable
+            from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+
+            # 1. Dapatkan semua akun equity untuk legal entity ini
+            stmt_accounts = select(AccountTable.account_code).where(
                 AccountTable.legal_entity_id == entity_id,
-                AccountTable.account_type == "EQUITY",
-                AccountTable.balance_date <= as_of_date,
+                AccountTable.account_type == "Equity",  # perhatikan huruf kapital
+                AccountTable.status != "archived",
+            )
+            accounts_result = await session.execute(stmt_accounts)
+            account_codes = [row[0] for row in accounts_result.all()]
+            if not account_codes:
+                return Decimal(0)
+
+            # 2. Hitung total saldo dari journal lines yang sudah diposting
+            stmt = select(
+                func.coalesce(
+                    func.sum(JournalLineTable.debit_amount - JournalLineTable.credit_amount),
+                    0
+                )
+            ).join(
+                JournalHeaderTable,
+                JournalLineTable.journal_id == JournalHeaderTable.id
+            ).where(
+                JournalLineTable.account_code.in_(account_codes),
+                JournalLineTable.legal_entity_id == entity_id,
+                JournalHeaderTable.status == "posted",
+                JournalHeaderTable.journal_date <= as_of_date,
             )
             result = await session.execute(stmt)
-            return Decimal(str(result.scalar() or 0))
-        except ImportError:
-            logger.debug("AccountTable not available, returning 0 for equity")
+            balance = result.scalar() or Decimal(0)
+            return Decimal(str(balance))
+        except ImportError as e:
+            logger.warning(f"Required table not available: {e}")
             return Decimal(0)
         except Exception as e:
             logger.warning(f"Failed to get entity equity: {e!s}")
@@ -414,12 +435,10 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
     async def save_intercompany_transaction(self, tx: IntercompanyTransaction) -> None:
         """Save an intercompany transaction."""
         session = await self._get_session()
-        # Cek apakah sudah ada
         stmt = select(IntercompanyTransactionTable).where(IntercompanyTransactionTable.id == tx.id)
         existing = await session.execute(stmt)
         existing_row = existing.scalar_one_or_none()
         if existing_row:
-            # Update
             existing_row.from_entity_id = tx.from_entity_id
             existing_row.to_entity_id = tx.to_entity_id
             existing_row.amount = tx.amount
@@ -430,10 +449,9 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             existing_row.eliminated = tx.eliminated
             existing_row.elimination_journal_id = tx.elimination_journal_id
         else:
-            # Insert
             new_tx = IntercompanyTransactionTable(
                 id=tx.id,
-                group_id=None,  # group_id tidak ada di domain tx, bisa diisi dari context
+                group_id=None,
                 from_entity_id=tx.from_entity_id,
                 to_entity_id=tx.to_entity_id,
                 transaction_date=tx.transaction_date,
@@ -447,10 +465,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             session.add(new_tx)
         await session.flush()
 
-    # ========================================================================
-    # NEW: consolidate_entities (sesuai kontrak ConsolidationRepositoryPort)
-    # ========================================================================
-
+    # ---- consolidate_entities ----
     async def consolidate_entities(
         self,
         group_id: UUID,
@@ -458,31 +473,17 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         currency: str = "IDR",
         created_by: UUID | None = None,
     ) -> dict[str, Any]:
-        """
-        Lakukan konsolidasi untuk grup tertentu pada tanggal tertentu.
-        Method ini memenuhi kontrak ConsolidationRepositoryPort.
-        Mengembalikan ringkasan hasil konsolidasi.
-        """
+        """Lakukan konsolidasi untuk grup tertentu pada tanggal tertentu."""
         session = await self._get_session()
-
-        # 1. Ambil grup
         group = await self.find_group(group_id)
         if not group:
             raise ValueError(f"Group with id {group_id} not found")
-
-        # 2. Ambil entitas dalam grup
         entities = await self._get_entities_for_group(group_id)
         if not entities:
             raise ValueError(f"No active entities found for group {group_id}")
-
-        # 3. Kumpulkan ID entitas
         entity_ids = [e.entity_id for e in entities]
         parent_entity_id = next((e.entity_id for e in entities if e.is_parent), None)
-
-        # 4. Dapatkan transaksi antar perusahaan
         transactions = await self.get_intercompany_transactions(entity_ids, period_end_date)
-
-        # 5. Hitung total ekuitas per entitas dan NCI
         total_equity = Decimal(0)
         nci_total = Decimal(0)
         entity_equities = []
@@ -495,15 +496,11 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
                 "equity": equity,
             })
             total_equity += equity
-            # NCI: jika bukan parent, hitung (1 - ownership) * equity
             if entity.entity_id != parent_entity_id:
                 nci_total += (Decimal(1) - entity.ownership_percentage) * equity
-
-        # 6. Buat elimination entries sederhana (untuk transaksi antar perusahaan)
         eliminations: list[EliminationEntry] = []
         for tx in transactions:
             if not tx.eliminated:
-                # Buat entry eliminasi
                 elim = EliminationEntry(
                     id=uuid.uuid4(),
                     transaction_id=tx.id,
@@ -514,12 +511,9 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
                     description=f"Elimination of {tx.transaction_type} between {tx.from_entity_id} and {tx.to_entity_id}",
                 )
                 eliminations.append(elim)
-                # Tandai transaksi sebagai sudah dieliminasi
                 tx.eliminated = True
                 await self.save_intercompany_transaction(tx)
-
-        # 7. Simpan hasil konsolidasi
-        rows = entity_equities  # rows adalah list equity per entity
+        rows = entity_equities
         await self.save_consolidation(
             id=group_id,
             group_entity_id=parent_entity_id or group.parent_entity_id or group_id,
@@ -530,8 +524,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             nci_total=nci_total,
             created_at=datetime.utcnow(),
         )
-
-        # 8. Kembalikan ringkasan
         return {
             "group_id": str(group_id),
             "group_code": group.group_code,
@@ -556,9 +548,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
     # ========================================================================
 
     async def save_group(self, group: ConsolidationGroup) -> None:
-        """Simpan grup konsolidasi (alias untuk save_consolidation dengan domain)."""
-        # Karena save_consolidation sekarang menerima parameter berbeda, kita panggil dengan konversi
-        # Tapi kita tetap simpan ke ConsolidationGroupTable untuk kompatibilitas
+        """Simpan grup konsolidasi."""
         session = await self._get_session()
         orm_group = ConsolidationGroupTable(
             id=group.id,

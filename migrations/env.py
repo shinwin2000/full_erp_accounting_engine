@@ -34,83 +34,31 @@ try:
 except ImportError as e:
     print(f"[WARNING] Could not import Base metadata: {e}")
 
-# Register all table models if metadata available
+# Register all table models - dynamic approach
 if target_metadata is not None:
-    orm_modules = [
-        "infrastructure.persistence_orm.account_table",
-        "infrastructure.persistence_orm.amortization_schedule_table",
-        "infrastructure.persistence_orm.ap_credit_note_table",
-        "infrastructure.persistence_orm.ap_invoice_line_table",
-        "infrastructure.persistence_orm.ap_invoice_table",
-        "infrastructure.persistence_orm.ap_payment_table",
-        "infrastructure.persistence_orm.ar_credit_note_table",
-        "infrastructure.persistence_orm.ar_invoice_line_table",
-        "infrastructure.persistence_orm.ar_invoice_table",
-        "infrastructure.persistence_orm.ar_payment_table",
-        "infrastructure.persistence_orm.asset_category_table",
-        "infrastructure.persistence_orm.audit_event_table",
-        "infrastructure.persistence_orm.bank_account_table",
-        "infrastructure.persistence_orm.bank_reconciliation_table",
-        "infrastructure.persistence_orm.bank_transaction_table",
-        "infrastructure.persistence_orm.bill_of_materials_table",
-        "infrastructure.persistence_orm.cash_book_table",
-        "infrastructure.persistence_orm.consolidation_group_member_table",
-        "infrastructure.persistence_orm.consolidation_group_table",
-        "infrastructure.persistence_orm.coretax_bupot_table",
-        "infrastructure.persistence_orm.coretax_emeterai_table",
-        "infrastructure.persistence_orm.coretax_faktur_line_table",
-        "infrastructure.persistence_orm.coretax_faktur_table",
-        "infrastructure.persistence_orm.coretax_nsfp_table",
-        "infrastructure.persistence_orm.coretax_ntpn_table",
-        "infrastructure.persistence_orm.coretax_spt_table",
-        "infrastructure.persistence_orm.cost_card_table",
-        "infrastructure.persistence_orm.customer_table",
-        "infrastructure.persistence_orm.dead_letter_table",
-        "infrastructure.persistence_orm.depreciation_schedule_table",
-        "infrastructure.persistence_orm.disposal_table",
-        "infrastructure.persistence_orm.employee_table",
-        "infrastructure.persistence_orm.event_store_table",
-        "infrastructure.persistence_orm.fiscal_period_table",
-        "infrastructure.persistence_orm.fixed_asset_table",
-        "infrastructure.persistence_orm.goods_receipt_note_table",
-        "infrastructure.persistence_orm.hash_chain_table",
-        "infrastructure.persistence_orm.iam_user_table",
-        "infrastructure.persistence_orm.impairment_test_table",
-        "infrastructure.persistence_orm.intangible_asset_table",
-        "infrastructure.persistence_orm.inventory_fifo_layer_table",
-        "infrastructure.persistence_orm.inventory_item_table",
-        "infrastructure.persistence_orm.inventory_movement_table",
-        "infrastructure.persistence_orm.journal_header_table",
-        "infrastructure.persistence_orm.journal_line_table",
-        "infrastructure.persistence_orm.ledger_entry_table",
-        "infrastructure.persistence_orm.legal_entity_branch_table",
-        "infrastructure.persistence_orm.legal_entity_table",
-        "infrastructure.persistence_orm.login_attempt_table",
-        "infrastructure.persistence_orm.outbox_checkpoint_table",
-        "infrastructure.persistence_orm.outbox_table",
-        "infrastructure.persistence_orm.payroll_run_table",
-        "infrastructure.persistence_orm.petty_cash_fund_table",
-        "infrastructure.persistence_orm.projection_checkpoint_table",
-        "infrastructure.persistence_orm.project_table",
-        "infrastructure.persistence_orm.purchase_order_table",
-        "infrastructure.persistence_orm.retainer_contract_table",
-        "infrastructure.persistence_orm.revaluation_table",
-        "infrastructure.persistence_orm.saga_state_table",
-        "infrastructure.persistence_orm.salary_component_table",
-        "infrastructure.persistence_orm.sales_order_table",
-        "infrastructure.persistence_orm.stock_opname_table",
-        "infrastructure.persistence_orm.supplier_table",
-        "infrastructure.persistence_orm.system_setting_table",
-        "infrastructure.persistence_orm.tax_transaction_table",
-        "infrastructure.persistence_orm.time_entry_table",
-        "infrastructure.persistence_orm.warehouse_table",
-        "infrastructure.persistence_orm.work_order_table",
-    ]
-    for mod in orm_modules:
+    import pkgutil
+    import infrastructure.persistence_orm as orm_pkg
+    
+    # Import semua modul dalam package persistence_orm
+    for importer, modname, ispkg in pkgutil.walk_packages(
+        path=orm_pkg.__path__,
+        prefix=orm_pkg.__name__ + ".",
+        onerror=lambda x: None
+    ):
+        # Hanya import modul yang namanya berakhiran "_table" atau "table"
+        if not modname.endswith("_table") and not modname.endswith("table"):
+            continue
         try:
-            importlib.import_module(mod)
-        except ImportError:
-            pass
+            importlib.import_module(modname)
+            print(f"[OK] Imported {modname}")
+        except Exception as e:
+            print(f"[WARNING] Could not import {modname}: {e}")
+
+    # Pastikan UomTable terdaftar (jika belum)
+    try:
+        import infrastructure.persistence_orm.uom_table
+    except ImportError:
+        pass
 
 
 # ============================================================================
@@ -127,7 +75,8 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        compare_server_default=True,
+        compare_server_default=False,  # Diperbaiki: Set ke False untuk mengabaikan drift timestamp
+        # Abaikan foreign key yang tidak ditemukan? Tidak, kita biarkan error agar jelas.
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -139,7 +88,8 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
-        compare_server_default=True,
+        compare_server_default=False,  # Diperbaiki: Set ke False untuk mengabaikan drift timestamp
+        # Abaikan foreign key yang tidak ditemukan? Tidak, kita biarkan error agar jelas.
     )
     with context.begin_transaction():
         context.run_migrations()

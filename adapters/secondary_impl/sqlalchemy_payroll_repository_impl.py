@@ -19,7 +19,7 @@ from infrastructure.persistence_orm.employee_table import EmployeeTable
 
 # ⚠️ PASTIKAN HANYA SATU MODEL payroll_payslip YANG DI-IMPORT
 # Hapus file payroll_payslip_orm_table.py untuk menghindari duplikasi
-from infrastructure.persistence_orm.payroll_payslip_table import PayrollPayslipTable
+from infrastructure.persistence_orm.payslip_table import PayslipTable
 from infrastructure.persistence_orm.payroll_run_table import PayrollRunTable
 from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
 from ports.primary.payroll_repository_port import PayrollRepositoryPort
@@ -114,7 +114,7 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
 
     async def get_payslip_by_id(self, payslip_id: UUID) -> Any | None:
         session = await self._get_session()
-        stmt = select(PayrollPayslipTable).where(PayrollPayslipTable.id == payslip_id)
+        stmt = select(PayslipTable).where(PayslipTable.id == payslip_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -122,27 +122,27 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
         self, employee_id: UUID, from_date: date, to_date: date
     ) -> list[Any]:
         session = await self._get_session()
-        stmt = select(PayrollPayslipTable).where(
-            PayrollPayslipTable.employee_id == employee_id,
-            PayrollPayslipTable.pay_period_start.between(from_date, to_date),
+        stmt = select(PayslipTable).where(
+            PayslipTable.employee_id == employee_id,
+            PayslipTable.pay_period_start.between(from_date, to_date),
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_payslips_by_run(self, payroll_run_id: UUID) -> list[Any]:
         session = await self._get_session()
-        stmt = select(PayrollPayslipTable).where(
-            PayrollPayslipTable.payroll_run_id == payroll_run_id
+        stmt = select(PayslipTable).where(
+            PayslipTable.payroll_run_id == payroll_run_id
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def find_by_employee(self, employee_id: UUID) -> list[Any]:
         session = await self._get_session()
-        stmt = select(PayrollPayslipTable).where(
-            PayrollPayslipTable.employee_id == employee_id,
-            PayrollPayslipTable.deleted_at.is_(None)
-        ).order_by(PayrollPayslipTable.pay_period_start.desc())
+        stmt = select(PayslipTable).where(
+            PayslipTable.employee_id == employee_id,
+            PayslipTable.deleted_at.is_(None)
+        ).order_by(PayslipTable.pay_period_start.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

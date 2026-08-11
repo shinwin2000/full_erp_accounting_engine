@@ -37,6 +37,7 @@ import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -67,6 +68,7 @@ from infrastructure.persistence_orm.iam_user_table import (
     iam_role_permission,
     iam_user_role,
 )
+
 
 def _legal_entity_overlap(legal_entity_id: UUID):
     return IAMUserTable.legal_entity_ids.op("?|")(
@@ -103,6 +105,25 @@ BCRYPT_ROUNDS = 12
 DEFAULT_SESSION_TIMEOUT_HOURS = 8
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_DURATION_MINUTES = 30
+
+
+def _perm_str(value: Any) -> str:
+    """
+    Normalisasi field resource/action dari PermissionVO (domain/iam/permission_vo.py)
+    ke plain string sebelum dipakai di query SQL atau disimpan ke IAMPermissionTable.
+
+    BUG: PermissionVO.resource dan PermissionVO.action bertipe `ResourceType | str`
+    dan `ActionType | str` (union). Kolom iam_permission.resource/action di DB
+    adalah VARCHAR. Saat caller mengirim enum ResourceType/ActionType (bukan str),
+    asyncpg gagal encode objek enum sebagai VARCHAR:
+    "invalid input for query argument $1: <ResourceType.ACCOUNT: 'account'>
+    (expected str, got ResourceType)".
+    Enum di sini (ResourceType/ActionType) adalah str-value Enum biasa (bukan
+    subclass str), jadi harus diambil `.value`-nya secara eksplisit.
+    """
+    if isinstance(value, Enum):
+        return value.value
+    return value
 
 # ============================================================================
 # EXCEPTIONS
@@ -254,6 +275,14 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     async def _to_orm(self, aggregate: UserAggregate) -> IAMUserTable:
         status_str = aggregate.status.value if hasattr(aggregate.status, "value") else str(aggregate.status)
         email_encrypted = self._encryption.encrypt(aggregate.email) if aggregate.email else None
+        # FIX: kolom legal_entity_ids di DB adalah JSONB. Kalau aggregate.legal_entity_ids
+        # berisi objek UUID mentah (bukan string), json_serializer bawaan SQLAlchemy/
+        # psycopg gagal serialize pas INSERT/UPDATE ("TypeError: Object of type UUID
+        # is not JSON serializable"). JSONB butuh tipe yang JSON-native (str), jadi
+        # setiap elemen di-str()-kan di sini sebelum ditulis ke ORM.
+        legal_entity_ids_json = [
+            str(le_id) for le_id in (aggregate.legal_entity_ids or [])
+        ]
         return IAMUserTable(
             id=aggregate.id,
             username=aggregate.username,
@@ -276,7 +305,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             updated_at=datetime.utcnow(),
             created_by=aggregate.created_by,
             version=aggregate.version,
-            legal_entity_ids=aggregate.legal_entity_ids,
+            legal_entity_ids=legal_entity_ids_json,
         )
 
     def _to_domain_role(self, table: IAMRoleTable) -> Role:
@@ -482,7 +511,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def delete(self, user_id: UUID, actor_id: UUID, permanent: bool = False) -> bool:
         try:
-            async with self.session.begin():
+            async with self.session.begin_nested():
                 stmt_lock = select(IAMUserTable).where(IAMUserTable.id == user_id).with_for_update()
                 result = await self.session.execute(stmt_lock)
                 user = result.scalar_one_or_none()
@@ -579,7 +608,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        async with self.session.begin():
+        async with self.session.begin_nested():
             stmt_lock = select(IAMUserTable).where(IAMUserTable.id == user_id).with_for_update()
             result = await self.session.execute(stmt_lock)
             row = result.scalar_one_or_none()
@@ -663,12 +692,14 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             await self.session.flush()
 
             # Bulk create permissions
-            perm_keys = [(p.resource, p.action) for p in permissions]
+            perm_keys = [(_perm_str(p.resource), _perm_str(p.action)) for p in permissions]
             if perm_keys:
                 from sqlalchemy import or_
                 conditions = [and_(IAMPermissionTable.resource == r, IAMPermissionTable.action == a) for r, a in perm_keys]
+                # FIX: IAMPermissionTable tidak punya kolom deleted_at (cuma
+                # IAMRoleTable/IAMUserTable yang pakai SoftDeleteMixin;
+                # IAMPermissionTable cuma TimestampMixin) -> filter ini dibuang.
                 existing_stmt = select(IAMPermissionTable).where(
-                    IAMPermissionTable.deleted_at.is_(None),
                     or_(*conditions)
                 )
                 existing_result = await self.session.execute(existing_stmt)
@@ -677,13 +708,15 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
                 new_perms = []
                 for p in permissions:
-                    key = (p.resource, p.action)
+                    resource_str = _perm_str(p.resource)
+                    action_str = _perm_str(p.action)
+                    key = (resource_str, action_str)
                     if key not in existing_map:
                         perm_table = IAMPermissionTable(
                             id=uuid4(),
-                            name=p.resource + ":" + p.action,
-                            resource=p.resource,
-                            action=p.action,
+                            name=resource_str + ":" + action_str,
+                            resource=resource_str,
+                            action=action_str,
                             description=p.description if hasattr(p, 'description') else None,
                         )
                         self.session.add(perm_table)
@@ -701,6 +734,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 await self.session.flush()
 
             logger.info("Role created: %s", role_code)
+            reload_stmt = (
+                select(IAMRoleTable)
+                .where(IAMRoleTable.id == table.id)
+                .options(selectinload(IAMRoleTable.permissions))
+            )
+            reload_result = await self.session.execute(reload_stmt)
+            table = reload_result.scalar_one()
             return self._to_domain_role(table)
         except Exception as e:
             await self.session.rollback()
@@ -751,15 +791,32 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         new_permissions: list[Permission] | None,
         updated_by: UUID,
     ) -> bool:
+        # FIX: sebelumnya pakai `async with self.session.begin():`. Session
+        # di sini dipakai sepanjang request (di-inject via set_context()) dan
+        # SQLAlchemy AsyncSession autobegin transaksi implisit begitu
+        # statement pertama (mis. service.get_role()/self._iam_repo.get() di
+        # atas endpoint ini) dieksekusi. Jadi begin() eksplisit di sini
+        # SELALU nabrak "A transaction is already begun on this Session"
+        # kecuali kebetulan dipanggil sebagai statement pertama di session.
+        # begin_nested() aman di kedua kondisi: kalau sudah ada transaksi
+        # aktif (kasus umum), ini cuma bikin SAVEPOINT; kalau belum ada,
+        # dia autobegin transaksi induk lebih dulu baru bikin SAVEPOINT.
+        # Commit final tetap terjadi lewat IAMService._commit() di layer atas.
         try:
-            async with self.session.begin():
+            async with self.session.begin_nested():
                 stmt_lock = select(IAMRoleTable).where(IAMRoleTable.id == role_id).with_for_update()
                 result = await self.session.execute(stmt_lock)
                 role = result.scalar_one_or_none()
                 if not role:
                     return False
 
-                values = {"updated_at": datetime.utcnow(), "updated_by": updated_by}
+                # FIX: "updated_by" DIHAPUS dari values — IAMRoleTable tidak
+                # punya kolom ini (beda dari IAMUserTable). SQLAlchemy Core
+                # update().values() menolak key yang bukan kolom asli tabel
+                # -> CompileError: "Unconsumed column names: updated_by".
+                # Info pelaku perubahan tetap terekam lewat _log_audit() di
+                # bawah, jadi tidak ada audit trail yang hilang.
+                values = {"updated_at": datetime.utcnow()}
                 if new_name:
                     values["name"] = new_name
                     role.name = new_name
@@ -770,12 +827,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                     await self.session.execute(
                         delete(iam_role_permission).where(iam_role_permission.c.role_id == role_id)
                     )
-                    perm_keys = [(p.resource, p.action) for p in new_permissions]
+                    perm_keys = [(_perm_str(p.resource), _perm_str(p.action)) for p in new_permissions]
                     if perm_keys:
                         from sqlalchemy import or_
                         conditions = [and_(IAMPermissionTable.resource == r, IAMPermissionTable.action == a) for r, a in perm_keys]
+                        # FIX: sama seperti create_role() — IAMPermissionTable
+                        # tidak punya kolom deleted_at.
                         existing_stmt = select(IAMPermissionTable).where(
-                            IAMPermissionTable.deleted_at.is_(None),
                             or_(*conditions)
                         )
                         existing_result = await self.session.execute(existing_stmt)
@@ -784,13 +842,15 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
                         new_perms_tables = []
                         for p in new_permissions:
-                            key = (p.resource, p.action)
+                            resource_str = _perm_str(p.resource)
+                            action_str = _perm_str(p.action)
+                            key = (resource_str, action_str)
                             if key not in existing_map:
                                 perm_table = IAMPermissionTable(
                                     id=uuid4(),
-                                    name=p.resource + ":" + p.action,
-                                    resource=p.resource,
-                                    action=p.action,
+                                    name=resource_str + ":" + action_str,
+                                    resource=resource_str,
+                                    action=action_str,
                                     description=p.description if hasattr(p, 'description') else None,
                                 )
                                 self.session.add(perm_table)
@@ -816,7 +876,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def _delete_role_impl(self, role_id: UUID, actor_id: UUID) -> bool:
         try:
-            async with self.session.begin():
+            async with self.session.begin_nested():
                 stmt_lock = select(IAMRoleTable).where(IAMRoleTable.id == role_id).with_for_update()
                 result = await self.session.execute(stmt_lock)
                 role = result.scalar_one_or_none()
@@ -828,11 +888,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 if assign_result.scalar() > 0:
                     raise IAMRepositoryError("Cannot delete role assigned to users")
 
+                # FIX: sama seperti _update_role_impl — "updated_by" bukan
+                # kolom IAMRoleTable, dibuang dari values() supaya tidak
+                # CompileError. Pelaku hapus tetap terekam via _log_audit().
                 values = {
                     "deleted_at": datetime.utcnow(),
                     "is_active": False,
                     "updated_at": datetime.utcnow(),
-                    "updated_by": actor_id,
                 }
                 stmt = update(IAMRoleTable).where(IAMRoleTable.id == role_id).values(**values)
                 await self.session.execute(stmt)
@@ -864,19 +926,19 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         if not role:
             raise RoleNotFoundError(f"Role with code '{role_code}' not found")
         stmt = select(func.count()).select_from(iam_user_role).where(
-            iam_user_role.c.user_id == user_id, iam_user_role.c.role_id == role.id
+            iam_user_role.c.user_id == user_id, iam_user_role.c.role_id == role.role_id
         )
         result = await self.session.execute(stmt)
         if result.scalar() > 0:
             return True
         await self.session.execute(
             iam_user_role.insert().values(
-                user_id=user_id, role_id=role.id, assigned_at=datetime.utcnow(), assigned_by=actor_id
+                user_id=user_id, role_id=role.role_id, assigned_at=datetime.utcnow(), assigned_by=actor_id
             )
         )
         await self.session.flush()
-        await self._log_audit("ASSIGN_ROLE", user_id, {"role": role.name, "actor": str(actor_id)})
-        logger.info("Role %s assigned to user %s", role.name, user_id)
+        await self._log_audit("ASSIGN_ROLE", user_id, {"role": role.role_name, "actor": str(actor_id)})
+        logger.info("Role %s assigned to user %s", role.role_name, user_id)
         return True
 
     async def revoke_role(self, user_id: UUID, role_code: str, actor_id: UUID) -> bool:
@@ -884,13 +946,13 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         if not role:
             return False
         stmt = delete(iam_user_role).where(
-            iam_user_role.c.user_id == user_id, iam_user_role.c.role_id == role.id
+            iam_user_role.c.user_id == user_id, iam_user_role.c.role_id == role.role_id
         )
         result = await self.session.execute(stmt)
         await self.session.flush()
         if result.rowcount > 0:
-            await self._log_audit("REVOKE_ROLE", user_id, {"role": role.name, "actor": str(actor_id)})
-            logger.info("Role %s revoked from user %s", role.name, user_id)
+            await self._log_audit("REVOKE_ROLE", user_id, {"role": role.role_name, "actor": str(actor_id)})
+            logger.info("Role %s revoked from user %s", role.role_name, user_id)
         return result.rowcount > 0
 
     async def has_permission(self, user_id: UUID, permission: str, legal_entity_id: UUID) -> bool:
@@ -908,7 +970,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 iam_user_role.c.user_id == user_id,
                 IAMRoleTable.is_active == True,
                 IAMRoleTable.deleted_at.is_(None),
-                IAMPermissionTable.deleted_at.is_(None),
+                # FIX: IAMPermissionTable tidak punya kolom deleted_at, filter dibuang
             )
             result = await self.session.execute(stmt)
             perms = result.scalars().all()
@@ -944,8 +1006,8 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             stmt = select(IAMPermissionTable).join(
                 iam_role_permission, IAMPermissionTable.id == iam_role_permission.c.permission_id
             ).where(
-                iam_role_permission.c.role_id == role_id,
-                IAMPermissionTable.deleted_at.is_(None)
+                iam_role_permission.c.role_id == role_id
+                # FIX: IAMPermissionTable tidak punya kolom deleted_at, filter dibuang
             )
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
@@ -963,7 +1025,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             stmt = select(IAMUserTable).join(
                 iam_user_role, IAMUserTable.id == iam_user_role.c.user_id
             ).where(
-                iam_user_role.c.role_id == role.id,
+                iam_user_role.c.role_id == role.role_id,
                 IAMUserTable.deleted_at.is_(None),
                 _legal_entity_overlap(legal_entity_id)
             ).options(selectinload(IAMUserTable.roles))
@@ -1208,19 +1270,19 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         return await self.delete(user_id, user_id)
 
     async def add_role(self, role: Role) -> Role:
-        return await self.create_role(role.name, role.name, role.permissions or [], role.created_by or UUID(int=0), role.description)
+        return await self.create_role(role.role_name, role.role_name, role.permissions or [], role.created_by or UUID(int=0), role.description)
 
     async def assign_role_to_user(self, user_id: UUID, role_id: UUID) -> bool:
         role = await self.get_role_by_id(role_id)
         if not role:
             raise RoleNotFoundError(f"Role with id {role_id} not found")
-        return await self.assign_role(user_id, role.name, user_id)
+        return await self.assign_role(user_id, role.role_name, user_id)
 
     async def revoke_role_from_user(self, user_id: UUID, role_id: UUID) -> bool:
         role = await self.get_role_by_id(role_id)
         if not role:
             raise RoleNotFoundError(f"Role with id {role_id} not found")
-        return await self.revoke_role(user_id, role.name, user_id)
+        return await self.revoke_role(user_id, role.role_name, user_id)
 
     async def get_user_by_id(self, user_id: UUID) -> UserAggregate | None:
         return await self.get_by_id(user_id)
@@ -1236,7 +1298,8 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
 
     async def get_all_permissions(self) -> list[Permission]:
         try:
-            stmt = select(IAMPermissionTable).where(IAMPermissionTable.deleted_at.is_(None))
+            # FIX: IAMPermissionTable tidak punya kolom deleted_at, filter dibuang
+            stmt = select(IAMPermissionTable)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
             return [self._to_domain_permission(t) for t in tables]
@@ -1306,8 +1369,8 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
     # ---- Helper untuk konversi Role -> RoleEntity ----
     def _to_role_entity(self, role: Role) -> RoleEntity:
         return RoleEntity(
-            role_id=role.id,
-            role_name=role.name,
+            role_id=role.role_id,
+            role_name=role.role_name,
             description=role.description,
             permissions=[p.name for p in role.permissions] if hasattr(role, 'permissions') else [],
             parent_role_id=None,
@@ -1444,7 +1507,12 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
         await super().add_role(role_obj)
 
     async def update_role(self, role: RoleEntity) -> None:
-        permissions = [Permission(p) for p in role.permissions] if hasattr(role, 'permissions') else []
+        # FIX: sebelumnya di-convert paksa ke Permission(p) — pasti ValueError,
+        # karena role.permissions isinya PermissionVO (PermissionVO.__eq__ cuma
+        # True vs sesama PermissionVO), dan Permission enum literal juga tidak
+        # punya atribut .resource/.action yang dibutuhkan _update_role_impl.
+        # Konsisten dengan create_role(): kirim PermissionVO apa adanya.
+        permissions = list(role.permissions) if hasattr(role, 'permissions') else []
         updated_by = UUID(role.updated_by) if role.updated_by else UUID(int=0)
         await self._update_role_impl(role.role_id, role.role_name, permissions, updated_by)
 

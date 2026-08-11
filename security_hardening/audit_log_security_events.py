@@ -227,10 +227,7 @@ class FileAuditStorage(BaseAuditStorage):
         return events
 
     def _matches(self, event: dict, filters: dict) -> bool:
-        for key, value in filters.items():
-            if key in event and event[key] != value:
-                return False
-        return True
+        return all(not (key in event and event[key] != value) for key, value in filters.items())
 
     # ==================== ENTITY DASAR METHODS ====================
     def to_dict(self) -> dict[str, Any]:
@@ -487,7 +484,6 @@ class SecurityAuditLogger:
         for backend in self._storage_backends:
             if isinstance(backend, FileAuditStorage):
                 logs = backend.query({}, 1000000)
-                prev_hash = None
                 for log in logs:
                     expected_hash = log.get("hash")
                     if not expected_hash:
@@ -495,7 +491,6 @@ class SecurityAuditLogger:
                     recomputed = self._compute_hash(log, log.get("previous_hash"))
                     if recomputed != expected_hash:
                         return False, f"Hash mismatch at event {log.get('event_id')}"
-                    prev_hash = expected_hash
                 return True, "Chain verified"
         return True, "No verifiable backend found"
 

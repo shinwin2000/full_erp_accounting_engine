@@ -2,6 +2,7 @@
 Module: sqlalchemy_general_ledger_repository_impl.py
 Layer: Adapters (Secondary Impl)
 Responsibility: Implementasi SQLAlchemy untuk GeneralLedgerRepositoryPort.
+Perbaikan: JOIN dengan JournalHeaderTable, gunakan voucher_number sebagai journal_number.
 """
 
 from __future__ import annotations
@@ -15,10 +16,8 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
-
-# ✅ PERBAIKAN 1: Hapus GeneralLedgerTable (karena tidak dipakai dan memicu sirkular)
-# ✅ PERBAIKAN 2: Tambahkan AccountTable yang sebelumnya lupa di-import tetapi digunakan di bawah
 from infrastructure.persistence_orm.account_table import AccountTable
+from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
 from infrastructure.persistence_orm.journal_line_table import JournalLineTable
 from ports.primary.report_repository_port import (
     GeneralLedgerDataDTO,
@@ -65,23 +64,26 @@ class SQLAlchemyGeneralLedgerRepository(GeneralLedgerRepositoryPort):
             if not account_row:
                 raise ValueError(f"Account {account_code} not found")
 
-            # Get journal entries
+            # Get journal entries with JOIN to header
             stmt = select(
-                JournalLineTable.journal_date,
-                JournalLineTable.journal_number,
+                JournalHeaderTable.journal_date,
+                JournalHeaderTable.voucher_number.label("journal_number"),  # ← perbaikan
                 JournalLineTable.description,
                 JournalLineTable.debit_amount,
                 JournalLineTable.credit_amount,
-                JournalLineTable.reference_number,
+                JournalHeaderTable.reference_number,
+            ).join(
+                JournalHeaderTable,
+                JournalLineTable.journal_id == JournalHeaderTable.id
             ).where(
                 and_(
                     JournalLineTable.account_code == account_code,
                     JournalLineTable.legal_entity_id == legal_entity_id,
-                    JournalLineTable.journal_date >= from_date,
-                    JournalLineTable.journal_date <= to_date,
-                    JournalLineTable.status == "posted"
+                    JournalHeaderTable.journal_date >= from_date,
+                    JournalHeaderTable.journal_date <= to_date,
+                    JournalHeaderTable.status == "posted"
                 )
-            ).order_by(JournalLineTable.journal_date)
+            ).order_by(JournalHeaderTable.journal_date)
 
             result = await session.execute(stmt)
             rows = result.all()
@@ -89,12 +91,15 @@ class SQLAlchemyGeneralLedgerRepository(GeneralLedgerRepositoryPort):
             # Calculate opening balance
             opening_stmt = select(
                 func.sum(JournalLineTable.debit_amount - JournalLineTable.credit_amount)
+            ).join(
+                JournalHeaderTable,
+                JournalLineTable.journal_id == JournalHeaderTable.id
             ).where(
                 and_(
                     JournalLineTable.account_code == account_code,
                     JournalLineTable.legal_entity_id == legal_entity_id,
-                    JournalLineTable.journal_date < from_date,
-                    JournalLineTable.status == "posted"
+                    JournalHeaderTable.journal_date < from_date,
+                    JournalHeaderTable.status == "posted"
                 )
             )
             opening_result = await session.execute(opening_stmt)
@@ -109,7 +114,7 @@ class SQLAlchemyGeneralLedgerRepository(GeneralLedgerRepositoryPort):
                 entries.append(
                     GeneralLedgerEntryDTO(
                         journal_date=row.journal_date,
-                        journal_number=row.journal_number,
+                        journal_number=row.journal_number,  # dari voucher_number
                         description=row.description or "",
                         debit=debit,
                         credit=credit,

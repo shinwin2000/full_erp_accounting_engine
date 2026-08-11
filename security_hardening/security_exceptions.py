@@ -21,7 +21,7 @@ import logging
 import traceback
 from collections import Counter
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -337,7 +337,7 @@ class SecurityExceptionRegistry:
     """Registry untuk mencatat semua exception yang terjadi di modul keamanan."""
 
     _instance = None
-    _exceptions: list[dict] = []
+    _exceptions: ClassVar[list[dict]] = []
     _max_size: int = 10000
 
     def __new__(cls):

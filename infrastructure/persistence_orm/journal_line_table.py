@@ -71,6 +71,19 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     cost_center: Mapped[str | None] = mapped_column(String(20), nullable=True)
     department: Mapped[str | None] = mapped_column(String(20), nullable=True)
     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # ------------------------------------------------------------------
+    # SNAPSHOT KOLOM (point-in-time accounting)
+    # ------------------------------------------------------------------
+    # `account_name` di atas, plus dua kolom ini, adalah "potret" atribut
+    # akun PERSIS SAAT baris jurnal ini dibuat — diisi otomatis oleh
+    # SQLAlchemyJournalRepository._to_orm_lines(), BUKAN oleh caller.
+    # Tujuannya: kalau suatu akun di COA diubah nama/tipe/saldo normalnya
+    # di kemudian hari, laporan keuangan periode-periode LAMA tidak ikut
+    # berubah (tetap merujuk ke kondisi akun saat transaksi itu terjadi).
+    # Jangan pernah query field ini balik ke tabel `account` untuk data
+    # historis — gunakan nilai yang tersimpan di sini.
+    account_type_snapshot: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    normal_balance_snapshot: Mapped[str | None] = mapped_column(String(6), nullable=True)
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relasi
@@ -119,6 +132,8 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
             "cost_center": self.cost_center,
             "department": self.department,
             "account_name": self.account_name,
+            "account_type_snapshot": self.account_type_snapshot,
+            "normal_balance_snapshot": self.normal_balance_snapshot,
             "audit_metadata": self.audit_metadata,
             "legal_entity_id": str(self.legal_entity_id),
         }

@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 Package: security_hardening
 Responsibility: Modul keamanan untuk ERP Accounting Engine.
@@ -11,6 +9,8 @@ Metode yang diekspor:
 - Semua kelas memiliki entity dasar: validate, to_dict, from_dict, clone, snapshot,
   version, audit_trail, touch.
 """
+
+from __future__ import annotations
 
 from .access_control_matrix_fine_grained import AccessControlMatrix
 from .audit_log_security_events import SecurityAuditLogger

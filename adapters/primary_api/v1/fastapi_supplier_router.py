@@ -470,7 +470,7 @@ async def import_suppliers(
             created += 1
         except SupplierServiceError as e:
             errors.append({"row": idx, "supplier_code": row.supplier_code, "error": str(e)})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(f"Unexpected error importing row {idx}: {e}", exc_info=True)
             errors.append({"row": idx, "supplier_code": row.supplier_code, "error": str(e)})
 

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Module: service_registry.py
 Layer: Bootstrap (Dependency Container)
@@ -172,7 +172,37 @@ class ServiceRegistrar:
             from application.service_layer.service_approval import ApprovalService
 
             container.register_singleton(COAService, COAService)
-            container.register_singleton(JournalService, JournalService)
+            # ============================================================
+            # FIX: JournalService registration via factory
+            # ============================================================
+            # Impor port yang diperlukan untuk JournalService
+            from ports.primary.ledger_repository_port import LedgerRepositoryPort
+            from ports.primary.account_repository_port import AccountRepositoryPort
+            from ports.primary.unit_of_work_port import UnitOfWorkPort
+            from ports.primary.event_publisher_port import EventPublisherPort
+
+            async def _create_journal_service():
+                # Ambil dependensi dari container
+                ledger_repo = await container.resolve_async(LedgerRepositoryPort)
+                account_repo = await container.resolve_async(AccountRepositoryPort)
+                uow = await container.resolve_async(UnitOfWorkPort)
+                # EventPublisherPort opsional (bisa None)
+                try:
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                # journal_repo tidak digunakan di service, kita beri None
+                return JournalService(
+                    journal_repo=None,
+                    ledger_repo=ledger_repo,
+                    account_repo=account_repo,
+                    uow=uow,
+                    event_publisher=event_publisher,
+                )
+
+            container.register_singleton(JournalService, factory=_create_journal_service)
+            logger.info("JournalService registered with dependencies (factory)")
+            # ============================================================
             container.register_singleton(LedgerService, LedgerService)
             container.register_singleton(ARService, ARService)
             container.register_singleton(APService, APService)
@@ -354,7 +384,7 @@ class ServiceRegistrar:
             container.register_singleton(SQLAlchemyIAMRepository, SQLAlchemyIAMRepository)
             container.register_singleton(SQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork)
 
-            # Port â†’ implementation (singleton, tapi session & legal_entity_id di-set per request)
+            # Port → implementation (singleton, tapi session & legal_entity_id di-set per request)
             container.register_singleton(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
             container.register_singleton(IAMRepositoryPort, SQLAlchemyIAMRepository)
             container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
@@ -396,7 +426,7 @@ class ServiceRegistrar:
             except ImportError:
                 logger.warning("RedisCache not available, using None")
 
-            # Factory untuk IAMService â€“ repository dan UoW diambil dari container,
+            # Factory untuk IAMService – repository dan UoW diambil dari container,
             # namun session & legal_entity_id akan di-set via service.set_context()
             async def _create_iam_service():
                 iam_repo = await container.resolve_async(IAMRepositoryPort)

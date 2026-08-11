@@ -539,10 +539,18 @@ class EmployeeCreatedEvent(DomainEvent):
     """
     Event yang diterbitkan ketika employee baru dibuat.
 
+    Menerima field flat (bukan EmployeeEntity penuh), selaras dengan pola
+    yang dipakai event Employee lain (mis. EmployeeResignedEvent) dan
+    dengan pemanggil di application/service_layer/service_employee.py, yang
+    hanya memiliki dict hasil repository - bukan aggregate domain penuh.
+
     Attributes:
         aggregate_id: ID agregat employee.
         aggregate_version: Versi agregat.
-        employee: Entity Employee.
+        employee_id: ID employee.
+        employee_code: Kode employee.
+        employee_name: Nama lengkap employee.
+        legal_entity_id: ID legal entity tempat employee terdaftar.
         created_by: User ID pembuat.
         user_id: (opsional) ID pengguna yang memicu event.
         correlation_id: (opsional) ID korelasi.
@@ -552,26 +560,20 @@ class EmployeeCreatedEvent(DomainEvent):
         self,
         aggregate_id: UUID,
         aggregate_version: int,
-        employee: EmployeeEntity,
+        employee_id: UUID,
+        employee_code: str,
+        employee_name: str,
+        legal_entity_id: UUID,
         created_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ):
         event_data = {
-            "employee_id": str(employee.employee_id),
-            "employee_number": employee.employee_number,
-            "full_name": employee.full_name,
-            "employee_type": employee.employee_type.value,
-            "gender": employee.gender.value,
-            "department": employee.department,
-            "position": employee.position,
-            "join_date": employee.join_date.isoformat(),
-            "basic_salary": str(employee.basic_salary),
-            "currency": employee.currency,
-            "ptkp_status": employee.ptkp_status.get_status_code(),
-            "bpjs_health_membership": employee.bpjs_health.membership_number,
-            "bpjs_employment_membership": employee.bpjs_employment.membership_number,
+            "employee_id": str(employee_id),
+            "employee_code": employee_code,
+            "employee_name": employee_name,
+            "legal_entity_id": str(legal_entity_id),
             "created_by": created_by,
         }
         super().__init__(

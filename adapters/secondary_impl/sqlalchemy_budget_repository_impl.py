@@ -5,6 +5,8 @@ Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Budget (anggaran) menggunakan SQLAlchemy.
 Perbaikan:
   - [FIX] Race condition pada update dan update_budget_amount dengan pessimistic locking.
+  - [FIX] get_budget_by_account menggunakan join dengan BudgetLineTable karena account_code ada di line, bukan header.
+  - [FIX] update_budget_amount tidak lagi mengakses field amount yang tidak ada di header; sekarang raise NotImplementedError.
 """
 
 from __future__ import annotations
@@ -346,28 +348,30 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
         return list(result.scalars().all())
 
     async def get_budget_by_account(self, account_code: str, fiscal_year: int, legal_entity_id: UUID) -> BudgetTable | None:
-        """Ambil budget berdasarkan akun (ORM)."""
+        """
+        Ambil budget berdasarkan akun.
+        Perbaikan: menggunakan join dengan BudgetLineTable karena account_code ada di line, bukan header.
+        """
         session = await self._get_session()
-        stmt = select(BudgetTable).where(
-            BudgetTable.account_code == account_code,
+        stmt = select(BudgetTable).join(
+            BudgetLineTable, BudgetLineTable.budget_id == BudgetTable.id
+        ).where(
+            BudgetLineTable.account_code == account_code,
             BudgetTable.fiscal_year == fiscal_year,
-            BudgetTable.legal_entity_id == legal_entity_id
-        )
+            BudgetTable.legal_entity_id == legal_entity_id,
+            BudgetTable.deleted_at.is_(None),
+        ).distinct()  # Hindari duplikat jika ada multiple lines dengan account_code yang sama
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def update_budget_amount(self, budget_id: UUID, amount: Decimal) -> None:
-        """Update amount dengan pessimistic locking."""
-        session = await self._get_session()
-        async with session.begin():
-            stmt = select(BudgetTable).where(BudgetTable.id == budget_id).with_for_update()
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-            if not existing:
-                raise ValueError(f"Budget {budget_id} not found")
-            existing.amount = amount
-            existing.updated_at = func.now()
-            await session.flush()
+        """
+        Update amount total budget - tidak didukung karena amount dihitung dari lines.
+        Gunakan metode update lines untuk mengubah alokasi.
+        """
+        raise NotImplementedError(
+            "Budget amount is derived from lines; use update lines instead"
+        )
 
     # ========================================================================
     # BUDGET ACTUAL (untuk actual tracking)

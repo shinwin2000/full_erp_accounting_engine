@@ -10,6 +10,11 @@ FIX v6:
 - Mengganti InMemoryFileStorage → LocalFileStorage (persistent storage)
 - Mengganti InMemoryNotification → ConsoleNotification (logging ke console)
 - Menambahkan direktori 'adapters' ke scan implementasi untuk menemukan kelas-kelas tersebut.
+
+FIX v7 (2026-08-08):
+- Tambah manual mapping BankPaymentPort → BankAPIPaymentsAdapter (adapter sudah ada)
+- Perbaiki manual mapping TaxAuthorityCoretaxPort → SQLAlchemyCoreTaxAdapter (bukan TaxAuthorityCoretaxAdapter yang tidak ada)
+- Skip TokenIssuerPort karena sudah terdaftar di service_registry (menghindari auto-generated Impl)
 """
 
 from __future__ import annotations
@@ -110,9 +115,12 @@ class AdapterRegistry:
             "EncryptionKeyVaultPort": "EncryptionKeyVaultAdapter",
             "HashChainServicePort": "HashChainServiceAdapter",
             "ConsolidationGroupReportPort": "ConsolidationGroupReportAdapter",
-            "TaxAuthorityCoretaxPort": "TaxAuthorityCoretaxAdapter",
+            # FIX v7: Ganti TaxAuthorityCoretaxAdapter (tidak ada) dengan SQLAlchemyCoreTaxAdapter
+            "TaxAuthorityCoretaxPort": "SQLAlchemyCoreTaxAdapter",
             "AnalyticsExportPort": "SQLAlchemyAnalyticsExport",
             "CQRSQueryHandlerPort": "SQLAlchemyCQRSQueryHandler",
+            # FIX v7: Tambahkan BankPaymentPort → BankAPIPaymentsAdapter (sudah ada implementasi)
+            "BankPaymentPort": "BankAPIPaymentsAdapter",
         }
 
     def set_container(self, container: IoCContainer) -> None:
@@ -140,6 +148,14 @@ class AdapterRegistry:
         # 3. Mapping dan registrasi untuk setiap port
         for port in ports:
             port_name = port.__name__
+
+            # ================================================================
+            # FIX v7: Skip TokenIssuerPort karena sudah terdaftar di service_registry
+            # ================================================================
+            if port_name == "TokenIssuerPort":
+                self._logger.info(f"Skipping {port_name} (already registered via service registry)")
+                continue
+
             impl = None
             impl_source = ""
 

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Module: token_issuer_port.py
 Layer: Ports (Primary)

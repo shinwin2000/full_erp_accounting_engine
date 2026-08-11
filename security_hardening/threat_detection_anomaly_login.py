@@ -98,6 +98,8 @@ class LoginAttempt:
     country: str | None = None
     city: str | None = None
     device_fingerprint: str | None = None
+    lat: float | None = None
+    lon: float | None = None
 
     # Fields untuk audit dan versioning
     _version: int = field(default=1, repr=False)
@@ -163,6 +165,8 @@ class LoginAttempt:
             "country": self.country,
             "city": self.city,
             "device_fingerprint": self.device_fingerprint,
+            "lat": self.lat,
+            "lon": self.lon,
             "version": self._version,
         }
 
@@ -177,6 +181,8 @@ class LoginAttempt:
             country=data.get("country"),
             city=data.get("city"),
             device_fingerprint=data.get("device_fingerprint"),
+            lat=data.get("lat"),
+            lon=data.get("lon"),
         )
         instance._version = data.get("version", 1)
         instance._attempt_id = data.get("attempt_id", str(uuid4()))
@@ -192,6 +198,8 @@ class LoginAttempt:
             country=self.country,
             city=self.city,
             device_fingerprint=self.device_fingerprint,
+            lat=self.lat,
+            lon=self.lon,
         )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._attempt_id})
@@ -469,10 +477,7 @@ class AnomalyLoginDetector:
         return ip in self.tor_exit_nodes
 
     def _is_datacenter_ip(self, ip: str) -> bool:
-        for prefix in self.datacenter_ranges:
-            if ip.startswith(prefix):
-                return True
-        return False
+        return any(ip.startswith(prefix) for prefix in self.datacenter_ranges)
 
     # ------------------------------------------------------------------------
     # Attempt Recording
@@ -510,6 +515,8 @@ class AnomalyLoginDetector:
             country=country,
             city=city,
             device_fingerprint=device_fingerprint,
+            lat=lat,
+            lon=lon,
         )
         with self._lock:
             self._attempts.append(attempt)
@@ -679,7 +686,7 @@ class AnomalyLoginDetector:
         return None
 
     def _detect_impossible_travel(self, attempt: LoginAttempt) -> AnomalyAlert | None:
-        if not self.enable_impossible_travel or not attempt.lat:
+        if not self.enable_impossible_travel or attempt.lat is None:
             return None
         with self._lock:
             previous = self._user_locations.get(attempt.user_id, [])
@@ -769,17 +776,8 @@ class AnomalyLoginDetector:
         return alerts
 
     def pre_login_check(self, user_id: str, source_ip: str, user_agent: str) -> AnomalyAlert | None:
-        temp_attempt = LoginAttempt(
-            user_id=user_id,
-            timestamp=datetime.now(UTC),
-            source_ip=source_ip,
-            user_agent=user_agent,
-            success=False,
-        )
-        brute = self._detect_brute_force(user_id)
-        if brute:
-            return brute
-        return None
+        # Only brute force pre-check makes sense before actual login
+        return self._detect_brute_force(user_id)
 
     def post_login_check(
         self, user_id: str, source_ip: str, user_agent: str, success: bool
@@ -847,7 +845,7 @@ class AnomalyLoginDetector:
                 "total_attempts": len(self._attempts),
                 "total_alerts": len(self._alerts),
                 "unacknowledged_alerts": len(self.get_unacknowledged_alerts()),
-                "unique_users": len(set(a.user_id for a in self._alerts)),
+                "unique_users": len({a.user_id for a in self._alerts}),
                 "version": self._version,
             }
 
@@ -975,7 +973,7 @@ if __name__ == "__main__":
         blacklisted_ips=["1.2.3.4"],
     )
 
-    for i in range(6):
+    for _i in range(6):
         attempts = detector.post_login_check("alice", "192.168.1.1", "Mozilla/5.0", False)
         for a in attempts:
             print(f"Alert: {a.description} (severity: {a.severity.value})")

@@ -8,6 +8,9 @@ Responsibility: Implementasi repository untuk Fixed Asset Management menggunakan
 Perbaikan presisi:
     - Semua nilai moneter dikonversi ke string (bukan float) untuk menghindari
       kehilangan presisi dan memenuhi aturan MNY-003.
+Perbaikan kolom:
+    - [FIX] Menghapus referensi FixedAssetTable.disposal_date (tidak ada di model),
+      mengganti dengan filter status != 'disposed'.
 """
 
 from __future__ import annotations
@@ -113,14 +116,14 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             asset_name=table.asset_name,
             asset_category=table.asset_category,
             acquisition_date=table.acquisition_date,
-            acquisition_cost=Money(amount=table.acquisition_cost, currency=table.currency_code or "IDR"),
-            residual_value=Money(amount=table.residual_value, currency=table.currency_code or "IDR"),
+            acquisition_cost=Money(amount=table.acquisition_cost, currency=table.currency or "IDR"),
+            residual_value=Money(amount=table.residual_value, currency=table.currency or "IDR"),
             useful_life_years=table.useful_life_years,
             depreciation_method=depreciation_map.get(table.depreciation_method, DepreciationMethod.STRAIGHT_LINE),
             depreciation_rate=Decimal(str(table.depreciation_rate)) if table.depreciation_rate else None,
-            accumulated_depreciation=Money(amount=table.accumulated_depreciation, currency=table.currency_code or "IDR"),
+            accumulated_depreciation=Money(amount=table.accumulated_depreciation, currency=table.currency or "IDR"),
             last_depreciation_date=table.last_depreciation_date,
-            current_period_depreciation=Money(amount=table.current_period_depreciation, currency=table.currency_code or "IDR"),
+            current_period_depreciation=Money(amount=table.current_period_depreciation, currency=table.currency or "IDR"),
             location=table.location,
             responsible_party=table.responsible_party,
             supplier_id=table.supplier_id,
@@ -165,7 +168,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             status=status_str,
             notes=aggregate.notes,
             revaluation_frequency=aggregate.revaluation_frequency,
-            currency_code=aggregate.acquisition_cost.currency,
+            currency=aggregate.acquisition_cost.currency,
             created_at=aggregate.created_at,
             updated_at=datetime.utcnow(),
             created_by=aggregate.created_by,
@@ -476,6 +479,9 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         except Exception as e:
             raise FixedAssetRepositoryError(f"Failed to find by asset group: {e}") from e
 
+    # ========================================================================
+    # FIND ACTIVE AS OF DATE — diperbaiki: hapus referensi disposal_date
+    # ========================================================================
     async def find_active_as_of_date(self, as_of_date: date, legal_entity_id: UUID) -> list[FixedAssetAggregate]:
         try:
             stmt = select(FixedAssetTable).where(
@@ -483,10 +489,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
                 FixedAssetTable.acquisition_date <= as_of_date,
                 FixedAssetTable.deleted_at.is_(None),
                 FixedAssetTable.is_active == True,
-                or_(
-                    FixedAssetTable.disposal_date.is_(None),
-                    FixedAssetTable.disposal_date > as_of_date
-                )
+                FixedAssetTable.status != "disposed",  # <- perbaikan: status != disposed, bukan disposal_date
             ).order_by(FixedAssetTable.asset_code)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
@@ -499,7 +502,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             conditions = [
                 FixedAssetTable.deleted_at.is_(None),
                 FixedAssetTable.is_active == True,
-                FixedAssetTable.status.in_(["active", "impaired"]),
+                FixedAssetTable.status.in_(["active", "impaired"]),  # tidak termasuk disposed
                 FixedAssetTable.acquisition_date <= depreciation_date,
                 or_(
                     FixedAssetTable.last_depreciation_date.is_(None),

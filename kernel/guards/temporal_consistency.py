@@ -785,7 +785,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
 
         # 1. Basic timestamp validity
         allow_backdate = is_adjustment
-        is_valid, violation = await self.check_timestamp_validity(
+        _, violation = await self.check_timestamp_validity(
             transaction_date,
             allow_future=False,
             allow_backdate=allow_backdate,
@@ -809,7 +809,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
 
         # 2. Chronological order with last transaction (skip if adjustment)
         if not is_adjustment:
-            is_valid, violation = await self.check_chronological_order(
+            _, violation = await self.check_chronological_order(
                 transaction_date, legal_entity_id, transaction_id, user_id
             )
             if violation:

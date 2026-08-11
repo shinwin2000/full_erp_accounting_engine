@@ -52,77 +52,40 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
-
-
 import asyncio
-
 import hashlib
-
 import json
-
 import logging
-
 import mimetypes
-
 import os
-
 import tempfile
-
 from datetime import datetime
-
 from enum import Enum
-
 from typing import Any
-
 from uuid import UUID
 
-
-
 import aiofiles  # <-- Tambahan untuk async file I/O
-
 from fastapi import (
-
     APIRouter,
-
     Depends,
-
     File,
-
     Form,
-
     Header,
-
     HTTPException,
-
     Query,
-
     Request,
-
     UploadFile,
-
     status,
-
 )
-
 from fastapi.responses import FileResponse, Response
-
 from pydantic import BaseModel, ConfigDict, Field
 
-
-
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
-
     TokenPayload,
-
     get_current_legal_entity,
-
     get_current_user,
-
     require_permission,
-
 )
-
-
 
 logger = logging.getLogger(__name__)
 

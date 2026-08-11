@@ -87,6 +87,17 @@ class AccountHasChildrenError(COAServiceError):
     pass
 
 
+class PostingAccountCannotHaveChildrenError(COAServiceError):
+    """Akun dengan allow_posting=True (akun transaksi/leaf) tidak boleh
+    punya sub-akun; dan akun yang sudah punya sub-akun tidak boleh diubah
+    menjadi allow_posting=True. Aturan ini JUGA ditegakkan di level
+    database lewat trigger `trg_coa_leaf_node_rule` (lihat migration
+    0048_coa_leaf_node_and_journal_snapshot.py) — validasi di sini hanya
+    supaya pesan error yang diterima user jelas (422), bukan error database
+    mentah (500), sebelum request sempat menyentuh trigger."""
+    pass
+
+
 class AccountHasTransactionsError(COAServiceError):
     pass
 
@@ -438,6 +449,24 @@ class COAService:
             raise AccountNotFoundError(f"Account {account_id} not found")
         return row
 
+    async def _has_children(self, session: Any, account_id: UUID) -> bool:
+        """Cek apakah akun punya sub-akun lewat query eksplisit.
+
+        BUGFIX: JANGAN pernah akses `row.children` langsung (relationship
+        SQLAlchemy) di sini — itu lazy-loaded, dan mengaksesnya secara
+        "sync" di dalam AsyncSession melempar
+        `sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called`.
+        Query eksplisit ini aman dipakai di context async manapun.
+        """
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        result = await session.execute(
+            select(func.count()).select_from(AccountTable).where(
+                AccountTable.parent_account_id == account_id
+            )
+        )
+        return result.scalar_one() > 0
+
     def _validate_account_code_format(self, account_code: str, account_type: str) -> None:
         if not account_code or len(account_code.strip()) < 1:
             raise AccountCodeFormatError("Account code is required")
@@ -513,7 +542,9 @@ class COAService:
             parent_level = -1
             if parent_account_code:
                 presult = await session.execute(
-                    select(AccountTable.id, AccountTable.level, AccountTable.is_header).where(
+                    select(
+                        AccountTable.id, AccountTable.level, AccountTable.is_header, AccountTable.allow_posting
+                    ).where(
                         AccountTable.legal_entity_id == legal_entity_id,
                         AccountTable.account_code == parent_account_code,
                     )
@@ -521,7 +552,13 @@ class COAService:
                 prow = presult.first()
                 if not prow:
                     raise InvalidParentAccountError(f"Parent account '{parent_account_code}' not found")
-                parent_id, parent_level, _parent_is_header = prow
+                parent_id, parent_level, _parent_is_header, parent_allow_posting = prow
+                if parent_allow_posting:
+                    raise PostingAccountCannotHaveChildrenError(
+                        f"Parent account '{parent_account_code}' is a posting account "
+                        "(allow_posting=true) and cannot have child accounts. Set "
+                        "allow_posting=false on it first, or choose a header account as parent."
+                    )
 
             opening = opening_balance if opening_balance is not None else Decimal("0")
             if normal_balance == "debit":
@@ -658,9 +695,14 @@ class COAService:
                 AccountTable.deleted_at.is_(None),
             ]
             if account_type:
-                conditions.append(AccountTable.account_type == account_type)
+                # Perbandingan case-insensitive: beberapa pemanggil lama
+                # (mis. use_cases/post_closing_journal.py) mengirim
+                # "REVENUE"/"EXPENSE" huruf besar, sedangkan DB menyimpan
+                # "Revenue"/"Expense". Strict == di sini akan diam-diam
+                # mengembalikan 0 baris dan merusak proses closing period.
+                conditions.append(func.lower(AccountTable.account_type) == account_type.lower())
             if status:
-                conditions.append(AccountTable.status == status)
+                conditions.append(func.lower(AccountTable.status) == status.lower())
             elif not include_inactive:
                 conditions.append(AccountTable.status == "active")
             if parent_account_code:
@@ -870,6 +912,8 @@ class COAService:
         self._check_authority(updated_by, "update_account")
         account_group = account_group if account_group is not None else category
 
+        from infrastructure.persistence_orm.account_table import AccountTable
+
         async with self._uow:
             session = self._uow.session
             row = await self._get_row_or_raise(session, account_id, legal_entity_id)
@@ -901,6 +945,17 @@ class COAService:
             _apply("reconciliation_required", reconciliation_required)
             _apply("sort_order", sort_order)
             if allow_posting is not None and not row.is_header:
+                if allow_posting is True:
+                    child_count = (await session.execute(
+                        select(func.count()).select_from(AccountTable).where(
+                            AccountTable.parent_account_id == row.id
+                        )
+                    )).scalar_one()
+                    if child_count > 0:
+                        raise PostingAccountCannotHaveChildrenError(
+                            f"Account {row.account_code} already has {child_count} child account(s); "
+                            "cannot set allow_posting=true. Move or remove the children first."
+                        )
                 _apply("allow_posting", allow_posting)
 
             if status is not None and status != row.status:
@@ -910,8 +965,6 @@ class COAService:
 
             parent_code_map: dict[UUID, str] = {}
             if parent_account_code is not None:
-                from infrastructure.persistence_orm.account_table import AccountTable
-
                 if parent_account_code == "":
                     if row.parent_account_id is not None:
                         changes["parent_account_id"] = {"old": row.parent_account_id, "new": None}
@@ -919,7 +972,7 @@ class COAService:
                         row.level = 0
                 else:
                     presult = await session.execute(
-                        select(AccountTable.id, AccountTable.level).where(
+                        select(AccountTable.id, AccountTable.level, AccountTable.allow_posting).where(
                             AccountTable.legal_entity_id == legal_entity_id,
                             AccountTable.account_code == parent_account_code,
                         )
@@ -929,6 +982,11 @@ class COAService:
                         raise InvalidParentAccountError(f"Parent account '{parent_account_code}' not found")
                     if prow[0] == account_id:
                         raise AccountCycleDetectedError("Account cannot be its own parent")
+                    if prow[2]:
+                        raise PostingAccountCannotHaveChildrenError(
+                            f"Parent account '{parent_account_code}' is a posting account "
+                            "(allow_posting=true) and cannot have child accounts."
+                        )
                     if await self._would_create_cycle(session, account_id, prow[0]):
                         raise AccountCycleDetectedError("Moving account would create a cycle")
                     changes["parent_account_id"] = {"old": row.parent_account_id, "new": prow[0]}
@@ -1006,7 +1064,7 @@ class COAService:
                     raise AccountHasTransactionsError(
                         f"Account {row.account_code} sudah dipakai transaksi dan tidak bisa dihapus permanen"
                     )
-                if row.children:
+                if await self._has_children(session, row.id):
                     raise AccountHasChildrenError(
                         f"Account {row.account_code} masih punya sub-akun, pindahkan/hapus dulu sub-akunnya"
                     )
@@ -1097,7 +1155,7 @@ class COAService:
             used, _ = usage.get(row.account_code, (False, Decimal("0")))
             if used:
                 raise AccountHasTransactionsError(f"Account {row.account_code} sudah dipakai transaksi")
-            if row.children:
+            if await self._has_children(session, row.id):
                 raise AccountHasChildrenError(f"Account {row.account_code} masih punya sub-akun")
             await session.delete(row)
             await self._uow.commit()
@@ -1130,7 +1188,7 @@ class COAService:
                 if used:
                     errors.append("Account has posted journal transactions and cannot be permanently deleted")
                     suggestions.append("Use deactivate instead of permanent delete")
-                if row.children:
+                if await self._has_children(session, row.id):
                     errors.append("Account has child accounts; move or delete children first")
             elif action == "deactivate":
                 if balance != 0:
@@ -1534,6 +1592,7 @@ __all__ = [
     "InvalidAccountTypeHierarchyError",
     "InvalidBulkImportDataError",
     "InvalidParentAccountError",
+    "PostingAccountCannotHaveChildrenError",
     "ValidationResultDTO",
     "create_coa_service",
 ]

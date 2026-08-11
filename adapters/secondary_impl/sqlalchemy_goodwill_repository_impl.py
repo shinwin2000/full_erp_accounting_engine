@@ -3,6 +3,10 @@
 Module: sqlalchemy_goodwill_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Goodwill menggunakan SQLAlchemy.
+Perbaikan:
+  - [FIX] goodwill_number → goodwill_code
+  - [FIX] acquisition_cost → goodwill_initial
+  - [FIX] accumulated_impairment dihapus (tidak ada di tabel, dihitung dari relasi impairments)
 """
 
 from __future__ import annotations
@@ -45,14 +49,18 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
     # ========================================================================
 
     def _to_domain(self, table: GoodwillTable) -> Goodwill:
+        # accumulated_impairment dihitung dari relasi impairments jika ada, default 0
+        acc_imp = Decimal(0)
+        if table.impairments:
+            acc_imp = sum(imp.impairment_loss for imp in table.impairments)
         return Goodwill(
             id=table.id,
             legal_entity_id=table.legal_entity_id,
-            goodwill_number=table.goodwill_number,
+            goodwill_number=table.goodwill_code,          # ← goodwill_code
             acquisition_date=table.acquisition_date,
-            acquisition_cost=table.acquisition_cost,
+            acquisition_cost=table.goodwill_initial,      # ← goodwill_initial
             carrying_amount=table.carrying_amount,
-            accumulated_impairment=table.accumulated_impairment or Decimal(0),
+            accumulated_impairment=acc_imp,               # computed
             is_active=table.is_active,
             status=table.status,
             created_at=table.created_at,
@@ -62,14 +70,16 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         )
 
     def _from_domain(self, domain: Goodwill) -> GoodwillTable:
+        # accumulated_impairment tidak disimpan di tabel, diabaikan
         return GoodwillTable(
             id=domain.id,
             legal_entity_id=domain.legal_entity_id,
-            goodwill_number=domain.goodwill_number,
+            goodwill_code=domain.goodwill_number,         # ← goodwill_number → goodwill_code
             acquisition_date=domain.acquisition_date,
-            acquisition_cost=domain.acquisition_cost,
+            purchase_price=Decimal(0),                     # default, tidak dipakai
+            fair_value_identifiable_net_assets=Decimal(0), # default
+            goodwill_initial=domain.acquisition_cost,      # ← acquisition_cost → goodwill_initial
             carrying_amount=domain.carrying_amount,
-            accumulated_impairment=domain.accumulated_impairment,
             is_active=domain.is_active,
             status=domain.status,
             created_at=domain.created_at,
@@ -124,6 +134,7 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
     async def get_by_id(self, goodwill_id: UUID) -> Goodwill | None:
         legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
+        # Load impairments together dengan relationship untuk menghitung accumulated_impairment
         stmt = select(GoodwillTable).where(
             GoodwillTable.id == goodwill_id,
             GoodwillTable.legal_entity_id == legal_entity_id,
@@ -132,13 +143,15 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         table = result.scalar_one_or_none()
         if not table:
             return None
+        # Eager load impairments agar terisi
+        await session.refresh(table, attribute_names=['impairments'])
         return self._to_domain(table)
 
     # ---- get_last_goodwill_number ----
     async def get_last_goodwill_number(self, legal_entity_id: UUID) -> str | None:
         session = await self._get_session()
         stmt = (
-            select(GoodwillTable.goodwill_number)
+            select(GoodwillTable.goodwill_code)           # ← goodwill_code
             .where(GoodwillTable.legal_entity_id == legal_entity_id)
             .order_by(desc(GoodwillTable.created_at))
             .limit(1)
@@ -152,6 +165,9 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         stmt = select(GoodwillTable).where(GoodwillTable.legal_entity_id == legal_entity_id)
         result = await session.execute(stmt)
         tables = result.scalars().all()
+        # Load impairments untuk setiap table (opsional, bisa dioptimasi dengan selectinload)
+        for table in tables:
+            await session.refresh(table, attribute_names=['impairments'])
         return [self._to_domain(t) for t in tables]
 
     # ---- record_impairment_journal (2 parameter) ----

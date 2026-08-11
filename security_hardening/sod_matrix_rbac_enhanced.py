@@ -451,7 +451,7 @@ class SODMatrix:
         for rule in self._rules.values():
             if not rule.enabled:
                 continue
-            has_conflict, severity, desc = rule.conflicts_with(permissions)
+            has_conflict, _, desc = rule.conflicts_with(permissions)
             if has_conflict:
                 conflicts.append(
                     (rule, f"User has both '{rule.permission_a}' and '{rule.permission_b}': {desc}")

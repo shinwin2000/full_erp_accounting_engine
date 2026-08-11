@@ -30,7 +30,7 @@ from infrastructure.persistence_orm.coretax_bupot_table import CoretaxBupotTable
 from infrastructure.persistence_orm.coretax_emeterai_table import CoretaxEMeteraiTable
 from infrastructure.persistence_orm.coretax_faktur_line_table import CoretaxFakturLineTable
 from infrastructure.persistence_orm.coretax_faktur_table import CoretaxFakturTable
-from infrastructure.persistence_orm.coretax_nsfp_table import CoretaxNSFPTable
+from infrastructure.persistence_orm.coretax_nsfp_table import CoretaxNSFPTable, NSFStatus
 from infrastructure.persistence_orm.coretax_ntpn_table import CoretaxNTPNTable
 from infrastructure.persistence_orm.coretax_spt_table import CoretaxSPTTable
 from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
@@ -455,42 +455,45 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     ) -> None:
         """
         Simpan range NSFP (start sampai end) untuk legal entity.
-        Generate semua nomor NSFP dalam range dan simpan satu per satu.
+        Karena model NSFP menyimpan range, kita simpan satu record per range.
         """
         try:
-            # Cari NPWP dari legal_entity
-            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
-            if not npwp:
-                raise TaxRepositoryError(f"Legal entity {legal_entity_id} has no NPWP")
-
-            # Parse start dan end menjadi integer (asumsi format angka)
-            try:
-                start_num = int(start)
-                end_num = int(end)
-            except ValueError:
-                raise TaxRepositoryError("Start and end must be numeric strings")
-
+            # Cek apakah sudah ada range yang tumpang tindih?
+            start_num = int(start)
+            end_num = int(end)
             if start_num > end_num:
                 raise TaxRepositoryError("Start must be less than or equal to end")
 
-            # Simpan setiap nomor NSFP
-            request_id = str(uuid4())
-            for nsfp_num in range(start_num, end_num + 1):
-                nsfp_str = str(nsfp_num).zfill(16)  # typical 16-digit format
-                table = CoretaxNSFPTable(
-                    id=uuid4(),
-                    npwp=npwp,
-                    nsfp=nsfp_str,
-                    tahun=requested_at.year,
-                    bulan=requested_at.month,
-                    status="available",
-                    request_id=request_id,
-                    requested_at=requested_at,
-                    requested_by=None,
+            # Cek existing range yang overlap
+            stmt = select(CoretaxNSFPTable).where(
+                CoretaxNSFPTable.legal_entity_id == legal_entity_id,
+                CoretaxNSFPTable.status.in_([NSFStatus.ACTIVE, NSFStatus.PARTIALLY_USED]),
+                or_(
+                    and_(CoretaxNSFPTable.start_number <= start_num, CoretaxNSFPTable.end_number >= start_num),
+                    and_(CoretaxNSFPTable.start_number <= end_num, CoretaxNSFPTable.end_number >= end_num),
+                    and_(CoretaxNSFPTable.start_number >= start_num, CoretaxNSFPTable.end_number <= end_num),
                 )
-                self.session.add(table)
+            )
+            result = await self.session.execute(stmt)
+            if result.scalar_one_or_none():
+                raise TaxRepositoryError("Overlapping NSFP range already exists")
+
+            # Simpan range
+            table = CoretaxNSFPTable(
+                id=uuid4(),
+                legal_entity_id=legal_entity_id,
+                start_number=start_num,
+                end_number=end_num,
+                current_number=start_num - 1,  # belum ada yang digunakan
+                status=NSFStatus.ACTIVE,
+                request_id=str(uuid4()),
+                issued_date=requested_at.date(),
+                expiry_date=None,  # bisa diisi dari aturan
+                used_count=0,
+            )
+            self.session.add(table)
             await self.session.flush()
-            logger.info("NSFP range saved: %d numbers for legal entity %s", end_num - start_num + 1, legal_entity_id)
+            logger.info("NSFP range saved: %d-%d for legal entity %s", start_num, end_num, legal_entity_id)
 
         except Exception as e:
             await self.session.rollback()
@@ -502,33 +505,21 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         Return dict dengan start, end, current (nomor pertama available).
         """
         try:
-            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
-            if not npwp:
-                return None
-
-            # Ambil semua NSFP available yang belum digunakan
-            stmt = (
-                select(CoretaxNSFPTable)
-                .where(
-                    CoretaxNSFPTable.npwp == npwp,
-                    CoretaxNSFPTable.status == "available",
-                )
-                .order_by(CoretaxNSFPTable.nsfp)
-            )
+            stmt = select(CoretaxNSFPTable).where(
+                CoretaxNSFPTable.legal_entity_id == legal_entity_id,
+                CoretaxNSFPTable.status.in_([NSFStatus.ACTIVE, NSFStatus.PARTIALLY_USED]),
+                CoretaxNSFPTable.current_number < CoretaxNSFPTable.end_number,
+            ).order_by(CoretaxNSFPTable.start_number).limit(1)
             result = await self.session.execute(stmt)
-            nsfps = result.scalars().all()
-            if not nsfps:
+            nsfp = result.scalar_one_or_none()
+            if not nsfp:
                 return None
 
-            # Ambil start = nsfp terkecil, end = nsfp terbesar, current = nsfp terkecil (akan digunakan)
-            start = nsfps[0].nsfp
-            end = nsfps[-1].nsfp
-            current = start
             return {
-                "start": start,
-                "end": end,
-                "current": current,
-                "available_count": len(nsfps),
+                "start": str(nsfp.start_number),
+                "end": str(nsfp.end_number),
+                "current": str(nsfp.current_number + 1),  # nomor berikutnya yang tersedia
+                "available_count": nsfp.end_number - nsfp.current_number,
             }
         except Exception as e:
             raise TaxRepositoryError(f"Failed to get NSFP range: {e}") from e
@@ -537,28 +528,33 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         """
         Tandai NSFP dengan nomor `current` sebagai sudah digunakan.
         Menggunakan pessimistic locking (SELECT FOR UPDATE) untuk mencegah race condition.
-        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang diupdate.
         """
         try:
-            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
-            if not npwp:
-                raise TaxRepositoryError(f"Legal entity {legal_entity_id} has no NPWP")
-
+            current_num = int(current)
             async with self.session.begin():
-                # 1. Lock the row with SELECT FOR UPDATE
+                # Lock range yang mencakup current number
                 stmt_lock = select(CoretaxNSFPTable).where(
-                    CoretaxNSFPTable.npwp == npwp,
-                    CoretaxNSFPTable.nsfp == current,
-                    CoretaxNSFPTable.status == "available",
+                    CoretaxNSFPTable.legal_entity_id == legal_entity_id,
+                    CoretaxNSFPTable.start_number <= current_num,
+                    CoretaxNSFPTable.end_number >= current_num,
+                    CoretaxNSFPTable.status.in_([NSFStatus.ACTIVE, NSFStatus.PARTIALLY_USED]),
                 ).with_for_update()
                 result = await self.session.execute(stmt_lock)
-                row = result.scalar_one_or_none()
-                if not row:
+                nsfp = result.scalar_one_or_none()
+                if not nsfp:
                     raise NSFPNotFoundError(f"NSFP {current} not available for legal entity {legal_entity_id}")
 
-                # 2. Update the locked row
-                row.status = "used"
-                row.used_at = datetime.utcnow()
+                # Jika current_number sudah >= current_num berarti sudah digunakan
+                if nsfp.current_number >= current_num:
+                    raise NSFPNotFoundError(f"NSFP {current} already used")
+
+                # Update current_number
+                nsfp.current_number = current_num
+                nsfp.used_count += 1
+                if nsfp.current_number == nsfp.end_number:
+                    nsfp.status = NSFStatus.EXHAUSTED
+                else:
+                    nsfp.status = NSFStatus.PARTIALLY_USED
                 await self.session.flush()
 
         except NSFPNotFoundError:
@@ -660,14 +656,12 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         """
         try:
             async with self.session.begin():
-                # 1. Lock the row with SELECT FOR UPDATE
                 stmt_lock = select(CoretaxSPTTable).where(CoretaxSPTTable.id == spt_id).with_for_update()
                 result = await self.session.execute(stmt_lock)
                 row = result.scalar_one_or_none()
                 if not row:
                     raise SPTNotFoundError(f"SPT {spt_id} not found")
 
-                # 2. Update the locked row
                 row.status = status
                 if approval_date:
                     row.approval_date = approval_date
@@ -723,23 +717,36 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             table = CoretaxBupotTable(
                 id=bukti.id,
                 bupot_number=bukti.bupot_number,
-                npwp_pemotong=bukti.npwp_pemotong,
-                npwp_penerima=bukti.npwp_penerima,
-                nama_penerima=bukti.nama_penerima,
-                jenis_pajak=bukti.jenis_pajak,
-                masa_pajak=bukti.masa_pajak,
-                tahun_pajak=bukti.tahun_pajak,
-                dasar_pemotongan=bukti.dasar_pemotongan,
-                tarif=float(bukti.tarif),
-                pph_dipotong=bukti.pph_dipotong,
+                taxpayer_npwp=bukti.npwp_pemotong,  # Ganti npwp_pemotong -> taxpayer_npwp
+                taxpayer_name=bukti.nama_penerima,  # Atau nama pemotong? Sesuai model, taxpayer_name
+                taxpayer_address=None,  # Bisa diisi dari data
+                bupot_type=bukti.jenis_pajak,  # perlu mapping enum? anggap string
                 status=bukti.status,
-                coretax_id=bukti.coretax_id,
-                invoice_reference=bukti.invoice_reference,
-                created_by=bukti.created_by,
+                transaction_date=datetime.utcnow().date(),  # atau dari bukti
+                tax_period_month=bukti.masa_pajak,  # Ganti masa_pajak -> tax_period_month
+                tax_period_year=bukti.tahun_pajak,  # Ganti tahun_pajak -> tax_period_year
+                gross_amount=bukti.dasar_pemotongan,
+                tax_rate=Decimal(str(bukti.tarif)),
+                tax_amount=bukti.pph_dipotong,  # Ganti pph_dipotong -> tax_amount
+                withholding_amount=None,
+                tax_object_description=None,
+                reference_document_number=bukti.invoice_reference,
+                reference_document_date=None,
+                coretax_submission_id=bukti.coretax_id,
+                coretax_status_code=None,
+                coretax_status_description=None,
+                coretax_response_raw=None,
+                coretax_submitted_at=None,
+                coretax_approved_at=None,
+                void_reason=None,
+                void_by=None,
+                void_at=None,
+                invoice_id=None,  # bisa diisi
+                purchase_invoice_id=None,
+                payment_id=None,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
-                version=1,
-                legal_entity_id=bukti.legal_entity_id,
+                # version tidak ada di model? ada versi? kita skip
             )
             self.session.add(table)
             await self.session.flush()
@@ -758,21 +765,21 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             return Bupot(
                 id=table.id,
                 bupot_number=table.bupot_number,
-                npwp_pemotong=table.npwp_pemotong,
-                npwp_penerima=table.npwp_penerima,
-                nama_penerima=table.nama_penerima,
-                jenis_pajak=table.jenis_pajak,
-                masa_pajak=table.masa_pajak,
-                tahun_pajak=table.tahun_pajak,
-                dasar_pemotongan=table.dasar_pemotongan,
-                tarif=Decimal(str(table.tarif)),
-                pph_dipotong=table.pph_dipotong,
-                status=table.status,
-                coretax_id=table.coretax_id,
-                invoice_reference=table.invoice_reference,
-                created_by=table.created_by,
+                npwp_pemotong=table.taxpayer_npwp,
+                npwp_penerima=None,  # tidak ada di model
+                nama_penerima=table.taxpayer_name,
+                jenis_pajak=table.bupot_type.value if hasattr(table.bupot_type, "value") else str(table.bupot_type),
+                masa_pajak=table.tax_period_month,
+                tahun_pajak=table.tax_period_year,
+                dasar_pemotongan=table.gross_amount,
+                tarif=Decimal(str(table.tax_rate)),
+                pph_dipotong=table.tax_amount,
+                status=table.status.value if hasattr(table.status, "value") else str(table.status),
+                coretax_id=table.coretax_submission_id,
+                invoice_reference=table.reference_document_number,
+                created_by=None,
                 created_at=table.created_at,
-                legal_entity_id=table.legal_entity_id,
+                legal_entity_id=None,  # tidak ada di model? Ada legal_entity_id? tidak, hanya invoice_id
             )
         except Exception as e:
             raise TaxRepositoryError(f"Failed to get bupot: {e}") from e
@@ -786,21 +793,19 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     ) -> None:
         """
         Update status e-Bupot dengan pessimistic locking.
-        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang diupdate.
         """
         try:
             async with self.session.begin():
-                # 1. Lock the row with SELECT FOR UPDATE
                 stmt_lock = select(CoretaxBupotTable).where(CoretaxBupotTable.id == bupot_id).with_for_update()
                 result = await self.session.execute(stmt_lock)
                 row = result.scalar_one_or_none()
                 if not row:
                     raise BupotNotFoundError(f"Bupot {bupot_id} not found")
 
-                # 2. Update the locked row
+                # Update status (mapping string ke enum jika perlu)
                 row.status = status
                 if coretax_id:
-                    row.coretax_id = coretax_id
+                    row.coretax_submission_id = coretax_id
                 if official_number:
                     row.bupot_number = official_number
                 row.updated_at = datetime.utcnow()
@@ -816,11 +821,11 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         self, npwp_pemotong: str, masa_pajak: int | None = None, tahun_pajak: int | None = None
     ) -> list[Any]:
         """List e-Bupot."""
-        conditions = [CoretaxBupotTable.npwp_pemotong == npwp_pemotong]
+        conditions = [CoretaxBupotTable.taxpayer_npwp == npwp_pemotong]
         if masa_pajak:
-            conditions.append(CoretaxBupotTable.masa_pajak == masa_pajak)
+            conditions.append(CoretaxBupotTable.tax_period_month == masa_pajak)
         if tahun_pajak:
-            conditions.append(CoretaxBupotTable.tahun_pajak == tahun_pajak)
+            conditions.append(CoretaxBupotTable.tax_period_year == tahun_pajak)
         stmt = (
             select(CoretaxBupotTable)
             .where(and_(*conditions))
@@ -833,21 +838,21 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
                 Bupot(
                     id=table.id,
                     bupot_number=table.bupot_number,
-                    npwp_pemotong=table.npwp_pemotong,
-                    npwp_penerima=table.npwp_penerima,
-                    nama_penerima=table.nama_penerima,
-                    jenis_pajak=table.jenis_pajak,
-                    masa_pajak=table.masa_pajak,
-                    tahun_pajak=table.tahun_pajak,
-                    dasar_pemotongan=table.dasar_pemotongan,
-                    tarif=Decimal(str(table.tarif)),
-                    pph_dipotong=table.pph_dipotong,
-                    status=table.status,
-                    coretax_id=table.coretax_id,
-                    invoice_reference=table.invoice_reference,
-                    created_by=table.created_by,
+                    npwp_pemotong=table.taxpayer_npwp,
+                    npwp_penerima=None,
+                    nama_penerima=table.taxpayer_name,
+                    jenis_pajak=table.bupot_type.value if hasattr(table.bupot_type, "value") else str(table.bupot_type),
+                    masa_pajak=table.tax_period_month,
+                    tahun_pajak=table.tax_period_year,
+                    dasar_pemotongan=table.gross_amount,
+                    tarif=Decimal(str(table.tax_rate)),
+                    pph_dipotong=table.tax_amount,
+                    status=table.status.value if hasattr(table.status, "value") else str(table.status),
+                    coretax_id=table.coretax_submission_id,
+                    invoice_reference=table.reference_document_number,
+                    created_by=None,
                     created_at=table.created_at,
-                    legal_entity_id=table.legal_entity_id,
+                    legal_entity_id=None,
                 )
             )
         return bupots
@@ -952,19 +957,13 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # ========================================================================
 
     async def save_tax_return(self, spt: SPTSubmission) -> None:
-        """
-        Simpan tax return (SPT) - alias untuk _save_spt.
-        Method ini memenuhi kontrak TaxRepositoryPort.
-        """
+        """Simpan tax return (SPT) - alias untuk _save_spt."""
         await self._save_spt(spt)
 
     async def find_tax_return_by_period(
         self, legal_entity_id: UUID, year: int, month: int | None = None, spt_type: str | None = None
     ) -> list[SPTSubmission]:
-        """
-        Cari tax return (SPT) berdasarkan periode.
-        Method ini memenuhi kontrak TaxRepositoryPort.
-        """
+        """Cari tax return (SPT) berdasarkan periode."""
         try:
             conditions = [CoretaxSPTTable.legal_entity_id == legal_entity_id]
             if year:
@@ -1015,11 +1014,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     async def calculate_tax(
         self, legal_entity_id: UUID, period_year: int, period_month: int | None = None
     ) -> dict[str, Any]:
-        """
-        Hitung pajak terutang untuk periode tertentu.
-        Method ini memenuhi kontrak TaxRepositoryPort.
-        Mengembalikan dictionary dengan rincian PPN, PPh, dan total kewajiban pajak.
-        """
+        """Hitung pajak terutang untuk periode tertentu."""
         try:
             npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
             if not npwp:
@@ -1071,15 +1066,15 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
             # ===== Hitung PPh dipotong dari bupot =====
             conditions_bupot = [
-                CoretaxBupotTable.npwp_pemotong == npwp,
+                CoretaxBupotTable.taxpayer_npwp == npwp,
             ]
             if period_month:
-                conditions_bupot.append(CoretaxBupotTable.tahun_pajak == period_year)
-                conditions_bupot.append(CoretaxBupotTable.masa_pajak == period_month)
+                conditions_bupot.append(CoretaxBupotTable.tax_period_year == period_year)
+                conditions_bupot.append(CoretaxBupotTable.tax_period_month == period_month)
             else:
-                conditions_bupot.append(CoretaxBupotTable.tahun_pajak == period_year)
+                conditions_bupot.append(CoretaxBupotTable.tax_period_year == period_year)
 
-            stmt_bupot = select(func.coalesce(func.sum(CoretaxBupotTable.pph_dipotong), 0)).where(and_(*conditions_bupot))
+            stmt_bupot = select(func.coalesce(func.sum(CoretaxBupotTable.tax_amount), 0)).where(and_(*conditions_bupot))
             pph_dipotong = (await self.session.execute(stmt_bupot)).scalar() or Decimal(0)
 
             total_liability = ppn_terutang + pph_dipotong

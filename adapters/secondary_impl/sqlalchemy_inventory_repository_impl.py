@@ -3,6 +3,10 @@
 Module: sqlalchemy_inventory_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository Inventory dengan SQLAlchemy.
+Perbaikan:
+  - [FIX] InventoryFIFOLayerTable.layer_date → purchase_date
+  - [FIX] InventoryFIFOLayerTable.warehouse_id dihapus (tidak ada di model)
+  - [FIX] WarehouseTable.code → warehouse_code
 """
 
 from __future__ import annotations
@@ -222,12 +226,13 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         )
 
     def _to_domain_fifo_layer(self, table: InventoryFIFOLayerTable) -> FIFOLayer:
+        # FIX: use purchase_date instead of layer_date, remove warehouse_id
         return FIFOLayer(
             id=table.id,
             item_id=table.item_id,
             quantity=Quantity(value=table.quantity, uom=table.uom),
-            cost_per_unit=Money(amount=table.cost_per_unit, currency=table.currency or "IDR"),
-            layer_date=table.layer_date,
+            cost_per_unit=Money(amount=table.unit_cost, currency=table.currency or "IDR"),
+            layer_date=table.purchase_date,  # changed from layer_date
             remaining_quantity=Quantity(value=table.remaining_quantity, uom=table.uom),
             created_at=table.created_at,
         )
@@ -446,12 +451,16 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to get inventory value: {e}") from e
 
     async def get_fifo_layers(self, item_id: UUID, warehouse_id: UUID) -> list[FIFOLayer]:
+        """
+        Get FIFO layers for an item.
+        FIX: remove warehouse_id filter because InventoryFIFOLayerTable does not have warehouse_id.
+        """
         try:
+            # Removed warehouse_id condition; now filters only by item_id.
             stmt = select(InventoryFIFOLayerTable).where(
                 InventoryFIFOLayerTable.item_id == item_id,
-                InventoryFIFOLayerTable.warehouse_id == warehouse_id,
                 InventoryFIFOLayerTable.remaining_quantity > 0,
-            ).order_by(InventoryFIFOLayerTable.layer_date)
+            ).order_by(InventoryFIFOLayerTable.purchase_date)  # order by purchase_date
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
             return [self._to_domain_fifo_layer(t) for t in tables]
@@ -934,7 +943,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         """Check if warehouse exists by code."""
         try:
             stmt = select(WarehouseTable).where(
-                WarehouseTable.code == warehouse_code,
+                WarehouseTable.warehouse_code == warehouse_code,  # FIX: code -> warehouse_code
                 WarehouseTable.legal_entity_id == legal_entity_id,
                 WarehouseTable.deleted_at.is_(None),
             )

@@ -466,7 +466,7 @@ class PenetrationTestingHarness:
         return session
 
     def _request(
-        self, endpoint: str, method: str = "GET", data: dict = None, params: dict = None
+        self, endpoint: str, method: str = "GET", data: dict | None = None, params: dict | None = None
     ) -> tuple[int, str, float]:
         url = self.config.target_url.rstrip("/") + "/" + endpoint.lstrip("/")
         start = time.time()
@@ -497,7 +497,7 @@ class PenetrationTestingHarness:
         for payload in SQL_INJECTION_PAYLOADS:
             params = {param: payload} if method.upper() == "GET" else None
             data = {param: payload} if method.upper() == "POST" else None
-            status, body, duration = self._request(endpoint, method, data=data, params=params)
+            _, body, duration = self._request(endpoint, method, data=data, params=params)
             indicators = [
                 "sql syntax",
                 "mysql_fetch",
@@ -533,7 +533,7 @@ class PenetrationTestingHarness:
         for payload in XSS_PAYLOADS:
             params = {param: payload} if method.upper() == "GET" else None
             data = {param: payload} if method.upper() == "POST" else None
-            status, body, duration = self._request(endpoint, method, data=data, params=params)
+            _, body, duration = self._request(endpoint, method, data=data, params=params)
             if payload in body:
                 return TestResult(
                     attack_type=AttackType.XSS,
@@ -558,7 +558,7 @@ class PenetrationTestingHarness:
         for payload in PATH_TRAVERSAL_PAYLOADS:
             params = {param: payload} if method.upper() == "GET" else None
             data = {param: payload} if method.upper() == "POST" else None
-            status, body, duration = self._request(endpoint, method, data=data, params=params)
+            _, body, duration = self._request(endpoint, method, data=data, params=params)
             indicators = ["root:", "daemon:", "bin:", "[extensions]", "[fonts]"]
             for ind in indicators:
                 if ind in body:
@@ -585,7 +585,7 @@ class PenetrationTestingHarness:
         for payload in COMMAND_INJECTION_PAYLOADS:
             params = {param: payload} if method.upper() == "GET" else None
             data = {param: payload} if method.upper() == "POST" else None
-            status, body, duration = self._request(endpoint, method, data=data, params=params)
+            _, body, duration = self._request(endpoint, method, data=data, params=params)
             if "uid=" in body or "gid=" in body or "root" in body:
                 return TestResult(
                     attack_type=AttackType.COMMAND_INJECTION,
@@ -609,7 +609,7 @@ class PenetrationTestingHarness:
         for payload in SSRF_PAYLOADS:
             params = {param: payload} if method.upper() == "GET" else None
             data = {param: payload} if method.upper() == "POST" else None
-            status, body, duration = self._request(endpoint, method, data=data, params=params)
+            _, body, duration = self._request(endpoint, method, data=data, params=params)
             if "instance-id" in body.lower() or "ami-id" in body.lower():
                 return TestResult(
                     attack_type=AttackType.SSRF,
@@ -641,7 +641,7 @@ class PenetrationTestingHarness:
         attempts = 0
         for pwd in password_list[:20]:
             data = {username_field: username, password_field: pwd}
-            status, body, duration = self._request(login_endpoint, "POST", data=data)
+            _, body, duration = self._request(login_endpoint, "POST", data=data)
             attempts += 1
             if "login successful" in body.lower() or "redirect" in body.lower():
                 return TestResult(
@@ -715,7 +715,6 @@ class PenetrationTestingHarness:
     def generate_report(self) -> dict:
         total = len(self.results)
         vulnerable = [r for r in self.results if r.status == TestStatus.VULNERABLE]
-        not_vulnerable = [r for r in self.results if r.status == TestStatus.NOT_VULNERABLE]
         by_severity = {sev.value: 0 for sev in VulnerabilitySeverity}
         for r in vulnerable:
             by_severity[r.severity.value] = by_severity.get(r.severity.value, 0) + 1
@@ -727,7 +726,7 @@ class PenetrationTestingHarness:
             "by_severity": by_severity,
             "vulnerabilities": [r.to_dict() for r in vulnerable],
             "summary": f"Found {len(vulnerable)} vulnerabilities ({len(vulnerable)}/{total} tests)",
-            "recommendations": list(set([r.remediation for r in vulnerable if r.remediation])),
+            "recommendations": list({r.remediation for r in vulnerable if r.remediation}),
             "version": self._version,
         }
 

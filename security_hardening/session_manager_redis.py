@@ -325,16 +325,14 @@ class RedisSessionManager:
                 f"Session idle timeout ({idle_seconds:.0f}s > {self._idle_timeout}s)"
             )
 
-        if self._enable_fingerprint and client_fingerprint:
-            if session.client_fingerprint != client_fingerprint:
-                self.revoke_session(session_id, session.user_id, reason="fingerprint_mismatch")
-                raise SessionExpiredError("Session fingerprint mismatch - possible hijacking")
+        if self._enable_fingerprint and client_fingerprint and session.client_fingerprint != client_fingerprint:
+            self.revoke_session(session_id, session.user_id, reason="fingerprint_mismatch")
+            raise SessionExpiredError("Session fingerprint mismatch - possible hijacking")
 
-        if self._enable_ip and ip_address and session.ip_address:
-            if session.ip_address != ip_address:
-                logger.warning(
-                    f"IP mismatch for session {session_id}: {session.ip_address} vs {ip_address}"
-                )
+        if self._enable_ip and ip_address and session.ip_address and session.ip_address != ip_address:
+            logger.warning(
+                f"IP mismatch for session {session_id}: {session.ip_address} vs {ip_address}"
+            )
 
         if extend_ttl:
             session.last_activity = datetime.now(UTC)

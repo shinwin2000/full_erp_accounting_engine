@@ -585,7 +585,7 @@ class AccessControlMatrix:
         for user in self._users.values():
             if role_id in user.roles:
                 user.roles.remove(role_id)
-        for parent, children in self._role_hierarchy.items():
+        for _, children in self._role_hierarchy.items():
             if role_id in children:
                 children.remove(role_id)
         if role_id in self._role_hierarchy:

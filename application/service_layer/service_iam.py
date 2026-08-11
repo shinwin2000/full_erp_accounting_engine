@@ -58,6 +58,21 @@ from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
+# CATATAN: file domain/iam/password_hashed_vo.py sudah dicek langsung (user
+# upload). Dua hal terkonfirmasi dari sana:
+#  1. Nama atribut hash yang benar adalah `hashed_value` (tebakan sebelumnya
+#     berdasarkan clue di sqlalchemy_iam_user_repository_impl.py TERBUKTI BENAR).
+#  2. Ada factory method RESMI `PasswordHashedVO.create_from_plain(plain_password,
+#     username=..., algorithm=...)` — bukan `from_plain` (tidak pernah ada) dan
+#     bukan hash bcrypt manual (yang dipakai di fix sebelumnya). Method resmi ini
+#     lebih baik dipakai karena otomatis validasi kekuatan password (PasswordPolicy)
+#     dan memilih algoritma yang tersedia (bcrypt/argon2/pbkdf2 fallback).
+
+
+def _extract_password_hash_str(password_hash: "PasswordHashedVO") -> str:
+    """Ambil string hash dari PasswordHashedVO (atribut: hashed_value)."""
+    return password_hash.hashed_value
+
 
 class TokenIssuerPort(Protocol):
     async def create_access_token(
@@ -203,6 +218,11 @@ class IAMService:
         self._event_publisher = event_publisher
         self._token_issuer = token_issuer
         self._cache = cache
+        # Session request-scoped yang di-set lewat set_context(). Ini session
+        # SESUNGGUHNYA yang dipakai untuk semua operasi DB (di-inject langsung
+        # ke repository), beda dari self._uow yang di service ini tidak pernah
+        # benar-benar di-start/di-masuki. Lihat _commit().
+        self._session: AsyncSession | None = None
         self._stats = {
             "users_created": 0,
             "users_updated": 0,
@@ -231,6 +251,8 @@ class IAMService:
         Set session and legal_entity_id for the current request.
         Must be called before any repository operation.
         """
+        self._session = session
+
         if hasattr(self._iam_repo, "set_session"):
             self._iam_repo.set_session(session)
         else:
@@ -240,6 +262,32 @@ class IAMService:
             self._iam_repo.set_legal_entity_id(legal_entity_id)
         else:
             logger.warning("Repository does not support set_legal_entity_id")
+
+    async def _commit(self) -> None:
+        """Commit perubahan ke DB.
+
+        FIX: sebelumnya setiap method di service ini manggil
+        `await self._uow.commit()` langsung — padahal `self._uow`
+        (UnitOfWorkPort) di service ini TIDAK PERNAH di-`begin()` atau
+        dimasuki lewat `async with self._uow:` (beda dari COAService/
+        CustomerService yang memang pakai pola itu). Satu-satunya session
+        yang benar-benar dipakai untuk query/insert/update di sini adalah
+        `session` yang di-inject langsung ke repository lewat
+        set_context()/set_session() — jadi manggil self._uow.commit() SELALU
+        gagal "UoW not started or transaction not active" karena UoW-nya
+        memang tidak pernah aktif (traceback user mengonfirmasi ini: data
+        sempat berhasil di-flush ke repo — log "User added: akuntan" — tapi
+        commit yang menyusul gagal, jadi baris itu sesungguhnya tidak pernah
+        ter-commit permanen ke DB).
+        Fix: commit session yang sesungguhnya dipakai (self._session).
+        Fallback ke self._uow.commit() dipertahankan HANYA untuk jaga-jaga
+        kalau ada caller yang belum sempat panggil set_context() (mis. dari
+        test/script lain di luar alur router biasa).
+        """
+        if self._session is not None:
+            await self._session.commit()
+        else:
+            await self._uow.commit()
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 
@@ -321,7 +369,17 @@ class IAMService:
             if existing.email == request.email:
                 raise IAMServiceError(f"Email '{request.email}' already exists")
 
-        password_hash = PasswordHashedVO.from_plain(request.password)
+        # FIX (final, dikonfirmasi dari domain/iam/password_hashed_vo.py):
+        # PasswordHashedVO TIDAK punya `.from_plain` (tidak pernah ada) — yang
+        # ada factory resmi `create_from_plain(plain_password, username=...)`,
+        # yang sekalian menjalankan PasswordPolicy.validate() (panjang/uppercase/
+        # digit/simbol/dst, raise PasswordError yang merupakan subclass
+        # ValueError — otomatis jadi HTTP 422 lewat except ValueError di router,
+        # bukan 500) dan memilih algoritma hash yang tersedia (bcrypt/argon2/
+        # pbkdf2 fallback) sendiri.
+        password_hash = PasswordHashedVO.create_from_plain(
+            request.password, username=request.username,
+        )
         # Buat UserEntity langsung (untuk ditambahkan ke IAM)
         user_entity = UserEntity(
             user_id=uuid4(),
@@ -351,7 +409,7 @@ class IAMService:
             username=user_entity.username,
             email=user_entity.email,
             full_name=user_entity.profile.full_name,
-            hashed_password=user_entity.password_hash.hash,
+            hashed_password=_extract_password_hash_str(user_entity.password_hash),
             status=user_entity.status,
             is_superuser=False,
             is_active=True,
@@ -363,7 +421,7 @@ class IAMService:
             role_ids=user_entity.role_ids,
         )
         await self._iam_repo.add(user_agg)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_created"] += 1
 
@@ -439,7 +497,7 @@ class IAMService:
             username=user.username,
             email=new_email,
             full_name=new_full_name,
-            hashed_password=user.password_hash.hash,
+            hashed_password=_extract_password_hash_str(user.password_hash),
             status=user.status,
             is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
             is_active=user.is_active if hasattr(user, 'is_active') else True,
@@ -457,7 +515,7 @@ class IAMService:
             role_ids=user.role_ids,
         )
         await self._iam_repo.update(agg)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_updated"] += 1
 
@@ -509,7 +567,7 @@ class IAMService:
             username=user.username,
             email=user.email,
             full_name=user.profile.full_name,
-            hashed_password=user.password_hash.hash,
+            hashed_password=_extract_password_hash_str(user.password_hash),
             status=UserStatus.ACTIVE,
             is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
             is_active=True,
@@ -527,7 +585,7 @@ class IAMService:
             role_ids=user.role_ids,
         )
         await self._iam_repo.update(agg)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_activated"] += 1
 
@@ -575,7 +633,7 @@ class IAMService:
             username=user.username,
             email=user.email,
             full_name=user.profile.full_name,
-            hashed_password=user.password_hash.hash,
+            hashed_password=_extract_password_hash_str(user.password_hash),
             status=UserStatus.INACTIVE,
             is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
             is_active=False,
@@ -593,7 +651,7 @@ class IAMService:
             role_ids=user.role_ids,
         )
         await self._iam_repo.update(agg)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_deactivated"] += 1
 
@@ -639,7 +697,7 @@ class IAMService:
 
         # Lock via repository method
         await self._iam_repo.lock_user(user_id, locked_by, reason)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_locked"] += 1
 
@@ -673,7 +731,7 @@ class IAMService:
             return
 
         await self._iam_repo.unlock_user(user_id, unlocked_by)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_unlocked"] += 1
 
@@ -720,7 +778,7 @@ class IAMService:
             username=user.username,
             email=user.email,
             full_name=user.profile.full_name,
-            hashed_password=user.password_hash.hash,
+            hashed_password=_extract_password_hash_str(user.password_hash),
             status=UserStatus.SUSPENDED,
             is_superuser=user.is_superuser if hasattr(user, 'is_superuser') else False,
             is_active=False,
@@ -738,7 +796,7 @@ class IAMService:
             role_ids=user.role_ids,
         )
         await self._iam_repo.update(agg)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_suspended"] += 1
 
@@ -770,7 +828,7 @@ class IAMService:
             raise UserNotFoundError(f"User {user_id} not found")
 
         await self._iam_repo.delete(user_id, deleted_by, permanent=False)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["users_deleted"] += 1
 
@@ -815,7 +873,7 @@ class IAMService:
             if existing.role_name == request.role_name:
                 raise IAMServiceError(f"Role name '{request.role_name}' already exists")
 
-        perm_objects = [PermissionVO(name=p) for p in request.permissions]
+        perm_objects = [PermissionVO.from_string(p) for p in request.permissions]
         role = RoleEntity(
             role_id=uuid4(),
             role_name=request.role_name,
@@ -830,24 +888,14 @@ class IAMService:
             version=1,
         )
 
-        # Convert to domain Role for repository
-        from domain.iam.role_entity import Role as DomainRole
-        domain_role = DomainRole(
-            id=role.role_id,
-            name=role.role_name,
-            description=role.description,
-            permissions=[PermissionVO(name=p) for p in request.permissions],
-            created_at=role.created_at,
-            created_by=request.created_by,
-        )
         await self._iam_repo.create_role(
             role_code=role.role_name,
             role_name=role.role_name,
-            permissions=[PermissionVO(name=p) for p in request.permissions],
+            permissions=[PermissionVO.from_string(p) for p in request.permissions],
             created_by=request.created_by or UUID(int=0),
             description=role.description,
         )
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["roles_created"] += 1
 
@@ -855,14 +903,8 @@ class IAMService:
             event_role = RoleCreatedEvent(
                 aggregate_id=role.role_id,
                 aggregate_version=role.version,
-                role_id=role.role_id,
-                role_name=role.role_name,
-                description=role.description,
-                permissions=[p.name for p in role.permissions],
-                is_default=role.is_default,
-                is_system=role.is_system,
-                parent_role_id=role.parent_role_id,
-                created_by=str(request.created_by) if request.created_by else None,
+                role=role,
+                created_by=str(request.created_by) if request.created_by else "system",
                 user_id=str(request.created_by) if request.created_by else None,
                 correlation_id=correlation_id,
             )
@@ -872,9 +914,10 @@ class IAMService:
                 event_perm = PermissionGrantedEvent(
                     aggregate_id=role.role_id,
                     aggregate_version=role.version,
-                    permission_name=perm.name,
-                    granted_to=role.role_name,
-                    granted_by=str(request.created_by) if request.created_by else None,
+                    role_id=role.role_id,
+                    role_name=role.role_name,
+                    permission=perm.to_string,
+                    granted_by=str(request.created_by) if request.created_by else "system",
                     user_id=str(request.created_by) if request.created_by else None,
                     correlation_id=correlation_id,
                 )
@@ -919,8 +962,26 @@ class IAMService:
         role = iam.roles.get(role_id)
         if not role:
             raise RoleNotFoundError(f"Role {role_id} not found")
-        if role.is_system:
-            raise IAMServiceError("Cannot update system role")
+
+        # FIX: sebelumnya SEMUA update ke role is_system (mis. "Administrator",
+        # "admin") diblok total, termasuk assign/revoke permission — padahal
+        # endpoint POST /iam/roles/{id}/permissions (gate permission terpisah
+        # "iam:role_assign") memang dirancang untuk bisa mengubah permission
+        # role manapun, termasuk role sistem. Proteksi is_system seharusnya
+        # hanya mencegah perubahan STRUKTURAL (rename, ganti deskripsi,
+        # is_default, pindah parent) yang bisa merusak identitas role bawaan
+        # sistem — bukan mencegah pemberian/pencabutan permission.
+        is_structural_change = (
+            (request.role_name is not None and request.role_name != role.role_name)
+            or (request.description is not None and request.description != role.description)
+            or (request.is_default is not None and request.is_default != role.is_default)
+            or (request.parent_role_id != role.parent_role_id)
+        )
+        if role.is_system and is_structural_change:
+            raise IAMServiceError(
+                "Cannot rename, redescribe, or reparent a system role "
+                "(permission assignment on system roles is still allowed)"
+            )
 
         changes = {}
         if request.role_name is not None and request.role_name != role.role_name:
@@ -937,47 +998,51 @@ class IAMService:
             role.parent_role_id = request.parent_role_id
 
         if request.permissions is not None:
-            old_perms = {p.name for p in role.permissions}
+            old_perms = {p.to_string for p in role.permissions}
             new_perms = set(request.permissions)
             added = new_perms - old_perms
             removed = old_perms - new_perms
             if added or removed:
                 changes["permissions"] = {"old": list(old_perms), "new": list(new_perms)}
-                role.permissions = [PermissionVO(name=p) for p in new_perms]
-                for perm in added:
-                    event = PermissionGrantedEvent(
-                        aggregate_id=role.role_id,
-                        aggregate_version=role.version + 1,
-                        permission_name=perm,
-                        granted_to=role.role_name,
-                        granted_by=str(updated_by),
-                        user_id=str(updated_by),
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                for perm in removed:
-                    event = PermissionRevokedEvent(
-                        aggregate_id=role.role_id,
-                        aggregate_version=role.version + 1,
-                        permission_name=perm,
-                        revoked_from=role.role_name,
-                        revoked_by=str(updated_by),
-                        user_id=str(updated_by),
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
+                role.permissions = [PermissionVO.from_string(p) for p in new_perms]
+                if self._event_publisher:
+                    for perm in added:
+                        event = PermissionGrantedEvent(
+                            aggregate_id=role.role_id,
+                            aggregate_version=role.version + 1,
+                            role_id=role.role_id,
+                            role_name=role.role_name,
+                            permission=perm,
+                            granted_by=str(updated_by),
+                            user_id=str(updated_by),
+                            correlation_id=correlation_id,
+                        )
+                        await self._event_publisher.publish(event)
+                    for perm in removed:
+                        event = PermissionRevokedEvent(
+                            aggregate_id=role.role_id,
+                            aggregate_version=role.version + 1,
+                            role_id=role.role_id,
+                            role_name=role.role_name,
+                            permission=perm,
+                            revoked_by=str(updated_by),
+                            user_id=str(updated_by),
+                            correlation_id=correlation_id,
+                        )
+                        await self._event_publisher.publish(event)
 
         if not changes:
             return role
 
         # Update via repository
-        await self._iam_repo.update_role(
-            role_id=role_id,
-            new_name=request.role_name or role.role_name,
-            new_permissions=role.permissions,
-            updated_by=updated_by,
-        )
-        await self._uow.commit()
+        # NOTE: self._iam_repo di-bind ke IAMRepositoryPort (SQLAlchemyIAMRepository),
+        # yang override update_role()-nya menerima RoleEntity utuh, BUKAN kwargs
+        # (role_id, new_name, new_permissions, updated_by) milik base class
+        # IAMUserRepositoryPort yang di-shadow lewat MRO.
+        role.updated_by = str(updated_by)
+        role.updated_at = datetime.now(UTC)
+        await self._iam_repo.update_role(role)
+        await self._commit()
 
         self._stats["roles_updated"] += 1
 
@@ -1016,7 +1081,7 @@ class IAMService:
                 raise IAMServiceError(f"Role {role.role_name} is assigned to users")
 
         await self._iam_repo.delete_role(role_id, deleted_by)
-        await self._uow.commit()
+        await self._commit()
 
         self._stats["roles_deleted"] += 1
 
@@ -1052,7 +1117,7 @@ class IAMService:
 
         role = iam.roles.get(role_id)
         await self._iam_repo.assign_role(user_id, role.role_name, assigned_by)
-        await self._uow.commit()
+        await self._commit()
 
         if self._event_publisher:
             event = RoleAssignedEvent(
@@ -1086,7 +1151,7 @@ class IAMService:
 
         role = iam.roles.get(role_id)
         await self._iam_repo.revoke_role(user_id, role.role_name, revoked_by)
-        await self._uow.commit()
+        await self._commit()
 
         if self._event_publisher:
             event = RoleRevokedEvent(
@@ -1376,7 +1441,7 @@ class IAMService:
             new_password=new_password,
             actor_id=changed_by,
         )
-        await self._uow.commit()
+        await self._commit()
 
         if self._event_publisher:
             event = UserPasswordChangedEvent(
@@ -1411,7 +1476,7 @@ class IAMService:
             new_password=new_password,
             actor_id=reset_by,
         )
-        await self._uow.commit()
+        await self._commit()
 
         if self._event_publisher:
             event = UserPasswordChangedEvent(

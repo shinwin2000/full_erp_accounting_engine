@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 try:
     from pkcs11 import (
         Attribute,
-        KeyType,
         Mechanism,
         ObjectClass,
         PKCS11Error,

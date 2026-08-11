@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, desc, func, select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -203,12 +203,49 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
         )
 
     async def _to_orm_lines(self, journal: Journal) -> list[JournalLineTable]:
-        """Konversi domain Journal lines ke ORM Lines."""
+        """Konversi domain Journal lines ke ORM Lines.
+
+        BUGFIX: baris sebelumnya selalu memakai `id=UUID(int=0)` untuk SEMUA
+        baris — artinya jurnal dengan lebih dari satu baris akan tabrakan
+        primary key (baris kedua akan gagal INSERT atau, lebih buruk,
+        menimpa baris pertama tergantung strategi flush). Sekarang setiap
+        baris mendapat `uuid4()` baru.
+
+        SNAPSHOT: `account_name`, `account_type_snapshot`, dan
+        `normal_balance_snapshot` diisi dari kondisi akun SAAT INI di COA,
+        satu query untuk semua baris (hindari N+1). Ini "membekukan" atribut
+        akun pada momen jurnal dibuat, supaya laporan historis tidak
+        berubah kalau akun diedit belakangan — lihat catatan di
+        journal_line_table.py.
+        """
+        from infrastructure.persistence_orm.account_table import AccountTable
+
+        session = await self._get_session()
+        account_codes = list({line.account_code for line in journal.lines})
+        account_info: dict[str, tuple[str, str, str]] = {}
+        if account_codes:
+            result = await session.execute(
+                select(
+                    AccountTable.account_code,
+                    AccountTable.account_name,
+                    AccountTable.account_type,
+                    AccountTable.normal_balance,
+                ).where(
+                    AccountTable.legal_entity_id == journal.legal_entity_id,
+                    AccountTable.account_code.in_(account_codes),
+                )
+            )
+            for code, name, acc_type, normal_balance in result.all():
+                account_info[code] = (name, acc_type, normal_balance)
+
         lines = []
         for i, line in enumerate(journal.lines):
+            snap_name, snap_type, snap_normal_balance = account_info.get(
+                line.account_code, (None, None, None)
+            )
             lines.append(
                 JournalLineTable(
-                    id=UUID(int=0),
+                    id=uuid4(),
                     journal_id=journal.id,
                     line_number=i + 1,
                     account_code=line.account_code,
@@ -219,7 +256,10 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                     department=line.department_id,  # ORM pakai string, simpan sebagai string
                     legal_entity_id=journal.legal_entity_id,
                     created_at=datetime.now(UTC),
-                    # account_name, currency, audit_metadata tidak diisi
+                    account_name=snap_name,
+                    account_type_snapshot=snap_type,
+                    normal_balance_snapshot=snap_normal_balance,
+                    # currency, audit_metadata tidak diisi di sini (di luar cakupan perbaikan ini)
                 )
             )
         return lines

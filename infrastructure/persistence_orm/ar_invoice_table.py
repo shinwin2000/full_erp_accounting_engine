@@ -32,6 +32,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     UniqueConstraint,
@@ -128,6 +129,31 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # Approval (if 4-eyes required)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Dunning
+    dunning_level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_dunning_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Cancellation
+    cancellation_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Dispute
+    disputed_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Write-off
+    write_off_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    write_off_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    write_off_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    written_off_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Last payment info
+    last_payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_payment_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+
+    # Submission
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

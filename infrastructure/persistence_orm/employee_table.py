@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
+    text,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -24,7 +25,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -50,10 +50,36 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     __tablename__ = "employee"
     __table_args__ = (
-        UniqueConstraint("employee_code", "legal_entity_id", name="uq_employee_code_legal_entity"),
-        UniqueConstraint("nik", name="uq_employee_nik"),
-        UniqueConstraint("email", name="uq_employee_email"),
-        UniqueConstraint("tax_id", name="uq_employee_tax_id"),
+        # NOTE: uniqueness for employee_code/nik/email/tax_id is enforced via
+        # partial unique indexes below (scoped to deleted_at IS NULL), not
+        # plain UniqueConstraints, so that soft-deleted employees don't
+        # permanently reserve their code/nik/email/tax_id. See migration
+        # a1e2c3f4b5d6_scope_employee_unique_constraints_to_active_rows.
+        Index(
+            "uq_employee_code_legal_entity",
+            "employee_code",
+            "legal_entity_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_employee_nik",
+            "nik",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND nik IS NOT NULL"),
+        ),
+        Index(
+            "uq_employee_email",
+            "email",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND email IS NOT NULL"),
+        ),
+        Index(
+            "uq_employee_tax_id",
+            "tax_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL AND tax_id IS NOT NULL"),
+        ),
         CheckConstraint(
             "employee_code IS NOT NULL AND employee_code != ''", name="ck_employee_code"
         ),
@@ -130,28 +156,36 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # Payroll data
-    basic_salary: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    allowances: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
+    basic_salary: Mapped[Decimal] = mapped_column(
+        Numeric(20, 2), nullable=False, default=Decimal("0")
+    )
+    allowances: Mapped[Decimal] = mapped_column(
+        Numeric(20, 2), nullable=False, default=Decimal("0")
+    )
     overtime_rate_multiplier: Mapped[Decimal] = mapped_column(
-        Numeric(3, 1), nullable=False, default=1.5
+        Numeric(3, 1), nullable=False, default=Decimal("1.5")
     )
 
     # BPJS
     bpjs_ketenagakerjaan_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     bpjs_kesehatan_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
     bpjs_jht_rate_employee: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=2.0
+        Numeric(5, 2), nullable=False, default=Decimal("2.0")
     )
     bpjs_jht_rate_employer: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=3.7
+        Numeric(5, 2), nullable=False, default=Decimal("3.7")
     )
-    bpjs_jkk_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0.24)
-    bpjs_jkm_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0.30)
+    bpjs_jkk_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("0.24")
+    )
+    bpjs_jkm_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("0.30")
+    )
     bpjs_kesehatan_rate_employee: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=1.0
+        Numeric(5, 2), nullable=False, default=Decimal("1.0")
     )
     bpjs_kesehatan_rate_employer: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2), nullable=False, default=4.0
+        Numeric(5, 2), nullable=False, default=Decimal("4.0")
     )
 
     # Banking
@@ -236,29 +270,54 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     def is_resigned(self) -> bool:
         return self.employment_status == "resigned"
 
+    @staticmethod
+    def _as_decimal(value) -> Decimal:
+        """Cast numeric column values yang aman ke Decimal.
+
+        SQLAlchemy tidak selalu mengoersi nilai Python-side default/assigned
+        menjadi Decimal sebelum flush ke DB, jadi atribut bertipe Numeric
+        bisa saja masih berupa int/float murni saat properti ini dipanggil
+        pada instance yang belum di-refresh dari database. str(value) dipakai
+        (bukan Decimal(value) langsung) supaya konversi dari float tidak
+        membawa representasi biner yang tidak presisi (mis. 2.0 -> 1.999...).
+        """
+        if value is None:
+            return Decimal("0")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
     @property
     def total_annual_salary(self) -> Decimal:
-        monthly = self.basic_salary + self.allowances
+        basic_salary = self._as_decimal(self.basic_salary)
+        allowances = self._as_decimal(self.allowances)
+        monthly = basic_salary + allowances
         return monthly * 12
 
     @property
     def monthly_taxable_income(self) -> Decimal:
-        bpjs_deduction = self.basic_salary * (
-            self.bpjs_jht_rate_employee / 100
-        ) + self.basic_salary * (self.bpjs_kesehatan_rate_employee / 100)
-        return self.basic_salary + self.allowances - bpjs_deduction
+        basic_salary = self._as_decimal(self.basic_salary)
+        allowances = self._as_decimal(self.allowances)
+        bpjs_jht_rate_employee = self._as_decimal(self.bpjs_jht_rate_employee)
+        bpjs_kesehatan_rate_employee = self._as_decimal(self.bpjs_kesehatan_rate_employee)
+        bpjs_deduction = basic_salary * (
+            bpjs_jht_rate_employee / Decimal("100")
+        ) + basic_salary * (bpjs_kesehatan_rate_employee / Decimal("100"))
+        return basic_salary + allowances - bpjs_deduction
 
     @property
     def bpjs_employee_total_rate(self) -> Decimal:
-        return self.bpjs_jht_rate_employee + self.bpjs_kesehatan_rate_employee
+        return self._as_decimal(self.bpjs_jht_rate_employee) + self._as_decimal(
+            self.bpjs_kesehatan_rate_employee
+        )
 
     @property
     def bpjs_employer_total_rate(self) -> Decimal:
         return (
-            self.bpjs_jht_rate_employer
-            + self.bpjs_jkk_rate
-            + self.bpjs_jkm_rate
-            + self.bpjs_kesehatan_rate_employer
+            self._as_decimal(self.bpjs_jht_rate_employer)
+            + self._as_decimal(self.bpjs_jkk_rate)
+            + self._as_decimal(self.bpjs_jkm_rate)
+            + self._as_decimal(self.bpjs_kesehatan_rate_employer)
         )
 
     # ========================================================================

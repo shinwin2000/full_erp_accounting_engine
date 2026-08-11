@@ -22,9 +22,9 @@ from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 class ManufacturingCostCardTable(Base, TimestampMixin):
     __tablename__ = "manufacturing_cost_card"
     __table_args__ = (
-        Index("idx_cost_card_product", "product_id"),
-        Index("idx_cost_card_period", "period"),
-        CheckConstraint("total_cost >= 0", name="ck_cost_total_nonneg"),
+        Index("idx_mfg_cost_card_product", "product_id"),
+        Index("idx_mfg_cost_card_period", "period"),
+        CheckConstraint("total_cost >= 0", name="ck_mfg_cost_total_nonneg"),
     )
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

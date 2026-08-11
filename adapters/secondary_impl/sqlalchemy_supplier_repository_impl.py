@@ -456,7 +456,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             from sqlalchemy import text
             await session.execute(text("SELECT 1"))
             return {"status": "healthy", "database": "connected"}
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
 
 

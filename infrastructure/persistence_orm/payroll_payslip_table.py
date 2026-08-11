@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import Date, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
     Base,
@@ -25,6 +26,9 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.payroll_run_table import PayrollRunTable
 
 
 class PayrollPayslipTable(
@@ -55,6 +59,16 @@ class PayrollPayslipTable(
     employee_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("employee.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    # Foreign Key ke tabel payroll_run
+    # NB: ondelete='RESTRICT' harus sama persis dengan constraint di migration
+    # f4aee3b9db2a_sync_orm_schema_drift.py agar tidak terjadi drift ORM vs DB.
+    payroll_run_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("payroll_run.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -91,6 +105,16 @@ class PayrollPayslipTable(
 
     # Catatan tambahan
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # NB: TIDAK ada relationship back_populates ke PayrollRunTable di sini.
+    # PayrollPayslipTable (tabel 'payroll_payslip') adalah model lama yang
+    # sudah tidak dipakai oleh repository manapun — implementasi aktif
+    # (sqlalchemy_payroll_repository_impl.py, EmployeeTable.payslips) memakai
+    # PayslipTable (tabel 'payslip'). PayrollRunTable.payslips sudah diarahkan
+    # ke PayslipTable, jadi menambahkan back_populates="payslips" di sini akan
+    # menyebabkan konflik reverse_property. Kolom payroll_run_id tetap
+    # dipertahankan karena memang ada di skema DB (lihat migration
+    # f4aee3b9db2a_sync_orm_schema_drift.py), tapi tanpa relationship.
 
     def __repr__(self) -> str:
         return (

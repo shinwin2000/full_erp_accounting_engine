@@ -157,7 +157,7 @@ class CommandDispatcher(BaseCommandDispatcher):
     async def stop_workers(self, timeout: float = 10.0) -> None:
         self._running = False
         if self._workers:
-            done, pending = await asyncio.wait(
+            _done, pending = await asyncio.wait(
                 self._workers, timeout=timeout, return_when=asyncio.ALL_COMPLETED
             )
             for task in pending:

@@ -55,6 +55,14 @@ from sqlalchemy.ext.asyncio import (
 )
 
 # ------------------------------------------------------------------
+# FIX: Enforce UTF-8 encoding for stdout/stderr on Windows
+# ------------------------------------------------------------------
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# ------------------------------------------------------------------
 # Load environment variables and adjust Python path BEFORE local imports
 # ------------------------------------------------------------------
 load_dotenv()
@@ -278,7 +286,7 @@ def _setup_tracing() -> None:
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         RedisInstrumentor().instrument()
-        logger.info(f"OpenTelemetry → Jaeger OTLP @ {otlp_endpoint}")
+        logger.info(f"OpenTelemetry -> Jaeger OTLP @ {otlp_endpoint}")
     except Exception as e:
         logger.warning(f"Failed to setup OpenTelemetry (Jaeger): {e}. Tracing disabled.")
         trace.set_tracer_provider(TracerProvider(resource=Resource(attributes={})))
@@ -381,7 +389,7 @@ async def _init_kafka() -> None:
         )
         await _kafka_producer.start()
         _kafka_available = True
-        logger.info("Kafka producer started ✓")
+        logger.info("Kafka producer started [OK]")
     except Exception as e:
         logger.warning(f"Failed to start Kafka producer: {e}. Kafka disabled.")
         if _kafka_producer is not None:
@@ -439,9 +447,9 @@ async def _init_minio() -> None:
         bucket = settings.minio_bucket
         if not _minio_client.bucket_exists(bucket):
             _minio_client.make_bucket(bucket)
-            logger.info(f"MinIO bucket '{bucket}' created ✓")
+            logger.info(f"MinIO bucket '{bucket}' created [OK]")
         else:
-            logger.info(f"MinIO bucket '{bucket}' exists ✓")
+            logger.info(f"MinIO bucket '{bucket}' exists [OK]")
         _minio_available = True
     except Exception as e:
         logger.warning(f"Failed to initialize MinIO: {e}. MinIO disabled.")
@@ -472,11 +480,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     from infrastructure.persistence_orm import load_all_models
     load_all_models()
-    logger.info("All ORM models eagerly loaded ✓")
+    logger.info("All ORM models eagerly loaded [OK]")
 
     try:
         SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
-        logger.info("OpenTelemetry configured ✓")
+        logger.info("OpenTelemetry configured [OK]")
     except Exception as e:
         logger.warning(f"OpenTelemetry SQLAlchemy instrumentation failed: {e}")
 
@@ -486,7 +494,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with engine.connect() as conn:
             result = await conn.execute(sa_text("SELECT version()"))
             pg_version = result.scalar()
-        logger.info(f"PostgreSQL connected ✓  {str(pg_version)[:80]}")
+        logger.info(f"PostgreSQL connected [OK]  {str(pg_version)[:80]}")
         DB_POOL_CHECKEDOUT.set(engine.pool.checkedout())
     except Exception as e:
         rca_result = analyze_error(e, {"component": "postgresql"})
@@ -510,7 +518,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             decode_responses=False,
         )
         await _redis_client.ping()
-        logger.info("Redis connected ✓")
+        logger.info("Redis connected [OK]")
     except Exception as e:
         rca_result = analyze_error(e, {"component": "redis"})
         log_rca_result(logger, rca_result, prefix="Redis")
@@ -529,7 +537,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # 6. IoC Container
     app.state.container = get_container()
-    logger.info("IoC Container attached to app.state ✓")
+    logger.info("IoC Container attached to app.state [OK]")
 
     # ============================================================
     # FIX: AdapterRegistry.register_all() HARUS dipanggil SEBELUM service registry
@@ -541,11 +549,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     adapter_registry = AdapterRegistry(container=app.state.container)
     set_adapter_registry_instance(adapter_registry)
     adapter_registry.register_all()
-    logger.info("Adapter registry (ports -> implementations) completed ✓")
+    logger.info("Adapter registry (ports -> implementations) completed [OK]")
 
     from bootstrap.dependency_container.service_registry import ServiceRegistrar
     await ServiceRegistrar.register_all(app.state.container)
-    logger.info("Service registry completed ✓")
+    logger.info("Service registry completed [OK]")
 
     # ============================================================
     # Inisialisasi IAMService via bootstrap
@@ -554,11 +562,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     docs_url = f"http://localhost:{settings.port}/docs"
     logger.info("=" * 60)
-    logger.info("🚀 ERP Accounting Engine READY")
+    logger.info("[START] ERP Accounting Engine READY")
     logger.info(f"   ENV={settings.app_env}  LOG={settings.log_level}")
     logger.info(
-        f"   Kafka={'✓' if _kafka_available else '✗'}  "
-        f"MinIO={'✓' if _minio_available else '✗'}  "
+        f"   Kafka={'[OK]' if _kafka_available else '[X]'}  "
+        f"MinIO={'[OK]' if _minio_available else '[X]'}  "
         f"Jaeger={settings.enable_jaeger}"
     )
     logger.info(f"   Docs: {docs_url}")
@@ -583,7 +591,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"AuditHookInjector shutdown error: {e}")
 
-    logger.info("Shutdown complete ✓")
+    logger.info("Shutdown complete [OK]")
 
 
 # ============================================================

@@ -407,9 +407,8 @@ class PasswordPolicyEnforcer:
             errors.append("Password must contain at least one special character")
         if self.policy.prevent_common_passwords and password.lower() in COMMON_PASSWORDS:
             errors.append("Password is too common")
-        if self.policy.prevent_username_containment and username:
-            if username.lower() in password.lower():
-                errors.append("Password should not contain username")
+        if self.policy.prevent_username_containment and username and username.lower() in password.lower():
+            errors.append("Password should not contain username")
         return len(errors) == 0, errors
 
     # ========================================================================

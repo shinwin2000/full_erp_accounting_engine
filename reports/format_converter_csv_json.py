@@ -182,7 +182,7 @@ class FormatConverterCSVJSON:
                 data_rows = rows
 
             result = []
-            for row_num, row in enumerate(data_rows, start=1):
+            for _, row in enumerate(data_rows, start=1):
                 if len(row) != len(headers):
                     continue
                 obj = {}

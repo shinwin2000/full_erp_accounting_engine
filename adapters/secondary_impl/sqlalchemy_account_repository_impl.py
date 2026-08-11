@@ -12,12 +12,11 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
-
-from dataclasses import dataclass, field as dc_field
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError

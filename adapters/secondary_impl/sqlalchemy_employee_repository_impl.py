@@ -174,6 +174,11 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
                 self._apply_fields(row, changes)
                 row.increment_version()
                 await session.flush()
+                # `updated_at` uses a server-side onupdate (func.now()), so after an
+                # UPDATE it's expired in-memory. Refresh explicitly (awaited) instead
+                # of letting to_dict() trigger an implicit lazy-load, which crashes
+                # with "MissingGreenlet" since sync attribute access can't await IO.
+                await session.refresh(row)
                 data = EmployeeRecord(row.to_dict())
                 await self._log_audit("UPDATE", employee_id, {"changes": list(changes.keys())})
             return data
@@ -276,6 +281,9 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
                         row.extra_metadata = {}
                     row.extra_metadata["resignation_reason"] = reason
                 await session.flush()
+                # See update() above: updated_at has a server-side onupdate, so it's
+                # expired after an UPDATE flush and must be refreshed explicitly.
+                await session.refresh(row)
                 data = EmployeeRecord(row.to_dict())
                 await self._log_audit("RESIGN", employee_id, {"reason": reason, "date": resignation_date_value.isoformat()})
             return data
@@ -404,16 +412,15 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     get_by_supervisor = find_by_manager
 
     async def update_status(self, employee_id: UUID, is_active: bool) -> None:
-        async with self._session_scope() as session:
-            async with session.begin():
-                stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
-                result = await session.execute(stmt)
-                row = result.scalar_one_or_none()
-                if row:
-                    if is_active:
-                        row.activate()
-                    else:
-                        row.deactivate()
+        async with self._session_scope() as session, session.begin():
+            stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id).with_for_update()
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row:
+                if is_active:
+                    row.activate()
+                else:
+                    row.deactivate()
 
     async def find_active_for_payroll(self, legal_entity_id: UUID, cutoff_date: datetime) -> list[dict[str, Any]]:
         async with self._session_scope() as session:
