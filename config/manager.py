@@ -18,10 +18,11 @@ Metode:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -39,18 +40,18 @@ logger = logging.getLogger(__name__)
 class ConfigManager:
     """Singleton configuration manager."""
 
-    _instance: ConfigManager | None = None
-    _lock = None
-    _config: dict[str, Any] = {}
-    _loaded_files: list[str] = []
-    _load_time_ms: float = 0.0
-    _loaded: bool = False
-    _config_dir: Path | None = None
+    _instance: ClassVar[ConfigManager | None] = None
+    _lock: ClassVar[threading.Lock | None] = None
+    _config: ClassVar[dict[str, Any]] = {}
+    _loaded_files: ClassVar[list[str]] = []
+    _load_time_ms: ClassVar[float] = 0.0
+    _loaded: ClassVar[bool] = False
+    _config_dir: ClassVar[Path | None] = None
 
     def __new__(cls) -> ConfigManager:
         if cls._instance is None:
-            import threading
-            cls._lock = threading.Lock()
+            if cls._lock is None:
+                cls._lock = threading.Lock()
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)

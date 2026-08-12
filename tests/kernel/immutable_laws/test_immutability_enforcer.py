@@ -205,7 +205,7 @@ class TestImmutabilityViolationRecord:
         }
         record = ImmutabilityViolationRecord(**kwargs)
         assert record.violation_id == kwargs["violation_id"]
-        # hash should be computed in post_init
+        # hash should be computed automatically
         assert record.cryptographic_hash != ""
 
     def test_compute_hash(self):
@@ -418,7 +418,7 @@ class TestImmutabilityEnforcer:
         assert trail[-1]["action"] == "TOUCH"
         assert trail[-1]["performed_by"] == "admin"
 
-    # ----- enforce_immutability -----
+    # ----- enforce_immutability (async) -----
     @pytest.mark.asyncio
     async def test_enforce_immutability_disabled(self, enforcer, mock_repo):
         enforcer.enable(False)
@@ -453,7 +453,6 @@ class TestImmutabilityEnforcer:
                 sample_journal.journal_id, uuid4(), operation="UPDATE", raise_on_violation=True
             )
         assert "immutable" in str(exc.value)
-        # Check that violation was recorded
         violations = enforcer.get_violations()
         assert len(violations) == 1
         assert violations[0].journal_id == sample_journal.journal_id
@@ -462,7 +461,6 @@ class TestImmutabilityEnforcer:
     async def test_enforce_immutability_correction_authorized(self, enforcer, mock_repo, sample_journal):
         sample_journal.status = JournalStatus.POSTED
         mock_repo.get_by_id.return_value = sample_journal
-        # Authorized via bypass roles
         result, violation = await enforcer.enforce_immutability(
             sample_journal.journal_id,
             uuid4(),
@@ -478,7 +476,6 @@ class TestImmutabilityEnforcer:
     async def test_enforce_immutability_correction_unauthorized(self, enforcer, mock_repo, sample_journal):
         sample_journal.status = JournalStatus.POSTED
         mock_repo.get_by_id.return_value = sample_journal
-        # Not authorized (bypass list empty, user not super_admin)
         with patch("kernel.immutable_laws.immutability_enforcer.get_current_user", return_value="user"):
             with pytest.raises(ImmutabilityLawViolation) as exc:
                 await enforcer.enforce_immutability(
@@ -514,7 +511,7 @@ class TestImmutabilityEnforcer:
             sample_journal.journal_id,
             uuid4(),
             operation="DELETE",
-            bypass_authorization=["ceo"],  # in emergency override
+            bypass_authorization=["ceo"],
         )
         assert result is True
         assert violation is None
@@ -626,7 +623,10 @@ class TestImmutabilityEnforcer:
         result = await enforcer.record_posted_state(journal_id, legal_id, "poster")
         assert result is True
         mock_repo.update_status.assert_awaited_once_with(
-            journal_id, legal_id, JournalStatus.POSTED, "poster"
+            journal_id=journal_id,
+            legal_entity_id=legal_id,
+            new_status=JournalStatus.POSTED,
+            updated_by="poster",
         )
 
     @pytest.mark.asyncio
@@ -665,11 +665,9 @@ class TestImmutabilityEnforcer:
     def test_get_violations_empty(self, enforcer):
         assert enforcer.get_violations() == []
 
-    def test_get_violations_filter(self, enforcer, mock_repo):
-        # Create a violation by calling enforce_immutability with raise_on_violation=False
-        # We'll patch get_current_user to control user id.
+    @pytest.mark.asyncio
+    async def test_get_violations_filter(self, enforcer, mock_repo):
         with patch("kernel.immutable_laws.immutability_enforcer.get_current_user", return_value="user1"):
-            # Create a posted journal
             journal = Journal(
                 journal_id=uuid4(),
                 journal_number="JRN-002",
@@ -679,31 +677,32 @@ class TestImmutabilityEnforcer:
                 created_at=datetime.now(UTC),
             )
             mock_repo.get_by_id.return_value = journal
-            # Trigger violation
-            result, violation = enforcer.enforce_immutability(
+            result, violation = await enforcer.enforce_immutability(
                 journal.journal_id, uuid4(), operation="UPDATE", raise_on_violation=False
             )
             assert result is False
             assert violation is not None
-            # Now get violations
+
             all_v = enforcer.get_violations()
             assert len(all_v) == 1
-            # Filter by journal_id
             filtered = enforcer.get_violations(journal_id=journal.journal_id)
             assert len(filtered) == 1
-            # Filter by user_id
             filtered = enforcer.get_violations(user_id="user1")
             assert len(filtered) == 1
-            # Filter by severity
-            filtered = enforcer.get_violations(min_severity=ImmutabilityViolationSeverity.CRITICAL)
-            assert len(filtered) == 1
+            # CRITICAL >= HIGH, so should be included
             filtered = enforcer.get_violations(min_severity=ImmutabilityViolationSeverity.HIGH)
-            assert len(filtered) == 0
-            # unresolved only
+            assert len(filtered) == 1
+            # Filter with severity > HIGH (i.e., CRITICAL or CATASTROPHIC) – CRITICAL is included
+            filtered2 = enforcer.get_violations(min_severity=ImmutabilityViolationSeverity.CRITICAL)
+            assert len(filtered2) == 1
+            # Filter with severity > CRITICAL (CATASTROPHIC) – none
+            filtered3 = enforcer.get_violations(min_severity=ImmutabilityViolationSeverity.CATASTROPHIC)
+            assert len(filtered3) == 0
             filtered = enforcer.get_violations(unresolved_only=True)
             assert len(filtered) == 1
 
-    def test_resolve_violation(self, enforcer, mock_repo):
+    @pytest.mark.asyncio
+    async def test_resolve_violation(self, enforcer, mock_repo):
         with patch("kernel.immutable_laws.immutability_enforcer.get_current_user", return_value="user1"):
             journal = Journal(
                 journal_id=uuid4(),
@@ -714,25 +713,23 @@ class TestImmutabilityEnforcer:
                 created_at=datetime.now(UTC),
             )
             mock_repo.get_by_id.return_value = journal
-            _result, violation = enforcer.enforce_immutability(
+            result, violation = await enforcer.enforce_immutability(
                 journal.journal_id, uuid4(), operation="UPDATE", raise_on_violation=False
             )
             assert violation is not None
             violation_id = violation.violation_id
-            # Resolve
             resolved = enforcer.resolve_violation(violation_id, "admin")
             assert resolved is not None
             assert resolved.resolved is True
             assert resolved.resolved_by == "admin"
-            # Cannot resolve again
             resolved2 = enforcer.resolve_violation(violation_id, "admin")
             assert resolved2 is None
 
-    def test_get_statistics(self, enforcer, mock_repo):
-        # Initially no violations
+    @pytest.mark.asyncio
+    async def test_get_statistics(self, enforcer, mock_repo):
         stats = enforcer.get_statistics()
         assert stats["total_violations"] == 0
-        # Add one violation
+
         with patch("kernel.immutable_laws.immutability_enforcer.get_current_user", return_value="user1"):
             journal = Journal(
                 journal_id=uuid4(),
@@ -743,9 +740,10 @@ class TestImmutabilityEnforcer:
                 created_at=datetime.now(UTC),
             )
             mock_repo.get_by_id.return_value = journal
-            enforcer.enforce_immutability(
+            await enforcer.enforce_immutability(
                 journal.journal_id, uuid4(), operation="UPDATE", raise_on_violation=False
             )
+
         stats = enforcer.get_statistics()
         assert stats["total_violations"] == 1
         assert stats["unresolved_violations"] == 1
@@ -755,8 +753,8 @@ class TestImmutabilityEnforcer:
         assert stats["enabled"] is True
         assert stats["version"] == enforcer.version()
 
-    def test_reset(self, enforcer, mock_repo):
-        # Add some state
+    @pytest.mark.asyncio
+    async def test_reset(self, enforcer, mock_repo):
         with patch("kernel.immutable_laws.immutability_enforcer.get_current_user", return_value="user1"):
             journal = Journal(
                 journal_id=uuid4(),
@@ -767,17 +765,18 @@ class TestImmutabilityEnforcer:
                 created_at=datetime.now(UTC),
             )
             mock_repo.get_by_id.return_value = journal
-            enforcer.enforce_immutability(
+            await enforcer.enforce_immutability(
                 journal.journal_id, uuid4(), operation="UPDATE", raise_on_violation=False
             )
         enforcer.touch("admin")
         assert len(enforcer._violations) == 1
-        assert enforcer.version() > 1
+        old_version = enforcer.version()
         enforcer.reset()
         assert len(enforcer._violations) == 0
         assert enforcer._enabled is True
         assert enforcer._audit_trail == []
         mock_repo.clear.assert_called_once()
+        assert enforcer.version() == old_version + 1
 
     # ----- Private method tests (direct) -----
     def test_create_violation(self, enforcer):
@@ -812,19 +811,16 @@ class TestImmutabilityEnforcer:
         enforcer._record_violation(violation)
         assert len(enforcer._violations) == 1
         assert enforcer._violations[0] is violation
-        # Check audit trail
         trail = enforcer.audit_trail()
         assert any("VIOLATION" in entry["action"] for entry in trail)
 
     def test_is_authorized_for_correction(self, enforcer):
-        # With bypass list containing emergency role
         assert enforcer._is_authorized_for_correction(
             "user", bypass_authorization=["super_admin"]
         ) is True
         assert enforcer._is_authorized_for_correction(
             "user", bypass_authorization=["audit_committee"]
         ) is True
-        # Without bypass list, only specific users
         assert enforcer._is_authorized_for_correction(
             "super_admin", bypass_authorization=None
         ) is True
@@ -834,7 +830,6 @@ class TestImmutabilityEnforcer:
         assert enforcer._is_authorized_for_correction(
             "regular_user", bypass_authorization=None
         ) is False
-        # With bypass list but no match
         assert enforcer._is_authorized_for_correction(
             "user", bypass_authorization=["manager"]
         ) is False

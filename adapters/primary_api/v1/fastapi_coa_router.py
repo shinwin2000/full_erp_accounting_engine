@@ -213,7 +213,7 @@ class AccountCreateSchema(BaseModel):
         return v.upper() if v else v
 
     @model_validator(mode="after")
-    def validate_account_type_prefix(self) -> "AccountCreateSchema":
+    def validate_account_type_prefix(self) -> AccountCreateSchema:
         first_digit = self.account_code[0] if self.account_code else ""
         expected_prefixes = ACCOUNT_TYPE_PREFIXES.get(self.account_type, [])
         if expected_prefixes and first_digit not in expected_prefixes:
@@ -288,7 +288,7 @@ class AccountResponseSchema(BaseModel):
     created_by_name: str | None = None
     updated_by: UUID | None = None
     version: int = 1
-    children: list["AccountResponseSchema"] | None = None
+    children: list[AccountResponseSchema] | None = None
 
     @computed_field  # type: ignore[misc]
     @property

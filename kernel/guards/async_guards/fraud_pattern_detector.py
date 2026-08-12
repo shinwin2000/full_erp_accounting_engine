@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 class _FallbackTransactionRepository:
     """Fallback transaction repository untuk fraud detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._transactions: list[dict[str, Any]] = []
         self._by_customer: dict[UUID, list[dict[str, Any]]] = {}
         self._daily_volumes: dict[tuple[UUID, UUID, str], list[Decimal]] = {}
@@ -58,7 +58,6 @@ class _FallbackTransactionRepository:
             if tx.get("legal_entity_id") != legal_entity_id:
                 continue
             tx_date = tx.get("transaction_date")
-            # Gabungkan nested if menjadi satu kondisi (SIM102)
             if (
                 tx_date
                 and from_date <= tx_date <= to_date
@@ -102,7 +101,12 @@ class _FallbackTransactionRepository:
         """Mendeteksi transfer berputar."""
         result = []
         for ct in self._circular_transfers:
-            if ct.get("customer_id") == customer_id and ct.get("detected_at") >= since:
+            detected_at = ct.get("detected_at")
+            if (
+                ct.get("customer_id") == customer_id
+                and detected_at is not None
+                and detected_at >= since
+            ):
                 result.append(
                     type(
                         "CircularTransfer",
@@ -165,7 +169,7 @@ class _FallbackTransactionRepository:
 class _FallbackCustomerRepository:
     """Fallback customer repository untuk fraud detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._customers: dict[UUID, dict[str, Any]] = {}
 
     async def get_by_id(self, customer_id: UUID, legal_entity_id: UUID) -> Any | None:
@@ -248,7 +252,7 @@ class FraudAlert:
         content = f"{self.alert_id}|{self.transaction_id}|{self.pattern_type.value}|{self.severity.value}|{self.description[:100]}|{self.confidence_score}"
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -271,7 +275,7 @@ class FraudAlert:
 class FraudCheckResult:
     """Hasil fraud check sync."""
 
-    def __init__(self, is_suspicious: bool, reasons: list[str] | None = None):
+    def __init__(self, is_suspicious: bool, reasons: list[str] | None = None) -> None:
         self.is_suspicious = is_suspicious
         self.reasons = reasons or []
 
@@ -405,7 +409,7 @@ class FraudPatternDetector(BaseFraudPatternDetector):
         self,
         transaction_repository: Any | None = None,
         customer_repository: Any | None = None,
-    ):
+    ) -> None:
         self._tx_repo = transaction_repository or _FallbackTransactionRepository()
         self._customer_repo = customer_repository or _FallbackCustomerRepository()
         self._alerts: list[FraudAlert] = []
@@ -432,14 +436,14 @@ class FraudPatternDetector(BaseFraudPatternDetector):
         Synchronous fraud pattern check for unit tests.
         Returns an object with `is_suspicious` and `reasons`.
         """
-        reasons = []
+        reasons: list[str] = []
         amount = transaction.get("amount", Decimal(0))
         user_id = transaction.get("user_id")
         device_id = transaction.get("device_id")
         country = transaction.get("country", "")
-        tx_time = transaction.get("timestamp", datetime.utcnow())
+        tx_time = transaction.get("timestamp")
         if not isinstance(tx_time, datetime):
-            tx_time = datetime.utcnow()
+            tx_time = datetime.now(UTC)
 
         # 1. Unusual amount
         if amount >= self._aml_threshold:  # 100 juta
@@ -452,16 +456,17 @@ class FraudPatternDetector(BaseFraudPatternDetector):
 
         # 3. Rapid successive transactions
         if user_id:
-            last_time = self._user_last_timestamp.get(user_id)
+            user_id_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+            last_time = self._user_last_timestamp.get(user_id_uuid)
             if last_time and (tx_time - last_time).total_seconds() <= 60:
-                self._user_transaction_count[user_id] = (
-                    self._user_transaction_count.get(user_id, 0) + 1
+                self._user_transaction_count[user_id_uuid] = (
+                    self._user_transaction_count.get(user_id_uuid, 0) + 1
                 )
             else:
-                self._user_transaction_count[user_id] = 1
-            self._user_last_timestamp[user_id] = tx_time
+                self._user_transaction_count[user_id_uuid] = 1
+            self._user_last_timestamp[user_id_uuid] = tx_time
 
-            if self._user_transaction_count.get(user_id, 0) >= 3:
+            if self._user_transaction_count.get(user_id_uuid, 0) >= 3:
                 reasons.append("rapid successive transactions")
 
         # 4. New device unusual activity
@@ -486,7 +491,7 @@ class FraudPatternDetector(BaseFraudPatternDetector):
         Async check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         transaction_id = context.get("transaction_id")
         customer_id = context.get("customer_id")
         amount = context.get("amount")
@@ -720,11 +725,11 @@ class FraudPatternDetector(BaseFraudPatternDetector):
         ]
         if large_deposits and amount >= self._large_threshold * Decimal("0.5"):
             total_deposit = sum(d.amount for d in large_deposits)
-            cash_out_ratio = amount / total_deposit if total_deposit > 0 else 0
+            cash_out_ratio = amount / total_deposit if total_deposit > 0 else Decimal(0)
 
-            if cash_out_ratio > 0.5:
-                confidence = 0.6 + (cash_out_ratio - 0.5) * 0.5
-                severity = FraudSeverity.HIGH if cash_out_ratio > 0.8 else FraudSeverity.MEDIUM
+            if cash_out_ratio > Decimal("0.5"):
+                confidence = min(0.6 + float(cash_out_ratio - Decimal("0.5")) * 0.5, 0.9)
+                severity = FraudSeverity.HIGH if cash_out_ratio > Decimal("0.8") else FraudSeverity.MEDIUM
 
                 alert = FraudAlert(
                     alert_id=uuid4(),
@@ -733,7 +738,7 @@ class FraudPatternDetector(BaseFraudPatternDetector):
                     severity=severity,
                     description=f"Rapid cash out: {amount} withdrawn within {lookback_hours}h after deposit of {total_deposit}",
                     detected_at=datetime.now(UTC),
-                    confidence_score=min(confidence, 0.9),
+                    confidence_score=confidence,
                     supporting_data={
                         "deposit_amount": str(total_deposit),
                         "withdrawal_amount": str(amount),
@@ -889,9 +894,9 @@ class FraudPatternDetector(BaseFraudPatternDetector):
 
         if avg_daily > 0:
             spike_ratio = amount / avg_daily
-            if spike_ratio > 10:
-                severity = FraudSeverity.HIGH if spike_ratio > 50 else FraudSeverity.MEDIUM
-                confidence = min(0.5 + (spike_ratio - 10) * 0.02, 0.95)
+            if spike_ratio > Decimal(10):
+                severity = FraudSeverity.HIGH if spike_ratio > Decimal(50) else FraudSeverity.MEDIUM
+                confidence = min(0.5 + float(spike_ratio - Decimal(10)) * 0.02, 0.95)
 
                 alert = FraudAlert(
                     alert_id=uuid4(),
@@ -943,7 +948,7 @@ class FraudPatternDetector(BaseFraudPatternDetector):
         if not self._enabled:
             return []
 
-        alerts = []
+        alerts: list[FraudAlert] = []
 
         # Run detection methods
         structuring = await self.detect_structuring(
@@ -1045,8 +1050,8 @@ class FraudPatternDetector(BaseFraudPatternDetector):
                     "enabled": self._enabled,
                     "version": self._version,
                 }
-            by_severity = {}
-            by_pattern = {}
+            by_severity: dict[str, int] = {}
+            by_pattern: dict[str, int] = {}
             for a in self._alerts:
                 by_severity[a.severity.name] = by_severity.get(a.severity.name, 0) + 1
                 by_pattern[a.pattern_type.name] = by_pattern.get(a.pattern_type.name, 0) + 1

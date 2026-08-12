@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Index, String, Text
+from sqlalchemy import Boolean, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,10 +36,16 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    group_code: Mapped[str] = mapped_column(String(50), nullable=False)
     group_name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+    fiscal_year_start: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    fiscal_year_end: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # =========================================================================
     # RELATIONSHIPS � menggunakan string reference
@@ -62,10 +68,16 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
+            "group_code": self.group_code,
             "group_name": self.group_name,
             "description": self.description,
+            "base_currency": self.base_currency,
+            "fiscal_year_start": self.fiscal_year_start,
+            "fiscal_year_end": self.fiscal_year_end,
             "is_active": self.is_active,
+            "notes": self.notes,
             "created_by": str(self.created_by) if self.created_by else None,
+            "version": self.version,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,

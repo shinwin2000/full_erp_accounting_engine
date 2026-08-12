@@ -20,7 +20,7 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -330,7 +330,8 @@ class CircuitBreaker(BaseCircuitBreaker):
         }
         return mapping.get(state, Decimal("0.0"))
 
-    async def call(self, func: Callable[[], T]) -> T:
+    async def call(self, func: Callable[[], Awaitable[T]]) -> T:
+        """Execute an async function with circuit breaker protection."""
         if not self.allow_request():
             raise CircuitOpenError(f"Circuit breaker '{self.name}' is open")
         try:
@@ -526,6 +527,7 @@ class CircuitBreakerRegistry:
     _instance: CircuitBreakerRegistry | None = None
     _lock = threading.Lock()
     __slots__ = ("_audit_trail", "_breakers", "_initialized", "_registry_lock", "_version")
+    _initialized: bool  # type declaration
 
     def __new__(cls) -> CircuitBreakerRegistry:
         if cls._instance is None:

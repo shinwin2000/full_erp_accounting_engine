@@ -42,7 +42,8 @@ import csv
 import io
 import json
 import logging
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -797,7 +798,6 @@ class COAService:
     async def get_account_balance(
         self, account_id: UUID, legal_entity_id: UUID, as_of_date: datetime
     ) -> AccountBalanceDTO | None:
-        from infrastructure.persistence_orm.account_table import AccountTable
         from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
         from infrastructure.persistence_orm.journal_line_table import JournalLineTable
 
@@ -1145,7 +1145,6 @@ class COAService:
         transaksi dan tidak punya sub-akun. Ini yang dipanggil dari endpoint
         DELETE ketika ?permanent=true DAN akun benar-benar 'bersih'; kalau
         tidak, router akan otomatis fallback ke void_account (arsip)."""
-        from infrastructure.persistence_orm.account_table import AccountTable
 
         self._check_authority(user_id, "delete_account")
         async with self._uow:
@@ -1259,7 +1258,7 @@ class COAService:
                 if result is None:
                     raise AccountNotFoundError(str(account_id))
                 success += 1
-            except Exception as exc:  # noqa: BLE001 - kumpulkan semua error, jangan berhenti di tengah batch
+            except Exception as exc:
                 failed_ids.append(account_id)
                 errors.append(f"{account_id}: {exc}")
         self._record_audit(
@@ -1298,7 +1297,7 @@ class COAService:
                     updated_by=updated_by,
                 )
                 success += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failed_ids.append(account_id)
                 errors.append(f"{account_id}: {exc}")
         self._record_audit(
@@ -1455,7 +1454,7 @@ class COAService:
                         created_by=imported_by,
                     )
                     imported += 1
-            except Exception as exc:  # noqa: BLE001 - kumpulkan semua error baris
+            except Exception as exc:
                 skipped += 1
                 errors.append(f"Row {idx} ({code}): {exc}")
 

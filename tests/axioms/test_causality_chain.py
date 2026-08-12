@@ -40,6 +40,7 @@ def create_test_link(
     causality_type: CausalityType = CausalityType.DIRECT,
     strength: CausalityStrength = CausalityStrength.STRONG,
     evidence_refs: list[str] | None = None,
+    weight: float = 1.0,
 ) -> CausalLink:
     if cause_id is None:
         cause_id = uuid.uuid4()
@@ -55,7 +56,7 @@ def create_test_link(
         strength=strength,
         description="Test causal link",
         evidence_refs=evidence_refs,
-        weight=1.0,
+        weight=weight,
         created_by="tester",
     )
 
@@ -85,6 +86,14 @@ def create_test_violation() -> CausalityViolation:
         resolved_by=None,
         resolution_action=None,
     )
+
+
+@pytest.fixture(autouse=True)
+def reset_axiom():
+    """Reset the singleton axiom before each test to avoid cross-test pollution."""
+    axiom = get_causality_chain_axiom()
+    axiom.reset()
+    yield
 
 
 # ============================================================================
@@ -555,7 +564,8 @@ class TestCausalityChainValidator:
 
     def test_validate_chain_valid(self):
         record = create_test_record()
-        cause_link = create_test_link(weight=0.6)
+        # Use a single cause with weight 1.0 to satisfy the sum requirement
+        cause_link = create_test_link(weight=1.0)
         effect_link = create_test_link(weight=0.4)
         record = record.add_cause(cause_link)
         record = record.add_effect(effect_link)

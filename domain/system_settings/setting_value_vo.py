@@ -78,7 +78,7 @@ class SettingValueVO:
                 raise ValueError(f"Expected integer, got {type(self.value).__name__}")
 
         elif self.data_type == SettingDataType.DECIMAL:
-            if not isinstance(self.value, (int, float, Decimal)):
+            if not isinstance(self.value, int | float | Decimal):
                 raise ValueError(f"Expected decimal, got {type(self.value).__name__}")
 
         elif self.data_type == SettingDataType.BOOLEAN:
@@ -86,7 +86,7 @@ class SettingValueVO:
                 raise ValueError(f"Expected boolean, got {type(self.value).__name__}")
 
         elif self.data_type == SettingDataType.JSON:
-            if not isinstance(self.value, (dict, list)):
+            if not isinstance(self.value, dict | list):
                 raise ValueError(f"Expected JSON (dict/list), got {type(self.value).__name__}")
 
         elif self.data_type == SettingDataType.DATE:

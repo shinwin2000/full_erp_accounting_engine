@@ -23,31 +23,9 @@ from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import Any
 
+from kernel.command_envelope import CommandEnvelope  # Langsung import, tidak perlu fallback
+
 logger = logging.getLogger(__name__)
-
-# === 1. FALLBACK UNTUK COMMAND ENVELOPE ===
-try:
-    from kernel.command_envelope import CommandEnvelope
-except ImportError:
-    from dataclasses import dataclass
-    from datetime import datetime
-    from uuid import UUID
-
-    @dataclass
-    class CommandEnvelope:
-        command_id: UUID
-        command_type: str
-        command_data: dict[str, Any]
-        user_id: str
-        legal_entity_id: UUID
-        timestamp: datetime
-        correlation_id: str | None
-        causation_id: UUID | None
-
-        def __post_init__(self):
-            if not hasattr(self, "status"):
-                self.status = "PENDING"
-
 
 # === 2. ENUMS & DEFINITIONS ===
 class HandlerType(Enum):
@@ -139,6 +117,7 @@ class BaseCommandHandlerRegistry(ABC):
 class CommandHandlerRegistry(BaseCommandHandlerRegistry):
     _instance: CommandHandlerRegistry | None = None
     _lock: Any = None
+    _initialized: bool  # tambahkan deklarasi tipe
 
     def __new__(cls) -> CommandHandlerRegistry:
         if cls._instance is None:
@@ -177,6 +156,7 @@ class CommandHandlerRegistry(BaseCommandHandlerRegistry):
         retry_count: int = 3,
         requires_approval: bool = False,
         approval_roles: list[str] | None = None,
+        **kwargs,  # tambahkan **kwargs untuk kompatibilitas dengan base class
     ) -> None:
         if not callable(handler):
             raise ValueError(f"Handler for {command_type} must be callable")

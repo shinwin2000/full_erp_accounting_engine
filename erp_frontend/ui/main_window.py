@@ -360,5 +360,42 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(self, "Konfirmasi", "Keluar dari aplikasi?")
         if confirm != QMessageBox.Yes:
             return
-        run_task(api_client.logout, on_success=lambda _r: self.logout_requested.emit(),
-                  on_error=lambda _m: self.logout_requested.emit())
+        # BUG FIX: sebelumnya kode ini menunggu callback dari run_task()
+        # (on_success/on_error) sebelum memancarkan `logout_requested`
+        # (yang cuma menutup MainWindow lalu menampilkan LoginWindow lagi —
+        # BUKAN benar-benar keluar dari aplikasi). Ini tidak konsisten
+        # dengan teks dialog konfirmasinya sendiri ("Keluar dari
+        # aplikasi?"), dan kalau panggilan API logout lambat/gagal/hang
+        # (mis. server down, network timeout sampai 30 detik), user akan
+        # merasa "tombol Keluar tidak melakukan apa-apa" karena harus
+        # menunggu network round-trip dulu sebelum apapun terjadi di UI.
+        #
+        # Fix: (1) langsung tutup APLIKASI sesuai maksud tombol & dialognya,
+        # (2) panggilan logout ke server tetap best-effort di background
+        # TANPA menunggu hasilnya (pakai token yang di-capture DULU sebelum
+        # session.clear(), supaya tidak race dengan session.clear() di bawah
+        # — kalau access_token dibaca ulang dari `session` setelah di-clear,
+        # header Authorization jadi kosong dan request logout ke server
+        # gagal terkirim), (3) session.clear() (operasi lokal murni, tanpa
+        # network) dipanggil sinkron di sini supaya file cache token di
+        # disk (~/.sovereign_erp/session.json) pasti terhapus walau proses
+        # keburu exit sebelum request logout ke server selesai.
+        access_token = session.access_token
+        base_url = api_client.base_url
+
+        def _best_effort_server_logout() -> None:
+            if not access_token:
+                return
+            try:
+                import requests as _requests
+                _requests.post(
+                    f"{base_url}/iam/logout",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=5,
+                )
+            except Exception:
+                pass  # best-effort saja, tidak boleh menghalangi quit
+
+        run_task(_best_effort_server_logout)
+        session.clear()
+        QApplication.instance().quit()

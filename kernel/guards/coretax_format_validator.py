@@ -38,10 +38,11 @@ logger = logging.getLogger(__name__)
 
 
 class CoretaxValidationSeverity(Enum):
-    CRITICAL = 80
-    HIGH = 60
-    MEDIUM = 40
+    INFO = 0       # Ditambahkan untuk validasi sukses
     LOW = 20
+    MEDIUM = 40
+    HIGH = 60
+    CRITICAL = 80
 
 
 class CoretaxDocumentType(Enum):
@@ -405,6 +406,7 @@ class BaseCoretaxFormatGuard(ABC):
 class CoretaxFormatGuard(BaseCoretaxFormatGuard):
     _instance: CoretaxFormatGuard | None = None
     _lock = threading.Lock()
+    _initialized: bool  # Tambahkan deklarasi tipe
 
     def __new__(cls) -> CoretaxFormatGuard:
         if cls._instance is None:
@@ -431,7 +433,7 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         document_type = context.get("document_type")
         data = context.get("data")
 
@@ -546,11 +548,11 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         tahun_pajak: str,
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
-        results = []
+        results: list[CoretaxValidationResult] = []
 
         def add_result(
             field: str, value: str, is_valid: bool, severity: CoretaxValidationSeverity, msg: str
-        ):
+        ) -> None:
             result = CoretaxValidationResult(
                 validation_id=uuid4(),
                 document_type=CoretaxDocumentType.FAKTUR_PAJAK,
@@ -660,11 +662,11 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         masa_pajak: str,
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
-        results = []
+        results: list[CoretaxValidationResult] = []
 
         def add_result(
             field: str, value: str, is_valid: bool, severity: CoretaxValidationSeverity, msg: str
-        ):
+        ) -> None:
             result = CoretaxValidationResult(
                 validation_id=uuid4(),
                 document_type=CoretaxDocumentType.BUKTI_POTONG,
@@ -766,11 +768,11 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         total_pph: Decimal | None = None,
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
-        results = []
+        results: list[CoretaxValidationResult] = []
 
         def add_result(
             field: str, value: str, is_valid: bool, severity: CoretaxValidationSeverity, msg: str
-        ):
+        ) -> None:
             result = CoretaxValidationResult(
                 validation_id=uuid4(),
                 document_type=CoretaxDocumentType.SPT_MASA_PPN,
@@ -942,8 +944,8 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
             if total == 0:
                 return {"total_validations": 0, "version": self._version}
             invalid = len([r for r in self._validation_history if not r.is_valid])
-            by_severity = {}
-            by_document = {}
+            by_severity: dict[str, int] = {}
+            by_document: dict[str, int] = {}
             for r in self._validation_history:
                 if not r.is_valid:
                     by_severity[r.severity.name] = by_severity.get(r.severity.name, 0) + 1

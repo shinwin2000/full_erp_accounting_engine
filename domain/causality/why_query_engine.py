@@ -14,7 +14,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
 from typing import Any
 from uuid import UUID, uuid4
@@ -210,7 +210,7 @@ class WhyQueryEngine:
         Menjalankan query "why" untuk suatu entitas.
         """
         start_time = time.perf_counter()
-        timeout = timeout_ms or self._default_timeout_ms
+        # timeout parameter not used, but kept for API compatibility; we ignore it.
 
         # Check cache
         if use_cache:
@@ -549,9 +549,11 @@ class WhyQueryEngine:
         else:
             keys_to_remove = []
             for key, entry in self._cache.items():
-                if entry.result.target_entity_id == entity_id:
-                    if entity_type is None or entry.result.target_entity_type == entity_type:
-                        keys_to_remove.append(key)
+                if (
+                    entry.result.target_entity_id == entity_id
+                    and (entity_type is None or entry.result.target_entity_type == entity_type)
+                ):
+                    keys_to_remove.append(key)
             for key in keys_to_remove:
                 del self._cache[key]
             return len(keys_to_remove)

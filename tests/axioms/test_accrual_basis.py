@@ -38,6 +38,18 @@ from axioms.accrual_basis import (
 )
 
 # ============================================================================
+# FIXTURES
+# ============================================================================
+
+@pytest.fixture(autouse=True)
+def reset_axiom():
+    """Reset the singleton axiom before each test to avoid cross-test pollution."""
+    axiom = get_accrual_basis_axiom()
+    axiom.reset()
+    yield
+
+
+# ============================================================================
 # TESTS FOR ENUMS
 # ============================================================================
 
@@ -129,38 +141,66 @@ class TestInvalidExpenseCriteriaError:
 
 class TestRevenueRecognitionCriteria:
     def test_construction_success(self):
-        kwargs = {
-            "contract_identified": True,
-            "performance_obligations": ["delivery"],
-            "transaction_price": Decimal("100.00"),
-            "allocated_price": {},
-            "performance_satisfied": True,
-            "satisfaction_date": datetime.now(UTC),
-            "evidence_of_satisfaction": ["delivery_note"],
-            "recognition_model": RevenueRecognitionModel.AT_A_POINT_IN_TIME,
-            "progress_percentage": Decimal("100.00"),
-            "cryptographic_hash": "test_hash",
-        }
-        instance = RevenueRecognitionCriteria(**kwargs)
+        instance = RevenueRecognitionCriteria(
+            contract_identified=True,
+            performance_obligations=["delivery"],
+            transaction_price=Decimal("100.00"),
+            allocated_price={},
+            performance_satisfied=True,
+            satisfaction_date=datetime.now(UTC),
+            evidence_of_satisfaction=["delivery_note"],
+            recognition_model=RevenueRecognitionModel.AT_A_POINT_IN_TIME,
+            progress_percentage=Decimal("100.00"),
+        )
         assert isinstance(instance, RevenueRecognitionCriteria)
         assert instance.contract_identified is True
         assert instance.transaction_price == Decimal("100.00")
         assert instance.performance_obligations == ["delivery"]
-
-    def test_construction_without_hash(self):
-        kwargs = {
-            "contract_identified": True,
-            "performance_obligations": ["delivery"],
-            "transaction_price": Decimal("100.00"),
-            "allocated_price": {},
-            "performance_satisfied": True,
-            "satisfaction_date": datetime.now(UTC),
-            "evidence_of_satisfaction": ["delivery_note"],
-            "recognition_model": RevenueRecognitionModel.AT_A_POINT_IN_TIME,
-            "progress_percentage": Decimal("100.00"),
-        }
-        instance = RevenueRecognitionCriteria(**kwargs)
         assert instance.cryptographic_hash != ""
+
+    def test_construction_with_valid_hash(self):
+        # Buat instance sementara untuk mendapatkan hash yang valid
+        temp = RevenueRecognitionCriteria(
+            contract_identified=True,
+            performance_obligations=["delivery"],
+            transaction_price=Decimal("100.00"),
+            allocated_price={},
+            performance_satisfied=True,
+            satisfaction_date=datetime.now(UTC),
+            evidence_of_satisfaction=["delivery_note"],
+            recognition_model=RevenueRecognitionModel.AT_A_POINT_IN_TIME,
+            progress_percentage=Decimal("100.00"),
+        )
+        valid_hash = temp.cryptographic_hash
+
+        instance = RevenueRecognitionCriteria(
+            contract_identified=True,
+            performance_obligations=["delivery"],
+            transaction_price=Decimal("100.00"),
+            allocated_price={},
+            performance_satisfied=True,
+            satisfaction_date=datetime.now(UTC),
+            evidence_of_satisfaction=["delivery_note"],
+            recognition_model=RevenueRecognitionModel.AT_A_POINT_IN_TIME,
+            progress_percentage=Decimal("100.00"),
+            cryptographic_hash=valid_hash,
+        )
+        assert instance.cryptographic_hash == valid_hash
+
+    def test_construction_with_invalid_hash_raises(self):
+        with pytest.raises(ValueError, match="Hash mismatch"):
+            RevenueRecognitionCriteria(
+                contract_identified=True,
+                performance_obligations=["delivery"],
+                transaction_price=Decimal("100.00"),
+                allocated_price={},
+                performance_satisfied=True,
+                satisfaction_date=datetime.now(UTC),
+                evidence_of_satisfaction=["delivery_note"],
+                recognition_model=RevenueRecognitionModel.AT_A_POINT_IN_TIME,
+                progress_percentage=Decimal("100.00"),
+                cryptographic_hash="invalid_hash",
+            )
 
     def test_is_ready_for_recognition(self):
         # All conditions met
@@ -246,38 +286,65 @@ class TestRevenueRecognitionCriteria:
 
 class TestExpenseRecognitionCriteria:
     def test_construction_success(self):
-        kwargs = {
-            "economic_benefit_consumed": True,
-            "liability_incurred": True,
-            "recognition_date": datetime.now(UTC),
-            "supporting_document": "invoice_123",
-            "matching_revenue_id": uuid4(),
-            "matching_method": ExpenseMatchingMethod.DIRECT_MATCHING,
-            "is_allocated": True,
-            "allocation_method": "straight-line",
-            "allocation_periods": 12,
-            "cryptographic_hash": "test_hash",
-        }
-        instance = ExpenseRecognitionCriteria(**kwargs)
+        instance = ExpenseRecognitionCriteria(
+            economic_benefit_consumed=True,
+            liability_incurred=True,
+            recognition_date=datetime.now(UTC),
+            supporting_document="invoice_123",
+            matching_revenue_id=uuid4(),
+            matching_method=ExpenseMatchingMethod.DIRECT_MATCHING,
+            is_allocated=True,
+            allocation_method="straight-line",
+            allocation_periods=12,
+        )
         assert isinstance(instance, ExpenseRecognitionCriteria)
         assert instance.economic_benefit_consumed is True
         assert instance.liability_incurred is True
         assert instance.matching_method == ExpenseMatchingMethod.DIRECT_MATCHING
-
-    def test_construction_without_hash(self):
-        kwargs = {
-            "economic_benefit_consumed": True,
-            "liability_incurred": True,
-            "recognition_date": datetime.now(UTC),
-            "supporting_document": "invoice_123",
-            "matching_revenue_id": uuid4(),
-            "matching_method": ExpenseMatchingMethod.DIRECT_MATCHING,
-            "is_allocated": True,
-            "allocation_method": "straight-line",
-            "allocation_periods": 12,
-        }
-        instance = ExpenseRecognitionCriteria(**kwargs)
         assert instance.cryptographic_hash != ""
+
+    def test_construction_with_valid_hash(self):
+        temp = ExpenseRecognitionCriteria(
+            economic_benefit_consumed=True,
+            liability_incurred=True,
+            recognition_date=datetime.now(UTC),
+            supporting_document="invoice_123",
+            matching_revenue_id=uuid4(),
+            matching_method=ExpenseMatchingMethod.DIRECT_MATCHING,
+            is_allocated=True,
+            allocation_method="straight-line",
+            allocation_periods=12,
+        )
+        valid_hash = temp.cryptographic_hash
+
+        instance = ExpenseRecognitionCriteria(
+            economic_benefit_consumed=True,
+            liability_incurred=True,
+            recognition_date=datetime.now(UTC),
+            supporting_document="invoice_123",
+            matching_revenue_id=uuid4(),
+            matching_method=ExpenseMatchingMethod.DIRECT_MATCHING,
+            is_allocated=True,
+            allocation_method="straight-line",
+            allocation_periods=12,
+            cryptographic_hash=valid_hash,
+        )
+        assert instance.cryptographic_hash == valid_hash
+
+    def test_construction_with_invalid_hash_raises(self):
+        with pytest.raises(ValueError, match="Hash mismatch"):
+            ExpenseRecognitionCriteria(
+                economic_benefit_consumed=True,
+                liability_incurred=True,
+                recognition_date=datetime.now(UTC),
+                supporting_document="invoice_123",
+                matching_revenue_id=uuid4(),
+                matching_method=ExpenseMatchingMethod.DIRECT_MATCHING,
+                is_allocated=True,
+                allocation_method="straight-line",
+                allocation_periods=12,
+                cryptographic_hash="invalid_hash",
+            )
 
     def test_is_ready_for_recognition(self):
         criteria = ExpenseRecognitionCriteria(
@@ -597,8 +664,20 @@ class TestAccrualBasisAxiom:
 
     def test_save_accrual_success(self):
         axiom = AccrualBasisAxiom()
-        accrual = MagicMock(spec=AccrualEntry)
-        accrual.accrual_id = uuid4()
+        accrual = AccrualEntry(
+            accrual_id=uuid4(),
+            accrual_type=AccrualType.ACCRUED_REVENUE,
+            amount=Decimal("100"),
+            currency="IDR",
+            recognition_date=datetime.now(UTC),
+            reversal_date=None,
+            journal_entry_id=None,
+            description="Test",
+            created_by="tester",
+            created_at=datetime.now(UTC),
+            approved_by=["approver"],
+            version=1,
+        )
         axiom.save_accrual(accrual)
         assert len(axiom._accruals) == 1
         assert axiom._accruals[accrual.accrual_id] is accrual
@@ -606,8 +685,20 @@ class TestAccrualBasisAxiom:
     def test_get_accrual_found(self):
         axiom = AccrualBasisAxiom()
         accrual_id = uuid4()
-        mock_accrual = MagicMock(spec=AccrualEntry)
-        mock_accrual.accrual_id = accrual_id
+        mock_accrual = AccrualEntry(
+            accrual_id=accrual_id,
+            accrual_type=AccrualType.ACCRUED_REVENUE,
+            amount=Decimal("100"),
+            currency="IDR",
+            recognition_date=datetime.now(UTC),
+            reversal_date=None,
+            journal_entry_id=None,
+            description="Test",
+            created_by="tester",
+            created_at=datetime.now(UTC),
+            approved_by=["approver"],
+            version=1,
+        )
         axiom._accruals[accrual_id] = mock_accrual
         result = axiom.get_accrual(accrual_id)
         assert result is not None
@@ -620,10 +711,34 @@ class TestAccrualBasisAxiom:
 
     def test_get_all_accruals_returns_list(self):
         axiom = AccrualBasisAxiom()
-        accrual1 = MagicMock(spec=AccrualEntry)
-        accrual1.accrual_id = uuid4()
-        accrual2 = MagicMock(spec=AccrualEntry)
-        accrual2.accrual_id = uuid4()
+        accrual1 = AccrualEntry(
+            accrual_id=uuid4(),
+            accrual_type=AccrualType.ACCRUED_REVENUE,
+            amount=Decimal("100"),
+            currency="IDR",
+            recognition_date=datetime.now(UTC),
+            reversal_date=None,
+            journal_entry_id=None,
+            description="Test1",
+            created_by="tester",
+            created_at=datetime.now(UTC),
+            approved_by=["approver"],
+            version=1,
+        )
+        accrual2 = AccrualEntry(
+            accrual_id=uuid4(),
+            accrual_type=AccrualType.ACCRUED_EXPENSE,
+            amount=Decimal("200"),
+            currency="IDR",
+            recognition_date=datetime.now(UTC),
+            reversal_date=None,
+            journal_entry_id=None,
+            description="Test2",
+            created_by="tester",
+            created_at=datetime.now(UTC),
+            approved_by=["approver"],
+            version=1,
+        )
         axiom._accruals[accrual1.accrual_id] = accrual1
         axiom._accruals[accrual2.accrual_id] = accrual2
         result = axiom.get_all_accruals()
@@ -640,7 +755,20 @@ class TestAccrualBasisAxiom:
     def test_delete_accrual_success(self):
         axiom = AccrualBasisAxiom()
         accrual_id = uuid4()
-        axiom._accruals[accrual_id] = MagicMock()
+        axiom._accruals[accrual_id] = AccrualEntry(
+            accrual_id=accrual_id,
+            accrual_type=AccrualType.ACCRUED_REVENUE,
+            amount=Decimal("100"),
+            currency="IDR",
+            recognition_date=datetime.now(UTC),
+            reversal_date=None,
+            journal_entry_id=None,
+            description="Test",
+            created_by="tester",
+            created_at=datetime.now(UTC),
+            approved_by=["approver"],
+            version=1,
+        )
         result = axiom.delete_accrual(accrual_id)
         assert result is True
         assert accrual_id not in axiom._accruals
@@ -652,19 +780,72 @@ class TestAccrualBasisAxiom:
 
     def test_save_violation(self):
         axiom = AccrualBasisAxiom()
-        violation = MagicMock(spec=AccrualBasisViolation)
+        violation = AccrualBasisViolation(
+            violation_id=uuid4(),
+            transaction_id=uuid4(),
+            transaction_type="REVENUE",
+            cash_flow_date=datetime.now(UTC),
+            recognition_date=datetime.now(UTC),
+            difference_days=0,
+            amount=Decimal("100"),
+            severity=AccrualBasisSeverity.HIGH,
+            message="Test",
+            detected_at=datetime.now(UTC),
+            detected_by="system",
+            resolved=False,
+            resolved_at=None,
+            resolved_by=None,
+            correction_journal_id=None,
+            is_auto_corrected=False,
+            auto_correction_applied=None,
+            version=1,
+        )
         axiom.save_violation(violation)
         assert len(axiom._violations) == 1
         assert axiom._violations[0] is violation
 
     def test_get_violations(self):
         axiom = AccrualBasisAxiom()
-        v1 = MagicMock(spec=AccrualBasisViolation)
-        v1.severity = AccrualBasisSeverity.HIGH
-        v1.resolved = False
-        v2 = MagicMock(spec=AccrualBasisViolation)
-        v2.severity = AccrualBasisSeverity.LOW
-        v2.resolved = True
+        v1 = AccrualBasisViolation(
+            violation_id=uuid4(),
+            transaction_id=uuid4(),
+            transaction_type="REVENUE",
+            cash_flow_date=datetime.now(UTC),
+            recognition_date=datetime.now(UTC),
+            difference_days=0,
+            amount=Decimal("100"),
+            severity=AccrualBasisSeverity.HIGH,
+            message="v1",
+            detected_at=datetime.now(UTC),
+            detected_by="system",
+            resolved=False,
+            resolved_at=None,
+            resolved_by=None,
+            correction_journal_id=None,
+            is_auto_corrected=False,
+            auto_correction_applied=None,
+            version=1,
+        )
+        v2 = AccrualBasisViolation(
+            violation_id=uuid4(),
+            transaction_id=uuid4(),
+            transaction_type="EXPENSE",
+            cash_flow_date=datetime.now(UTC),
+            recognition_date=datetime.now(UTC),
+            difference_days=0,
+            amount=Decimal("100"),
+            severity=AccrualBasisSeverity.LOW,
+            message="v2",
+            detected_at=datetime.now(UTC),
+            detected_by="system",
+            resolved=True,
+            resolved_at=datetime.now(UTC),
+            resolved_by="admin",
+            correction_journal_id=uuid4(),
+            is_auto_corrected=False,
+            auto_correction_applied=None,
+            version=1,
+        )
         axiom._violations = [v1, v2]
         # All
         result = axiom.get_violations(limit=10)
@@ -711,6 +892,7 @@ class TestAccrualBasisAxiom:
 
     def test_resolve_violation_not_found(self):
         axiom = AccrualBasisAxiom()
+        # no violation
         result = axiom.resolve_violation(uuid4(), "admin", uuid4())
         assert result is None
 
@@ -1000,10 +1182,8 @@ def test_create_accrual_returns_accrual_entry():
 
 
 def test_get_statistics_returns_dict():
-    # Call get_statistics, which uses the singleton
     stats = get_statistics()
     assert isinstance(stats, dict)
-    # At least some expected keys
     assert "total_accruals" in stats
     assert "active_accruals" in stats
     assert "total_violations" in stats
@@ -1011,7 +1191,6 @@ def test_get_statistics_returns_dict():
 
 
 def test_reset_clears_state():
-    # First, add something to the axiom
     axiom = get_accrual_basis_axiom()
     accrual = create_accrual(
         accrual_type=AccrualType.ACCRUED_REVENUE,
@@ -1027,7 +1206,6 @@ def test_reset_clears_state():
     axiom.save_accrual(accrual)
     assert len(axiom.get_all_accruals()) == 1
 
-    # Reset
     reset()
     assert len(axiom.get_all_accruals()) == 0
 

@@ -24,7 +24,7 @@ import logging
 import random
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -127,7 +127,7 @@ class RetryPolicy(BaseRetryPolicy):
     initial_delay_seconds: float = 1.0
     max_delay_seconds: float = 60.0
     strategy: RetryStrategy = RetryStrategy.EXPONENTIAL_JITTER
-    retryable_exceptions: list[type] = field(
+    retryable_exceptions: list[type[Exception]] = field(
         default_factory=lambda: [RetryableError, TimeoutError, ConnectionError]
     )
     custom_backoff_func: Callable[[int], float] | None = None
@@ -182,10 +182,9 @@ class RetryPolicy(BaseRetryPolicy):
         return wait
 
     def is_retryable(self, exception: Exception) -> bool:
-        # FIX: gunakan any() sesuai saran SIM110
         return any(isinstance(exception, exc_type) for exc_type in self.retryable_exceptions)
 
-    async def execute(self, func: Callable[[], T]) -> T:
+    async def execute(self, func: Callable[[], Awaitable[T]]) -> T:
         self._retry_count = 0
         last_exception = None
         for attempt in range(1, self.max_retries + 2):
@@ -201,8 +200,19 @@ class RetryPolicy(BaseRetryPolicy):
                 await asyncio.sleep(wait_time)
         raise RetryExhaustedError("Max retries exceeded") from last_exception
 
-    async def execute_with_retry(self, func: Callable[[], T]) -> T:
-        return await self.execute(func)
+    async def execute_with_retry(
+        self, func: Callable[[], T], context: dict[str, Any] | None = None
+    ) -> T:
+        # context is ignored but kept for compatibility with base class
+        # We need to wrap func to be a coroutine if it's not already
+        async def wrapped() -> T:
+            # If func returns a coroutine, await it; otherwise return value directly
+            result = func()
+            if asyncio.iscoroutine(result):
+                return await result
+            return result  # type: ignore[return-value]  # mypy can't infer that result is T when not coroutine
+
+        return await self.execute(wrapped)
 
     def reset(self) -> None:
         self._retry_count = 0
@@ -223,17 +233,29 @@ class RetryPolicy(BaseRetryPolicy):
             errors.append("CUSTOM strategy requires custom_backoff_func")
         return {"is_valid": len(errors) == 0, "errors": errors}
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "max_retries": self.max_retries,
+            "initial_delay_seconds": self.initial_delay_seconds,
+            "max_delay_seconds": self.max_delay_seconds,
+            "strategy": self.strategy.name,
+            "retryable_exceptions": [exc.__name__ for exc in self.retryable_exceptions],
+            "backoff_factor": self.backoff_factor,
+            "version": self._version,
+        }
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RetryPolicy:
         strategy = RetryStrategy[data.get("strategy", "EXPONENTIAL_JITTER")]
         retryable_exceptions = []
+        exc_map = {
+            "RetryableError": RetryableError,
+            "TimeoutError": TimeoutError,
+            "ConnectionError": ConnectionError,
+        }
         for exc_name in data.get("retryable_exceptions", []):
-            if exc_name == "RetryableError":
-                retryable_exceptions.append(RetryableError)
-            elif exc_name == "TimeoutError":
-                retryable_exceptions.append(TimeoutError)
-            elif exc_name == "ConnectionError":
-                retryable_exceptions.append(ConnectionError)
+            if exc_name in exc_map:
+                retryable_exceptions.append(exc_map[exc_name])
         instance = cls(
             max_retries=data.get("max_retries", 3),
             initial_delay_seconds=data.get("initial_delay_seconds", 1.0),
@@ -309,6 +331,7 @@ class RetryPolicyService:
 
     _instance: RetryPolicyService | None = None
     _lock = asyncio.Lock()
+    _initialized: bool  # Tambahkan deklarasi tipe
 
     def __new__(cls) -> RetryPolicyService:
         if cls._instance is None:
@@ -346,7 +369,10 @@ class RetryPolicyService:
         start_time = time.time()
         for attempt in range(policy.max_retries + 1):
             try:
-                result = await func()
+                # Executes func and handles coroutine if needed
+                result = func()
+                if asyncio.iscoroutine(result):
+                    result = await result
                 self._record_attempt(
                     success=True,
                     attempt=attempt,
@@ -500,7 +526,7 @@ class RetryPolicyService:
         successes = len([r for r in self._history if r["success"]])
         retries = len([r for r in self._history if r["attempt"] > 0 and not r["success"]])
         avg_duration = sum(r["duration_ms"] for r in self._history) / total if total > 0 else 0
-        attempts_distribution = {}
+        attempts_distribution: dict[int, int] = {}
         for r in self._history:
             att = r["attempt"]
             attempts_distribution[att] = attempts_distribution.get(att, 0) + 1
@@ -606,7 +632,7 @@ async def retry_async(
     max_retries: int = 3,
     initial_delay: float = 1.0,
     strategy: RetryStrategy = RetryStrategy.EXPONENTIAL_JITTER,
-    retryable_exceptions: list[type] | None = None,
+    retryable_exceptions: list[type[Exception]] | None = None,
 ) -> T:
     policy = RetryPolicy(
         max_retries=max_retries,
@@ -624,7 +650,7 @@ def retry_sync(
     max_retries: int = 3,
     initial_delay: float = 1.0,
     strategy: RetryStrategy = RetryStrategy.EXPONENTIAL_JITTER,
-    retryable_exceptions: list[type] | None = None,
+    retryable_exceptions: list[type[Exception]] | None = None,
 ) -> T:
     policy = RetryPolicy(
         max_retries=max_retries,
@@ -642,7 +668,7 @@ def retry(
     max_retries: int = 3,
     initial_delay: float = 1.0,
     strategy: RetryStrategy = RetryStrategy.EXPONENTIAL_JITTER,
-    retryable_exceptions: list[type] | None = None,
+    retryable_exceptions: list[type[Exception]] | None = None,
 ):
     def decorator(func: Callable) -> Callable:
         policy = RetryPolicy(

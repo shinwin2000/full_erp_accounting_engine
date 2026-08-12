@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 #     dan memilih algoritma yang tersedia (bcrypt/argon2/pbkdf2 fallback).
 
 
-def _extract_password_hash_str(password_hash: "PasswordHashedVO") -> str:
+def _extract_password_hash_str(password_hash: PasswordHashedVO) -> str:
     """Ambil string hash dari PasswordHashedVO (atribut: hashed_value)."""
     return password_hash.hashed_value
 

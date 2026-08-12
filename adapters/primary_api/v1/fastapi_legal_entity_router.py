@@ -106,6 +106,40 @@ class TaxStatus(str, Enum):
     REVOKED = "revoked"
 
 
+def _safe_entity_type(raw_value: str | None) -> LegalEntityType:
+    """Konversi aman string entity_type dari DB ke LegalEntityType.
+
+    Data lama (mis. dari seed/migrasi sebelum enum ini dibakukan, atau
+    input bebas seperti "Industri") bisa saja tidak cocok dengan salah
+    satu value LegalEntityType. Daripada membuat SATU baris data lama
+    menjatuhkan seluruh endpoint list/detail (500) untuk semua user,
+    kita fallback ke CORPORATION dan catat warning supaya data itu bisa
+    dibersihkan terpisah tanpa mengganggu operasional.
+    """
+    try:
+        return LegalEntityType(raw_value)
+    except ValueError:
+        logger.warning(
+            f"Unrecognized entity_type '{raw_value}' pada data legal entity - "
+            f"fallback ke '{LegalEntityType.CORPORATION.value}'. Data ini sebaiknya "
+            f"diperbaiki manual (UPDATE legal_entity SET entity_type = ... )."
+        )
+        return LegalEntityType.CORPORATION
+
+
+def _safe_entity_status(raw_value: str | None) -> LegalEntityStatus:
+    """Sama seperti _safe_entity_type, tapi untuk field status."""
+    try:
+        return LegalEntityStatus(raw_value)
+    except ValueError:
+        logger.warning(
+            f"Unrecognized status '{raw_value}' pada data legal entity - "
+            f"fallback ke '{LegalEntityStatus.ACTIVE.value}'. Data ini sebaiknya "
+            f"diperbaiki manual (UPDATE legal_entity SET status = ... )."
+        )
+        return LegalEntityStatus.ACTIVE
+
+
 DEFAULT_FISCAL_YEAR_START_MONTH = 1
 DEFAULT_FISCAL_YEAR_END_MONTH = 12
 DEFAULT_BASE_CURRENCY = "IDR"
@@ -158,16 +192,35 @@ class LegalEntityUpdateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     legal_name: str | None = None
     trade_name: str | None = None
+    entity_type: LegalEntityType | None = None
+    registration_number: str | None = None
+    npwp: str | None = Field(None, min_length=15, max_length=15)
+    nppp: str | None = None
     address: str | None = None
     city: str | None = None
     postal_code: str | None = None
     province: str | None = None
+    country: str | None = None
     phone: str | None = None
     fax: str | None = None
     email: str | None = None
     website: str | None = None
+    fiscal_year_start: int | None = None
+    fiscal_year_end: int | None = None
+    base_currency: str | None = None
+    functional_currency: str | None = None
+    is_taxable: bool | None = None
+    is_withholding_agent: bool | None = None
+    parent_company_id: UUID | None = None
     status: LegalEntityStatus | None = None
     notes: str | None = None
+
+    @field_validator("npwp")
+    @classmethod
+    def validate_npwp(cls, v: str | None) -> str | None:
+        if v and not v.isdigit():
+            raise ValueError("NPWP must contain only digits")
+        return v
 
 
 class LegalEntityResponseSchema(BaseModel):
@@ -205,7 +258,7 @@ class LegalEntityResponseSchema(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
-    created_by: UUID
+    created_by: UUID | None = None
     created_by_name: str | None = None
     version: int = 1
 
@@ -291,7 +344,7 @@ class BranchResponseSchema(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
-    created_by: UUID
+    created_by: UUID | None = None
     created_by_name: str | None = None
     version: int = 1
 
@@ -321,7 +374,7 @@ class ConsolidationGroupResponseSchema(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
-    created_by: UUID
+    created_by: UUID | None = None
     created_by_name: str | None = None
     version: int = 1
 
@@ -451,7 +504,7 @@ async def create_legal_entity(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
-            entity_type=LegalEntityType(result.entity_type),
+            entity_type=_safe_entity_type(result.entity_type),
             registration_number=result.registration_number,
             npwp=result.npwp,
             nppp=result.nppp,
@@ -471,7 +524,7 @@ async def create_legal_entity(
             functional_currency=result.functional_currency,
             is_taxable=result.is_taxable,
             is_withholding_agent=result.is_withholding_agent,
-            status=LegalEntityStatus(result.status),
+            status=_safe_entity_status(result.status),
             is_active=result.is_active,
             is_locked=result.is_locked,
             parent_company_id=result.parent_company_id,
@@ -508,7 +561,12 @@ async def create_legal_entity(
 async def list_legal_entities(
     entity_type: LegalEntityType | None = Query(None),
     status: LegalEntityStatus | None = Query(None),
-    is_active: bool | None = Query(None),
+    is_active: bool | None = Query(
+        None,
+        description="Filter aktif/nonaktif. Tidak diisi -> default hanya yang aktif "
+        "(entitas yang di-nonaktifkan/dihapus lewat tombol Hapus disembunyikan). "
+        "Kirim is_active=false secara eksplisit untuk melihat yang nonaktif.",
+    ),
     parent_company_id: UUID | None = Query(None),
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
@@ -517,16 +575,24 @@ async def list_legal_entities(
     service: Any = Depends(get_legal_entity_service),
 ) -> list[LegalEntityResponseSchema]:
     try:
-        # CATATAN PERBAIKAN: LegalEntityService.list_legal_entities() saat ini
-        # cuma menerima entity_type/status/is_active (service ini masih stub
-        # in-memory, belum tersambung ke SQLAlchemyLegalEntityRepository seperti
-        # endpoint /login-options), dan mengembalikan list biasa (bukan objek
-        # ber-.items). parent_company_id/search/page/page_size diterapkan di
-        # sini secara manual.
+        # LegalEntityService.list_legal_entities() sudah database-backed (lihat
+        # application/service_layer/service_legal_entity.py) dan mengembalikan
+        # list biasa (bukan objek ber-.items). parent_company_id/search/page/
+        # page_size diterapkan di sini secara manual.
+        #
+        # is_active default ke True (bukan None/tanpa-filter) kalau caller tidak
+        # mengirim parameter ini secara eksplisit. GenericListPage di frontend
+        # TIDAK PERNAH mengirim is_active, jadi kalau kita biarkan None berarti
+        # "tanpa filter", entitas yang baru saja di-nonaktifkan lewat tombol
+        # "Hapus" akan tetap muncul di daftar - padahal dari sisi pengguna itu
+        # seharusnya hilang, sama seperti modul Employee (soft-deleted selalu
+        # disembunyikan secara default).
+        effective_is_active = is_active if is_active is not None else True
+
         raw_result = await service.list_legal_entities(
             entity_type=entity_type.value if entity_type else None,
             status=status.value if status else None,
-            is_active=is_active,
+            is_active=effective_is_active,
         )
         entities = getattr(raw_result, "items", raw_result)
 
@@ -550,7 +616,7 @@ async def list_legal_entities(
                 id=le.id,
                 legal_name=le.legal_name,
                 trade_name=le.trade_name,
-                entity_type=LegalEntityType(le.entity_type),
+                entity_type=_safe_entity_type(le.entity_type),
                 registration_number=le.registration_number,
                 npwp=le.npwp,
                 nppp=getattr(le, "nppp", None),
@@ -570,7 +636,7 @@ async def list_legal_entities(
                 functional_currency=le.functional_currency,
                 is_taxable=getattr(le, "is_taxable", True),
                 is_withholding_agent=le.is_withholding_agent,
-                status=LegalEntityStatus(le.status),
+                status=_safe_entity_status(le.status),
                 is_active=le.is_active,
                 is_locked=getattr(le, "is_locked", False),
                 parent_company_id=le.parent_company_id,
@@ -614,7 +680,7 @@ async def get_legal_entity(
             id=le.id,
             legal_name=le.legal_name,
             trade_name=le.trade_name,
-            entity_type=LegalEntityType(le.entity_type),
+            entity_type=_safe_entity_type(le.entity_type),
             registration_number=le.registration_number,
             npwp=le.npwp,
             nppp=le.nppp,
@@ -634,7 +700,7 @@ async def get_legal_entity(
             functional_currency=le.functional_currency,
             is_taxable=le.is_taxable,
             is_withholding_agent=le.is_withholding_agent,
-            status=LegalEntityStatus(le.status),
+            status=_safe_entity_status(le.status),
             is_active=le.is_active,
             is_locked=le.is_locked,
             parent_company_id=le.parent_company_id,
@@ -678,7 +744,7 @@ async def get_legal_entity_by_npwp(
             id=le.id,
             legal_name=le.legal_name,
             trade_name=le.trade_name,
-            entity_type=LegalEntityType(le.entity_type),
+            entity_type=_safe_entity_type(le.entity_type),
             registration_number=le.registration_number,
             npwp=le.npwp,
             nppp=le.nppp,
@@ -698,7 +764,7 @@ async def get_legal_entity_by_npwp(
             functional_currency=le.functional_currency,
             is_taxable=le.is_taxable,
             is_withholding_agent=le.is_withholding_agent,
-            status=LegalEntityStatus(le.status),
+            status=_safe_entity_status(le.status),
             is_active=le.is_active,
             is_locked=le.is_locked,
             parent_company_id=le.parent_company_id,
@@ -738,7 +804,7 @@ async def get_legal_entity_by_registration(
             id=le.id,
             legal_name=le.legal_name,
             trade_name=le.trade_name,
-            entity_type=LegalEntityType(le.entity_type),
+            entity_type=_safe_entity_type(le.entity_type),
             registration_number=le.registration_number,
             npwp=le.npwp,
             nppp=le.nppp,
@@ -758,7 +824,7 @@ async def get_legal_entity_by_registration(
             functional_currency=le.functional_currency,
             is_taxable=le.is_taxable,
             is_withholding_agent=le.is_withholding_agent,
-            status=LegalEntityStatus(le.status),
+            status=_safe_entity_status(le.status),
             is_active=le.is_active,
             is_locked=le.is_locked,
             parent_company_id=le.parent_company_id,
@@ -807,14 +873,26 @@ async def update_legal_entity(
             legal_entity_id=legal_entity_id,
             legal_name=request.legal_name,
             trade_name=request.trade_name,
+            entity_type=request.entity_type.value if request.entity_type else None,
+            registration_number=request.registration_number,
+            npwp=request.npwp,
+            nppp=request.nppp,
             address=request.address,
             city=request.city,
             postal_code=request.postal_code,
             province=request.province,
+            country=request.country,
             phone=request.phone,
             fax=request.fax,
             email=request.email,
             website=request.website,
+            fiscal_year_start=request.fiscal_year_start,
+            fiscal_year_end=request.fiscal_year_end,
+            base_currency=request.base_currency,
+            functional_currency=request.functional_currency,
+            is_taxable=request.is_taxable,
+            is_withholding_agent=request.is_withholding_agent,
+            parent_company_id=request.parent_company_id,
             status=request.status.value if request.status else None,
             notes=request.notes,
             updated_by=current_user.user_id,
@@ -825,7 +903,7 @@ async def update_legal_entity(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
-            entity_type=LegalEntityType(result.entity_type),
+            entity_type=_safe_entity_type(result.entity_type),
             registration_number=result.registration_number,
             npwp=result.npwp,
             nppp=result.nppp,
@@ -845,7 +923,7 @@ async def update_legal_entity(
             functional_currency=result.functional_currency,
             is_taxable=result.is_taxable,
             is_withholding_agent=result.is_withholding_agent,
-            status=LegalEntityStatus(result.status),
+            status=_safe_entity_status(result.status),
             is_active=result.is_active,
             is_locked=result.is_locked,
             parent_company_id=result.parent_company_id,
@@ -938,7 +1016,7 @@ async def activate_legal_entity(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
-            entity_type=LegalEntityType(result.entity_type),
+            entity_type=_safe_entity_type(result.entity_type),
             registration_number=result.registration_number,
             npwp=result.npwp,
             nppp=result.nppp,
@@ -958,7 +1036,7 @@ async def activate_legal_entity(
             functional_currency=result.functional_currency,
             is_taxable=result.is_taxable,
             is_withholding_agent=result.is_withholding_agent,
-            status=LegalEntityStatus(result.status),
+            status=_safe_entity_status(result.status),
             is_active=result.is_active,
             is_locked=result.is_locked,
             parent_company_id=result.parent_company_id,
@@ -1009,7 +1087,7 @@ async def lock_legal_entity(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
-            entity_type=LegalEntityType(result.entity_type),
+            entity_type=_safe_entity_type(result.entity_type),
             registration_number=result.registration_number,
             npwp=result.npwp,
             nppp=result.nppp,
@@ -1029,7 +1107,7 @@ async def lock_legal_entity(
             functional_currency=result.functional_currency,
             is_taxable=result.is_taxable,
             is_withholding_agent=result.is_withholding_agent,
-            status=LegalEntityStatus(result.status),
+            status=_safe_entity_status(result.status),
             is_active=result.is_active,
             is_locked=True,
             parent_company_id=result.parent_company_id,
@@ -1079,7 +1157,7 @@ async def unlock_legal_entity(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
-            entity_type=LegalEntityType(result.entity_type),
+            entity_type=_safe_entity_type(result.entity_type),
             registration_number=result.registration_number,
             npwp=result.npwp,
             nppp=result.nppp,
@@ -1099,7 +1177,7 @@ async def unlock_legal_entity(
             functional_currency=result.functional_currency,
             is_taxable=result.is_taxable,
             is_withholding_agent=result.is_withholding_agent,
-            status=LegalEntityStatus(result.status),
+            status=_safe_entity_status(result.status),
             is_active=result.is_active,
             is_locked=False,
             parent_company_id=result.parent_company_id,

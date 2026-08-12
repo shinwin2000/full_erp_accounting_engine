@@ -42,7 +42,8 @@ import csv
 import io
 import json
 import logging
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -1298,5 +1299,5 @@ __all__ = [
     "JournalServiceError",
     "LedgerEntryDTO",
     "ValidationResultDTO",
-    "create_journal_service",   
+    "create_journal_service",
 ]

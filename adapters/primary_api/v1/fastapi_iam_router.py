@@ -32,9 +32,8 @@ from application.service_layer.service_iam import (
     AuthenticationError,
     CreateUserRequest,
     IAMService,
-    UserNotFoundError,
     RoleNotFoundError,
-    IAMServiceError,
+    UserNotFoundError,
 )
 from domain.iam.permission_vo import PermissionUtils
 from domain.iam.user_entity import UserStatus

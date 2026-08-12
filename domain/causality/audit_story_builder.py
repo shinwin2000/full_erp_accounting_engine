@@ -150,7 +150,6 @@ class AuditStory:
 
     def to_html(self) -> str:
         sections_html = ""
-        # Avoid .get() inside loop; use 'in' with direct indexing
         for section in [
             AuditStorySection.HEADER,
             AuditStorySection.EXECUTIVE_SUMMARY,
@@ -163,7 +162,7 @@ class AuditStory:
             AuditStorySection.FORENSIC_DETAILS,
             AuditStorySection.CONCLUSION,
         ]:
-            content = self.sections[section] if section in self.sections else ""
+            content = self.sections.get(section, "")
             if content:
                 sections_html += f"""
     <div class="section">
@@ -242,7 +241,7 @@ class AuditStory:
             AuditStorySection.RISK_ASSESSMENT,
             AuditStorySection.CONCLUSION,
         ]:
-            content = self.sections[section] if section in self.sections else ""
+            content = self.sections.get(section, "")
             if content:
                 lines.append(f"\n{section.value.replace('_', ' ').upper()}")
                 lines.append("-" * 40)
@@ -340,31 +339,31 @@ Dokumen jejak audit ini menyediakan narasi kausal lengkap transaksi."""
         language: ExplanationLanguage,
     ) -> str:
         chain_len = len(trace["chain"]) if "chain" in trace else 0
-        root = trace["root_cause"] if "root_cause" in trace else {}
-        final = trace["final_outcome"] if "final_outcome" in trace else {}
-        downstream = impact["downstream_count"] if "downstream_count" in impact else 0
+        root = trace.get("root_cause", {})
+        final = trace.get("final_outcome", {})
+        downstream = impact.get("downstream_count", 0)
 
         if language == ExplanationLanguage.ENGLISH:
             if root:
                 root_text = (
-                    f"The transaction originates from a {root['entity_type'] if 'entity_type' in root else 'unknown'} event."
+                    f"The transaction originates from a {root.get('entity_type', 'unknown')} event."
                 )
             else:
                 root_text = "The origin of this transaction could not be determined."
             return f"""This {chain_len}-step causal chain describes a transaction that {"impacts " + str(downstream) + " downstream entities" if downstream else "has no recorded downstream impact"}.
 {root_text}
-The final outcome is a {final['entity_type'] if 'entity_type' in final else 'unknown'}.
+The final outcome is a {final.get('entity_type', 'unknown')}.
 Total causal steps: {chain_len}."""
         else:
             if root:
                 root_text = (
-                    f"Transaksi ini berasal dari event {root['entity_type'] if 'entity_type' in root else 'unknown'}."
+                    f"Transaksi ini berasal dari event {root.get('entity_type', 'unknown')}."
                 )
             else:
                 root_text = "Asal transaksi ini tidak dapat ditentukan."
             return f"""Rantai kausal sepanjang {chain_len} langkah ini {"memengaruhi " + str(downstream) + " entitas downstream" if downstream else "tidak memiliki dampak downstream tercatat"}.
 {root_text}
-Hasil akhir adalah {final['entity_type'] if 'entity_type' in final else 'unknown'}.
+Hasil akhir adalah {final.get('entity_type', 'unknown')}.
 Total langkah kausal: {chain_len}."""
 
     def _build_timeline_section(
@@ -375,11 +374,11 @@ Total langkah kausal: {chain_len}."""
         events = []
         text_lines = []
         for i, node in enumerate(chain):
-            ts = node["timestamp"] if "timestamp" in node else ""
-            node_type = node["node_type"] if "node_type" in node else "UNKNOWN"
-            entity_type = node["entity_type"] if "entity_type" in node else "unknown"
+            ts = node.get("timestamp", "")
+            node_type = node.get("node_type", "UNKNOWN")
+            entity_type = node.get("entity_type", "unknown")
             entity_id = UUID(node["entity_id"]) if "entity_id" in node else uuid4()
-            created_by = node["created_by"] if "created_by" in node else "system"
+            created_by = node.get("created_by", "system")
             desc = self._get_node_description(node_type, language)
             events.append(
                 AuditEvent(
@@ -390,7 +389,7 @@ Total langkah kausal: {chain_len}."""
                     entity_id=entity_id,
                     actor=created_by,
                     description=desc,
-                    metadata=node["metadata"] if "metadata" in node else {},
+                    metadata=node.get("metadata", {}),
                 )
             )
             if language == ExplanationLanguage.ENGLISH:
@@ -404,7 +403,7 @@ Total langkah kausal: {chain_len}."""
     ) -> str:
         actors = set()
         for node in chain:
-            actor = node["created_by"] if "created_by" in node else "system"
+            actor = node.get("created_by", "system")
             actors.add(actor)
         if language == ExplanationLanguage.ENGLISH:
             lines = ["The following parties were involved in the causal chain:"]
@@ -429,11 +428,11 @@ Total langkah kausal: {chain_len}."""
 
         lines = []
         for i, node in enumerate(chain):
-            node_type = node["node_type"] if "node_type" in node else "UNKNOWN"
-            entity_type = node["entity_type"] if "entity_type" in node else "unknown"
-            entity_id = node["entity_id"] if "entity_id" in node else ""
-            ts = node["timestamp"] if "timestamp" in node else ""
-            actor = node["created_by"] if "created_by" in node else "system"
+            node_type = node.get("node_type", "UNKNOWN")
+            entity_type = node.get("entity_type", "unknown")
+            entity_id = node.get("entity_id", "")
+            ts = node.get("timestamp", "")
+            actor = node.get("created_by", "system")
             desc = self._get_node_description(node_type, language)
             if level == ExplanationLevel.STANDARD:
                 lines.append(f"Step {i + 1}: {node_type} - {desc}")
@@ -470,8 +469,8 @@ Catatan: Data finansial detail memerlukan integrasi dengan modul akuntansi."""
         approvals = []
         for node in chain:
             if node.get("node_type") == "APPROVAL":
-                actor = node["created_by"] if "created_by" in node else "unknown"
-                ts = node["timestamp"] if "timestamp" in node else ""
+                actor = node.get("created_by", "unknown")
+                ts = node.get("timestamp", "")
                 approvals.append(f"  - Approved by {actor} at {ts[:19]}")
         if not approvals:
             if language == ExplanationLanguage.ENGLISH:
@@ -489,9 +488,9 @@ Catatan: Data finansial detail memerlukan integrasi dengan modul akuntansi."""
         impact: dict[str, Any],
         language: ExplanationLanguage,
     ) -> str:
-        downstream_count = impact["downstream_count"] if "downstream_count" in impact else 0
-        upstream_count = impact["upstream_count"] if "upstream_count" in impact else 0
-        has_cycles = impact["has_cycles"] if "has_cycles" in impact else False
+        downstream_count = impact.get("downstream_count", 0)
+        upstream_count = impact.get("upstream_count", 0)
+        has_cycles = impact.get("has_cycles", False)
 
         if language == ExplanationLanguage.ENGLISH:
             risk_level = (
@@ -530,9 +529,9 @@ Catatan: Data finansial detail memerlukan integrasi dengan modul akuntansi."""
         if language == ExplanationLanguage.ENGLISH:
             lines = ["FORENSIC DETAILS", "=" * 20]
             for node in chain:
-                node_id = node["node_id"] if "node_id" in node else ""
-                entity_id = node["entity_id"] if "entity_id" in node else ""
-                metadata = node["metadata"] if "metadata" in node else {}
+                node_id = node.get("node_id", "")
+                entity_id = node.get("entity_id", "")
+                metadata = node.get("metadata", {})
                 lines.append(f"Node: {node_id}")
                 lines.append(f"  Entity: {entity_id}")
                 lines.append(f"  Metadata: {json.dumps(metadata, indent=2)}")
@@ -540,9 +539,9 @@ Catatan: Data finansial detail memerlukan integrasi dengan modul akuntansi."""
         else:
             lines = ["DETAIL FORENSIK", "=" * 20]
             for node in chain:
-                node_id = node["node_id"] if "node_id" in node else ""
-                entity_id = node["entity_id"] if "entity_id" in node else ""
-                metadata = node["metadata"] if "metadata" in node else {}
+                node_id = node.get("node_id", "")
+                entity_id = node.get("entity_id", "")
+                metadata = node.get("metadata", {})
                 lines.append(f"Node: {node_id}")
                 lines.append(f"  Entitas: {entity_id}")
                 lines.append(f"  Metadata: {json.dumps(metadata, indent=2)}")
@@ -555,7 +554,7 @@ Catatan: Data finansial detail memerlukan integrasi dengan modul akuntansi."""
         language: ExplanationLanguage,
     ) -> str:
         chain_len = len(trace["chain"]) if "chain" in trace else 0
-        has_cycle = impact["has_cycles"] if "has_cycles" in impact else False
+        has_cycle = impact.get("has_cycles", False)
         if language == ExplanationLanguage.ENGLISH:
             integrity = "VERIFIED" if not has_cycle else "WARNING - Cycle Detected"
             return f"""CONCLUSION
@@ -602,7 +601,7 @@ Cerita audit ini menyediakan rekaman lengkap dan terverifikasi dari sejarah kaus
                 "CONSOLIDATION": "Dikonsolidasi",
                 "EXTERNAL": "Sumber eksternal",
             }
-        return desc.get(node_type, f"Step: {node_type}")  # only one .get, not inside a loop (it's called per node but the method itself is called per node, but the .get is inside the method, but that's a single call per method invocation, not loop over many items? Actually this method is called inside loops in multiple places, so each call does one .get, but that's not a loop. The checker might not flag it because it's not inside a loop in this file, but it's called within loops. However, we can keep it as is because it's not a DB query and only one .get per call.
+        return desc.get(node_type, f"Step: {node_type}")
 
     # ------------------------------------------------------------------------
     # Main Build Method

@@ -193,7 +193,7 @@ class SalesDeliveryNoteEntity:
 
     def add_item(self, item: DeliveryItem, added_by: str) -> SalesDeliveryNoteEntity:
         """Add an item to the delivery note."""
-        new_items = list(self.items) + [item]
+        new_items = [*list(self.items), item]
         return SalesDeliveryNoteEntity(
             delivery_id=self.delivery_id,
             delivery_number=self.delivery_number,

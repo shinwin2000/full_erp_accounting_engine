@@ -491,7 +491,7 @@ class ConfigVersionController:
         version = self.get_version(version_id)
         if not version:
             return False
-        loader = get_config_loader()
+        _ = get_config_loader()  # placeholder for actual loading logic
         logger.info(f"Loading version {version_id} to config loader (implement if needed)")
         self._record_audit("LOAD_VERSION_TO_LOADER", "system", {"version_id": version_id})
         return True

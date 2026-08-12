@@ -197,7 +197,7 @@ class BankAccountEntity:
     month_transaction_count: int = 0
 
     # Security
-    is_verified: bool = False
+    _is_verified: bool = False
     verification_date: datetime | None = None
     verified_by: str | None = None
     freeze_reason: str | None = None
@@ -220,6 +220,11 @@ class BankAccountEntity:
         """Validasi immutable setelah instance dibuat."""
         self._validate()
         self._take_snapshot()
+
+    @property
+    def is_verified(self) -> bool:
+        """Return verification status."""
+        return self._is_verified
 
     def _validate(self) -> None:
         if not self.account_number or len(self.account_number.strip()) < 5:
@@ -258,10 +263,8 @@ class BankAccountEntity:
         if self.allow_overdraft and self.overdraft_limit < 0:
             raise ValueError(f"Overdraft limit cannot be negative: {self.overdraft_limit}")
 
-        if not BankAccountStatus.can_transition(self.status, self.status):
-            # Only validate if status is valid at creation
-            if self.status not in BankAccountStatus:
-                raise ValueError(f"Invalid status: {self.status}")
+        if not BankAccountStatus.can_transition(self.status, self.status) and self.status not in BankAccountStatus:
+            raise ValueError(f"Invalid status: {self.status}")
 
         if self.daily_withdrawal_limit < 0:
             raise ValueError("Daily withdrawal limit cannot be negative")
@@ -556,7 +559,7 @@ class BankAccountEntity:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
         """Deserialization."""
-        return cls(
+        instance = cls(
             account_id=UUID(data["account_id"]),
             account_number=data["account_number"],
             account_name=data["account_name"],
@@ -599,7 +602,6 @@ class BankAccountEntity:
             today_withdrawn=Decimal(data.get("today_withdrawn", "0")),
             today_transaction_count=data.get("today_transaction_count", 0),
             month_transaction_count=data.get("month_transaction_count", 0),
-            is_verified=data.get("is_verified", False),
             verification_date=datetime.fromisoformat(data["verification_date"])
             if data.get("verification_date")
             else None,
@@ -619,6 +621,9 @@ class BankAccountEntity:
             else None,
             deleted_by=UUID(data["deleted_by"]) if data.get("deleted_by") else None,
         )
+        # Set _is_verified from data
+        instance._is_verified = data.get("is_verified", False)
+        return instance
 
     def clone(self, new_account_number: str | None = None) -> Self:
         """Clone account with new ID and optional new account number."""
@@ -696,9 +701,6 @@ class BankAccountEntity:
 
     def is_frozen(self) -> bool:
         return self.status == BankAccountStatus.FROZEN
-
-    def is_verified(self) -> bool:
-        return self.is_verified
 
     def can_transact(self) -> bool:
         return self.status == BankAccountStatus.ACTIVE and not self.is_frozen()
@@ -1129,11 +1131,11 @@ class BankAccountEntity:
 
     def verify(self, verified_by: UUID) -> Self:
         """Mark account as verified."""
-        if self.is_verified:
+        if self._is_verified:
             return self
 
         new_account = self._copy()
-        new_account.is_verified = True
+        new_account._is_verified = True
         new_account.verification_date = datetime.now(UTC)
         new_account.verified_by = str(verified_by)
         new_account.updated_at = datetime.now(UTC)
@@ -1214,7 +1216,7 @@ class BankAccountEntity:
             today_withdrawn=self.today_withdrawn,
             today_transaction_count=self.today_transaction_count,
             month_transaction_count=self.month_transaction_count,
-            is_verified=self.is_verified,
+            _is_verified=self._is_verified,
             verification_date=self.verification_date,
             verified_by=self.verified_by,
             freeze_reason=self.freeze_reason,
@@ -1359,8 +1361,8 @@ class BankAccountRepository:
         query_lower = query.lower()
 
         for acc in accounts:
-            for field in fields:
-                value = getattr(acc, field, "")
+            for f in fields:
+                value = getattr(acc, f, "")
                 if value and query_lower in str(value).lower():
                     results.append(acc)
                     break

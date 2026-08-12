@@ -53,7 +53,7 @@ class VaultSecret:
     value: str
     lease_duration: int
     renewable: bool
-    version: int = 1
+    secret_version: int = 1  # renamed from 'version' to avoid conflict with entity version method
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None
 
@@ -76,8 +76,8 @@ class VaultSecret:
             raise ValueError("value cannot be None")
         if self.lease_duration < 0:
             raise ValueError("lease_duration cannot be negative")
-        if self.version < 1:
-            raise ValueError("version must be >= 1")
+        if self.secret_version < 1:
+            raise ValueError("secret_version must be >= 1")
         if self.created_at.tzinfo is None:
             object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=UTC))
         if self.expires_at and self.expires_at.tzinfo is None:
@@ -136,7 +136,7 @@ class VaultSecret:
             "key": self.key,
             "lease_duration": self.lease_duration,
             "renewable": self.renewable,
-            "version": self.version,
+            "secret_version": self.secret_version,
             "created_at": self.created_at.isoformat(),
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "ver": self._ver,
@@ -150,7 +150,7 @@ class VaultSecret:
             value="***REDACTED***",  # nilai tidak direstore dari dict
             lease_duration=data.get("lease_duration", 3600),
             renewable=data.get("renewable", False),
-            version=data.get("version", 1),
+            secret_version=data.get("secret_version", 1),
             created_at=datetime.fromisoformat(data["created_at"]),
             expires_at=datetime.fromisoformat(data["expires_at"])
             if data.get("expires_at")
@@ -167,7 +167,7 @@ class VaultSecret:
             value=self.value,
             lease_duration=self.lease_duration,
             renewable=self.renewable,
-            version=self.version + 1,
+            secret_version=self.secret_version + 1,
             created_at=datetime.now(UTC),
             expires_at=self.expires_at,
         )
@@ -203,7 +203,7 @@ class VaultConnectionStatus:
     sealed: bool
     initialized: bool
     last_checked: datetime
-    version: str | None = None
+    vault_version: str | None = None  # renamed from 'version' to avoid conflict
     error_message: str | None = None
 
     # Fields untuk audit
@@ -267,7 +267,7 @@ class VaultConnectionStatus:
             "sealed": self.sealed,
             "initialized": self.initialized,
             "last_checked": self.last_checked.isoformat(),
-            "version": self.version,
+            "vault_version": self.vault_version,
             "error_message": self.error_message,
             "ver": self._ver,
         }
@@ -279,7 +279,7 @@ class VaultConnectionStatus:
             sealed=data["sealed"],
             initialized=data["initialized"],
             last_checked=datetime.fromisoformat(data["last_checked"]),
-            version=data.get("version"),
+            vault_version=data.get("vault_version"),
             error_message=data.get("error_message"),
         )
         instance._ver = data.get("ver", 1)
@@ -292,7 +292,7 @@ class VaultConnectionStatus:
             sealed=self.sealed,
             initialized=self.initialized,
             last_checked=datetime.now(UTC),
-            version=self.version,
+            vault_version=self.vault_version,
             error_message=self.error_message,
         )
         new._ver = self._ver + 1
@@ -342,7 +342,7 @@ class VaultIntegrator:
             connected=False,
             sealed=True,
             initialized=False,
-            version=None,
+            vault_version=None,
             last_checked=datetime.now(UTC),
             error_message=None,
         )
@@ -427,7 +427,7 @@ class VaultIntegrator:
                 connected=True,
                 sealed=sys_health.get("sealed", True),
                 initialized=sys_health.get("initialized", False),
-                version=sys_health.get("version"),
+                vault_version=sys_health.get("version"),
                 last_checked=datetime.now(UTC),
                 error_message=None,
             )
@@ -538,7 +538,7 @@ class VaultIntegrator:
                     path=path,
                     key=key,
                     value=value,
-                    version=response.get("data", {}).get("metadata", {}).get("version", 1),
+                    secret_version=response.get("data", {}).get("metadata", {}).get("version", 1),
                     lease_duration=lease_duration,
                     renewable=False,
                     created_at=datetime.now(UTC),
@@ -643,7 +643,7 @@ class VaultIntegrator:
                     connected=True,
                     sealed=sys_health.get("sealed", True),
                     initialized=sys_health.get("initialized", False),
-                    version=sys_health.get("version"),
+                    vault_version=sys_health.get("version"),
                     last_checked=datetime.now(UTC),
                     error_message=None,
                 )
@@ -775,7 +775,7 @@ class VaultIntegrator:
             connected=False,
             sealed=True,
             initialized=False,
-            version=None,
+            vault_version=None,
             last_checked=datetime.now(UTC),
             error_message=None,
         )

@@ -81,7 +81,7 @@ class KeyManagementVault:
                 # Still log at debug level to avoid silent swallow
                 logger.debug(f"Config not found, using default Vault config: {e}")
             else:
-                logger.debug(f"Vault config load error: {type(e).__name__}: {str(e)}")
+                logger.debug(f"Vault config load error: {type(e).__name__}: {e!s}")
             return {}
 
     def _get_client(self) -> hvac.Client | None:
@@ -172,7 +172,7 @@ class KeyManagementVault:
             client.secrets.kv.v2.create_or_update_secret(path=path, secret=data)
             logger.info(f"Encryption key '{key_id}' stored in Vault")
         except Exception as e:
-            raise KeyManagementError(f"Failed to create key: {str(e)}") from e
+            raise KeyManagementError(f"Failed to create key: {e!s}") from e
         key = EncryptionKey(id=key_id, version=1, key_bytes=key_bytes, created_at=datetime.utcnow())
         await self._set_cached_key(key)
         return key
@@ -218,7 +218,7 @@ class KeyManagementVault:
             resp = client.secrets.transit.encrypt_data(name=key_id, plaintext=b64_plain)
             return resp["data"]["ciphertext"]
         except Exception as e:
-            raise KeyManagementError(f"Transit encrypt failed: {str(e)}") from e
+            raise KeyManagementError(f"Transit encrypt failed: {e!s}") from e
 
     async def decrypt_with_transit(self, key_id: str, ciphertext: str) -> str:
         client = self._get_client()
@@ -231,7 +231,7 @@ class KeyManagementVault:
             b64_plain = resp["data"]["plaintext"]
             return base64.b64decode(b64_plain).decode()
         except Exception as e:
-            raise KeyManagementError(f"Transit decrypt failed: {str(e)}") from e
+            raise KeyManagementError(f"Transit decrypt failed: {e!s}") from e
 
     async def health_check(self) -> dict:
         client = self._get_client()

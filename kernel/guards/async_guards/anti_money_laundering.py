@@ -41,7 +41,7 @@ class _FallbackTransactionRepository:
     Menyimpan data transaksi dalam memory untuk analisis pola.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._transactions: list[dict[str, Any]] = []
         self._by_customer: dict[UUID, list[dict[str, Any]]] = {}
         self._daily_volumes: dict[
@@ -64,7 +64,6 @@ class _FallbackTransactionRepository:
             if tx.get("legal_entity_id") != legal_entity_id:
                 continue
             tx_date = tx.get("transaction_date")
-            # Gabungkan kondisi nested if sesuai saran SIM102
             if (
                 tx_date
                 and from_date <= tx_date <= to_date
@@ -152,7 +151,7 @@ class _FallbackTransactionRepository:
 class _FallbackCustomerRepository:
     """Fallback customer repository untuk AML."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._customers: dict[UUID, dict[str, Any]] = {}
 
     async def get_by_id(self, customer_id: UUID, legal_entity_id: UUID) -> Any | None:
@@ -230,7 +229,7 @@ class AMLScore:
         content = f"{self.score_id}|{self.transaction_id}|{self.score}|{self.level.value}|{','.join(self.factors)}"
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -269,7 +268,7 @@ class AMLAlert:
         content = f"{self.alert_id}|{self.transaction_id}|{self.alert_type.value}|{self.severity.value}|{self.description[:100]}"
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -493,7 +492,7 @@ class AntiMoneyLaunderingEngine:
         self,
         transaction_repository: Any | None = None,
         customer_repository: Any | None = None,
-    ):
+    ) -> None:
         self._tx_repo = transaction_repository or _FallbackTransactionRepository()
         self._customer_repo = customer_repository or _FallbackCustomerRepository()
         self._scores: list[AMLScore] = []
@@ -594,7 +593,7 @@ class AntiMoneyLaunderingEngine:
             spike_ratio = amount / avg_daily
             if spike_ratio > 10:
                 score += 15
-                factors.append(f"Volume spike: {spike_ratio:.1f}x normal")
+                factors.append(f"Volume spike: {float(spike_ratio):.1f}x normal")
 
         # Batasi skor maksimal 100
         score = min(score, 100.0)
@@ -694,7 +693,6 @@ class AntiMoneyLaunderingEngine:
         ]
         if len(suspicious_txs) >= 3:
             total_amount = sum(tx.amount for tx in suspicious_txs)
-            # Hapus assignment ke 'confidence' yang tidak digunakan (F841)
             score = 50 + (len(suspicious_txs) - 3) * 5
             score = min(score, 85)
 
@@ -769,15 +767,15 @@ class AntiMoneyLaunderingEngine:
         ]
         if large_deposits and amount >= large_threshold * Decimal("0.5"):
             total_deposit = sum(d.amount for d in large_deposits)
-            cash_out_ratio = amount / total_deposit if total_deposit > 0 else 0
-            if cash_out_ratio > 0.5:
-                score = 60 + min(20, (cash_out_ratio - 0.5) * 40)
+            cash_out_ratio = amount / total_deposit if total_deposit > 0 else Decimal(0)
+            if cash_out_ratio > Decimal("0.5"):
+                score = 60 + min(20, float(cash_out_ratio - Decimal("0.5")) * 40)
                 alert = AMLAlert(
                     alert_id=uuid4(),
                     transaction_id=transaction_id,
                     customer_id=customer_id,
                     alert_type=AMLAlertType.RAPID_CASH_OUT,
-                    severity=AMLScoreLevel.HIGH if cash_out_ratio > 0.8 else AMLScoreLevel.MEDIUM,
+                    severity=AMLScoreLevel.HIGH if cash_out_ratio > Decimal("0.8") else AMLScoreLevel.MEDIUM,
                     description=f"Rapid cash out: {amount} withdrawn within {lookback_hours}h after deposit of {total_deposit}",
                     detected_at=datetime.now(UTC),
                     score=score,
@@ -839,7 +837,7 @@ class AntiMoneyLaunderingEngine:
             )
             return score, []
 
-        alerts = []
+        alerts: list[AMLAlert] = []
 
         # Hitung skor risiko
         score = await self.calculate_risk_score(
@@ -976,7 +974,7 @@ class AntiMoneyLaunderingGuard(BaseAntiMoneyLaunderingGuard):
     DEFAULT_AML_THRESHOLD = Decimal("100000000")  # 100 juta (test threshold_exceeded)
     DEFAULT_STRUCTURING_THRESHOLD = Decimal("150000000")  # 150 juta (test structuring)
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._engine = AntiMoneyLaunderingEngine()
         self._daily_totals: dict[UUID, Decimal] = {}
         self._last_date: dict[UUID, date] = {}
@@ -1038,7 +1036,7 @@ class AntiMoneyLaunderingGuard(BaseAntiMoneyLaunderingGuard):
         """
         Melakukan screening AML terhadap payment (sync).
         """
-        reasons = []
+        reasons: list[str] = []
         threshold_exceeded = False
         amount = payment.get("amount", Decimal(0))
         from_account = payment.get("from_account")
@@ -1057,15 +1055,16 @@ class AntiMoneyLaunderingGuard(BaseAntiMoneyLaunderingGuard):
 
         # 2. Structuring pattern (akumulasi harian ≥ 150 juta)
         if from_account:
-            if self._last_date.get(from_account) == payment_date:
-                self._daily_totals[from_account] = (
-                    self._daily_totals.get(from_account, Decimal(0)) + amount
+            from_account_uuid = UUID(from_account) if isinstance(from_account, str) else from_account
+            if self._last_date.get(from_account_uuid) == payment_date:
+                self._daily_totals[from_account_uuid] = (
+                    self._daily_totals.get(from_account_uuid, Decimal(0)) + amount
                 )
             else:
-                self._daily_totals[from_account] = amount
-                self._last_date[from_account] = payment_date
+                self._daily_totals[from_account_uuid] = amount
+                self._last_date[from_account_uuid] = payment_date
 
-            if self._daily_totals[from_account] >= self.DEFAULT_STRUCTURING_THRESHOLD:
+            if self._daily_totals[from_account_uuid] >= self.DEFAULT_STRUCTURING_THRESHOLD:
                 reasons.append("structuring pattern detected")
 
         # 3. Sanction list hit (bisa di-mock oleh test)
@@ -1107,7 +1106,7 @@ class AntiMoneyLaunderingGuard(BaseAntiMoneyLaunderingGuard):
         Async check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         transaction_id = context.get("transaction_id")
         customer_id = context.get("customer_id")
         amount = context.get("amount")

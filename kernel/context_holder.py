@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextvars
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -223,6 +224,7 @@ class BaseContextHolder(ABC):
 class ContextHolder(BaseContextHolder):
     _instance: ContextHolder | None = None
     _lock: Any = None
+    _initialized: bool  # tambahkan deklarasi tipe
 
     def __new__(cls) -> ContextHolder:
         if cls._instance is None:
@@ -242,11 +244,11 @@ class ContextHolder(BaseContextHolder):
         self._current_context: contextvars.ContextVar[ExecutionContext | None] = (
             contextvars.ContextVar("execution_context", default=None)
         )
-        # Fix B039: Use default=None instead of mutable default []
-        self._context_stack: contextvars.ContextVar[list[ContextSnapshot]] = (
+        # Gunakan tipe Union dengan None agar default None diperbolehkan
+        self._context_stack: contextvars.ContextVar[list[ContextSnapshot] | None] = (
             contextvars.ContextVar("context_stack", default=None)
         )
-        # Initialize stack for current context
+        # Inisialisasi stack dengan list kosong untuk context saat ini
         self._context_stack.set([])
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
@@ -305,14 +307,14 @@ class ContextHolder(BaseContextHolder):
             self.set_context(None)
             return None
 
-    def run_in_context(self, context: ExecutionContext, func: callable, *args, **kwargs) -> Any:
+    def run_in_context(self, context: ExecutionContext, func: Callable[..., Any], *args, **kwargs) -> Any:
         self.push_context(context)
         try:
             return func(*args, **kwargs)
         finally:
             self.pop_context()
 
-    async def run_in_context_async(self, context: ExecutionContext, coro, *args, **kwargs) -> Any:
+    async def run_in_context_async(self, context: ExecutionContext, coro: Callable[..., Any], *args, **kwargs) -> Any:
         self.push_context(context)
         try:
             return await coro(*args, **kwargs)

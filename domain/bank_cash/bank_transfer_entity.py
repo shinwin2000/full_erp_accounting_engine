@@ -266,9 +266,8 @@ class BankTransferEntity:
         if self.updated_at is None:
             object.__setattr__(self, "updated_at", self.created_at)
 
-        if not TransferStatus.can_transition(self.status, self.status):
-            if self.status not in TransferStatus:
-                raise ValueError(f"Invalid status: {self.status}")
+        if not TransferStatus.can_transition(self.status, self.status) and self.status not in TransferStatus:
+            raise ValueError(f"Invalid status: {self.status}")
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         entry = {
@@ -666,7 +665,8 @@ class BankTransferEntity:
         if not self.can_approve(level):
             raise ValueError(f"Cannot approve at level {level} in status {self.status.value}")
 
-        new_history = self.approval_history + [
+        new_history = [
+            *self.approval_history,
             {
                 "level": level,
                 "approver": str(approved_by),
@@ -703,7 +703,8 @@ class BankTransferEntity:
         if not self.can_reject():
             raise ValueError(f"Cannot reject transfer in status {self.status.value}")
 
-        new_history = self.approval_history + [
+        new_history = [
+            *self.approval_history,
             {
                 "level": self.current_approval_level + 1,
                 "approver": str(rejected_by),

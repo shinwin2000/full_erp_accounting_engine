@@ -142,10 +142,6 @@ class ComponentHealth:
             "timestamp": self.last_check.isoformat(),
         }
 
-    # FIX: Remove unused `version` method (F811)
-    # def version(self) -> int:
-    #     return 1
-
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return [self.to_dict()]
 
@@ -212,10 +208,6 @@ class KernelHealthReport:
             "version": self.version,
         }
 
-    # FIX: Remove unused `version` method (F811)
-    # def version(self) -> int:
-    #     return 1
-
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return [self.to_dict()]
 
@@ -273,6 +265,7 @@ class KernelHealthIndicator(BaseKernelHealthIndicator):
 
     _instance: KernelHealthIndicator | None = None
     _lock = asyncio.Lock()
+    _initialized: bool  # Deklarasi tipe untuk menghilangkan error mypy
 
     def __new__(cls) -> KernelHealthIndicator:
         if cls._instance is None:
@@ -727,7 +720,7 @@ class HealthStatus(Enum):
 
 
 class HealthStatusResult:
-    def __init__(self, status: HealthStatus, details: dict):
+    def __init__(self, status: HealthStatus, details: dict) -> None:
         self.status = status
         self.details = details
 
@@ -738,7 +731,7 @@ class HealthIndicator:
     Use check_health_async() in async contexts, or check_health_sync() in sync contexts.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._checks: dict[str, Callable[[], bool]] = {}
         self._async_checks: dict[str, Callable[[], Awaitable[bool]]] = {}
 
@@ -825,7 +818,7 @@ class HealthCheckRegistry:
     Use run_all_async() in async contexts, or run_all_sync() in sync contexts.
     """
 
-    def __init__(self, timeout: float = 5.0):
+    def __init__(self, timeout: float = 5.0) -> None:
         self._checks: dict[str, Callable[[], bool]] = {}
         self._async_checks: dict[str, Callable[[], Awaitable[bool]]] = {}
         self.timeout = timeout

@@ -22,6 +22,7 @@ import random
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 class _FallbackRedisClient:
     """Fallback Redis client untuk development/testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._store: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
 
@@ -66,7 +67,7 @@ class _FallbackRedisClient:
                 return 1
             return 0
 
-    async def eval(self, script: str, numkeys: int, *args) -> Any:
+    async def eval(self, script: str, numkeys: int, *args: Any) -> Any:
         # Simplified Lua script execution - handle both single and double quotes
         if 'redis.call("get", KEYS[1]) == ARGV[1]' in script or "redis.call('get', KEYS[1]) == ARGV[1]" in script:
             key = args[0]
@@ -88,7 +89,7 @@ class _FallbackRedisClient:
         return 0
 
 
-def _get_redis_client():
+def _get_redis_client() -> _FallbackRedisClient:
     logger.info("Using in-memory fallback for distributed lock (no external Redis)")
     return _FallbackRedisClient()
 
@@ -114,7 +115,7 @@ class LockInfo:
     expires_at: datetime
     ttl_seconds: int
     auto_renew: bool
-    renewal_task: asyncio.Task | None = None
+    renewal_task: asyncio.Task[None] | None = None
 
 
 # ============================================================================
@@ -195,15 +196,15 @@ class DistributedLock(BaseDistributedLock):
     Kunci terdistribusi menggunakan Redis (Redlock algorithm) - dengan fallback in-memory.
     """
 
-    DEFAULT_TTL = 30
-    DEFAULT_RETRY_INTERVAL = 0.1
-    DEFAULT_RETRY_COUNT = 10
-    CLOCK_DRIFT_FACTOR = 0.01
+    DEFAULT_TTL: int = 30
+    DEFAULT_RETRY_INTERVAL: float = 0.1
+    DEFAULT_RETRY_COUNT: int = 10
+    CLOCK_DRIFT_FACTOR: float = 0.01
 
-    def __init__(self, redis_urls: list[str] | None = None):
-        self._redis_clients = []
+    def __init__(self, redis_urls: list[str] | None = None) -> None:
+        self._redis_clients: list[_FallbackRedisClient] = []
         self._locks_held: dict[str, LockInfo] = {}
-        self._renewal_tasks: set[asyncio.Task] = set()
+        self._renewal_tasks: set[asyncio.Task[None]] = set()
         self._lock = asyncio.Lock()
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
@@ -402,7 +403,7 @@ class DistributedLock(BaseDistributedLock):
         ttl_seconds: int = DEFAULT_TTL,
         timeout_seconds: float = 10.0,
         auto_renew: bool = True,
-    ):
+    ) -> AsyncIterator[None]:
         acquired = await self.acquire(
             lock_key=lock_key,
             ttl_seconds=ttl_seconds,
@@ -599,7 +600,7 @@ async def release_lock(lock_key: str) -> bool:
 @contextlib.asynccontextmanager
 async def distributed_lock_context(
     lock_key: str, ttl_seconds: int = 30, timeout_seconds: float = 10.0
-):
+) -> AsyncIterator[None]:
     lock = get_distributed_lock()
     async with lock.lock(lock_key, ttl_seconds=ttl_seconds, timeout_seconds=timeout_seconds):
         yield

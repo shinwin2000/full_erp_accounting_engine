@@ -10,6 +10,7 @@ Metode entity dasar untuk InvariantResult dan enforcer.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # === 1. INVARIANT RESULT ===
 class InvariantResult:
-    def __init__(self, is_valid: bool = True, errors: list[str] = None):
+    def __init__(self, is_valid: bool = True, errors: list[str] | None = None):
         self.is_valid = is_valid
         self.errors = errors or []
         self._version = 1
@@ -140,7 +141,7 @@ class UMKMInvariants:
 
 # === 3. UMKM INVARIANT ENFORCER ===
 class UMKMInvariantEnforcer:
-    def __init__(self, journal_number_checker: callable = None):
+    def __init__(self, journal_number_checker: Callable | None = None):
         self._journal_number_checker = journal_number_checker or (lambda: set())
         self._invariants = UMKMInvariants()
         self._version = 1

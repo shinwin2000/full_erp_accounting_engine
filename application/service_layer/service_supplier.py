@@ -197,7 +197,7 @@ class SupplierService:
                 metadata={"correlation_id": correlation_id} if correlation_id else None,
                 priority=EventPriority.NORMAL,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning(f"Failed to publish {event_type}: {e}")
 
     # ==================== VALIDATION ====================
@@ -560,7 +560,6 @@ class SupplierService:
         # Fallback generik jika implementasi repository tidak menyediakan CSV khusus
         import csv
         import io
-        from dataclasses import asdict
 
         rows = await repo.export_rows(legal_entity_id)
         output = io.StringIO()

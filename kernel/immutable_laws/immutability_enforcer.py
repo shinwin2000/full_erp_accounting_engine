@@ -165,7 +165,9 @@ class ImmutabilityViolationRecord:
         return hashlib.sha3_256(content.encode()).hexdigest()
 
     def __post_init__(self):
-        if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
+        if not self.cryptographic_hash:
+            object.__setattr__(self, "cryptographic_hash", self.compute_hash())
+        elif self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
     def resolve(self, resolved_by: str) -> ImmutabilityViolationRecord:
@@ -363,17 +365,12 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
         self._lock = threading.RLock()
         self._emergency_override_roles = {"super_admin", "audit_committee", "ceo"}
         self._enabled = True
-        # Entity fields
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
 
-    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+    # ==================== SYNC CHECK METHOD ====================
 
     def check(self, context: dict) -> list[str]:
-        """
-        Sync check method untuk compliance checker.
-        Memvalidasi context dan mengembalikan daftar error jika ada.
-        """
         errors = []
         journal_id = context.get("journal_id")
         legal_entity_id = context.get("legal_entity_id")
@@ -397,17 +394,15 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             errors.append("operation must be a string")
         return errors
 
-    # ==================== ENTITY METHODS (wajib) ====================
+    # ==================== ENTITY METHODS ====================
 
     def validate(self) -> dict[str, Any]:
-        """Validasi internal state."""
         errors = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}
 
     def to_dict(self) -> dict[str, Any]:
-        """Konversi ke dictionary."""
         with self._lock:
             return {
                 "enabled": self._enabled,
@@ -418,7 +413,6 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ImmutabilityEnforcer:
-        """Reconstruct dari dictionary."""
         instance = cls()
         instance._enabled = data.get("enabled", True)
         instance._max_history = data.get("max_history", 10000)
@@ -426,7 +420,6 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
         return instance
 
     def clone(self) -> ImmutabilityEnforcer:
-        """Clone instance."""
         new_instance = ImmutabilityEnforcer()
         new_instance._enabled = self._enabled
         new_instance._max_history = self._max_history
@@ -434,7 +427,6 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
         return new_instance
 
     def snapshot(self) -> dict[str, Any]:
-        """Ambil snapshot state."""
         with self._lock:
             return {
                 "version": self._version,
@@ -444,15 +436,12 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             }
 
     def version(self) -> int:
-        """Dapatkan versi."""
         return self._version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
-        """Dapatkan audit trail."""
         return self._audit_trail[-limit:]
 
     def touch(self, touched_by: str) -> ImmutabilityEnforcer:
-        """Touch instance (increment version)."""
         self._version += 1
         self._audit_trail.append({
             "action": "TOUCH",
@@ -471,7 +460,7 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             "details": details,
         })
 
-    # ==================== ORIGINAL BUSINESS METHODS ====================
+    # ==================== BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
@@ -525,11 +514,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
                         self._record_violation(violation)
                         if raise_on_violation:
                             raise ImmutabilityLawViolation(
-                                message=violation.message,
-                                attempted_operation=operation,
-                                target_id=str(journal_id),
-                                severity=LawViolationSeverity.CRITICAL,
-                                details=violation.to_dict(),
+                                violation.message,
+                                operation,
+                                str(journal_id),
                             )
                         return False, violation
                 else:
@@ -546,11 +533,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
                     self._record_violation(violation)
                     if raise_on_violation:
                         raise ImmutabilityLawViolation(
-                            message=violation.message,
-                            attempted_operation=operation,
-                            target_id=str(journal_id),
-                            severity=LawViolationSeverity.HIGH,
-                            details=violation.to_dict(),
+                            violation.message,
+                            operation,
+                            str(journal_id),
                         )
                     return False, violation
 
@@ -574,11 +559,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             self._record_violation(violation)
             if raise_on_violation:
                 raise ImmutabilityLawViolation(
-                    message=violation.message,
-                    attempted_operation=operation,
-                    target_id=str(journal_id),
-                    severity=LawViolationSeverity.CRITICAL,
-                    details=violation.to_dict(),
+                    violation.message,
+                    operation,
+                    str(journal_id),
                 )
             return False, violation
 
@@ -604,11 +587,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
                     self._record_violation(violation)
                     if raise_on_violation:
                         raise ImmutabilityLawViolation(
-                            message=violation.message,
-                            attempted_operation=operation,
-                            target_id=str(journal_id),
-                            severity=LawViolationSeverity.MEDIUM,
-                            details=violation.to_dict(),
+                            violation.message,
+                            operation,
+                            str(journal_id),
                         )
                     return False, violation
 
@@ -629,11 +610,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
                 self._record_violation(violation)
                 if raise_on_violation:
                     raise ImmutabilityLawViolation(
-                        message=violation.message,
-                        attempted_operation=operation,
-                        target_id=str(journal_id),
-                        severity=LawViolationSeverity.HIGH,
-                        details=violation.to_dict(),
+                        violation.message,
+                        operation,
+                        str(journal_id),
                     )
                 return False, violation
 
@@ -667,11 +646,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             self._record_violation(violation)
             if raise_on_violation:
                 raise ImmutabilityLawViolation(
-                    message=violation.message,
-                    attempted_operation="POST",
-                    target_id=str(journal_id),
-                    severity=LawViolationSeverity.CRITICAL,
-                    details=violation.to_dict(),
+                    violation.message,
+                    "POST",
+                    str(journal_id),
                 )
             return False, violation
 
@@ -689,11 +666,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             self._record_violation(violation)
             if raise_on_violation:
                 raise ImmutabilityLawViolation(
-                    message=violation.message,
-                    attempted_operation="POST",
-                    target_id=str(journal_id),
-                    severity=LawViolationSeverity.HIGH,
-                    details=violation.to_dict(),
+                    violation.message,
+                    "POST",
+                    str(journal_id),
                 )
             return False, violation
 
@@ -711,11 +686,9 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             self._record_violation(violation)
             if raise_on_violation:
                 raise ImmutabilityLawViolation(
-                    message=violation.message,
-                    attempted_operation="POST",
-                    target_id=str(journal_id),
-                    severity=LawViolationSeverity.CRITICAL,
-                    details=violation.to_dict(),
+                    violation.message,
+                    "POST",
+                    str(journal_id),
                 )
             return False, violation
 
@@ -782,7 +755,6 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
             resolved=False,
             cryptographic_hash="",
         )
-        violation.cryptographic_hash = violation.compute_hash()
         return violation
 
     def _record_violation(self, violation: ImmutabilityViolationRecord) -> None:

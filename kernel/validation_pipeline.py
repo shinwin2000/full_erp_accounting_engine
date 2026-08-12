@@ -118,6 +118,7 @@ class BaseValidationPipeline(ABC):
 # === 3. VALIDATION PIPELINE ===
 class ValidationPipeline(BaseValidationPipeline):
     _instance: ValidationPipeline | None = None
+    _initialized: bool  # Tambahkan deklarasi tipe
 
     def __new__(cls) -> ValidationPipeline:
         if cls._instance is None:
@@ -167,7 +168,7 @@ class ValidationPipeline(BaseValidationPipeline):
         stage_results = []
         overall_status = ValidationStatus.PASS
         rejection_reason = None
-        required_approvals = []
+        required_approvals: list[str] = []  # Tambahkan anotasi tipe
 
         # 1. PRE_VALIDATION
         result = await self._run_pre_validation(command_data)

@@ -296,7 +296,7 @@ class BankTransactionEntity:
             placed_at=datetime.now(UTC),
         )
         new_tx = self._copy()
-        new_tx.holds = self.holds + [hold]
+        new_tx.holds = [*self.holds, hold]
         new_tx.updated_at = datetime.now(UTC)
         new_tx.version = self.version + 1
         new_tx._record_audit("LOCK", str(locked_by), {"reason": reason})

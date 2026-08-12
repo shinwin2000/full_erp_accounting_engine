@@ -262,7 +262,7 @@ class SalesOrderEntity:
 
     def add_item(self, item: SOItem, added_by: str) -> SalesOrderEntity:
         """Add a new item to the SO."""
-        new_items = list(self.items) + [item]
+        new_items = [*list(self.items), item]
         return SalesOrderEntity(
             so_id=self.so_id,
             so_number=self.so_number,

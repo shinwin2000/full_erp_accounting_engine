@@ -5,7 +5,7 @@ Test untuk axioms/axiom_violation.py
 Mencakup: enum, value objects, exception classes, handler, dan module-level functions.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -35,6 +35,18 @@ from axioms.axiom_violation import (
     raise_conservation_violation,
     raise_double_entry_violation,
 )
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+@pytest.fixture(autouse=True)
+def reset_handler():
+    """Reset the singleton handler before each test to avoid cross-test pollution."""
+    handler = get_axiom_violation_handler()
+    handler.reset()
+    yield
+
 
 # ============================================================================
 # TESTS FOR ENUMS
@@ -102,8 +114,6 @@ class TestAxiomViolationRecord:
             "resolution_note": None,
             "cryptographic_hash": "",
             "version": 1,
-            "_snapshots": None,
-            "_audit_trail": None,
         }
         instance = AxiomViolationRecord(**kwargs)
         assert isinstance(instance, AxiomViolationRecord)
@@ -122,7 +132,6 @@ class TestAxiomViolationRecord:
 
 class TestAxiomViolationError:
     def test_construction(self):
-        datetime.now(UTC)
         instance = AxiomViolationError(
             message="Test error",
             axiom_type=AxiomType.CONSERVATION_OF_VALUE,
@@ -136,7 +145,7 @@ class TestAxiomViolationError:
         )
         assert isinstance(instance, AxiomViolationError)
         assert isinstance(instance, Exception)
-        assert instance.message == "Test error"
+        assert instance.original_message == "Test error"
         assert instance.axiom_type == AxiomType.CONSERVATION_OF_VALUE
 
     def test_original_message_returns_string(self):
@@ -151,7 +160,7 @@ class TestAxiomViolationError:
             context={},
             original_severity_value=1,
         )
-        result = instance.original_message()
+        result = instance.original_message
         assert isinstance(result, str)
         assert result == "Test error"
 
@@ -393,7 +402,7 @@ class TestAxiomViolationHandler:
         assert isinstance(instance, AxiomViolationHandler)
 
     def test_handle_returns_record(self):
-        handler = AxiomViolationHandler()
+        handler = get_axiom_violation_handler()
         exception = AxiomViolationError(
             message="Test error",
             axiom_type=AxiomType.CONSERVATION_OF_VALUE,
@@ -405,13 +414,14 @@ class TestAxiomViolationHandler:
             context={},
             original_severity_value=1,
         )
-        with patch.object(handler, 'save_violation', return_value=MagicMock(spec=AxiomViolationRecord)) as mock_save:
-            result = handler.handle(exception=exception, record=True, notify=False)
-            mock_save.assert_called_once()
-            assert result is not None
+        result = handler.handle(exception=exception, record=True, notify=False)
+        assert result is not None
+        # Verify that the record was stored in the handler
+        assert len(handler._violations) == 1
+        assert handler._violations[0].record_id == result.record_id
 
-    def test_handle_without_record_returns_none(self):
-        handler = AxiomViolationHandler()
+    def test_handle_without_record_returns_record_but_not_stored(self):
+        handler = get_axiom_violation_handler()
         exception = AxiomViolationError(
             message="Test error",
             axiom_type=AxiomType.CONSERVATION_OF_VALUE,
@@ -424,19 +434,20 @@ class TestAxiomViolationHandler:
             original_severity_value=1,
         )
         result = handler.handle(exception=exception, record=False, notify=False)
-        assert result is None
+        # The handler always returns the record object, but it is not stored
+        assert result is not None
+        assert len(handler._violations) == 0
 
-    def test_save_violation_returns_record(self):
-        handler = AxiomViolationHandler()
+    def test_save_violation_stores_record(self):
+        handler = get_axiom_violation_handler()
         record = MagicMock(spec=AxiomViolationRecord)
         record.record_id = uuid4()
-        result = handler.save_violation(record=record)
-        # Assuming save_violation returns True or the record
-        assert result is not None
+        handler.save_violation(record=record)
+        assert len(handler._violations) == 1
+        assert handler._violations[0] is record
 
     def test_get_violations_returns_list(self):
-        handler = AxiomViolationHandler()
-        # Mock _violations store
+        handler = get_axiom_violation_handler()
         record1 = MagicMock(spec=AxiomViolationRecord)
         record1.record_id = uuid4()
         record1.axiom_type = AxiomType.CONSERVATION_OF_VALUE
@@ -447,7 +458,7 @@ class TestAxiomViolationHandler:
         record2.axiom_type = AxiomType.DOUBLE_ENTRY
         record2.severity = AxiomViolationSeverity.LOW
         record2.resolved = True
-        handler._violations = {record1.record_id: record1, record2.record_id: record2}
+        handler._violations = [record1, record2]
 
         result = handler.get_violations(axiom_type=AxiomType.CONSERVATION_OF_VALUE)
         assert len(result) == 1
@@ -462,17 +473,17 @@ class TestAxiomViolationHandler:
         assert result[0].resolved is False
 
     def test_get_violation_found(self):
-        handler = AxiomViolationHandler()
+        handler = get_axiom_violation_handler()
         record_id = uuid4()
         record = MagicMock(spec=AxiomViolationRecord)
         record.record_id = record_id
-        handler._violations = {record_id: record}
+        handler._violations = [record]
         result = handler.get_violation(record_id=record_id)
         assert result is not None
         assert result.record_id == record_id
 
     def test_get_violation_not_found(self):
-        handler = AxiomViolationHandler()
+        handler = get_axiom_violation_handler()
         result = handler.get_violation(record_id=uuid4())
         assert result is None
 
@@ -512,6 +523,7 @@ def test_raise_double_entry_violation_raises_exception():
             total_credit=Decimal("80.00"),
             difference=Decimal("20.00"),
             journal_id=journal_id,
+            severity=AxiomViolationSeverity.HIGH,
         )
     assert isinstance(exc_info.value, DoubleEntryViolation)
     assert exc_info.value.total_debit == Decimal("100.00")
@@ -537,5 +549,6 @@ def test_handle_axiom_violation_calls_handler():
         mock_handler.handle.return_value = MagicMock(spec=AxiomViolationRecord)
         mock_get_handler.return_value = mock_handler
         result = handle_axiom_violation(exc=exception)
-        mock_handler.handle.assert_called_once_with(exception=exception, record=True, notify=True)
+        # The function calls handler.handle(exc) with defaults; we assert the positional argument.
+        mock_handler.handle.assert_called_once_with(exception)
         assert result is not None

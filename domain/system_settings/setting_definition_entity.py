@@ -118,7 +118,7 @@ class SettingDefinitionEntity:
         elif self.data_type == SettingDataType.BOOLEAN:
             if isinstance(value, str):
                 value = value.lower() in ("true", "1", "yes", "on")
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, int | float):
                 value = bool(value)
             elif not isinstance(value, bool):
                 raise ValueError(f"Value '{value}' is not a valid boolean")
@@ -131,7 +131,7 @@ class SettingDefinitionEntity:
                     value = json.loads(value)
                 except json.JSONDecodeError:
                     raise ValueError(f"Value '{value}' is not valid JSON")
-            elif not isinstance(value, (dict, list)):
+            elif not isinstance(value, dict | list):
                 raise ValueError(f"Value '{value}' is not valid JSON (dict or list expected)")
 
         # Check allowed values

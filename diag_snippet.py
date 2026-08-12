@@ -1,5 +1,6 @@
 """Tempel/jalankan dari root project:  python diag_snippet.py"""
 import sys
+
 sys.path.insert(0, ".")
 
 from infrastructure.persistence_orm.tax_transaction_table import TaxTransactionTable

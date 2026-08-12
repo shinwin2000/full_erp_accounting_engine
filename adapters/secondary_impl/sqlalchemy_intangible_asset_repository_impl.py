@@ -33,7 +33,10 @@ from sqlalchemy.orm import declarative_base
 from domain.intangible_asset.aggregate_root import IntangibleAsset
 from domain.intangible_asset.asset_entity import IntangibleAssetEntity
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
-from infrastructure.persistence_orm.intangible_asset_table import IntangibleAssetTable, IntangibleAssetType
+from infrastructure.persistence_orm.intangible_asset_table import (
+    IntangibleAssetTable,
+    IntangibleAssetType,
+)
 from ports.primary.intangible_asset_repository_port import IntangibleAssetRepositoryPort
 
 logger = logging.getLogger(__name__)

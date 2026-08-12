@@ -132,29 +132,22 @@ class ServiceRegistrar:
         if container is None:
             container = get_container()
 
-        registry = ServiceRegistry(container)
-
         # --- Application Services ---
         try:
             from application.service_layer.service_ap import APService
+
+            # FIX: ApprovalService juga tidak pernah terdaftar di sini, padahal
+            # fastapi_approval_router.py memanggil container.resolve_async(ApprovalService).
+            # Akibatnya semua endpoint /api/v1/approval/* gagal dengan DependencyNotFoundError.
+            from application.service_layer.service_approval import ApprovalService
             from application.service_layer.service_ar import ARService
             from application.service_layer.service_bank_cash import BankCashService
             from application.service_layer.service_budget import BudgetService
+
             # Service Capital & Fiscal Period
             from application.service_layer.service_capital import CapitalService
             from application.service_layer.service_coa import COAService
             from application.service_layer.service_coretax import CoretaxService
-            from application.service_layer.service_employee import EmployeeService
-            from application.service_layer.service_fiscal_period import FiscalPeriodService
-            from application.service_layer.service_fixed_asset import FixedAssetService
-            from application.service_layer.service_inventory import InventoryService
-            from application.service_layer.service_journal import JournalService
-            from application.service_layer.service_legal_entity import LegalEntityService
-            from application.service_layer.service_ledger import LedgerService
-            from application.service_layer.service_manufacturing import ManufacturingService
-            from application.service_layer.service_payroll import PayrollService
-            from application.service_layer.service_report import ReportService
-            from application.service_layer.service_tax import TaxService
 
             # FIX: SupplierService, CustomerService, dan PaymentService sebelumnya TIDAK
             # PERNAH terdaftar di sini sama sekali, padahal router-nya
@@ -163,23 +156,29 @@ class ServiceRegistrar:
             # ketiganya. Akibatnya setiap request ke endpoint supplier/customer/payment
             # gagal dengan DependencyNotFoundError saat resolve.
             from application.service_layer.service_customer import CustomerService
+            from application.service_layer.service_employee import EmployeeService
+            from application.service_layer.service_fiscal_period import FiscalPeriodService
+            from application.service_layer.service_fixed_asset import FixedAssetService
+            from application.service_layer.service_inventory import InventoryService
+            from application.service_layer.service_journal import JournalService
+            from application.service_layer.service_ledger import LedgerService
+            from application.service_layer.service_legal_entity import LegalEntityService
+            from application.service_layer.service_manufacturing import ManufacturingService
             from application.service_layer.service_payment import PaymentService
+            from application.service_layer.service_payroll import PayrollService
+            from application.service_layer.service_report import ReportService
             from application.service_layer.service_supplier import SupplierService
-
-            # FIX: ApprovalService juga tidak pernah terdaftar di sini, padahal
-            # fastapi_approval_router.py memanggil container.resolve_async(ApprovalService).
-            # Akibatnya semua endpoint /api/v1/approval/* gagal dengan DependencyNotFoundError.
-            from application.service_layer.service_approval import ApprovalService
+            from application.service_layer.service_tax import TaxService
 
             container.register_singleton(COAService, COAService)
             # ============================================================
             # FIX: JournalService registration via factory
             # ============================================================
             # Impor port yang diperlukan untuk JournalService
-            from ports.primary.ledger_repository_port import LedgerRepositoryPort
             from ports.primary.account_repository_port import AccountRepositoryPort
-            from ports.primary.unit_of_work_port import UnitOfWorkPort
             from ports.primary.event_publisher_port import EventPublisherPort
+            from ports.primary.ledger_repository_port import LedgerRepositoryPort
+            from ports.primary.unit_of_work_port import UnitOfWorkPort
 
             async def _create_journal_service():
                 # Ambil dependensi dari container
@@ -240,7 +239,6 @@ class ServiceRegistrar:
                 SQLAlchemyFiscalPeriodRepository,
             )
             from ports.primary.fiscal_period_repository_port import FiscalPeriodRepositoryPort
-            from ports.primary.unit_of_work_port import UnitOfWorkPort
 
             container.register_singleton(SQLAlchemyFiscalPeriodRepository, SQLAlchemyFiscalPeriodRepository)
             container.register_singleton(FiscalPeriodRepositoryPort, SQLAlchemyFiscalPeriodRepository)
@@ -395,8 +393,9 @@ class ServiceRegistrar:
             cache = None
 
             try:
-                from adapters.secondary_impl.kafka_event_publisher_impl import KafkaEventPublisher as EventPublisher
-
+                from adapters.secondary_impl.kafka_event_publisher_impl import (
+                    KafkaEventPublisher as EventPublisher,
+                )
                 from ports.primary.event_publisher_port import EventPublisherPort
                 container.register_singleton(EventPublisher, EventPublisher)
                 container.register_singleton(EventPublisherPort, EventPublisher)
@@ -417,7 +416,6 @@ class ServiceRegistrar:
 
             try:
                 from infrastructure.caching.redis_cache import RedisCache
-
                 from ports.primary.cache_port import CachePort
                 container.register_singleton(RedisCache, RedisCache)
                 container.register_singleton(CachePort, RedisCache)
@@ -426,7 +424,7 @@ class ServiceRegistrar:
             except ImportError:
                 logger.warning("RedisCache not available, using None")
 
-            # Factory untuk IAMService – repository dan UoW diambil dari container,
+            # Factory untuk IAMService - repository dan UoW diambil dari container,
             # namun session & legal_entity_id akan di-set via service.set_context()
             async def _create_iam_service():
                 iam_repo = await container.resolve_async(IAMRepositoryPort)

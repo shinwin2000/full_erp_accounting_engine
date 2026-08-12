@@ -176,7 +176,7 @@ class EncryptionKey:
     expires_at: datetime | None
     is_active: bool
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    version: int = 1
+    _version: int = 1  # renamed from 'version' to avoid conflict with method
 
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
@@ -198,7 +198,7 @@ class EncryptionKey:
 
     def _take_snapshot(self):
         self._snapshots.append({
-            "version": self.version,
+            "version": self._version,
             "key_uid": self._key_uid,
             "key_id": self.key_id,
             "is_active": self.is_active,
@@ -212,7 +212,7 @@ class EncryptionKey:
             "action": action,
             "performed_by": performed_by,
             "timestamp": datetime.now(UTC).isoformat(),
-            "version": self.version,
+            "version": self._version,
             "key_id": self.key_id,
             "details": details,
         })
@@ -233,7 +233,7 @@ class EncryptionKey:
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat(),
-            "version": self.version,
+            "version": self._version,
         }
 
     @classmethod
@@ -244,8 +244,8 @@ class EncryptionKey:
             expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
             is_active=data["is_active"],
             created_at=datetime.fromisoformat(data["created_at"]),
-            version=data.get("version", 1),
         )
+        instance._version = data.get("version", 1)
         instance._key_uid = data.get("key_uid", str(uuid4()))
         return instance
 
@@ -256,14 +256,14 @@ class EncryptionKey:
             expires_at=self.expires_at,
             is_active=self.is_active,
             created_at=datetime.now(UTC),
-            version=self.version + 1,
         )
+        new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._key_uid})
         return new
 
     def snapshot(self) -> dict[str, Any]:
         return {
-            "version": self.version,
+            "version": self._version,
             "key_uid": self._key_uid,
             "key_id": self.key_id,
             "is_active": self.is_active,
@@ -271,13 +271,13 @@ class EncryptionKey:
         }
 
     def version(self) -> int:
-        return self.version
+        return self._version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
     def touch(self, touched_by: str) -> EncryptionKey:
-        self.version += 1
+        self._version += 1
         self._record_audit("TOUCH", touched_by, {})
         return self
 
@@ -345,7 +345,6 @@ class EncryptionMaster:
             created_at=datetime.now(UTC),
             expires_at=expires_at,
             is_active=is_active,
-            version=len(self._keys) + 1,
         )
         self._keys[key_id] = key
         if is_active:
@@ -462,7 +461,7 @@ class EncryptionMaster:
                 "created_at": k.created_at.isoformat(),
                 "expires_at": k.expires_at.isoformat() if k.expires_at else None,
                 "is_active": k.is_active,
-                "version": k.version,
+                "version": k._version,
             }
             for k in self._keys.values()
         ]

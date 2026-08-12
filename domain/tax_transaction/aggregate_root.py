@@ -426,7 +426,7 @@ class FakturPajak:
     # ==================== AGGREGATE ROOT METHODS ====================
     def add_child(self, entity: Any, created_by: str) -> FakturPajak:
         if hasattr(entity, "to_dict"):
-            new_lines = self.lines + [entity.to_dict()]
+            new_lines = [*self.lines, entity.to_dict()]
             new = self._copy()
             new.lines = new_lines
             new.updated_at = datetime.now(UTC)
@@ -437,7 +437,7 @@ class FakturPajak:
 
     def remove_child(self, entity_id: UUID, entity_type: str, removed_by: str) -> FakturPajak:
         if entity_type == "line":
-            new_lines = [l for l in self.lines if l.get("id") != str(entity_id)]
+            new_lines = [line for line in self.lines if line.get("id") != str(entity_id)]
             new = self._copy()
             new.lines = new_lines
             new.updated_at = datetime.now(UTC)

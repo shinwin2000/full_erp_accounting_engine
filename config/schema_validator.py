@@ -162,17 +162,17 @@ class SchemaValidator:
         return value
 
     def _check_type(self, value: Any, expected_type: type) -> bool:
-        if expected_type == list:
+        if expected_type is list:
             return isinstance(value, list)
-        elif expected_type == dict:
+        elif expected_type is dict:
             return isinstance(value, dict)
-        elif expected_type == str:
+        elif expected_type is str:
             return isinstance(value, str)
-        elif expected_type == int:
+        elif expected_type is int:
             return isinstance(value, int) and not isinstance(value, bool)
-        elif expected_type == bool:
+        elif expected_type is bool:
             return isinstance(value, bool)
-        elif expected_type == float:
+        elif expected_type is float:
             return isinstance(value, (int, float))
         else:
             return isinstance(value, expected_type)
@@ -237,7 +237,7 @@ class SchemaValidator:
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         errors = []
-        for field_path, (exp_type, required, validator) in self._schema.items():
+        for field_path, (_exp_type, _required, _validator) in self._schema.items():
             if not field_path:
                 errors.append("Empty field path in schema")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -293,7 +293,7 @@ class SchemaValidator:
 
 # === 3. PYDANTIC SCHEMA VALIDATOR (dengan entity dasar) ===
 try:
-    from pydantic import BaseModel, Field, ValidationError, create_model
+    from pydantic import BaseModel, Field, ValidationError
 
     class DatabaseConfig(BaseModel):
         host: str

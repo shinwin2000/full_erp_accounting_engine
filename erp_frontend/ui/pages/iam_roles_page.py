@@ -174,6 +174,35 @@ class RolePermissionTab(QWidget):
         self.role_table.resizeColumnsToContents()
         self.status_label.setText(f"{len(self._roles)} role dimuat.")
 
+        # BUG FIX: setelah refresh (mis. dipanggil dari _finish_save() usai
+        # simpan permission), `self._roles` diganti dengan list objek dict
+        # yang SAMA SEKALI BARU hasil query ulang ke backend — tapi
+        # `self._selected_role` masih menunjuk ke dict LAMA (sebelum
+        # refresh). Karena baris yang terpilih di role_table biasanya tetap
+        # di index yang sama, Qt tidak memancarkan sinyal
+        # itemSelectionChanged, sehingga `_on_role_selected()` (satu-satunya
+        # tempat yang memanggil `_render_permission_matrix()`) tidak pernah
+        # terpanggil lagi. Akibatnya panel checkbox di kanan tetap
+        # menampilkan data permission LAMA walau data sebenarnya di
+        # `self._roles` sudah ter-update — baru tampak benar kalau user
+        # pindah ke role lain lalu balik lagi (memicu selection-changed),
+        # atau restart aplikasi (state di-load ulang dari nol). Fix: cari
+        # ulang role yang sama (by id) di data baru, lalu render ulang
+        # matrix-nya secara eksplisit di sini.
+        if self._selected_role is not None:
+            selected_id = str(self._selected_role.get("id"))
+            for row, role in enumerate(self._roles):
+                if str(role.get("id")) == selected_id:
+                    self._selected_role = role
+                    if self.role_table.currentRow() != row:
+                        self.role_table.setCurrentCell(row, 0)
+                    self._render_permission_matrix()
+                    break
+            else:
+                # Role yang sebelumnya dipilih sudah tidak ada lagi (mis. dihapus)
+                self._selected_role = None
+                self.save_perm_btn.setEnabled(False)
+
     def _on_permissions_loaded(self, payload: Any) -> None:
         self._all_permissions = extract_list(payload)
         if self._selected_role:

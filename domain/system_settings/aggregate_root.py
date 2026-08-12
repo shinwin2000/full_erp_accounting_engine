@@ -336,7 +336,7 @@ class SystemSettings:
     def reset_all_to_default(self, reset_by: str) -> SystemSettings:
         """Mereset semua pengaturan ke nilai default."""
         result = self
-        for key in self.definitions.keys():
+        for key in self.definitions:
             result = result.reset_to_default(key, reset_by)
         return result
 
@@ -485,7 +485,7 @@ class SystemSettingsRepository:
 
 __all__ = [
     "SettingCategory",
-    "SettingDataType",  # re-export from setting_definition_entity
+    "SettingDataType",
     "SettingScope",
     "SystemSettingAggregate",
     "SystemSettings",

@@ -99,7 +99,7 @@ def get_real_attrs(module_path: str, class_name: str) -> tuple[set[str] | None, 
     datang dari mixin seperti TimestampMixin/SoftDeleteMixin/VersionMixin)."""
     try:
         mod = importlib.import_module(module_path)
-    except Exception as e:  # noqa: BLE001 - memang mau nangkep semua import error
+    except Exception as e:
         return None, f"gagal import module '{module_path}': {e}"
 
     cls = getattr(mod, class_name, None)
@@ -196,7 +196,7 @@ def main() -> None:
     for f in files:
         try:
             issues, errors = scan_file(f, verbose=args.verbose)
-        except Exception:  # noqa: BLE001 - jangan sampai satu file bikin scan berhenti total
+        except Exception:
             print(f"[FATAL] Gagal scan {f}:")
             traceback.print_exc()
             total_errors += 1

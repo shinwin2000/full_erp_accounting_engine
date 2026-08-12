@@ -584,7 +584,7 @@ class CausalNodeService:
                     elif neighbor in rec_stack:
                         # Cycle detected
                         cycle_start = path.index(neighbor)
-                        cycles.append(path[cycle_start:] + [neighbor])
+                        cycles.append([*path[cycle_start:], neighbor])
             rec_stack.remove(node_id)
             path.pop()
 

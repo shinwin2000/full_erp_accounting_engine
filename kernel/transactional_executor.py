@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum, auto
 from typing import Any, ClassVar, Protocol, TypeVar
 from uuid import UUID, uuid4
@@ -128,7 +129,7 @@ class ExecutionResult:
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not isinstance(self.status, ExecutionStatus):
             errors.append("Invalid status")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -214,7 +215,7 @@ class DeadlockDetector:
     async def check_deadlock(self, transaction_id: UUID) -> bool:
         async with self._lock:
             tx_start = self._active_transactions.get(transaction_id)
-            if tx_start and (datetime.now(UTC) - tx_start).total_seconds() > self._timeout_seconds:
+            if tx_start and (datetime.now(UTC) - tx_start).total_seconds() >= self._timeout_seconds:
                 return True
             visited = set()
             stack = [transaction_id]
@@ -230,11 +231,10 @@ class DeadlockDetector:
                         stack.append(waiter)
             return False
 
-    async def clear(self) -> None:
-        async with self._lock:
-            self._active_transactions.clear()
-            self._waiting_for.clear()
-            self._version += 1
+    def clear(self) -> None:
+        self._active_transactions.clear()
+        self._waiting_for.clear()
+        self._version += 1
 
     # Entity methods
     def validate(self) -> dict[str, Any]:
@@ -273,7 +273,7 @@ class DeadlockDetector:
 # === 4. RETRYABLE ERROR DETECTOR ===
 class RetryableErrorDetector:
     RETRYABLE_KEYWORDS: ClassVar[list[str]] = [
-        "deadlock", "lock", "timeout", "connection", "network", "unavailable"
+        "deadlock", "lock", "timeout", "connection", "network", "unavailable", "retryable"
     ]
     NON_RETRYABLE_KEYWORDS: ClassVar[list[str]] = [
         "constraint", "validation", "duplicate", "foreign key"
@@ -281,8 +281,11 @@ class RetryableErrorDetector:
 
     @classmethod
     def is_retryable(cls, error: Exception) -> bool:
+        if isinstance(error, RetryableError):
+            return True
+        if isinstance(error, (TimeoutError, ConnectionError)):
+            return True
         error_str = str(error).lower()
-        # Cek non-retryable dulu
         if any(kw in error_str for kw in cls.NON_RETRYABLE_KEYWORDS):
             return False
         return any(kw in error_str for kw in cls.RETRYABLE_KEYWORDS)
@@ -371,6 +374,7 @@ class BaseTransactionalExecutor(ABC):
 class TransactionalExecutor(BaseTransactionalExecutor):
     _instance: TransactionalExecutor | None = None
     _lock = asyncio.Lock()
+    _initialized: bool  # Add type declaration
 
     def __new__(cls) -> TransactionalExecutor:
         if cls._instance is None:
@@ -413,7 +417,6 @@ class TransactionalExecutor(BaseTransactionalExecutor):
         uow = self._uow if self._uow else _FallbackUnitOfWork()
         try:
             result = operation()
-            # If result is a coroutine, await it
             if asyncio.iscoroutine(result):
                 result = await result
             await uow.commit()
@@ -434,7 +437,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
     ) -> ExecutionResult:
         start_time = time.time()
         retry_count = 0
-        last_error = None
+        last_error: Exception | None = None
         transaction_id = uuid4()
         max_retries_config = (
             max_retries
@@ -443,9 +446,9 @@ class TransactionalExecutor(BaseTransactionalExecutor):
         )
 
         while True:
+            if retry_count > max_retries_config:
+                break
             try:
-                if retry_count > max_retries_config:
-                    break
                 await self._deadlock_detector.register_transaction(transaction_id)
                 result = await self._execute_once(
                     uow_callback=uow_callback,
@@ -466,7 +469,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
                 if self._metric_collector:
                     self._metric_collector.record_histogram(
                         "transaction_duration_ms",
-                        duration_ms,
+                        Decimal(str(duration_ms)),
                         {"status": "success", "retry_count": str(retry_count)},
                     )
                 return execution_result
@@ -505,7 +508,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
                     if self._metric_collector:
                         self._metric_collector.record_histogram(
                             "transaction_duration_ms",
-                            duration_ms,
+                            Decimal(str(duration_ms)),
                             {"status": "failed", "error_type": type(e).__name__},
                         )
                         self._metric_collector.increment_counter(
@@ -569,6 +572,8 @@ class TransactionalExecutor(BaseTransactionalExecutor):
                     result = await uow_callback(uow)
                 else:
                     result = uow_callback(uow)
+                if asyncio.iscoroutine(result):
+                    result = await result
                 try:
                     await asyncio.wait_for(uow.commit(), timeout=timeout_seconds)
                 except TimeoutError:
@@ -618,6 +623,8 @@ class TransactionalExecutor(BaseTransactionalExecutor):
                 result = await uow_callback(uow)
             else:
                 result = uow_callback(uow)
+            if asyncio.iscoroutine(result):
+                result = await result
             await uow.rollback()
             duration_ms = (time.time() - start_time) * 1000
             execution_result = ExecutionResult(
@@ -675,7 +682,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
         avg_retries = (
             sum(r.retry_count for r in self._execution_history) / total if total > 0 else 0
         )
-        by_error_type = {}
+        by_error_type: dict[str, int] = {}
         for r in self._execution_history:
             if r.error_type:
                 by_error_type[r.error_type] = by_error_type.get(r.error_type, 0) + 1
@@ -694,10 +701,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
 
     def reset(self) -> None:
         self._execution_history = []
-        # Batalkan task sebelumnya jika ada
-        if self._clear_task and not self._clear_task.done():
-            self._clear_task.cancel()
-        self._clear_task = asyncio.create_task(self._deadlock_detector.clear())
+        self._deadlock_detector.clear()
         self._version += 1
         self._audit_trail = []
         self._snapshots = []
@@ -705,7 +709,7 @@ class TransactionalExecutor(BaseTransactionalExecutor):
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -726,9 +730,22 @@ class TransactionalExecutor(BaseTransactionalExecutor):
         return instance
 
     def clone(self) -> TransactionalExecutor:
-        new_instance = TransactionalExecutor()
+        # Karena singleton, kita tidak bisa membuat instance baru dengan __new__,
+        # jadi kita buat instance baru dengan object.__new__ secara manual,
+        # lalu salin state.
+        new_instance = object.__new__(TransactionalExecutor)
+        new_instance._initialized = True
+        new_instance._retry_policy = self._retry_policy
+        new_instance._metric_collector = self._metric_collector
+        new_instance._deadlock_detector = self._deadlock_detector.clone()
+        new_instance._execution_history = self._execution_history.copy()
         new_instance._max_history = self._max_history
+        new_instance._retryable_detector = self._retryable_detector.clone()
+        new_instance._uow = self._uow
+        new_instance._audit_trail = self._audit_trail.copy()
+        new_instance._snapshots = self._snapshots.copy()
         new_instance._version = self._version + 1
+        new_instance._clear_task = None
         return new_instance
 
     def snapshot(self) -> dict[str, Any]:
@@ -767,7 +784,6 @@ class TransactionalExecutor(BaseTransactionalExecutor):
         Legacy synchronous method. Use execute_async() for async operations,
         or execute_sync() for pure sync operations.
         """
-        # For backward compatibility, if operation is async, raise error
         if asyncio.iscoroutinefunction(operation):
             raise RuntimeError(
                 "Cannot execute async operation with sync execute(). "

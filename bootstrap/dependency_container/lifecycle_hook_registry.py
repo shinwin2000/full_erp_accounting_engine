@@ -74,7 +74,7 @@ class LifecycleHookRegistry:
         """Execute all startup hooks."""
         self._logger.info(f"Executing {len(self._startup_hooks)} startup hooks")
 
-        for hook, priority in self._startup_hooks:
+        for hook, _priority in self._startup_hooks:
             try:
                 await hook()
                 self._logger.debug(f"Startup hook executed: {hook.__name__}")
@@ -101,7 +101,7 @@ class LifecycleHookRegistry:
         """Execute all shutdown hooks."""
         self._logger.info(f"Executing {len(self._shutdown_hooks)} shutdown hooks")
 
-        for hook, priority in self._shutdown_hooks:
+        for hook, _priority in self._shutdown_hooks:
             try:
                 await hook()
                 self._logger.debug(f"Shutdown hook executed: {hook.__name__}")

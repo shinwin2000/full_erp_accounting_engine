@@ -1,9 +1,9 @@
-from __future__ import annotations
-
 """
 Package: config
 Konfigurasi YAML, environment resolver, vault integrator.
 """
+
+from __future__ import annotations
 
 from config.environment_resolver import EnvironmentResolver
 from config.loader_yaml import load_yaml_config

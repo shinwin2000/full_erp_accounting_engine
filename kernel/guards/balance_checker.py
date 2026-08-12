@@ -316,13 +316,13 @@ class BalanceChecker(BaseBalanceChecker):
         account_balance_port: AccountBalancePort,
         tolerance: Decimal = Decimal("0.01"),
         warning_threshold_percentage: Decimal = Decimal("85"),
-    ):
+    ) -> None:
         if account_balance_port is None:
             raise ValueError("account_balance_port is required")
-        self._port = account_balance_port
-        self._tolerance = tolerance
-        self._warning_threshold = warning_threshold_percentage
-        self._version = 1
+        self._port: AccountBalancePort = account_balance_port
+        self._tolerance: Decimal = tolerance
+        self._warning_threshold: Decimal = warning_threshold_percentage
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
         logger.debug("BalanceChecker initialized with port: %s", type(account_balance_port).__name__)
@@ -334,7 +334,7 @@ class BalanceChecker(BaseBalanceChecker):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         account_id = context.get("account_id")
         proposed_change = context.get("proposed_change")
         legal_entity_id = context.get("legal_entity_id")
@@ -430,7 +430,7 @@ class BalanceChecker(BaseBalanceChecker):
     # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def _get_account_type_from_data(self, account_data: dict[str, Any] | None, account_code: str) -> AccountType:
-        if account_data and "account_type" in account_data:
+        if account_data is not None and "account_type" in account_data:
             try:
                 return AccountType.from_string(account_data["account_type"])
             except ValueError:
@@ -493,7 +493,7 @@ class BalanceChecker(BaseBalanceChecker):
         is_allowed = not is_negative or final_allow_negative
 
         severity = BalanceCheckSeverity.INFO
-        message = ""
+        message: str = ""
         requires_approval = False
 
         if is_negative and not final_allow_negative:
@@ -517,7 +517,7 @@ class BalanceChecker(BaseBalanceChecker):
                 usage_percentage = (
                     (current_balance - new_balance) / current_balance * 100
                     if current_balance > 0
-                    else 0
+                    else Decimal(0)
                 )
                 if usage_percentage >= self._warning_threshold:
                     severity = BalanceCheckSeverity.MEDIUM
@@ -578,7 +578,7 @@ class BalanceChecker(BaseBalanceChecker):
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
-        results = []
+        results: list[BalanceCheckResult] = []
         for account_id, debit in account_debits.items():
             result = await self.check_balance(
                 account_id=account_id,
@@ -638,7 +638,7 @@ class BalanceChecker(BaseBalanceChecker):
 
         # Fetch all accounts and balances in batch
         account_ids = list(account_changes.keys())
-        account_data_map = {}
+        account_data_map: dict[UUID, dict[str, Any]] = {}
         for account_id in account_ids:
             data = await self._port.get_account(account_id, legal_entity_id)
             if data is None:
@@ -653,12 +653,15 @@ class BalanceChecker(BaseBalanceChecker):
 
         balances = await self._port.get_balances(account_ids, legal_entity_id)
 
-        results = []
+        results: list[BalanceCheckResult] = []
         for account_id, change in account_changes.items():
             current_balance = balances.get(account_id, Decimal(0))
             new_balance = current_balance + change
             account_data = account_data_map.get(account_id)
-            account_code = account_data.get("account_code", str(account_id)) if account_data else str(account_id)
+            if account_data is None:
+                # This should not happen since we fetched all accounts above
+                continue
+            account_code = account_data.get("account_code", str(account_id))
             account_type = self._get_account_type_from_data(account_data, account_code)
 
             inherently_allows = account_type.allows_negative_balance()
@@ -714,7 +717,7 @@ class BalanceChecker(BaseBalanceChecker):
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
-        violations = []
+        violations: list[BalanceCheckResult] = []
         for account_id, change in account_balances:
             result = await self.enforce(
                 account_id=account_id,
@@ -739,7 +742,7 @@ class InMemoryAccountBalancePort:
     during testing. In a real project, this should be placed in tests/fakes/.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._accounts: dict[UUID, dict[str, Any]] = {}
         self._balances: dict[tuple[UUID, UUID], Decimal] = {}
 
@@ -757,7 +760,7 @@ class InMemoryAccountBalancePort:
             "account_type": account_type,
             "currency": currency,
         }
-        if legal_entity_id:
+        if legal_entity_id is not None:
             self._balances[(account_id, legal_entity_id)] = initial_balance
 
     async def get_account(self, account_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
@@ -768,7 +771,7 @@ class InMemoryAccountBalancePort:
         return self._balances.get(key, Decimal(0))
 
     async def get_balances(self, account_ids: list[UUID], legal_entity_id: UUID) -> dict[UUID, Decimal]:
-        result = {}
+        result: dict[UUID, Decimal] = {}
         for account_id in account_ids:
             result[account_id] = await self.get_balance(account_id, legal_entity_id)
         return result

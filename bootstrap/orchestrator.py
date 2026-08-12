@@ -364,6 +364,7 @@ class StartupOrchestrator:
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
+        self._background_tasks: list[asyncio.Task] = []  # track background tasks for shutdown
         self._take_snapshot()
         self._build_steps()
 
@@ -1039,10 +1040,13 @@ class StartupOrchestrator:
         if container and hasattr(container, "shutdown"):
             try:
                 if inspect.iscoroutinefunction(container.shutdown):
-                    asyncio.create_task(container.shutdown())
+                    # Store task in background tasks list to be awaited during shutdown
+                    shutdown_task = asyncio.create_task(container.shutdown())
+                    self._background_tasks.append(shutdown_task)
+                    logger.info("Application container shutdown task created")
                 else:
                     container.shutdown()
-                logger.info("Application container shutdown initiated")
+                    logger.info("Application container shutdown completed synchronously")
             except Exception as e:
                 logger.warning(f"Error during container shutdown: {e}")
         self._context.components.pop("api_app", None)
@@ -1297,6 +1301,12 @@ class StartupOrchestrator:
 
     async def shutdown(self) -> None:
         logger.info("Shutting down...")
+        # Await background tasks first
+        if self._background_tasks:
+            logger.info(f"Waiting for {len(self._background_tasks)} background tasks to complete...")
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+
         for step in reversed(self._steps):
             if step.status == "success" and step.rollback:
                 try:
@@ -1477,3 +1487,4 @@ if __name__ == "__main__":
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     main()
+

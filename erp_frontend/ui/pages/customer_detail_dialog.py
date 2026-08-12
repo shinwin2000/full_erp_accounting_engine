@@ -17,8 +17,8 @@ untuk baris Customer yang sedang dipilih.
 """
 from __future__ import annotations
 
-from registry.module_registry import FieldSpec, FieldType
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QTabWidget, QVBoxLayout, QWidget
+from registry.module_registry import FieldSpec, FieldType
 from ui.widgets.child_record_panel import ChildRecordPanel
 
 CUSTOMER_BASE = "/customers/customers"

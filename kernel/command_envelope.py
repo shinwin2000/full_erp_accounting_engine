@@ -38,11 +38,13 @@ class CommandResult(Generic[T]):
     error: str | None = None
 
     @classmethod
-    def success(cls, data: T = None) -> CommandResult[T]:
+    def of_success(cls, data: T | None = None) -> CommandResult[T]:
+        """Create a success result."""
         return cls(success=True, data=data)
 
     @classmethod
-    def failure(cls, error: str) -> CommandResult:
+    def failure(cls, error: str) -> CommandResult[Any]:
+        """Create a failure result."""
         return cls(success=False, error=error)
 
     @property
@@ -70,14 +72,14 @@ class CommandResult(Generic[T]):
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> CommandResult:
+    def from_dict(cls, data: dict[str, Any]) -> CommandResult[Any]:
         return cls(
             success=data["success"],
             data=data.get("data"),
             error=data.get("error"),
         )
 
-    def clone(self) -> CommandResult:
+    def clone(self) -> CommandResult[T]:
         return CommandResult(
             success=self.success,
             data=self.data,
@@ -97,7 +99,7 @@ class CommandResult(Generic[T]):
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return []
 
-    def touch(self, touched_by: str) -> CommandResult:
+    def touch(self, touched_by: str) -> CommandResult[T]:
         return self.clone()
 
 

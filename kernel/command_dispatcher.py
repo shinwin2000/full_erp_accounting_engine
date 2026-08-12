@@ -99,6 +99,7 @@ class BaseCommandDispatcher(ABC):
 class CommandDispatcher(BaseCommandDispatcher):
     _instance: CommandDispatcher | None = None
     _lock = threading.Lock()
+    _initialized: bool  # type declaration for mypy
 
     def __new__(cls) -> CommandDispatcher:
         if cls._instance is None:
@@ -274,7 +275,7 @@ class CommandDispatcher(BaseCommandDispatcher):
         success_count = len([d for d in self._dispatch_history if d.get("status") == "SUCCESS"])
         failed_count = len([d for d in self._dispatch_history if d.get("status") == "FAILED"])
         rejected_count = len([d for d in self._dispatch_history if d.get("status") == "REJECTED"])
-        by_command_type = {}
+        by_command_type: dict[str, int] = {}
         for d in self._dispatch_history:
             ct = d.get("command_type", "unknown")
             by_command_type[ct] = by_command_type.get(ct, 0) + 1

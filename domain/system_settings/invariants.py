@@ -123,14 +123,13 @@ class SystemSettingsInvariants:
                 result.add_error(f"Expected integer value, got {type(value).__name__}")
         elif data_type == SettingDataType.DECIMAL:
             # Accept Decimal, int, float (can be converted to Decimal)
-            if not isinstance(value, (Decimal, int, float)):
+            if not isinstance(value, Decimal | int | float):
                 result.add_error(f"Expected decimal value, got {type(value).__name__}")
         elif data_type == SettingDataType.BOOLEAN:
             if not isinstance(value, bool):
                 result.add_error(f"Expected boolean value, got {type(value).__name__}")
-        elif data_type == SettingDataType.JSON:
-            if not isinstance(value, (dict, list)):
-                result.add_error(f"Expected JSON value (dict/list), got {type(value).__name__}")
+        elif data_type == SettingDataType.JSON and not isinstance(value, dict | list):
+            result.add_error(f"Expected JSON value (dict/list), got {type(value).__name__}")
 
         return result
 

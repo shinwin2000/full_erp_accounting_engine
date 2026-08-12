@@ -1513,53 +1513,34 @@ class DomainEventPublisher:
 # === 5. EXPORTS ===
 
 __all__ = [
-    # Base
+    "CreditNoteAppliedEvent",
+    "CreditNoteIssuedEvent",
+    "CreditNoteReceivedEvent",
+    "DebitNoteAppliedEvent",
+    "DebitNoteIssuedEvent",
+    "DebitNoteIssuedServiceEvent",
+    "DeliveryNoteShippedEvent",
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
-
-    # Purchase Order
-    "PurchaseOrderCreatedEvent",
-    "PurchaseOrderApprovedEvent",
-
-    # Sales Order
-    "SalesOrderCreatedEvent",
-    "SalesOrderApprovedEvent",
-
-    # Goods Receipt
     "GoodsReceiptCreatedEvent",
-
-    # Delivery Note
-    "DeliveryNoteShippedEvent",
-
-    # Sales Invoice
-    "SalesInvoiceIssuedEvent",
-    "SalesInvoicePaidEvent",
-
-    # Purchase Invoice
-    "PurchaseInvoiceReceivedEvent",
-    "PurchaseInvoiceApprovedEvent",
-    "PurchaseInvoicePaidEvent",
-
-    # Generic Invoice events
-    "InvoiceCreatedEvent",
-    "InvoiceIssuedEvent",
     "InvoiceApprovedEvent",
     "InvoiceCancelledEvent",
+    "InvoiceCreatedEvent",
+    "InvoiceDisputedEvent",
+    "InvoiceIssuedEvent",
     "InvoicePaidEvent",
     "InvoicePartiallyPaidEvent",
-    "InvoiceDisputedEvent",
-    "InvoiceVerifiedEvent",
     "InvoiceReceivedEvent",
+    "InvoiceVerifiedEvent",
     "InvoiceWrittenOffEvent",
-
-    # Credit Note
-    "CreditNoteIssuedEvent",
-    "CreditNoteReceivedEvent",
-    "CreditNoteAppliedEvent",
-
-    # Debit Note
-    "DebitNoteIssuedEvent",
-    "DebitNoteAppliedEvent",
-    "DebitNoteIssuedServiceEvent",
+    "PurchaseInvoiceApprovedEvent",
+    "PurchaseInvoicePaidEvent",
+    "PurchaseInvoiceReceivedEvent",
+    "PurchaseOrderApprovedEvent",
+    "PurchaseOrderCreatedEvent",
+    "SalesInvoiceIssuedEvent",
+    "SalesInvoicePaidEvent",
+    "SalesOrderApprovedEvent",
+    "SalesOrderCreatedEvent",
 ]

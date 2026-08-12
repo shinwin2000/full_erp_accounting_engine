@@ -245,7 +245,7 @@ class PurchaseInvoiceEntity:
 
     def add_item(self, item: PurchaseInvoiceItem, added_by: str) -> PurchaseInvoiceEntity:
         """Add an item to the invoice."""
-        new_items = list(self.items) + [item]
+        new_items = [*list(self.items), item]
         new_total = self._recalculate_total()
         return PurchaseInvoiceEntity(
             invoice_id=self.invoice_id,

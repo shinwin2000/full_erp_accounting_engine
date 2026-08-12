@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import re as _re  # Moved to top to fix E402
 import sys
 import time
 import uuid
@@ -296,8 +297,6 @@ def _setup_tracing() -> None:
 # DATABASE
 # ============================================================
 _db_url_final = settings.database_url
-import re as _re
-
 _masked = _re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', _db_url_final)
 logger.warning(f"[DEBUG] DATABASE_URL final yang dipakai: {_masked}")
 if "postgresql://" in _db_url_final and "+asyncpg" not in _db_url_final:

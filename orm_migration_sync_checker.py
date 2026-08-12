@@ -13,7 +13,7 @@ import importlib
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from sqlalchemy import inspect
 
@@ -33,22 +33,22 @@ class ColumnInfo:
 
 @dataclass
 class TableSchema:
-    columns: Dict[str, ColumnInfo] = field(default_factory=dict)
+    columns: dict[str, ColumnInfo] = field(default_factory=dict)
     # opsional: indeks, constraints, dll.
 
 
 @dataclass
 class TableDiff:
     table: str
-    missing_in_orm: List[str]  # kolom ada di migration tapi tidak di ORM
-    missing_in_migration: List[str]  # kolom ada di ORM tapi tidak di migration
-    type_mismatch: List[Tuple[str, str, str]]  # (kolom, tipe_orm, tipe_migration)
+    missing_in_orm: list[str]  # kolom ada di migration tapi tidak di ORM
+    missing_in_migration: list[str]  # kolom ada di ORM tapi tidak di migration
+    type_mismatch: list[tuple[str, str, str]]  # (kolom, tipe_orm, tipe_migration)
 
 
-def get_orm_tables() -> Dict[str, TableSchema]:
+def get_orm_tables() -> dict[str, TableSchema]:
     """Memuat semua model ORM dan mengembalikan skema tabel (nama tabel -> kolom)."""
     orm_path = PROJECT_ROOT / ORM_BASE
-    schemas: Dict[str, TableSchema] = {}
+    schemas: dict[str, TableSchema] = {}
 
     # Daftar semua file *table.py
     for filepath in orm_path.glob("*table.py"):
@@ -95,7 +95,7 @@ def get_orm_tables() -> Dict[str, TableSchema]:
     return schemas
 
 
-def parse_migration_file(filepath: Path) -> List[Tuple[str, str, Dict[str, Any]]]:
+def parse_migration_file(filepath: Path) -> list[tuple[str, str, dict[str, Any]]]:
     """
     Parse file migration, return list operasi dengan format:
     ('create_table', table_name, {'col1': ColumnInfo, ...})
@@ -216,9 +216,9 @@ def parse_column_call(node: ast.Call) -> ColumnInfo | None:
     return ColumnInfo(name=name, type=type_str, nullable=nullable, primary_key=primary_key, server_default=server_default)
 
 
-def build_target_schema(migration_files: List[Path]) -> Dict[str, TableSchema]:
+def build_target_schema(migration_files: list[Path]) -> dict[str, TableSchema]:
     """Proses semua migration secara berurutan dan bangun skema database akhir."""
-    schema: Dict[str, TableSchema] = {}
+    schema: dict[str, TableSchema] = {}
     for filepath in sorted(migration_files):
         ops = parse_migration_file(filepath)
         for op in ops:
@@ -258,8 +258,8 @@ def build_target_schema(migration_files: List[Path]) -> Dict[str, TableSchema]:
     return schema
 
 
-def compare_schemas(orm_schemas: Dict[str, TableSchema], migration_schemas: Dict[str, TableSchema]) -> List[TableDiff]:
-    diffs: List[TableDiff] = []
+def compare_schemas(orm_schemas: dict[str, TableSchema], migration_schemas: dict[str, TableSchema]) -> list[TableDiff]:
+    diffs: list[TableDiff] = []
     all_tables = set(orm_schemas.keys()) | set(migration_schemas.keys())
 
     for table in all_tables:

@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 
 # === 1. CONSTANTS & ENUMS ===
@@ -85,6 +85,12 @@ class KernelSeverity(Enum):
 class KernelError(Exception):
     """Base exception untuk semua error kernel."""
 
+    _exception_id: str
+    _timestamp: datetime
+    _version: int
+    _audit_trail: list[dict[str, Any]]
+    _snapshots: list[dict[str, Any]]
+
     def __init__(
         self,
         message: str,
@@ -93,7 +99,7 @@ class KernelError(Exception):
         component: str | None = None,
         details: dict[str, Any] | None = None,
         cause: Exception | None = None,
-    ):
+    ) -> None:
         self.error_code = error_code
         self.severity = severity
         self.component = component
@@ -103,8 +109,8 @@ class KernelError(Exception):
         self._exception_id = str(uuid4())
         self._timestamp = datetime.now(UTC)
         self._version = 1
-        self._audit_trail: list[dict[str, Any]] = []
-        self._snapshots: list[dict[str, Any]] = []
+        self._audit_trail = []
+        self._snapshots = []
 
         full_message = f"[{severity.name}][{error_code.name}] {message}"
         if component:
@@ -203,7 +209,7 @@ class KernelError(Exception):
 # === 3. CONCRETE EXCEPTIONS (semua mewarisi KernelError) ===
 # Sealed Gate Exceptions
 class GateNotInitializedError(KernelError):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             message="Sealed gate not initialized. Call initialize() first.",
             error_code=KernelErrorCode.GATE_NOT_INITIALIZED,
@@ -214,7 +220,9 @@ class GateNotInitializedError(KernelError):
 
 
 class GateCircuitOpenError(KernelError):
-    def __init__(self, circuit_name: str, **kwargs):
+    circuit_name: str
+
+    def __init__(self, circuit_name: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Circuit breaker '{circuit_name}' is open. Request rejected.",
             error_code=KernelErrorCode.GATE_CIRCUIT_OPEN,
@@ -227,7 +235,9 @@ class GateCircuitOpenError(KernelError):
 
 
 class GateHandlerNotFoundError(KernelError):
-    def __init__(self, command_type: str, **kwargs):
+    command_type: str
+
+    def __init__(self, command_type: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Handler not found for command type: {command_type}",
             error_code=KernelErrorCode.GATE_HANDLER_NOT_FOUND,
@@ -240,7 +250,9 @@ class GateHandlerNotFoundError(KernelError):
 
 
 class GateIdempotencyError(KernelError):
-    def __init__(self, idempotency_key: str, message: str, **kwargs):
+    idempotency_key: str
+
+    def __init__(self, idempotency_key: str, message: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Idempotency error for key {idempotency_key}: {message}",
             error_code=KernelErrorCode.GATE_IDEMPOTENCY_FAILED,
@@ -253,7 +265,10 @@ class GateIdempotencyError(KernelError):
 
 
 class GateValidationFailedError(KernelError):
-    def __init__(self, stage: str, reason: str, **kwargs):
+    stage: str
+    reason: str
+
+    def __init__(self, stage: str, reason: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Validation failed at {stage}: {reason}",
             error_code=KernelErrorCode.GATE_VALIDATION_FAILED,
@@ -268,7 +283,7 @@ class GateValidationFailedError(KernelError):
 
 # Command Dispatcher Exceptions
 class DispatcherNotRunningError(KernelError):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             message="Command dispatcher is not running. Start workers first.",
             error_code=KernelErrorCode.DISPATCHER_NOT_RUNNING,
@@ -279,7 +294,10 @@ class DispatcherNotRunningError(KernelError):
 
 
 class DispatcherQueueFullError(KernelError):
-    def __init__(self, queue_size: int, max_size: int, **kwargs):
+    queue_size: int
+    max_size: int
+
+    def __init__(self, queue_size: int, max_size: int, **kwargs: Any) -> None:
         super().__init__(
             message=f"Command queue is full: {queue_size}/{max_size}",
             error_code=KernelErrorCode.DISPATCHER_QUEUE_FULL,
@@ -293,7 +311,10 @@ class DispatcherQueueFullError(KernelError):
 
 
 class DispatcherTimeoutError(KernelError):
-    def __init__(self, command_type: str, timeout_seconds: float, **kwargs):
+    command_type: str
+    timeout_seconds: float
+
+    def __init__(self, command_type: str, timeout_seconds: float, **kwargs: Any) -> None:
         super().__init__(
             message=f"Command {command_type} timed out after {timeout_seconds}s",
             error_code=KernelErrorCode.DISPATCHER_TIMEOUT,
@@ -308,7 +329,9 @@ class DispatcherTimeoutError(KernelError):
 
 # Transactional Executor Exceptions
 class ExecutorTransactionFailedError(KernelError):
-    def __init__(self, transaction_id: str, original_error: str, **kwargs):
+    transaction_id: str
+
+    def __init__(self, transaction_id: str, original_error: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Transaction {transaction_id} failed: {original_error}",
             error_code=KernelErrorCode.EXECUTOR_TRANSACTION_FAILED,
@@ -321,7 +344,10 @@ class ExecutorTransactionFailedError(KernelError):
 
 
 class ExecutorDeadlockDetectedError(KernelError):
-    def __init__(self, transaction_id: str, waiting_for: list, **kwargs):
+    transaction_id: str
+    waiting_for: list[Any]
+
+    def __init__(self, transaction_id: str, waiting_for: list[Any], **kwargs: Any) -> None:
         super().__init__(
             message=f"Deadlock detected in transaction {transaction_id}. Waiting for: {waiting_for}",
             error_code=KernelErrorCode.EXECUTOR_DEADLOCK_DETECTED,
@@ -335,7 +361,10 @@ class ExecutorDeadlockDetectedError(KernelError):
 
 
 class ExecutorMaxRetriesExceededError(KernelError):
-    def __init__(self, retry_count: int, max_retries: int, last_error: str, **kwargs):
+    retry_count: int
+    max_retries: int
+
+    def __init__(self, retry_count: int, max_retries: int, last_error: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Max retries ({max_retries}) exceeded after {retry_count} attempts. Last error: {last_error}",
             error_code=KernelErrorCode.EXECUTOR_MAX_RETRIES_EXCEEDED,
@@ -353,7 +382,9 @@ class ExecutorMaxRetriesExceededError(KernelError):
 
 
 class ExecutorRollbackFailedError(KernelError):
-    def __init__(self, transaction_id: str, original_error: str, **kwargs):
+    transaction_id: str
+
+    def __init__(self, transaction_id: str, original_error: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Rollback failed for transaction {transaction_id}: {original_error}",
             error_code=KernelErrorCode.EXECUTOR_ROLLBACK_FAILED,
@@ -367,7 +398,9 @@ class ExecutorRollbackFailedError(KernelError):
 
 # Circuit Breaker Exceptions
 class CircuitBreakerOpenError(KernelError):
-    def __init__(self, circuit_name: str, **kwargs):
+    circuit_name: str
+
+    def __init__(self, circuit_name: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Circuit breaker '{circuit_name}' is open",
             error_code=KernelErrorCode.CIRCUIT_BREAKER_OPEN,
@@ -380,7 +413,7 @@ class CircuitBreakerOpenError(KernelError):
 
 
 class CircuitBreakerConfigInvalidError(KernelError):
-    def __init__(self, message: str, **kwargs):
+    def __init__(self, message: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Invalid circuit breaker configuration: {message}",
             error_code=KernelErrorCode.CIRCUIT_BREAKER_CONFIG_INVALID,
@@ -392,7 +425,9 @@ class CircuitBreakerConfigInvalidError(KernelError):
 
 # Validation Pipeline Exceptions
 class ValidationPipelineFailedError(KernelError):
-    def __init__(self, failed_stage: str, reason: str, **kwargs):
+    failed_stage: str
+
+    def __init__(self, failed_stage: str, reason: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Validation pipeline failed at stage {failed_stage}: {reason}",
             error_code=KernelErrorCode.VALIDATION_PIPELINE_FAILED,
@@ -405,7 +440,9 @@ class ValidationPipelineFailedError(KernelError):
 
 
 class InvariantViolationError(ValidationPipelineFailedError):
-    def __init__(self, invariant_type: str, message: str, **kwargs):
+    invariant_type: str
+
+    def __init__(self, invariant_type: str, message: str, **kwargs: Any) -> None:
         super().__init__(
             failed_stage="INVARIANTS",
             reason=f"Invariant {invariant_type} violated: {message}",
@@ -417,7 +454,9 @@ class InvariantViolationError(ValidationPipelineFailedError):
 
 
 class AxiomViolationError(ValidationPipelineFailedError):
-    def __init__(self, axiom_name: str, message: str, **kwargs):
+    axiom_name: str
+
+    def __init__(self, axiom_name: str, message: str, **kwargs: Any) -> None:
         super().__init__(
             failed_stage="AXIOMS",
             reason=f"Axiom {axiom_name} violated: {message}",
@@ -429,7 +468,9 @@ class AxiomViolationError(ValidationPipelineFailedError):
 
 
 class ConstitutionViolationError(ValidationPipelineFailedError):
-    def __init__(self, principle: str, message: str, **kwargs):
+    principle: str
+
+    def __init__(self, principle: str, message: str, **kwargs: Any) -> None:
         super().__init__(
             failed_stage="CONSTITUTION",
             reason=f"Constitution principle {principle} violated: {message}",
@@ -441,7 +482,9 @@ class ConstitutionViolationError(ValidationPipelineFailedError):
 
 
 class PolicyViolationError(ValidationPipelineFailedError):
-    def __init__(self, policy_name: str, message: str, **kwargs):
+    policy_name: str
+
+    def __init__(self, policy_name: str, message: str, **kwargs: Any) -> None:
         super().__init__(
             failed_stage="POLICY",
             reason=f"Policy {policy_name} violated: {message}",
@@ -454,7 +497,7 @@ class PolicyViolationError(ValidationPipelineFailedError):
 
 # Context Holder Exceptions
 class ContextNotFoundError(KernelError):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             message="No execution context found. Set context before calling this operation.",
             error_code=KernelErrorCode.CONTEXT_NOT_FOUND,
@@ -465,7 +508,7 @@ class ContextNotFoundError(KernelError):
 
 
 class ContextInvalidError(KernelError):
-    def __init__(self, reason: str, **kwargs):
+    def __init__(self, reason: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Invalid execution context: {reason}",
             error_code=KernelErrorCode.CONTEXT_INVALID,
@@ -477,7 +520,10 @@ class ContextInvalidError(KernelError):
 
 # Distributed Lock Exceptions
 class DistributedLockTimeoutError(KernelError):
-    def __init__(self, lock_key: str, timeout_seconds: float, **kwargs):
+    lock_key: str
+    timeout_seconds: float
+
+    def __init__(self, lock_key: str, timeout_seconds: float, **kwargs: Any) -> None:
         super().__init__(
             message=f"Failed to acquire lock '{lock_key}' after {timeout_seconds}s",
             error_code=KernelErrorCode.DISTRIBUTED_LOCK_TIMEOUT,
@@ -491,7 +537,9 @@ class DistributedLockTimeoutError(KernelError):
 
 
 class DistributedLockNotAcquiredError(KernelError):
-    def __init__(self, lock_key: str, **kwargs):
+    lock_key: str
+
+    def __init__(self, lock_key: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Failed to acquire lock '{lock_key}' (non-blocking)",
             error_code=KernelErrorCode.DISTRIBUTED_LOCK_NOT_ACQUIRED,
@@ -505,7 +553,9 @@ class DistributedLockNotAcquiredError(KernelError):
 
 # Dependency Injector Exceptions
 class DependencyNotFoundError(KernelError):
-    def __init__(self, interface_name: str, **kwargs):
+    interface_name: str
+
+    def __init__(self, interface_name: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Dependency not found for interface: {interface_name}",
             error_code=KernelErrorCode.DEPENDENCY_NOT_FOUND,
@@ -519,7 +569,10 @@ class DependencyNotFoundError(KernelError):
 
 # Lifecycle Exceptions
 class LifecycleInvalidTransitionError(KernelError):
-    def __init__(self, from_phase: str, to_phase: str, **kwargs):
+    from_phase: str
+    to_phase: str
+
+    def __init__(self, from_phase: str, to_phase: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Invalid lifecycle transition from {from_phase} to {to_phase}",
             error_code=KernelErrorCode.LIFECYCLE_INVALID_TRANSITION,
@@ -534,7 +587,9 @@ class LifecycleInvalidTransitionError(KernelError):
 
 # Retry Policy Exceptions
 class RetryExhaustedError(KernelError):
-    def __init__(self, retry_count: int, last_error: str, **kwargs):
+    retry_count: int
+
+    def __init__(self, retry_count: int, last_error: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Retry exhausted after {retry_count} attempts. Last error: {last_error}",
             error_code=KernelErrorCode.RETRY_EXHAUSTED,
@@ -548,7 +603,9 @@ class RetryExhaustedError(KernelError):
 
 # General Kernel Exceptions
 class KernelNotReadyError(KernelError):
-    def __init__(self, reason: str, **kwargs):
+    reason: str
+
+    def __init__(self, reason: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Kernel not ready: {reason}",
             error_code=KernelErrorCode.KERNEL_NOT_READY,
@@ -561,7 +618,7 @@ class KernelNotReadyError(KernelError):
 
 
 class KernelShutdownError(KernelError):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             message="Kernel is shutting down. New requests rejected.",
             error_code=KernelErrorCode.KERNEL_SHUTDOWN,
@@ -572,7 +629,7 @@ class KernelShutdownError(KernelError):
 
 
 class KernelInitializationFailedError(KernelError):
-    def __init__(self, reason: str, **kwargs):
+    def __init__(self, reason: str, **kwargs: Any) -> None:
         super().__init__(
             message=f"Kernel initialization failed: {reason}",
             error_code=KernelErrorCode.KERNEL_INITIALIZATION_FAILED,
@@ -588,20 +645,20 @@ class KernelExceptionFactory:
     """Factory untuk membuat kernel exceptions dengan konsistensi."""
 
     @staticmethod
-    def gate_circuit_open(circuit_name: str, **kwargs) -> GateCircuitOpenError:
+    def gate_circuit_open(circuit_name: str, **kwargs: Any) -> GateCircuitOpenError:
         return GateCircuitOpenError(circuit_name=circuit_name, **kwargs)
 
     @staticmethod
-    def gate_handler_not_found(command_type: str, **kwargs) -> GateHandlerNotFoundError:
+    def gate_handler_not_found(command_type: str, **kwargs: Any) -> GateHandlerNotFoundError:
         return GateHandlerNotFoundError(command_type=command_type, **kwargs)
 
     @staticmethod
-    def dispatcher_queue_full(queue_size: int, max_size: int, **kwargs) -> DispatcherQueueFullError:
+    def dispatcher_queue_full(queue_size: int, max_size: int, **kwargs: Any) -> DispatcherQueueFullError:
         return DispatcherQueueFullError(queue_size=queue_size, max_size=max_size, **kwargs)
 
     @staticmethod
     def transaction_failed(
-        transaction_id: str, error: str, **kwargs
+        transaction_id: str, error: str, **kwargs: Any
     ) -> ExecutorTransactionFailedError:
         return ExecutorTransactionFailedError(
             transaction_id=transaction_id, original_error=error, **kwargs
@@ -609,49 +666,48 @@ class KernelExceptionFactory:
 
     @staticmethod
     def deadlock_detected(
-        transaction_id: str, waiting_for: list, **kwargs
+        transaction_id: str, waiting_for: list[Any], **kwargs: Any
     ) -> ExecutorDeadlockDetectedError:
         return ExecutorDeadlockDetectedError(
             transaction_id=transaction_id, waiting_for=waiting_for, **kwargs
         )
 
     @staticmethod
-    def validation_failed(stage: str, reason: str, **kwargs) -> ValidationPipelineFailedError:
+    def validation_failed(stage: str, reason: str, **kwargs: Any) -> ValidationPipelineFailedError:
         return ValidationPipelineFailedError(failed_stage=stage, reason=reason, **kwargs)
 
     @staticmethod
-    def invariant_violation(invariant_type: str, message: str, **kwargs) -> InvariantViolationError:
+    def invariant_violation(invariant_type: str, message: str, **kwargs: Any) -> InvariantViolationError:
         return InvariantViolationError(invariant_type=invariant_type, message=message, **kwargs)
 
     @staticmethod
-    def axiom_violation(axiom_name: str, message: str, **kwargs) -> AxiomViolationError:
+    def axiom_violation(axiom_name: str, message: str, **kwargs: Any) -> AxiomViolationError:
         return AxiomViolationError(axiom_name=axiom_name, message=message, **kwargs)
 
     @staticmethod
     def constitution_violation(
-        principle: str, message: str, **kwargs
+        principle: str, message: str, **kwargs: Any
     ) -> ConstitutionViolationError:
         return ConstitutionViolationError(principle=principle, message=message, **kwargs)
 
     @staticmethod
-    def kernel_not_ready(reason: str, **kwargs) -> KernelNotReadyError:
+    def kernel_not_ready(reason: str, **kwargs: Any) -> KernelNotReadyError:
         return KernelNotReadyError(reason=reason, **kwargs)
 
     @staticmethod
     def distributed_lock_timeout(
-        lock_key: str, timeout_seconds: float, **kwargs
+        lock_key: str, timeout_seconds: float, **kwargs: Any
     ) -> DistributedLockTimeoutError:
         return DistributedLockTimeoutError(
             lock_key=lock_key, timeout_seconds=timeout_seconds, **kwargs
         )
 
     @staticmethod
-    def dependency_not_found(interface_name: str, **kwargs) -> DependencyNotFoundError:
+    def dependency_not_found(interface_name: str, **kwargs: Any) -> DependencyNotFoundError:
         return DependencyNotFoundError(interface_name=interface_name, **kwargs)
 
 
 # === 5. EXPORTS ===
-# Diurutkan secara alfabetis sesuai saran RUF022
 __all__ = [
     "AxiomViolationError",
     "CircuitBreakerConfigInvalidError",

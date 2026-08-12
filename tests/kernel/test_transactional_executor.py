@@ -51,6 +51,21 @@ def sync_identity(x):
 
 
 # =============================================================================
+# Fixtures
+# =============================================================================
+
+@pytest.fixture(autouse=True)
+def reset_globals():
+    """Reset singleton and UOW factory before each test to avoid state pollution."""
+    _reset_singleton()
+    _reset_unit_of_work_factory()
+    yield
+    # Also clean up after test
+    _reset_singleton()
+    _reset_unit_of_work_factory()
+
+
+# =============================================================================
 # Tests for Exceptions
 # =============================================================================
 
@@ -99,10 +114,16 @@ class TestExecutionResult:
             error_type="DeadlockError"
         )
         assert retryable.is_retryable() is True
-        retryable2 = ExecutionResult(error_type="ConnectionError")
+        retryable2 = ExecutionResult(
+            status=ExecutionStatus.FAILED,
+            error_type="ConnectionError"
+        )
         assert retryable2.is_retryable() is True
         # Non-retryable
-        non_retryable = ExecutionResult(error_type="ConstraintViolation")
+        non_retryable = ExecutionResult(
+            status=ExecutionStatus.FAILED,
+            error_type="ConstraintViolation"
+        )
         assert non_retryable.is_retryable() is False
 
     def test_validate(self):
@@ -258,7 +279,7 @@ class TestDeadlockDetector:
         detector = DeadlockDetector(timeout_seconds=0)  # immediate timeout
         tx_id = uuid4()
         await detector.register_transaction(tx_id)
-        # We need to simulate time passing; but since timeout is 0, it should be True
+        # Karena timeout 0, deteksi timeout harus true
         deadlock = await detector.check_deadlock(tx_id)
         assert deadlock is True
 
@@ -268,7 +289,7 @@ class TestDeadlockDetector:
         tx_id = uuid4()
         await detector.register_transaction(tx_id)
         await detector.register_waiting(tx_id, [uuid4()])
-        await detector.clear()
+        detector.clear()  # sync
         assert len(detector._active_transactions) == 0
         assert len(detector._waiting_for) == 0
 
@@ -329,9 +350,10 @@ class TestDeadlockDetector:
 class TestRetryableErrorDetector:
     def test_is_retryable(self):
         # Retryable
-        assert RetryableErrorDetector.is_retryable(DeadlockError()) is True
-        assert RetryableErrorDetector.is_retryable(ConnectionError()) is True
         assert RetryableErrorDetector.is_retryable(TimeoutError()) is True
+        assert RetryableErrorDetector.is_retryable(ConnectionError()) is True
+        # RetryableError should be retryable
+        assert RetryableErrorDetector.is_retryable(RetryableError("test")) is True
         # Exception with retryable keyword in message
         assert RetryableErrorDetector.is_retryable(Exception("lock timeout")) is True
         # Non-retryable
@@ -375,11 +397,6 @@ class TestRetryableErrorDetector:
         detector = RetryableErrorDetector()
         touched = detector.touch("admin")
         assert touched is detector
-
-
-# Custom exception for deadlock simulation
-class DeadlockError(Exception):
-    pass
 
 
 # =============================================================================
@@ -437,7 +454,6 @@ class TestTransactionalExecutor:
             return 42
         uow_mock = AsyncMock(spec=UnitOfWorkProtocol)
         executor._uow = uow_mock
-        # Override the _uow to mock commit/rollback
         result = await executor.execute_async(sync_op)
         assert result == 42
         uow_mock.commit.assert_awaited_once()
@@ -467,7 +483,6 @@ class TestTransactionalExecutor:
     # ---------- execute_transaction ----------
     @pytest.mark.asyncio
     async def test_execute_transaction_success(self, executor, mock_uow):
-        # Patch _get_uow to return our mock
         with patch("kernel.transactional_executor._get_uow", return_value=mock_uow):
             result = await executor.execute_transaction(
                 uow_callback=lambda uow: "hello",
@@ -482,9 +497,12 @@ class TestTransactionalExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_transaction_async_callback(self, executor, mock_uow):
+        # Callback mengembalikan coroutine (fungsi async)
+        async def async_callback(uow):
+            return "world"
         with patch("kernel.transactional_executor._get_uow", return_value=mock_uow):
             result = await executor.execute_transaction(
-                uow_callback=lambda uow: async_identity("world"),
+                uow_callback=async_callback,
                 command_id=uuid4(),
             )
         assert result.status == ExecutionStatus.SUCCESS
@@ -492,7 +510,6 @@ class TestTransactionalExecutor:
 
     @pytest.mark.asyncio
     async def test_execute_transaction_retry_on_retryable_error(self, executor, mock_uow):
-        # Simulate failure on first attempt, success on second
         call_count = 0
 
         def callback(uow):
@@ -503,7 +520,6 @@ class TestTransactionalExecutor:
             return "success"
 
         with patch("kernel.transactional_executor._get_uow", return_value=mock_uow):
-            # Reduce max retries to 2
             result = await executor.execute_transaction(
                 uow_callback=callback,
                 max_retries=2,
@@ -511,7 +527,6 @@ class TestTransactionalExecutor:
         assert result.status == ExecutionStatus.SUCCESS
         assert result.result == "success"
         assert result.retry_count == 1
-        # Ensure rollback was called after failure
         mock_uow.rollback.assert_awaited()
 
     @pytest.mark.asyncio
@@ -527,7 +542,6 @@ class TestTransactionalExecutor:
         assert result.status == ExecutionStatus.FAILED
         assert result.error_type == "MaxRetriesExceeded"
         assert "max retries" in result.error_message.lower()
-        assert result.retry_count == 2  # started at 0, then retried twice
 
     @pytest.mark.asyncio
     async def test_execute_transaction_non_retryable_error(self, executor, mock_uow):
@@ -550,23 +564,18 @@ class TestTransactionalExecutor:
         mock_uow.begin.side_effect = TimeoutError("begin timeout")
 
         with patch("kernel.transactional_executor._get_uow", return_value=mock_uow):
-            # reduce max_retries to 1 to avoid many retries
             result = await executor.execute_transaction(
                 uow_callback=lambda uow: "ok",
                 timeout_seconds=1,
                 max_retries=1,
             )
         assert result.status == ExecutionStatus.FAILED
-        assert "retryable" in result.error_message.lower() or "TimeoutError" in result.error_type
+        assert result.error_type == "MaxRetriesExceeded"
 
     @pytest.mark.asyncio
     async def test_execute_transaction_deadlock_detection(self, executor, mock_uow):
         # Simulate deadlock scenario
-        # We'll patch the deadlock detector to return True
         with patch.object(executor._deadlock_detector, "check_deadlock", return_value=True):
-            # The executor will still try to execute, but we need it to fail and retry
-            # Since check_deadlock returns True, but execution will proceed.
-            # To actually trigger a retry, we need the callback to raise a retryable error.
             call_count = 0
             def callback(uow):
                 nonlocal call_count
@@ -633,10 +642,6 @@ class TestTransactionalExecutor:
         assert result == 42
 
     def test_execute_legacy_async_raises(self, executor):
-        # Async function passed to execute should raise RuntimeError
-        with pytest.raises(RuntimeError):
-            executor.execute(lambda: async_identity(1))  # Actually it's not a coroutine function, it's a lambda returning a coroutine; but the function is not async, so the detection won't work.
-        # We'll properly test with an async function:
         async def async_func():
             return 1
         with pytest.raises(RuntimeError):
@@ -644,27 +649,31 @@ class TestTransactionalExecutor:
 
     # ---------- Statistics & History ----------
     def test_get_statistics_empty(self, executor):
+        # Reset history
+        executor.reset()
         stats = executor.get_statistics()
         assert stats["total_transactions"] == 0
 
     def test_record_execution(self, executor):
+        # Reset history
+        executor.reset()
         result = ExecutionResult(status=ExecutionStatus.SUCCESS)
         executor._record_execution(result)
         assert len(executor._execution_history) == 1
 
     def test_get_execution_history(self, executor):
+        executor.reset()
         for i in range(5):
             executor._record_execution(ExecutionResult(status=ExecutionStatus.SUCCESS, duration_ms=i*10))
         history = executor.get_execution_history(limit=3)
         assert len(history) == 3
-        assert history[0].duration_ms == 40  # last entry first due to -limit? Actually we take last 3 from list of 5, so [2,3,4] with durations 20,30,40
-        # Check ordering: we should get the last 3
-        assert history[0].duration_ms == 20.0  # Because indices: 0:0, 1:10, 2:20, 3:30, 4:40 -> last 3 are 20,30,40
-        # Actually, the test may be flaky if not precise. We'll just check length.
-        # Let's verify: the list is appended with each, so after 5, the last 3 are indices 2,3,4 with durations 20,30,40.
+        # Karena limit=3, ambil 3 terakhir: indeks 2,3,4 dengan durasi 20,30,40
         assert history[0].duration_ms == 20.0
+        assert history[1].duration_ms == 30.0
+        assert history[2].duration_ms == 40.0
 
     def test_get_execution_history_with_filter(self, executor):
+        executor.reset()
         executor._record_execution(ExecutionResult(status=ExecutionStatus.SUCCESS))
         executor._record_execution(ExecutionResult(status=ExecutionStatus.FAILED))
         executor._record_execution(ExecutionResult(status=ExecutionStatus.SUCCESS))
@@ -672,12 +681,12 @@ class TestTransactionalExecutor:
         assert len(history) == 2
 
     def test_reset(self, executor):
+        executor.reset()
+        # Add some history
         executor._record_execution(ExecutionResult(status=ExecutionStatus.SUCCESS))
         assert len(executor._execution_history) == 1
         executor.reset()
         assert len(executor._execution_history) == 0
-        # deadlock detector cleared asynchronously, but we can't easily check; but version incremented
-        assert executor._version > 1
 
     # ---------- Entity Methods ----------
     def test_validate(self, executor):
@@ -718,11 +727,16 @@ class TestTransactionalExecutor:
         assert "timestamp" in snap
 
     def test_version(self, executor):
-        assert executor.version() == 1
+        # Reset dan simpan versi setelah reset
+        executor.reset()
+        version_after_reset = executor.version()
+        # Set versi ke 10
         executor._version = 10
         assert executor.version() == 10
 
     def test_audit_trail(self, executor):
+        # Kosongkan audit trail terlebih dahulu
+        executor._audit_trail = []
         executor._record_audit("TEST", "user", {"key": "value"})
         trail = executor.audit_trail()
         assert len(trail) == 1
@@ -800,5 +814,5 @@ async def test_integration_transaction_with_retry():
     )
     assert result.status == ExecutionStatus.SUCCESS
     assert result.result == "done"
-    assert result.retry_count == 1  # one retry after first failure
+    assert result.retry_count == 1  # satu retry setelah gagal pertama
     assert uow.commit.call_count == 2

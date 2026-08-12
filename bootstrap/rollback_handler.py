@@ -423,6 +423,7 @@ class RollbackHandler:
 
         for step in steps:
             step_start = time.time()
+            should_break = False
             try:
                 success = await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(None, step.action),
@@ -451,7 +452,9 @@ class RollbackHandler:
                     }
                 )
                 if step.status == "failed" and scope == RollbackScope.STEP_ONLY:
-                    break
+                    should_break = True
+            if should_break:
+                break
 
         state_after = self._capture_system_state()
         final_status = RollbackStatus.SUCCESS if all_success else RollbackStatus.PARTIAL

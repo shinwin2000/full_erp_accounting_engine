@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    text,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -25,6 +24,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship

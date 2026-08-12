@@ -392,8 +392,8 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         session = await self._get_session()
         try:
             from infrastructure.persistence_orm.account_table import AccountTable
-            from infrastructure.persistence_orm.journal_line_table import JournalLineTable
             from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+            from infrastructure.persistence_orm.journal_line_table import JournalLineTable
 
             # 1. Dapatkan semua akun equity untuk legal entity ini
             stmt_accounts = select(AccountTable.account_code).where(

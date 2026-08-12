@@ -255,6 +255,7 @@ class BaseLifecycleListener(ABC):
 class LifecycleListener(BaseLifecycleListener):
     _instance: LifecycleListener | None = None
     _lock = threading.Lock()
+    _initialized: bool  # Tambahkan deklarasi tipe
 
     def __new__(cls) -> LifecycleListener:
         if cls._instance is None:
@@ -499,7 +500,7 @@ class LifecycleListener(BaseLifecycleListener):
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # Tambahkan anotasi tipe
         if self._shutdown_timeout <= 0:
             errors.append("shutdown_timeout must be positive")
         for et, cbs in self._callbacks.items():

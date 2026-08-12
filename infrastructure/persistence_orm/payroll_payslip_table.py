@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import Date, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
     Base,
@@ -28,7 +28,7 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.payroll_run_table import PayrollRunTable
+    pass
 
 
 class PayrollPayslipTable(

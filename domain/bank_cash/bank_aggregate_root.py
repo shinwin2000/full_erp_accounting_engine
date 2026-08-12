@@ -408,7 +408,7 @@ class BankAggregate:
         )
         new_accounts = self.accounts.copy()
         new_accounts[account_id] = updated_account
-        new_transactions = self.transactions + [transaction]
+        new_transactions = [*self.transactions, transaction]
         new_agg = self._copy()
         new_agg.accounts = new_accounts
         new_agg.transactions = new_transactions
@@ -452,7 +452,7 @@ class BankAggregate:
         )
         new_accounts = self.accounts.copy()
         new_accounts[account_id] = updated_account
-        new_transactions = self.transactions + [transaction]
+        new_transactions = [*self.transactions, transaction]
         new_agg = self._copy()
         new_agg.accounts = new_accounts
         new_agg.transactions = new_transactions
@@ -525,7 +525,7 @@ class BankAggregate:
         new_accounts = self.accounts.copy()
         new_accounts[from_account_id] = updated_from
         new_accounts[to_account_id] = updated_to
-        new_transactions = self.transactions + [out_tx, in_tx]
+        new_transactions = [*self.transactions, out_tx, in_tx]
         new_agg = self._copy()
         new_agg.accounts = new_accounts
         new_agg.transactions = new_transactions
@@ -555,7 +555,7 @@ class BankAggregate:
         )
         new_accounts = self.accounts.copy()
         new_accounts[transaction.bank_account_id] = updated_account
-        new_transactions = self.transactions + [transaction]
+        new_transactions = [*self.transactions, transaction]
         new_agg = self._copy()
         new_agg.accounts = new_accounts
         new_agg.transactions = new_transactions
@@ -779,7 +779,7 @@ class BankAggregate:
                 new_transactions.append(new_tx)
             else:
                 new_transactions.append(tx)
-        new_reconciliations = self.reconciliations + [result]
+        new_reconciliations = [*self.reconciliations, result]
         account = self.accounts[account_id]
         updated_account = account.mark_reconciled(statement_balance, reconciled_by)
         new_accounts = self.accounts.copy()

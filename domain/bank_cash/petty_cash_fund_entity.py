@@ -258,8 +258,7 @@ class PettyCashFundEntity:
         if self.monthly_disbursement_limit < 0:
             raise ValueError("Monthly disbursement limit cannot be negative")
         if not PettyCashStatus.can_transition(self.status, self.status):
-            if self.status not in PettyCashStatus:
-                raise ValueError(f"Invalid status: {self.status}")
+            raise ValueError(f"Invalid status: {self.status}")
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         entry = PettyCashAuditLog(
@@ -758,7 +757,7 @@ class PettyCashFundEntity:
             object.__setattr__(transaction, "approved_by", approved_by)
             object.__setattr__(transaction, "approved_at", datetime.now(UTC))
 
-        new_transactions = self.transactions + [transaction]
+        new_transactions = [*self.transactions, transaction]
         new_status = self.status
         if balance_after <= self.replenishment_threshold:
             new_status = PettyCashStatus.DEPLETED
@@ -785,7 +784,7 @@ class PettyCashFundEntity:
     ) -> Self:
         total = Decimal(0)
         descriptions = []
-        for amt, desc, ref in disbursements:
+        for amt, desc, _ref in disbursements:
             if amt <= 0:
                 raise ValueError(f"Disbursement amount must be positive: {amt}")
             total += amt
@@ -824,7 +823,7 @@ class PettyCashFundEntity:
             object.__setattr__(transaction, "approved_by", approved_by)
             object.__setattr__(transaction, "approved_at", datetime.now(UTC))
 
-        new_transactions = self.transactions + [transaction]
+        new_transactions = [*self.transactions, transaction]
         new_status = (
             PettyCashStatus.ACTIVE
             if balance_after > self.replenishment_threshold
@@ -897,7 +896,7 @@ class PettyCashFundEntity:
             object.__setattr__(transaction, "approved_by", approved_by)
             object.__setattr__(transaction, "approved_at", datetime.now(UTC))
 
-        new_transactions = self.transactions + [transaction]
+        new_transactions = [*self.transactions, transaction]
         new_status = self.status
 
         if new_status == PettyCashStatus.ACTIVE and balance_after <= self.replenishment_threshold:
@@ -1064,7 +1063,7 @@ class PettyCashFundEntity:
             closed_by,
         )
 
-        new_pc.transactions = new_pc.transactions + [transaction]
+        new_pc.transactions = [*new_pc.transactions, transaction]
         new_pc.status = PettyCashStatus.CLOSED
         new_pc.closed_at = datetime.now(UTC)
         new_pc.closed_by = closed_by

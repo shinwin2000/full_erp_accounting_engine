@@ -16,11 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.employee_table import EmployeeTable
+from infrastructure.persistence_orm.payroll_run_table import PayrollRunTable
 
 # ⚠️ PASTIKAN HANYA SATU MODEL payroll_payslip YANG DI-IMPORT
 # Hapus file payroll_payslip_orm_table.py untuk menghindari duplikasi
 from infrastructure.persistence_orm.payslip_table import PayslipTable
-from infrastructure.persistence_orm.payroll_run_table import PayrollRunTable
 from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
 from ports.primary.payroll_repository_port import PayrollRepositoryPort
 

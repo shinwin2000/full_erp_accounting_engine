@@ -535,7 +535,7 @@ class CashAggregate:
     def add_cash_receipt(self, receipt: CashReceiptEntity) -> Self:
         if receipt.cash_book_id:
             self._validate_cash_book_exists(receipt.cash_book_id)
-        new_receipts = self.cash_receipts + [receipt]
+        new_receipts = [*self.cash_receipts, receipt]
         new_cash_books = self.cash_books.copy()
         if receipt.status == CashReceiptStatus.CONFIRMED and receipt.cash_book_id:
             cb = self.cash_books.get(receipt.cash_book_id)
@@ -627,7 +627,7 @@ class CashAggregate:
     def add_cash_disbursement(self, disbursement: CashDisbursementEntity) -> Self:
         if disbursement.cash_book_id:
             self._validate_cash_book_exists(disbursement.cash_book_id)
-        new_disbursements = self.cash_disbursements + [disbursement]
+        new_disbursements = [*self.cash_disbursements, disbursement]
         new_cash_books = self.cash_books.copy()
         if disbursement.status == CashDisbursementStatus.PAID and disbursement.cash_book_id:
             cb = self.cash_books.get(disbursement.cash_book_id)

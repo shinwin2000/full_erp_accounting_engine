@@ -35,8 +35,16 @@ logger = logging.getLogger(__name__)
 
 class _FallbackAuditEvent:
     def __init__(
-        self, event_id, aggregate_id, event_type, version, data, metadata, user_id, timestamp
-    ):
+        self,
+        event_id: UUID,
+        aggregate_id: UUID,
+        event_type: str,
+        version: int,
+        data: dict[str, Any],
+        metadata: dict[str, Any],
+        user_id: str,
+        timestamp: datetime,
+    ) -> None:
         self.event_id = event_id
         self.aggregate_id = aggregate_id
         self.event_type = event_type
@@ -45,15 +53,15 @@ class _FallbackAuditEvent:
         self.metadata = metadata
         self.user_id = user_id
         self.timestamp = timestamp
-        self.signature = None
+        self.signature: str | None = None
 
-    def compute_hash(self):
+    def compute_hash(self) -> str:
         content = f"{self.event_id}|{self.aggregate_id}|{self.event_type}|{self.version}"
         return hashlib.sha3_256(content.encode()).hexdigest()
 
 
 class _FallbackEventStore:
-    def __init__(self):
+    def __init__(self) -> None:
         self._events: list[_FallbackAuditEvent] = []
 
     async def append(self, event: _FallbackAuditEvent) -> None:
@@ -63,11 +71,11 @@ class _FallbackEventStore:
         return self._events[-limit:]
 
 
-def _get_event_store():
+def _get_event_store() -> _FallbackEventStore:
     return _FallbackEventStore()
 
 
-def _get_digital_signer():
+def _get_digital_signer() -> object:
     class _FallbackSigner:
         def sign(self, data: str) -> str:
             return f"sig_{hashlib.md5(data.encode()).hexdigest()}"
@@ -208,6 +216,7 @@ class BaseAuditHookInjector(ABC):
 class AuditHookInjector(BaseAuditHookInjector):
     _instance: AuditHookInjector | None = None
     _lock = asyncio.Lock()
+    _initialized: bool = False  # Added type annotation
 
     def __new__(cls) -> AuditHookInjector:
         if cls._instance is None:
@@ -215,15 +224,15 @@ class AuditHookInjector(BaseAuditHookInjector):
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self, custom_logger=None) -> None:
+    def __init__(self, custom_logger: Any = None) -> None:
         if self._initialized:
             return
         self._initialized = True
         self._event_store = _get_event_store()
         self._digital_signer = _get_digital_signer()
         self._active_contexts: dict[UUID, AuditContext] = {}
-        self._async_queue: asyncio.Queue = asyncio.Queue()
-        self._worker_task: asyncio.Task | None = None
+        self._async_queue: asyncio.Queue[AuditContext] = asyncio.Queue()
+        self._worker_task: asyncio.Task[None] | None = None
         self._custom_logger = custom_logger
         self._shutting_down = False
         self._audit_trail: list[dict[str, Any]] = []
@@ -245,14 +254,13 @@ class AuditHookInjector(BaseAuditHookInjector):
             logger.debug("No running event loop, audit worker not started")
             return
 
-        async def worker():
+        async def worker() -> None:
             while not self._shutting_down:
                 try:
                     context = await self._async_queue.get()
                     await self._flush_context(context)
                     self._async_queue.task_done()
                 except asyncio.CancelledError:
-                    # Worker cancellation is expected during shutdown; log and exit cleanly
                     logger.debug("Audit worker cancelled, exiting")
                     break
                 except Exception as e:
@@ -519,28 +527,26 @@ class AuditHookInjector(BaseAuditHookInjector):
             return f"<max depth {max_depth}>"
         if obj is None:
             return None
-        # FIX: UP038 - use union types in isinstance
-        if isinstance(obj, str | int | float | bool):
+        if isinstance(obj, (str, int, float, bool)):
             return obj
         if isinstance(obj, UUID):
             return str(obj)
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, dict):
-            result = {}
+            res: dict[str, Any] = {}
             for k, v in list(obj.items())[:20]:
-                result[str(k)] = self._safe_serialize(v, max_depth, current_depth + 1)
+                res[str(k)] = self._safe_serialize(v, max_depth, current_depth + 1)
             if len(obj) > 20:
-                result["..."] = f"and {len(obj) - 20} more keys"
-            return result
-        # FIX: UP038 - use union types in isinstance
-        if isinstance(obj, list | tuple):
-            result = []
+                res["..."] = f"and {len(obj) - 20} more keys"
+            return res
+        if isinstance(obj, (list, tuple)):
+            res: list[Any] = []  # type: ignore[no-redef]  # Reused variable name but different type, but mypy accepts with explicit annotation
             for item in list(obj)[:10]:
-                result.append(self._safe_serialize(item, max_depth, current_depth + 1))
+                res.append(self._safe_serialize(item, max_depth, current_depth + 1))
             if len(obj) > 10:
-                result.append(f"... and {len(obj) - 10} more items")
-            return result
+                res.append(f"... and {len(obj) - 10} more items")
+            return res
         if hasattr(obj, "__dict__"):
             return self._safe_serialize(obj.__dict__, max_depth, current_depth + 1)
         return f"<{type(obj).__name__}>"
@@ -559,24 +565,20 @@ class AuditHookInjector(BaseAuditHookInjector):
             try:
                 await self._worker_task
             except asyncio.CancelledError:
-                # Worker task cancellation is expected during shutdown; log and continue
                 logger.debug("Worker task cancelled during shutdown")
             self._worker_task = None
 
-        # Process remaining items in queue
         while not self._async_queue.empty():
             try:
                 context = self._async_queue.get_nowait()
                 await self._flush_context(context)
                 self._async_queue.task_done()
             except asyncio.QueueEmpty:
-                # Queue became empty while processing; exit the loop
                 logger.debug("Queue empty during shutdown")
                 break
             except Exception as e:
                 logger.error(f"Error flushing queue item during shutdown: {e}")
 
-        # Flush active contexts that were never queued
         for context in list(self._active_contexts.values()):
             await self._flush_context(context)
         self._active_contexts.clear()
@@ -663,9 +665,9 @@ class AuditHookInjector(BaseAuditHookInjector):
                 action = attr._audit_action
                 original = attr
 
-                def make_wrapper(orig, act):
-                    def wrapper(*args, **kwargs):
-                        log_entry = {
+                def make_wrapper(orig: Any, act: str) -> Any:
+                    def wrapper(*args: Any, **kwargs: Any) -> Any:
+                        log_entry: dict[str, Any] = {
                             "action": act,
                             "timestamp": datetime.now(UTC).isoformat(),
                         }

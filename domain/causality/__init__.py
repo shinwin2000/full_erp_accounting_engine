@@ -16,15 +16,7 @@ Audit:
 from __future__ import annotations
 
 import logging
-from uuid import UUID
 
-# ==================== LOGGING ====================
-logger = logging.getLogger(__name__)
-
-__version__ = "1.0.0"
-__author__ = "ERP Accounting Engine Team"
-
-# ==================== CAUSAL NODE ====================
 # ==================== AUDIT STORY BUILDER ====================
 from .audit_story_builder import (
     AuditStory,
@@ -39,6 +31,8 @@ from .causal_chain_builder import (
     CausalChainBuilder,
     get_causal_chain_builder,
 )
+
+# ==================== CAUSAL NODE ====================
 from .causal_node import (
     CausalDirection,
     CausalNode,
@@ -90,55 +84,64 @@ from .why_query_engine import (
     get_why_query_engine,
 )
 
-# ==================== LOG PACKAGE LOADED ====================
+# ==================== LOGGING ====================
+logger = logging.getLogger(__name__)
+
+__version__ = "1.0.0"
+__author__ = "ERP Accounting Engine Team"
+
 logger.info(f"Domain Causality package loaded (version {__version__})")
 
 # ==================== EXPORTS ====================
 __all__ = [
-    # Causal Node
-    "CausalNodeType",
-    "CausalDirection",
-    "CausalNode",
-    "CausalNodeService",
-    "get_causal_node_service",
-    # Causal Chain Builder
-    "CausalChainBuilder",
-    "get_causal_chain_builder",
-    # Causality Tracker
-    "RelationshipType",
-    "CausalRelationship",
-    "CausalityTracker",
-    "get_causality_tracker",
-    # Explanation Generator
-    "ExplanationLevel",
-    "ExplanationLanguage",
-    "ExplanationGenerator",
-    "get_explanation_generator",
-    # Why Query Engine
-    "WhyQueryDepth",
-    "WhyQueryResultStatus",
-    "WhyQueryResult",
-    "WhyQueryEngine",
-    "get_why_query_engine",
     # Audit Story Builder
-    "AuditStoryFormat",
-    "AuditStorySection",
     "AuditStory",
     "AuditStoryBuilder",
-    "get_audit_story_builder",
-    # Exceptions
-    "CausalityErrorCode",
-    "CausalitySeverity",
-    "CausalityError",
-    "CausalNodeNotFoundError",
-    "CausalNodeInvalidTypeError",
-    "CausalChainIncompleteError",
+    "AuditStoryFormat",
+    "AuditStorySection",
+    # Causal Chain Builder
+    "CausalChainBuilder",
+    # Causal Chain Exceptions
     "CausalChainCycleDetectedError",
+    "CausalChainIncompleteError",
     "CausalChainTooDeepError",
+    # Causal Node
+    "CausalDirection",
+    "CausalNode",
+    "CausalNodeInvalidTypeError",
+    "CausalNodeNotFoundError",
+    "CausalNodeService",
+    "CausalNodeType",
+    # Causality Tracker
+    "CausalRelationship",
     "CausalRelationshipNotFoundError",
-    "CircularReferenceDetectedError",
-    "WhyQueryFailedError",
-    "WhyQueryTimeoutError",
-    "CausalityNotFoundError",
+    # Causality Exceptions
+    "CausalityError",
+    "CausalityErrorCode",
     "CausalityExceptionFactory",
+    "CausalityNotFoundError",
+    "CausalitySeverity",
+    # Causality Tracker
+    "CausalityTracker",
+    "CircularReferenceDetectedError",
+    # Explanation Generator
+    "ExplanationGenerator",
+    "ExplanationLanguage",
+    "ExplanationLevel",
+    # Relationship Type
+    "RelationshipType",
+    # Why Query Engine
+    "WhyQueryDepth",
+    "WhyQueryEngine",
+    "WhyQueryFailedError",
+    "WhyQueryResult",
+    "WhyQueryResultStatus",
+    "WhyQueryTimeoutError",
+    # Getters
+    "get_audit_story_builder",
+    "get_causal_chain_builder",
+    "get_causal_node_service",
+    "get_causality_tracker",
+    "get_explanation_generator",
+    "get_why_query_engine",
 ]

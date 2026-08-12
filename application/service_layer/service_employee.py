@@ -709,10 +709,10 @@ class EmployeeService:
 
 
 __all__ = [
+    "EmployeeDuplicateError",
+    "EmployeeNotFoundError",
     "EmployeeService",
     "EmployeeServiceError",
-    "EmployeeNotFoundError",
-    "EmployeeDuplicateError",
     "EmployeeStatus",
     "MaritalStatus",
     "compute_ptkp_status",

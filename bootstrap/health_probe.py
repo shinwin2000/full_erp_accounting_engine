@@ -163,7 +163,7 @@ class HealthReport:
     uptime_seconds: float
     summary: dict[str, int]
     # --- Default fields ---
-    version: str = "1.0.0"
+    display_version: str = "1.0.0"  # renamed from "version" to avoid conflict with method
     _report_version: int = 1
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
@@ -224,7 +224,7 @@ class HealthReport:
             "components": [c.to_dict() for c in self.components],
             "uptime_seconds": self.uptime_seconds,
             "summary": self.summary,
-            "version": self.version,
+            "display_version": self.display_version,
             "report_version": self._report_version,
         }
 
@@ -238,7 +238,7 @@ class HealthReport:
             components=components,
             uptime_seconds=data["uptime_seconds"],
             summary=data.get("summary", {}),
-            version=data.get("version", "1.0.0"),
+            display_version=data.get("display_version", "1.0.0"),
         )
         instance._report_version = data.get("report_version", 1)
         return instance
@@ -251,7 +251,7 @@ class HealthReport:
             components=[c.clone() for c in self.components],
             uptime_seconds=self.uptime_seconds,
             summary=self.summary.copy(),
-            version=self.version,
+            display_version=self.display_version,
         )
         new._report_version = self._report_version + 1
         new._record_audit("CLONE", "system", {"source": self.probe_type.value})
@@ -684,7 +684,7 @@ class HealthProbe:
             probe_type=probe_type,
             components=components,
             summary=summary,
-            version="1.0.0",
+            display_version="1.0.0",
             uptime_seconds=uptime,
         )
 

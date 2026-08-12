@@ -103,7 +103,7 @@ class DependencyGraphValidator:
         def dfs(node: str, path: list[str]) -> None:
             if node in self._recursion_stack:
                 cycle_start = path.index(node)
-                cycle = path[cycle_start:] + [node]
+                cycle = [*path[cycle_start:], node]
                 cycles.append(cycle)
                 return
             if node in self._visited:

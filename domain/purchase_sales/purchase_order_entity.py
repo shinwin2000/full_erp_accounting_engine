@@ -273,7 +273,7 @@ class PurchaseOrderEntity:
 
     def add_item(self, item: POItem, added_by: str) -> PurchaseOrderEntity:
         """Add a new item to the PO."""
-        new_items = list(self.items) + [item]
+        new_items = [*list(self.items), item]
         return PurchaseOrderEntity(
             po_id=self.po_id,
             po_number=self.po_number,

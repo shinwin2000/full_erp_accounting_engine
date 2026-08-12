@@ -487,7 +487,7 @@ class BootstrapExceptionFactory:
 
     @staticmethod
     def database_connection_error(
-        message: str, host: str = None, db: str = None, **kwargs
+        message: str, host: str | None = None, db: str | None = None, **kwargs
     ) -> DatabaseConnectionError:
         return DatabaseConnectionError(message=message, host=host, database=db, **kwargs)
 

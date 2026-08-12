@@ -17,12 +17,13 @@ import inspect
 import logging
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    pass  # Semua tipe sudah diimpor dari collections.abc
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ class ServiceLifetime(Enum):
 class _FallbackIocContainer:
     def __init__(self, default_scope: str = "singleton"):
         self._singletons: dict[type, Any] = {}
-        self._factories: dict[type, Callable] = {}
+        self._factories: dict[type, Callable[..., Any]] = {}
         self._lifetimes: dict[type, ServiceLifetime] = {}
         self._implementation_classes: dict[type, type] = {}
         self._lock = threading.RLock()
@@ -113,7 +114,7 @@ class _FallbackIocContainer:
 
     def _lifetime_from_scope(self, scope: str | None = None) -> ServiceLifetime:
         scope_str = scope or self._default_scope
-        mapping = {
+        mapping: dict[str, ServiceLifetime] = {
             "singleton": ServiceLifetime.SINGLETON,
             "transient": ServiceLifetime.TRANSIENT,
             "scoped": ServiceLifetime.SCOPED,
@@ -157,13 +158,13 @@ class _FallbackIocContainer:
         with self._lock:
             lifetime = self._lifetimes.get(interface, ServiceLifetime.TRANSIENT)
             if lifetime == ServiceLifetime.SINGLETON and interface in self._singletons:
-                return self._singletons[interface]
+                return self._singletons[interface]  # type: ignore[return-value]
             if lifetime == ServiceLifetime.SCOPED:
                 scope_id = id(threading.current_thread())
                 if scope_id not in self._scoped_instances:
                     self._scoped_instances[scope_id] = {}
                 if interface in self._scoped_instances[scope_id]:
-                    return self._scoped_instances[scope_id][interface]
+                    return self._scoped_instances[scope_id][interface]  # type: ignore[return-value]
             if _resolving_stack is None:
                 _resolving_stack = []
             if interface in _resolving_stack:
@@ -189,7 +190,7 @@ class _FallbackIocContainer:
 
     def _instantiate_with_injection(self, cls: type[T], resolving_stack: list[type]) -> T:
         sig = inspect.signature(cls.__init__)
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
@@ -219,7 +220,7 @@ class _FallbackIocContainer:
             or interface in self._implementation_classes
         )
 
-    def create_scope(self) -> Any:
+    def create_scope(self) -> _FallbackScope:
         return _FallbackScope(self)
 
     def reset(self) -> None:
@@ -239,7 +240,7 @@ class _FallbackScope:
 
     def resolve(self, interface: type[T]) -> T:
         if interface in self._instances:
-            return self._instances[interface]
+            return self._instances[interface]  # type: ignore[return-value]
         instance = self._container.resolve(interface)
         self._instances[interface] = instance
         return instance
@@ -248,7 +249,7 @@ class _FallbackScope:
         self._instances.clear()
 
 
-def _get_ioc_container(default_scope: str = "singleton"):
+def _get_ioc_container(default_scope: str = "singleton") -> _FallbackIocContainer:
     logger.info("Using in-memory fallback IoC container")
     return _FallbackIocContainer(default_scope=default_scope)
 
@@ -326,7 +327,7 @@ class BaseDependencyInjector(ABC):
 class DependencyInjector(BaseDependencyInjector):
     _instance: DependencyInjector | None = None
     _lock = threading.Lock()
-    _initialized: bool = False  # deklarasi tipe
+    _initialized: bool = False
 
     def __new__(cls) -> DependencyInjector:
         if cls._instance is None:
@@ -341,6 +342,7 @@ class DependencyInjector(BaseDependencyInjector):
             return
         self._initialized = True
         self._container = _get_ioc_container(default_scope=scope)
+        self._lazy_factories: dict[str, Callable[[], Any]] = {}
         self._register_defaults()
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
@@ -404,16 +406,14 @@ class DependencyInjector(BaseDependencyInjector):
         )
         logger.info("Default kernel dependencies registered")
 
-    def _register_lazy(self, name: str, factory: Callable) -> None:
-        if not hasattr(self, "_lazy_factories"):
-            self._lazy_factories = {}
+    def _register_lazy(self, name: str, factory: Callable[[], Any]) -> None:
         self._lazy_factories[name] = factory
 
     # === Public API ===
     def register(
         self, interface: type[T], implementation: type[T], scope: str | None = None
     ) -> None:
-        lifetime = self._container._lifetime_from_scope(scope) if scope else None
+        lifetime = self._container._lifetime_from_scope(scope) if scope is not None else None
         self._container.register(interface, implementation, lifetime)
         self._record_audit(
             "REGISTER",
@@ -424,7 +424,7 @@ class DependencyInjector(BaseDependencyInjector):
     def register_factory(
         self, interface: type[T], factory: Callable[[], T], scope: str | None = None
     ) -> None:
-        lifetime = self._container._lifetime_from_scope(scope) if scope else None
+        lifetime = self._container._lifetime_from_scope(scope) if scope is not None else None
         self._container.register_factory(interface, factory, lifetime)
         self._record_audit("REGISTER_FACTORY", "system", {"interface": interface.__name__})
 
@@ -450,11 +450,11 @@ class DependencyInjector(BaseDependencyInjector):
     def has_registration(self, interface: type) -> bool:
         return self._container.has_registration(interface)
 
-    def create_scope(self) -> Any:
+    def create_scope(self) -> _FallbackScope:
         return self._container.create_scope()
 
     def get_registered_types(self) -> list[type]:
-        types = []
+        types: list[type] = []
         if hasattr(self._container, "_implementation_classes"):
             types.extend(self._container._implementation_classes.keys())
         if hasattr(self._container, "_factories"):
@@ -612,9 +612,9 @@ def autowired(func: Callable) -> Callable:
 class Autowired:
     def __init__(self, interface: type | None = None):
         self.interface = interface
-        self._instance = None
+        self._instance: Any = None
 
-    def __get__(self, instance, owner) -> Any:
+    def __get__(self, instance: Any, owner: type) -> Any:
         if self._instance is not None:
             return self._instance
         interface = self.interface
@@ -629,7 +629,7 @@ class Autowired:
         self._instance = injector.resolve(interface)
         return self._instance
 
-    def __set_name__(self, owner, name):
+    def __set_name__(self, owner: type, name: str) -> None:
         if self.interface is None and hasattr(owner, "__annotations__"):
             self.interface = owner.__annotations__.get(name)
 

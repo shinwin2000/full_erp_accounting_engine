@@ -57,6 +57,12 @@ def mock_datetime(fixed_now):
         yield mock_dt
 
 
+@pytest.fixture(autouse=True)
+def reset_axiom():
+    """Ensure a clean GoingConcernAxiom singleton state before each test."""
+    get_going_concern_axiom().reset()
+
+
 @pytest.fixture
 def legal_entity_id():
     return uuid.uuid4()
@@ -489,7 +495,8 @@ class TestGoingConcernAxiom:
 
         v1.resolved = True
         v2.resolved = False
-        results_unresolved = axiom.get_violations(unresolved_only=True)
+        # Filter by both legal_entity_id and unresolved_only to isolate the entity's unresolved violation
+        results_unresolved = axiom.get_violations(legal_entity_id=entity_id, unresolved_only=True)
         assert len(results_unresolved) == 1
         assert not results_unresolved[0].resolved
 
@@ -534,7 +541,7 @@ class TestGoingConcernAxiom:
                     GoingConcernIndicator.NEGATIVE_EQUITY,
                     GoingConcernIndicator.RECURRING_LOSSES,
                 ],
-                mitigating_factors=["Parent company support"],
+                mitigating_factors=[],  # <-- empty to force UNCERTAIN status
                 assessment_notes="Uncertain",
                 approved_by=["only_one"],
             )
@@ -553,7 +560,8 @@ class TestGoingConcernAxiom:
             assessment_notes="Uncertain",
             approved_by=["approver1", "approver2"],
         )
-        assert assessment.status in (GoingConcernStatus.UNCERTAIN, GoingConcernStatus.CAUTION)
+        # With mitigation, status becomes CAUTION (not UNCERTAIN)
+        assert assessment.status == GoingConcernStatus.CAUTION
 
     def test_perform_assessment_creates_event_on_status_change(self):
         axiom = GoingConcernAxiom()

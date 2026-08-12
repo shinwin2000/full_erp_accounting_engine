@@ -1,6 +1,3 @@
-# =============================================================================
-# FILE: kernel/sealed_gate.py - FULL PERBAIKAN DENGAN BASE CLASS
-# =============================================================================
 #!/usr/bin/env python3
 """
 Module: sealed_gate.py
@@ -16,6 +13,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -39,7 +37,6 @@ logger = logging.getLogger(__name__)
 # === 0. EXCEPTION ===
 class GateViolationError(Exception):
     """Raised when gate enforcement fails."""
-
     pass
 
 
@@ -80,11 +77,6 @@ def _get_uow() -> UnitOfWorkProtocol:
 # BASE CLASS ABSTRAK (CONTRACT)
 # ============================================================================
 class BaseSealedGate(ABC):
-    """
-    Base contract for Sealed Gate.
-    Semua method yang wajib diimplementasikan oleh subclass.
-    """
-
     @abstractmethod
     async def execute(
         self,
@@ -96,31 +88,26 @@ class BaseSealedGate(ABC):
         correlation_id: str | None = None,
         causation_id: UUID | None = None,
     ) -> CommandEnvelope:
-        """Execute a command through the gate."""
         pass
 
     @abstractmethod
     def register_handler(self, command_type: str, handler: Callable) -> None:
-        """Register a command handler."""
         pass
 
     @abstractmethod
     def get_status(self) -> dict[str, Any]:
-        """Get the current status of the gate."""
         pass
 
     @abstractmethod
     def get_statistics(self) -> dict[str, Any]:
-        """Get statistics about command executions."""
         pass
 
 
 # === 2. SEALED GATE ===
 class SealedGate(BaseSealedGate):
-    """Sealed Gate - Gerbang tunggal untuk semua operasi write."""
-
     _instance: SealedGate | None = None
     _lock = asyncio.Lock()
+    _initialized: bool  # Tambahkan deklarasi tipe
 
     def __new__(cls) -> SealedGate:
         if cls._instance is None:
@@ -148,7 +135,6 @@ class SealedGate(BaseSealedGate):
         self._circuit_breaker_name = "sealed_gate"
         self._hash_chain_verifier: Callable[[dict], bool] | None = None
 
-        # Entity fields - DIBAIKAN: tidak menggunakan field(default_factory=)
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
         self._version = 1
@@ -294,7 +280,7 @@ class SealedGate(BaseSealedGate):
                 )
 
             handler = self._command_handlers.get(command_type)
-            if not handler:
+            if handler is None:
                 envelope.status = CommandStatus.REJECTED
                 envelope.error = f"No handler registered for command type: {command_type}"
                 self._record_history(envelope)
@@ -305,7 +291,10 @@ class SealedGate(BaseSealedGate):
 
             envelope.status = CommandStatus.EXECUTING
 
-            async def execute_with_uow(uow: UnitOfWorkProtocol) -> Any:
+            # Buat UOW terlebih dahulu, lalu closure yang menggunakan uow
+            uow = _get_uow()
+
+            async def execute_with_uow() -> Any:
                 self._audit_hook.before_execution(envelope)
                 try:
                     if inspect.iscoroutinefunction(handler):
@@ -318,11 +307,9 @@ class SealedGate(BaseSealedGate):
                     self._audit_hook.on_error(envelope, e)
                     raise
 
-            # FIX: Removed unused assignment `uow = _get_uow()`
             execution_result = await self._transactional_executor.execute(
-                uow_callback=execute_with_uow,
-                command_id=envelope.command_id,
-                idempotency_key=idempotency_key,
+                execute_with_uow,
+                retry_policy=None,  # atau default policy
             )
             if execution_result.status == ExecutionStatus.SUCCESS:
                 envelope.status = CommandStatus.SUCCESS
@@ -352,7 +339,7 @@ class SealedGate(BaseSealedGate):
             if envelope.status == CommandStatus.SUCCESS:
                 self._metric_collector.record_histogram(
                     "gate_execution_duration_ms",
-                    envelope.execution_time_ms,
+                    Decimal(str(envelope.execution_time_ms)),
                     {"command_type": command_type},
                 )
                 self._metric_collector.increment_counter(
@@ -431,6 +418,7 @@ class SealedGate(BaseSealedGate):
         self._idempotency_store.clear()
         self._circuit_breaker.reset()
         self._version += 1
+        # Clear audit trail (but we already recorded RESET, so we'll keep one entry)
         self._audit_trail = []
         self._snapshots = []
         self._record_audit("RESET", "system", {})
@@ -472,8 +460,24 @@ class SealedGate(BaseSealedGate):
         return instance
 
     def clone(self) -> SealedGate:
-        new_instance = SealedGate()
+        # Karena singleton, kita tidak bisa menggunakan __new__ biasa,
+        # jadi kita buat instance baru dengan object.__new__ dan salin state.
+        new_instance = object.__new__(SealedGate)
+        new_instance._initialized = True
+        new_instance._validation_pipeline = self._validation_pipeline
+        new_instance._transactional_executor = self._transactional_executor
+        new_instance._circuit_breaker = self._circuit_breaker.clone()
+        new_instance._audit_hook = self._audit_hook
+        new_instance._context_holder = self._context_holder
+        new_instance._metric_collector = self._metric_collector
+        new_instance._enforcement_engine = self._enforcement_engine
+        new_instance._command_handlers = self._command_handlers.copy()
+        new_instance._command_history = self._command_history.copy()
         new_instance._max_history = self._max_history
+        new_instance._idempotency_store = self._idempotency_store.copy()
+        new_instance._hash_chain_verifier = self._hash_chain_verifier
+        new_instance._audit_trail = self._audit_trail.copy()
+        new_instance._snapshots = self._snapshots.copy()
         new_instance._version = self._version + 1
         return new_instance
 

@@ -200,7 +200,7 @@ class PurchaseReturnEntity:
 
     def add_item(self, item: PurchaseReturnItem, added_by: str) -> PurchaseReturnEntity:
         """Add an item to the return."""
-        new_items = list(self.items) + [item]
+        new_items = [*list(self.items), item]
         new_total = sum(i.total_amount for i in new_items)
         return PurchaseReturnEntity(
             return_id=self.return_id,

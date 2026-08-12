@@ -215,9 +215,8 @@ class TaxComplianceHelper:
 
         monthly_revenue = Decimal(0)
         for trans in transactions:
-            if trans.transaction_type == TransactionType.INCOME:
-                if period_start <= trans.transaction_date < period_end:
-                    monthly_revenue += trans.amount
+            if trans.transaction_type == TransactionType.INCOME and period_start <= trans.transaction_date < period_end:
+                monthly_revenue += trans.amount
 
         total_ytd = (ytd_revenue or Decimal(0)) + monthly_revenue
 
@@ -261,9 +260,8 @@ class TaxComplianceHelper:
 
         annual_revenue = Decimal(0)
         for trans in transactions:
-            if trans.transaction_type == TransactionType.INCOME:
-                if period_start <= trans.transaction_date < period_end:
-                    annual_revenue += trans.amount
+            if trans.transaction_type == TransactionType.INCOME and period_start <= trans.transaction_date < period_end:
+                annual_revenue += trans.amount
 
         if annual_revenue <= self.PP23_THRESHOLD:
             effective_rate = self.PP23_RATE

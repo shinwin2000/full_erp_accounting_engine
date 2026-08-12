@@ -291,4 +291,4 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         self.increment_version()
 
 
-__all__ = ["AccountTable", "ACCOUNT_TYPES", "NORMAL_BALANCES", "ACCOUNT_STATUSES", "CASHFLOW_TYPES"]
+__all__ = ["ACCOUNT_STATUSES", "ACCOUNT_TYPES", "CASHFLOW_TYPES", "NORMAL_BALANCES", "AccountTable"]

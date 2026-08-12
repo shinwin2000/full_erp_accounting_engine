@@ -186,7 +186,7 @@ class GoodsReceiptNoteEntity:
 
     def add_item(self, item: GRNItem, added_by: str) -> GoodsReceiptNoteEntity:
         """Add an item to the GRN."""
-        new_items = list(self.items) + [item]
+        new_items = [*list(self.items), item]
         return GoodsReceiptNoteEntity(
             grn_id=self.grn_id,
             grn_number=self.grn_number,

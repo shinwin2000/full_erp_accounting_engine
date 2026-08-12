@@ -46,18 +46,20 @@ def mock_signer():
 
 @pytest.fixture
 def envelope():
-    # CommandEnvelope requires command_id and command_data as positional arguments
+    # CommandEnvelope expects positional arguments in this order:
+    # command_id, command_data, command_type, user_id, legal_entity_id,
+    # correlation_id, causation_id, idempotency_key, timestamp, execution_time_ms
     return CommandEnvelope(
         uuid4(),  # command_id
         {"foo": "bar"},  # command_data
-        command_type="TestCommand",
-        user_id="test_user",
-        legal_entity_id=uuid4(),
-        correlation_id="corr-123",
-        causation_id=uuid4(),
-        idempotency_key="idempotent",
-        timestamp=datetime.now(UTC),
-        execution_time_ms=0,
+        "TestCommand",  # command_type
+        "test_user",  # user_id
+        uuid4(),  # legal_entity_id
+        "corr-123",  # correlation_id
+        uuid4(),  # causation_id
+        "idempotent",  # idempotency_key
+        datetime.now(UTC),  # timestamp
+        0,  # execution_time_ms
     )
 
 
@@ -148,6 +150,7 @@ class TestAuditContext:
 # -------------------- Tests for BaseAuditHookInjector --------------------
 class TestBaseAuditHookInjector:
     def test_abstract_methods(self):
+        # Concrete implementation that overrides all abstract methods including reset
         class ConcreteInjector(BaseAuditHookInjector):
             def start_context(self, envelope):
                 return MagicMock(spec=AuditContext)
@@ -165,6 +168,9 @@ class TestBaseAuditHookInjector:
                 pass
 
             async def shutdown(self):
+                pass
+
+            def reset(self):
                 pass
 
         injector = ConcreteInjector()

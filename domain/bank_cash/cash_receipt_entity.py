@@ -243,9 +243,8 @@ class CashReceiptEntity:
             raise ValueError(
                 f"Confirmed amount {self.confirmed_amount} exceeds total amount {self.amount}"
             )
-        if not CashReceiptStatus.can_transition(self.status, self.status):
-            if self.status not in CashReceiptStatus:
-                raise ValueError(f"Invalid status: {self.status}")
+        if not CashReceiptStatus.can_transition(self.status, self.status) and self.status not in CashReceiptStatus:
+            raise ValueError(f"Invalid status: {self.status}")
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         entry = {
@@ -795,7 +794,7 @@ class CashReceiptEntity:
             remaining_invoice_amount=remaining_invoice,
         )
 
-        new_allocations = self.allocations + [new_allocation]
+        new_allocations = [*self.allocations, new_allocation]
         total_allocated = sum(a.allocated_amount for a in new_allocations)
         if total_allocated > self.amount:
             raise ValueError(
@@ -834,7 +833,7 @@ class CashReceiptEntity:
         return new_receipt
 
     def attach_file(self, file_url: str, uploaded_by: str) -> Self:
-        new_attachments = self.attachment_urls + [file_url]
+        new_attachments = [*self.attachment_urls, file_url]
         new_receipt = self._copy()
         new_receipt.attachment_urls = new_attachments
         new_receipt.updated_at = datetime.now(UTC)

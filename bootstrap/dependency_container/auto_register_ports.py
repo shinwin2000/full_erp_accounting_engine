@@ -108,7 +108,7 @@ def find_matching_adapter(port_name: str, port_methods: set[str], adapters: dict
             port_mod = importlib.import_module(port_module_path)
             port_class = getattr(port_mod, port_name, None)
             if port_class:
-                for adapter_name, (mod_path, file_path, methods) in adapters.items():
+                for adapter_name, (mod_path, _file_path, _methods) in adapters.items():
                     try:
                         impl_mod = importlib.import_module(mod_path)
                         impl_class = getattr(impl_mod, adapter_name, None)
@@ -121,7 +121,7 @@ def find_matching_adapter(port_name: str, port_methods: set[str], adapters: dict
 
     # Step 2: If no subclass, use name-based scoring with special rules
     scored = []
-    for adapter_name, (mod_path, file_path, methods) in adapters.items():
+    for adapter_name, (mod_path, _file_path, methods) in adapters.items():
         score = 0
 
         # Special rules for problematic ports
@@ -237,22 +237,22 @@ def manual_lookup_coretax(port_name: str, adapters: dict, container, port_class,
         # Cari adapter yang tepat: TaxAuthorityCoretaxAdapter (real implementation)
         # Atau setidaknya file yang mengandung "coretax" dan bukan in-memory
         candidates = []
-        for adapter_name, (mod_path, file_path, methods) in adapters.items():
+        for adapter_name, (mod_path, _file_path, _methods) in adapters.items():
             if "TaxAuthorityCoretaxAdapter" in adapter_name:
                 candidates.append((100, adapter_name, mod_path))
             elif "coretax" in adapter_name.lower() and "InMemory" not in adapter_name:
                 candidates.append((50, adapter_name, mod_path))
-            elif "core_tax" in str(file_path).lower():
+            elif "core_tax" in str(_file_path).lower():
                 candidates.append((30, adapter_name, mod_path))
         # Prioritaskan yang memiliki skor tertinggi
         candidates.sort(key=lambda x: x[0], reverse=True)
     elif port_name == "TaxAuthorityCoretaxPort":
         # Cari TaxAuthorityCoretaxAdapter secara spesifik
         candidates = []
-        for adapter_name, (mod_path, file_path, methods) in adapters.items():
+        for adapter_name, (mod_path, _file_path, _methods) in adapters.items():
             if "TaxAuthorityCoretaxAdapter" in adapter_name:
                 candidates.append((100, adapter_name, mod_path))
-            elif "tax_authority_coretax" in str(file_path).lower():
+            elif "tax_authority_coretax" in str(_file_path).lower():
                 candidates.append((80, adapter_name, mod_path))
         candidates.sort(key=lambda x: x[0], reverse=True)
     else:
@@ -291,7 +291,7 @@ def auto_register_ports(container) -> tuple[list[str], list[str]]:
 
     logger.info(f"Auto-register: found {len(ports)} port classes, {len(adapters)} adapter classes")
 
-    for port_name, (port_module_path, port_file_path) in ports.items():
+    for port_name, (port_module_path, _port_file_path) in ports.items():
         # Skip if already registered in container
         if hasattr(container, 'has_registration') and container.has_registration(port_name):
             continue
@@ -335,7 +335,7 @@ def auto_register_ports(container) -> tuple[list[str], list[str]]:
         if port_name == "TimestampNotaryPort":
             # Cari adapter dengan nama TimestampNotaryImpl atau RFC3161TimestampAdapter
             found = False
-            for adapter_name, (mod_path, file_path, methods) in adapters.items():
+            for adapter_name, (mod_path, _file_path, _methods) in adapters.items():
                 if "TimestampNotaryImpl" in adapter_name or "RFC3161" in adapter_name:
                     try:
                         impl_module = importlib.import_module(mod_path)

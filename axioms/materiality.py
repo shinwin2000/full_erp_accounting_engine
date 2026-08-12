@@ -1039,7 +1039,8 @@ class MaterialityAxiom:
         if not threshold:
             threshold = self.get_or_create_default_threshold(legal_entity_id, fiscal_year)
         quantitative = threshold.is_material(amount)
-        qualitative = qualitative_factors and len(qualitative_factors) > 0
+        # qualitative factors are considered if any provided (non-None and non-empty)
+        qualitative = bool(qualitative_factors)
         return quantitative or qualitative
 
     def record_judgment(

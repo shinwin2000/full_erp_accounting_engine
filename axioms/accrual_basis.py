@@ -3,8 +3,6 @@
 Module: accrual_basis.py
 Layer: 2 - Foundation / Axioms
 Responsibility: Aksioma: pengakuan pendapatan/beban saat terjadi, bukan saat kas.
-
-Fixed syntax errors and hardened with validation, logging, and thread-safety.
 """
 
 from __future__ import annotations
@@ -61,7 +59,6 @@ class ExpenseMatchingMethod(Enum):
 
 # ==================== EXCEPTIONS ====================
 
-
 class AccrualBasisViolationError(Exception):
     pass
 
@@ -76,8 +73,7 @@ class InvalidExpenseCriteriaError(Exception):
 
 # ==================== VALUE OBJECTS ====================
 
-
-@dataclass(frozen=True, kw_only=True)
+@dataclass(kw_only=True)  # TIDAK frozen agar bisa di-assign di __post_init__
 class RevenueRecognitionCriteria:
     contract_identified: bool
     performance_obligations: list[str]
@@ -91,7 +87,9 @@ class RevenueRecognitionCriteria:
     cryptographic_hash: str = ""
 
     def __post_init__(self) -> None:
-        if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
+        if not self.cryptographic_hash:
+            self.cryptographic_hash = self.compute_hash()
+        elif self.cryptographic_hash != self.compute_hash():
             raise ValueError("Hash mismatch")
 
     def compute_hash(self) -> str:
@@ -113,7 +111,7 @@ class RevenueRecognitionCriteria:
         return self.transaction_price
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(kw_only=True)  # TIDAK frozen agar bisa di-assign di __post_init__
 class ExpenseRecognitionCriteria:
     economic_benefit_consumed: bool
     liability_incurred: bool
@@ -127,7 +125,9 @@ class ExpenseRecognitionCriteria:
     cryptographic_hash: str = ""
 
     def __post_init__(self) -> None:
-        if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
+        if not self.cryptographic_hash:
+            self.cryptographic_hash = self.compute_hash()
+        elif self.cryptographic_hash != self.compute_hash():
             raise ValueError("Hash mismatch")
 
     def compute_hash(self) -> str:
@@ -139,7 +139,6 @@ class ExpenseRecognitionCriteria:
 
 
 # ==================== ENTITY: ACCRUAL ENTRY ====================
-
 
 @dataclass(kw_only=True)
 class AccrualEntry:
@@ -181,7 +180,7 @@ class AccrualEntry:
 
     def _ensure_hash(self) -> None:
         if not self.cryptographic_hash:
-            object.__setattr__(self, "cryptographic_hash", self.compute_hash())
+            self.cryptographic_hash = self.compute_hash()
 
     def compute_hash(self) -> str:
         content = f"{self.accrual_id}|{self.accrual_type.value}|{self.amount}|{self.recognition_date.isoformat()}|{self.reversal_date.isoformat() if self.reversal_date else ''}|{self.reversed}"
@@ -254,7 +253,6 @@ class AccrualEntry:
         return new_entry
 
     def activate(self, activated_by: str) -> AccrualEntry:
-        # No active/inactive state for accrual
         return self
 
     def deactivate(self, deactivated_by: str, reason: str | None = None) -> AccrualEntry:
@@ -335,7 +333,7 @@ class AccrualEntry:
     def clone(self) -> AccrualEntry:
         new_id = uuid4()
         cloned = self._copy()
-        object.__setattr__(cloned, "accrual_id", new_id)
+        cloned.accrual_id = new_id
         cloned.version = 1
         cloned.created_at = datetime.now(UTC)
         cloned.reversed = False
@@ -413,7 +411,6 @@ class AccrualEntry:
 
 # ==================== ENTITY: ACCRUAL BASIS VIOLATION ====================
 
-
 @dataclass(kw_only=True)
 class AccrualBasisViolation:
     violation_id: UUID
@@ -451,7 +448,7 @@ class AccrualBasisViolation:
 
     def _ensure_hash(self) -> None:
         if not self.cryptographic_hash:
-            object.__setattr__(self, "cryptographic_hash", self.compute_hash())
+            self.cryptographic_hash = self.compute_hash()
 
     def compute_hash(self) -> str:
         content = f"{self.violation_id}|{self.transaction_id}|{self.difference_days}|{self.severity.value}|{self.is_auto_corrected}"
@@ -653,7 +650,6 @@ class AccrualBasisViolation:
 
 # ==================== VALIDATOR ====================
 
-
 class AccrualBasisValidator:
     DEFAULT_TOLERANCE_DAYS = 7
     ESTIMATION_TOLERANCE_DAYS = 15
@@ -801,8 +797,7 @@ class AccrualBasisValidator:
         )
 
 
-# ==================== AXIOM SERVICE (with repository methods) ====================
-
+# ==================== AXIOM SERVICE ====================
 
 class AccrualBasisAxiom:
     _instance: ClassVar[AccrualBasisAxiom | None] = None
@@ -886,10 +881,6 @@ class AccrualBasisAxiom:
         amount: Decimal,
         tolerance_days: int | None = None,
     ) -> tuple[bool, AccrualBasisViolation | None, str | None]:
-        """
-        Enforce accrual basis for revenue: revenue recognized when earned, not when cash received.
-        Returns (is_compliant, violation_if_any, message)
-        """
         logger.debug(f"Enforcing revenue recognition for tx {transaction_id}")
         return self._validator.validate_revenue_recognition(
             transaction_id,
@@ -909,9 +900,6 @@ class AccrualBasisAxiom:
         amount: Decimal,
         tolerance_days: int | None = None,
     ) -> tuple[bool, AccrualBasisViolation | None, str | None]:
-        """
-        Enforce accrual basis for expense: expense recognized when incurred, not when paid.
-        """
         logger.debug(f"Enforcing expense recognition for tx {transaction_id}")
         return self._validator.validate_expense_recognition(
             transaction_id,
@@ -934,7 +922,6 @@ class AccrualBasisAxiom:
         approved_by: list[str],
         journal_entry_id: UUID | None = None,
     ) -> AccrualEntry:
-        """Create a new accrual entry."""
         if amount <= 0:
             raise ValueError("Amount must be positive")
         if not approved_by:
@@ -961,7 +948,6 @@ class AccrualBasisAxiom:
         return accrual
 
     def get_statistics(self) -> dict[str, Any]:
-        """Get statistics about accruals and violations."""
         with self._lock:
             total_accruals = len(self._accruals)
             active_accruals = sum(1 for a in self._accruals.values() if a.is_active())
@@ -979,7 +965,6 @@ class AccrualBasisAxiom:
             }
 
     def reset(self) -> None:
-        """Reset all in-memory state (for testing only)."""
         with self._lock:
             self._accruals.clear()
             self._violations.clear()
@@ -1000,8 +985,7 @@ def get_accrual_basis_axiom() -> AccrualBasisAxiom:
     return _accrual_basis_axiom_instance
 
 
-# ==================== CONVENIENCE FUNCTIONS (for backwards compatibility) ====================
-
+# ==================== CONVENIENCE FUNCTIONS ====================
 
 def create_revenue_criteria(
     contract_identified: bool,
@@ -1014,7 +998,6 @@ def create_revenue_criteria(
     recognition_model: RevenueRecognitionModel = RevenueRecognitionModel.AT_A_POINT_IN_TIME,
     progress_percentage: Decimal = Decimal(0),
 ) -> RevenueRecognitionCriteria:
-    """Factory function to create a RevenueRecognitionCriteria instance."""
     return RevenueRecognitionCriteria(
         contract_identified=contract_identified,
         performance_obligations=performance_obligations,
@@ -1039,7 +1022,6 @@ def create_expense_criteria(
     allocation_method: str | None = None,
     allocation_periods: int = 1,
 ) -> ExpenseRecognitionCriteria:
-    """Factory function to create an ExpenseRecognitionCriteria instance."""
     return ExpenseRecognitionCriteria(
         economic_benefit_consumed=economic_benefit_consumed,
         liability_incurred=liability_incurred,
@@ -1061,7 +1043,6 @@ def enforce_revenue_recognition(
     amount: Decimal,
     tolerance_days: int | None = None,
 ) -> tuple[bool, AccrualBasisViolation | None, str | None]:
-    """Convenience function to enforce revenue recognition using the axiom singleton."""
     return get_accrual_basis_axiom().enforce_revenue_recognition(
         transaction_id,
         cash_receipt_date,
@@ -1080,7 +1061,6 @@ def enforce_expense_recognition(
     amount: Decimal,
     tolerance_days: int | None = None,
 ) -> tuple[bool, AccrualBasisViolation | None, str | None]:
-    """Convenience function to enforce expense recognition using the axiom singleton."""
     return get_accrual_basis_axiom().enforce_expense_recognition(
         transaction_id,
         cash_payment_date,
@@ -1102,7 +1082,6 @@ def create_accrual(
     approved_by: list[str],
     journal_entry_id: UUID | None = None,
 ) -> AccrualEntry:
-    """Convenience function to create an accrual using the axiom singleton."""
     return get_accrual_basis_axiom().create_accrual(
         accrual_type,
         amount,
@@ -1117,12 +1096,10 @@ def create_accrual(
 
 
 def get_statistics() -> dict[str, Any]:
-    """Get statistics from the axiom singleton."""
     return get_accrual_basis_axiom().get_statistics()
 
 
 def reset() -> None:
-    """Reset the axiom singleton state (for testing)."""
     get_accrual_basis_axiom().reset()
 
 

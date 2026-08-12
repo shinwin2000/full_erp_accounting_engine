@@ -588,12 +588,11 @@ class CashBookEntity:
                     False,
                     f"Daily receipt limit exceeded: {self.today_receipts} + {amount} > {self.daily_receipt_limit}",
                 )
-        elif not is_receipt and self.daily_disbursement_limit > 0:
-            if self.today_disbursements + amount > self.daily_disbursement_limit:
-                return (
-                    False,
-                    f"Daily disbursement limit exceeded: {self.today_disbursements} + {amount} > {self.daily_disbursement_limit}",
-                )
+        elif not is_receipt and self.daily_disbursement_limit > 0 and self.today_disbursements + amount > self.daily_disbursement_limit:
+            return (
+                False,
+                f"Daily disbursement limit exceeded: {self.today_disbursements} + {amount} > {self.daily_disbursement_limit}",
+            )
         return True, None
 
     def needs_approval(self, amount: Decimal) -> bool:
@@ -681,7 +680,7 @@ class CashBookEntity:
         new_cb.total_receipts = new_receipts
         new_cb.today_receipts = new_today_receipts
         new_cb.last_updated = datetime.now(UTC)
-        new_cb.transactions = self.transactions + [transaction]
+        new_cb.transactions = [*self.transactions, transaction]
         new_cb.version = self.version + 1
         new_cb._calculate_signature()
 
@@ -753,7 +752,7 @@ class CashBookEntity:
         new_cb.total_disbursements = new_disbursements
         new_cb.today_disbursements = new_today_disbursements
         new_cb.last_updated = datetime.now(UTC)
-        new_cb.transactions = self.transactions + [transaction]
+        new_cb.transactions = [*self.transactions, transaction]
         new_cb.version = self.version + 1
         new_cb._calculate_signature()
 
@@ -855,7 +854,7 @@ class CashBookEntity:
         new_cb.total_receipts = new_receipts
         new_cb.total_disbursements = new_disbursements
         new_cb.last_updated = datetime.now(UTC)
-        new_cb.transactions = self.transactions + [transaction]
+        new_cb.transactions = [*self.transactions, transaction]
         new_cb.version = self.version + 1
         new_cb._calculate_signature()
 
@@ -977,7 +976,7 @@ class CashBookEntity:
         new_cb.total_disbursements = Decimal("0.00")
         new_cb.today_receipts = Decimal("0.00")
         new_cb.today_disbursements = Decimal("0.00")
-        new_cb.daily_closings = self.daily_closings + [closing]
+        new_cb.daily_closings = [*self.daily_closings, closing]
         new_cb.last_updated = datetime.now(UTC)
         new_cb.version = self.version + 1
         new_cb._calculate_signature()
@@ -1136,10 +1135,7 @@ class CashBookEntity:
         for tx in self.transactions:
             if tx.transaction_id == transaction_id:
                 # Cannot reverse if already reversed
-                for t in self.transactions:
-                    if t.reversal_of == transaction_id:
-                        return False
-                return True
+                return all(t.reversal_of != transaction_id for t in self.transactions)
         return False
 
     def reverse_transaction(self, transaction_id: UUID, reversed_by: str, reason: str) -> Self:
@@ -1193,7 +1189,7 @@ class CashBookEntity:
         new_cb.current_balance = new_balance
         new_cb.total_receipts = new_receipts
         new_cb.total_disbursements = new_disbursements
-        new_cb.transactions = self.transactions + [reversal_tx]
+        new_cb.transactions = [*self.transactions, reversal_tx]
         new_cb.version = self.version + 1
         new_cb._calculate_signature()
         new_cb._record_audit(

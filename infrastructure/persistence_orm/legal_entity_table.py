@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -64,12 +65,15 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
     registration_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     npwp: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True)
+    nppp: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    province: Mapped[str | None] = mapped_column(String(100), nullable=True)
     country: Mapped[str] = mapped_column(String(2), nullable=False, default="ID")
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fax: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     website: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
@@ -78,6 +82,7 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     fiscal_year_end: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     functional_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+    is_taxable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     tax_office: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tax_office_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -91,6 +96,11 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    locked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locked_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    locked_at: Mapped[Any | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     parent_company_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("legal_entity.id", use_alter=True, name="fk_legal_entity_parent"),  # schema dihapus
@@ -198,6 +208,21 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             self.extra_metadata["suspension_reason"] = reason
         self.increment_version()
 
+    def lock(self, user_id: uuid.UUID, reason: str | None = None) -> None:
+        self.is_locked = True
+        self.locked_reason = reason
+        self.locked_by = user_id
+        from datetime import UTC, datetime as _dt
+        self.locked_at = _dt.now(UTC)
+        self.increment_version()
+
+    def unlock(self, user_id: uuid.UUID) -> None:
+        self.is_locked = False
+        self.locked_reason = None
+        self.locked_by = None
+        self.locked_at = None
+        self.increment_version()
+
     def liquidate(self, liquidation_date: date) -> None:
         self.status = "liquidated"
         if self.extra_metadata:
@@ -213,11 +238,14 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             "entity_type": self.entity_type,
             "registration_number": self.registration_number,
             "npwp": self.npwp,
+            "nppp": self.nppp,
             "address": self.address,
             "city": self.city,
             "postal_code": self.postal_code,
+            "province": self.province,
             "country": self.country,
             "phone": self.phone,
+            "fax": self.fax,
             "email": self.email,
             "website": self.website,
             "established_date": self.established_date.isoformat() if self.established_date else None,
@@ -225,6 +253,7 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             "fiscal_year_end": self.fiscal_year_end,
             "base_currency": self.base_currency,
             "functional_currency": self.functional_currency,
+            "is_taxable": self.is_taxable,
             "tax_office": self.tax_office,
             "tax_office_code": self.tax_office_code,
             "tax_classification": self.tax_classification,
@@ -236,11 +265,18 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             "is_withholding_agent": self.is_withholding_agent,
             "status": self.status,
             "is_active": self.is_active,
+            "is_locked": self.is_locked,
+            "locked_reason": self.locked_reason,
+            "locked_by": str(self.locked_by) if self.locked_by else None,
+            "locked_at": self.locked_at.isoformat() if self.locked_at else None,
+            "notes": self.notes,
             "parent_company_id": str(self.parent_company_id) if self.parent_company_id else None,
             "consolidation_group_id": str(self.consolidation_group_id) if self.consolidation_group_id else None,
             "logo_url": self.logo_url,
             "extra_metadata": self.extra_metadata,
             "created_by": str(self.created_by) if self.created_by else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "version": self.version,
         }
 

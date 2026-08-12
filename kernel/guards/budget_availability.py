@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class _FallbackBudgetRepository:
-    def __init__(self):
+    def __init__(self) -> None:
         self._budgets: dict[UUID, dict[str, Any]] = {}
         self._usage: dict[UUID, Decimal] = {}
         self._reservations: dict[UUID, dict[UUID, Decimal]] = {}
@@ -50,11 +50,15 @@ class _FallbackBudgetRepository:
         as_of: datetime,
     ) -> Any | None:
         for bid, budget in self._budgets.items():
+            period_start = budget.get("period_start")
+            period_end = budget.get("period_end")
             if (
                 budget.get("legal_entity_id") == legal_entity_id
                 and budget.get("cost_center_id") == cost_center_id
                 and budget.get("account_code") == account_code
-                and budget.get("period_start") <= as_of <= budget.get("period_end")
+                and period_start is not None
+                and period_end is not None
+                and period_start <= as_of <= period_end
             ):
                 return type(
                     "Budget",
@@ -62,8 +66,8 @@ class _FallbackBudgetRepository:
                     {
                         "budget_id": bid,
                         "amount": budget.get("amount", Decimal(0)),
-                        "period_start": budget.get("period_start"),
-                        "period_end": budget.get("period_end"),
+                        "period_start": period_start,
+                        "period_end": period_end,
                     },
                 )()
         return None
@@ -104,11 +108,11 @@ class _FallbackBudgetRepository:
             self._usage[budget_id] = max(Decimal(0), current - amount)
         return True
 
-    def add_budget(self, budget_id: UUID, data: dict[str, Any]):
+    def add_budget(self, budget_id: UUID, data: dict[str, Any]) -> None:
         self._budgets[budget_id] = data
 
 
-def _get_budget_repository():
+def _get_budget_repository() -> _FallbackBudgetRepository:
     logger.info("Using in-memory fallback for budget repository (no infrastructure)")
     return _FallbackBudgetRepository()
 
@@ -133,10 +137,11 @@ class BudgetPeriodType(Enum):
 
 
 class BudgetCheckSeverity(Enum):
-    CRITICAL = 80
-    HIGH = 60
-    MEDIUM = 40
+    INFO = 0      # Ditambahkan untuk validasi sukses
     LOW = 20
+    MEDIUM = 40
+    HIGH = 60
+    CRITICAL = 80
 
 
 @dataclass
@@ -164,7 +169,7 @@ class BudgetCheckResult:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -335,7 +340,7 @@ class BaseBudgetAvailabilityGuard(ABC):
 
 
 class BudgetAvailabilityGuard(BaseBudgetAvailabilityGuard):
-    def __init__(self, budget_repository: Any | None = None):
+    def __init__(self, budget_repository: Any | None = None) -> None:
         self._budget_repo = budget_repository or _get_budget_repository()
         self._mode = BudgetCheckMode.STRICT
         self._tolerance_percentage = Decimal("5")
@@ -352,7 +357,7 @@ class BudgetAvailabilityGuard(BaseBudgetAvailabilityGuard):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         cost_center_id = context.get("cost_center_id")
         account_code = context.get("account_code")
         amount = context.get("amount")
@@ -622,7 +627,7 @@ class BudgetAvailabilityGuard(BaseBudgetAvailabilityGuard):
         budget_checks: list[dict[str, Any]],
         legal_entity_id: UUID | None = None,
     ) -> tuple[bool, list[BudgetCheckResult]]:
-        results = []
+        results: list[BudgetCheckResult] = []
         overall_available = True
         for check in budget_checks:
             result = await self.check_budget(
@@ -734,7 +739,7 @@ class BudgetAvailabilityGuard(BaseBudgetAvailabilityGuard):
                 return {"total_checks": 0, "version": self._version}
             violations = [r for r in self._check_history if not r.is_available]
             violation_count = len(violations)
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for v in violations:
                 by_severity[v.severity.name] = by_severity.get(v.severity.name, 0) + 1
             return {

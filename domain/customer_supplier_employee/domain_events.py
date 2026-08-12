@@ -17,7 +17,6 @@ from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from domain.customer_supplier_employee.customer_entity import CustomerEntity, CustomerStatus
-from domain.customer_supplier_employee.employee_entity import EmployeeEntity
 from domain.customer_supplier_employee.employee_ptkp_status_vo import EmployeePTKPStatusVO
 from domain.customer_supplier_employee.supplier_entity import SupplierEntity
 

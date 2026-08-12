@@ -367,9 +367,8 @@ class CashDisbursementEntity:
             raise ValueError(f"Paid amount {self.paid_amount} exceeds total amount {self.amount}")
         if self.approval_level_required not in (1, 2, 3, 4, 5):
             raise ValueError(f"Invalid approval level required: {self.approval_level_required}")
-        if not CashDisbursementStatus.can_transition(self.status, self.status):
-            if self.status not in CashDisbursementStatus:
-                raise ValueError(f"Invalid status: {self.status}")
+        if not CashDisbursementStatus.can_transition(self.status, self.status) and self.status not in CashDisbursementStatus:
+            raise ValueError(f"Invalid status: {self.status}")
 
         # Validate tax withholding total
         total_tax = sum(t.tax_amount for t in self.tax_withholdings)
@@ -901,7 +900,8 @@ class CashDisbursementEntity:
         if not self.can_approve(level):
             raise ValueError(f"Cannot approve at level {level} in status {self.status.value}")
 
-        new_history = self.approval_history + [
+        new_history = [
+            *self.approval_history,
             ApprovalHistoryEntry(
                 level=ApprovalLevel(level),
                 approver_id=approver_id,
@@ -940,7 +940,8 @@ class CashDisbursementEntity:
         if not self.can_reject():
             raise ValueError(f"Cannot reject disbursement in status {self.status.value}")
 
-        new_history = self.approval_history + [
+        new_history = [
+            *self.approval_history,
             ApprovalHistoryEntry(
                 level=ApprovalLevel(self.current_approval_level + 1),
                 approver_id=UUID(int=0),
@@ -1109,7 +1110,7 @@ class CashDisbursementEntity:
             tax_id=tax_id,
         )
 
-        new_withholdings = self.tax_withholdings + [tax_withholding]
+        new_withholdings = [*self.tax_withholdings, tax_withholding]
         new_total_tax = sum(t.tax_amount for t in new_withholdings)
 
         if new_total_tax > self.amount:
@@ -1213,7 +1214,7 @@ class CashDisbursementEntity:
             remaining_invoice_amount=remaining_invoice,
         )
 
-        new_allocations = self.allocations + [new_allocation]
+        new_allocations = [*self.allocations, new_allocation]
         total_allocated = sum(a.allocated_amount for a in new_allocations)
         if total_allocated > self.amount:
             raise ValueError(
@@ -1253,11 +1254,11 @@ class CashDisbursementEntity:
 
     def attach_file(self, file_url: str, uploaded_by: str, is_supporting: bool = False) -> Self:
         if is_supporting:
-            new_attachments = self.supporting_documents + [file_url]
+            new_attachments = [*self.supporting_documents, file_url]
             new_disbursement = self._copy()
             new_disbursement.supporting_documents = new_attachments
         else:
-            new_attachments = self.attachment_urls + [file_url]
+            new_attachments = [*self.attachment_urls, file_url]
             new_disbursement = self._copy()
             new_disbursement.attachment_urls = new_attachments
 

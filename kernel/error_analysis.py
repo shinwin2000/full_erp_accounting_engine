@@ -12,6 +12,7 @@ Big-4 Audit Grade: Tidak ada pelanggaran layer.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger("erp_engine.rca")
@@ -42,7 +43,7 @@ class RCAResult:
         suggested_fix: str = "",
         confidence: float = 0.0,
         _raw: Any | None = None,
-    ):
+    ) -> None:
         self.severity = severity
         self.category = category
         self.error_code = error_code
@@ -76,8 +77,8 @@ class RCAResult:
 
 
 # ─── Wrapper ──────────────────────────────────────────────────────────────────
-_RCA_ANALYZE_FUNC = None
-_RCA_AVAILABLE = False
+_RCA_ANALYZE_FUNC: Callable[..., Any] | None = None
+_RCA_AVAILABLE: bool = False
 
 
 def _import_rca() -> bool:
@@ -143,9 +144,25 @@ def analyze_error(
             _raw=exception,
         )
 
+    # Setelah _import_rca() berhasil, _RCA_ANALYZE_FUNC seharusnya tidak None
+    analyze_func = _RCA_ANALYZE_FUNC
+    if analyze_func is None:
+        # Keamanan tambahan, seharusnya tidak terjadi
+        return RCAResult(
+            severity="ERROR",
+            category="RCA",
+            error_code="RCA_ENGINE_MISSING",
+            root_cause="RCA engine tidak tersedia meskipun _import_rca mengembalikan True",
+            evidence=["Kemungkinan bug pada _import_rca"],
+            impact=["RCA analysis gagal"],
+            suggested_fix="Periksa implementasi _import_rca",
+            confidence=0.0,
+            _raw=exception,
+        )
+
     try:
         # Gunakan fungsi yang sudah di-cache
-        result = _RCA_ANALYZE_FUNC(exception, context or {})
+        result = analyze_func(exception, context or {})
 
         # Konversi ke RCAResult kita
         return RCAResult(

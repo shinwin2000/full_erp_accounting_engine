@@ -231,10 +231,10 @@ class CausalityTracker:
         return list(self._relationships.values())
 
     def get_relationships_from(self, source_id: UUID) -> list[CausalRelationship]:
-        return list(self._graph.get(source_id, {}).values())  # not in loop
+        return list(self._graph.get(source_id, {}).values())
 
     def get_relationships_to(self, target_id: UUID) -> list[CausalRelationship]:
-        return list(self._reverse_graph.get(target_id, {}).values())  # not in loop
+        return list(self._reverse_graph.get(target_id, {}).values())
 
     def update_relationship_strength(
         self,
@@ -346,7 +346,7 @@ class CausalityTracker:
                     if relationship_filter and rel.relationship_type not in relationship_filter:
                         continue
                     visited.add(neighbor)
-                    new_path = path + [rel]
+                    new_path = [*path, rel]
                     result.append((neighbor, depth + 1, new_path))
                     queue.append((neighbor, depth + 1, new_path))
         return result
@@ -374,7 +374,7 @@ class CausalityTracker:
                     if relationship_filter and rel.relationship_type not in relationship_filter:
                         continue
                     visited.add(neighbor)
-                    new_path = path + [rel]
+                    new_path = [*path, rel]
                     result.append((neighbor, depth + 1, new_path))
                     queue.append((neighbor, depth + 1, new_path))
         return result
@@ -402,8 +402,8 @@ class CausalityTracker:
                 for neighbor, rel in self._graph[current].items():
                     if neighbor in visited:
                         continue
-                    new_path = path + [neighbor]
-                    new_rel_path = rel_path + [rel]
+                    new_path = [*path, neighbor]
+                    new_rel_path = [*rel_path, rel]
                     if neighbor == target_id:
                         total_strength = 1.0
                         for r in new_rel_path:
@@ -438,8 +438,8 @@ class CausalityTracker:
                 for neighbor, rel in self._graph[current].items():
                     if neighbor in path:  # avoid cycles
                         continue
-                    new_path = path + [neighbor]
-                    new_rel_path = rel_path + [rel]
+                    new_path = [*path, neighbor]
+                    new_rel_path = [*rel_path, rel]
                     if neighbor == target_id:
                         total_strength = 1.0
                         for r in new_rel_path:
@@ -471,18 +471,16 @@ class CausalityTracker:
             current, depth = queue.popleft()
             if depth >= max_depth:
                 continue
-            if direction in (TraversalDirection.FORWARD, TraversalDirection.BOTH):
-                if current in self._graph:
-                    for neighbor in self._graph[current]:
-                        if neighbor not in visited:
-                            visited.add(neighbor)
-                            queue.append((neighbor, depth + 1))
-            if direction in (TraversalDirection.BACKWARD, TraversalDirection.BOTH):
-                if current in self._reverse_graph:
-                    for neighbor in self._reverse_graph[current]:
-                        if neighbor not in visited:
-                            visited.add(neighbor)
-                            queue.append((neighbor, depth + 1))
+            if direction in (TraversalDirection.FORWARD, TraversalDirection.BOTH) and current in self._graph:
+                for neighbor in self._graph[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append((neighbor, depth + 1))
+            if direction in (TraversalDirection.BACKWARD, TraversalDirection.BOTH) and current in self._reverse_graph:
+                for neighbor in self._reverse_graph[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append((neighbor, depth + 1))
         return list(visited)
 
     # ========================================================================
@@ -507,7 +505,7 @@ class CausalityTracker:
                     elif neighbor in rec_stack:
                         # Cycle detected
                         cycle_start_idx = path.index(neighbor)
-                        cycle = path[cycle_start_idx:] + [neighbor]
+                        cycle = [*path[cycle_start_idx:], neighbor]
                         cycles.append(cycle)
             rec_stack.remove(node_id)
             path.pop()

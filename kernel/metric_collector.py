@@ -47,8 +47,6 @@ class Metric:
     help_text: str
     labels: list[str] = field(default_factory=list)
 
-    # __slots__ dihapus untuk menghindari konflik dengan field dataclass
-
     def validate(self) -> dict[str, Any]:
         errors = []
         if not self.name:
@@ -183,6 +181,7 @@ class MetricCollector(BaseMetricCollector):
 
     _instance: MetricCollector | None = None
     _lock = threading.Lock()
+    _initialized: bool  # Deklarasi tipe untuk mypy
 
     __slots__ = (
         "_audit_trail",
@@ -379,7 +378,7 @@ class MetricCollector(BaseMetricCollector):
         return name, labels if labels else None
 
     def get_all_metrics(self) -> dict[str, Any]:
-        result = {"counters": {}, "gauges": {}, "histograms": {}}
+        result: dict[str, Any] = {"counters": {}, "gauges": {}, "histograms": {}}
         with self._lock_internal:
             for key, value in self._counters.items():
                 name, labels = self._parse_key(key)
@@ -387,8 +386,7 @@ class MetricCollector(BaseMetricCollector):
             for key, value in self._gauges.items():
                 name, labels = self._parse_key(key)
                 result["gauges"][key] = {"value": value, "name": name, "labels": labels}
-            # Perbaikan B007: iterasi langsung atas key, tidak pakai values
-            for key in self._histograms:
+            for key in self._histograms.keys():
                 name, labels = self._parse_key(key)
                 stats = self.get_histogram_stats(name, labels)
                 result["histograms"][key] = {"stats": stats, "name": name, "labels": labels}
@@ -409,8 +407,7 @@ class MetricCollector(BaseMetricCollector):
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 lines.append(f"{name}{label_str} {value}")
-            # Perbaikan B007: iterasi langsung atas key
-            for key in self._histograms:
+            for key in self._histograms.keys():
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 stats = self.get_histogram_stats(name, labels)
@@ -442,12 +439,10 @@ class MetricCollector(BaseMetricCollector):
 
     def get_counter_names(self) -> list[str]:
         with self._lock_internal:
-            # Perbaikan C401 + SIM118: gunakan set comprehension dan iterasi langsung
             return list({self._parse_key(k)[0] for k in self._counters})
 
     def get_gauge_names(self) -> list[str]:
         with self._lock_internal:
-            # Perbaikan C401 + SIM118
             return list({self._parse_key(k)[0] for k in self._gauges})
 
     def clear(self) -> None:
