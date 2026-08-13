@@ -75,11 +75,14 @@ def _get_event_store() -> _FallbackEventStore:
     return _FallbackEventStore()
 
 
-def _get_digital_signer() -> object:
-    class _FallbackSigner:
-        def sign(self, data: str) -> str:
-            return f"sig_{hashlib.md5(data.encode()).hexdigest()}"
+class _FallbackSigner:
+    """Digital signer for audit events."""
 
+    def sign(self, data: str) -> str:
+        return f"sig_{hashlib.md5(data.encode()).hexdigest()}"
+
+
+def _get_digital_signer() -> _FallbackSigner:
     return _FallbackSigner()
 
 
@@ -216,7 +219,7 @@ class BaseAuditHookInjector(ABC):
 class AuditHookInjector(BaseAuditHookInjector):
     _instance: AuditHookInjector | None = None
     _lock = asyncio.Lock()
-    _initialized: bool = False  # Added type annotation
+    _initialized: bool = False
 
     def __new__(cls) -> AuditHookInjector:
         if cls._instance is None:
@@ -534,19 +537,19 @@ class AuditHookInjector(BaseAuditHookInjector):
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, dict):
-            res: dict[str, Any] = {}
+            dict_result: dict[str, Any] = {}
             for k, v in list(obj.items())[:20]:
-                res[str(k)] = self._safe_serialize(v, max_depth, current_depth + 1)
+                dict_result[str(k)] = self._safe_serialize(v, max_depth, current_depth + 1)
             if len(obj) > 20:
-                res["..."] = f"and {len(obj) - 20} more keys"
-            return res
+                dict_result["..."] = f"and {len(obj) - 20} more keys"
+            return dict_result
         if isinstance(obj, (list, tuple)):
-            res: list[Any] = []  # type: ignore[no-redef]  # Reused variable name but different type, but mypy accepts with explicit annotation
+            list_result: list[Any] = []
             for item in list(obj)[:10]:
-                res.append(self._safe_serialize(item, max_depth, current_depth + 1))
+                list_result.append(self._safe_serialize(item, max_depth, current_depth + 1))
             if len(obj) > 10:
-                res.append(f"... and {len(obj) - 10} more items")
-            return res
+                list_result.append(f"... and {len(obj) - 10} more items")
+            return list_result
         if hasattr(obj, "__dict__"):
             return self._safe_serialize(obj.__dict__, max_depth, current_depth + 1)
         return f"<{type(obj).__name__}>"

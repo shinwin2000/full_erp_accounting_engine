@@ -122,7 +122,7 @@ class ProjectTimeEntry:
         billable: bool,
         hourly_rate: Decimal,
         description: str = "",
-        created_at: datetime = None,
+        created_at: datetime | None = None,
     ):
         self.id = id
         self.project_id = project_id
@@ -441,9 +441,9 @@ class InMemoryProjectRepository(ProjectRepositoryPort):
         async with self._lock:
             result = []
             for entry in self._time_entries:
-                if entry.project_id == project_id:
-                    if from_date <= entry.entry_date <= to_date:
-                        result.append(entry)
+                # Gabungkan kondisi nested if menjadi satu (SIM102)
+                if entry.project_id == project_id and from_date <= entry.entry_date <= to_date:
+                    result.append(entry)
             return result
 
     async def save_expense_entry(self, entry: ProjectExpenseEntry) -> None:
@@ -460,9 +460,9 @@ class InMemoryProjectRepository(ProjectRepositoryPort):
         async with self._lock:
             result = []
             for entry in self._expense_entries:
-                if entry.project_id == project_id:
-                    if from_date <= entry.expense_date <= to_date:
-                        result.append(entry)
+                # Gabungkan kondisi nested if menjadi satu (SIM102)
+                if entry.project_id == project_id and from_date <= entry.expense_date <= to_date:
+                    result.append(entry)
             return result
 
     # --------------------------------------------------------------------

@@ -311,10 +311,10 @@ class InMemorySnapshotStore(SnapshotStorePort):
         latest_sequence = -1
         for sid in snapshot_ids:
             snap = self._snapshots.get(sid)
-            if snap and snap.metadata.status == SnapshotStatus.ACTIVE:
-                if snap.metadata.last_event_sequence > latest_sequence:
-                    latest = snap
-                    latest_sequence = snap.metadata.last_event_sequence
+            # Gabungkan kondisi nested if menjadi satu (SIM102)
+            if snap and snap.metadata.status == SnapshotStatus.ACTIVE and snap.metadata.last_event_sequence > latest_sequence:
+                latest = snap
+                latest_sequence = snap.metadata.last_event_sequence
         if not latest:
             return None
         if latest.metadata.expires_at and latest.metadata.expires_at < datetime.now(UTC):
@@ -345,10 +345,15 @@ class InMemorySnapshotStore(SnapshotStorePort):
         best_version = -1
         for sid in snapshot_ids:
             snap = self._snapshots.get(sid)
-            if snap and snap.metadata.status == SnapshotStatus.ACTIVE:
-                if snap.metadata.version <= version and snap.metadata.version > best_version:
-                    best = snap
-                    best_version = snap.metadata.version
+            # Gabungkan kondisi nested if menjadi satu (SIM102)
+            if (
+                snap
+                and snap.metadata.status == SnapshotStatus.ACTIVE
+                and snap.metadata.version <= version
+                and snap.metadata.version > best_version
+            ):
+                best = snap
+                best_version = snap.metadata.version
         if not best:
             return None
         if best.metadata.expires_at and best.metadata.expires_at < datetime.now(UTC):

@@ -19,6 +19,7 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager, suppress
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -895,7 +896,17 @@ def create_app() -> FastAPI:
     @_app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
         logger.warning(f"Validation error {request.url}: {exc.errors()}")
-        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        # FIX: exc.errors() can contain non-JSON-serializable objects (e.g. Decimal
+        # in `ctx: {"gt": Decimal("0")}` for constrained numeric fields). Passing
+        # that straight into JSONResponse crashes json.dumps with
+        # "TypeError: Object of type Decimal is not JSON serializable", which then
+        # surfaces to the client as a generic error (and, when this happens inside
+        # the auth middleware's call_next, even masquerades as a 401). Route the
+        # error payload through jsonable_encoder first so Decimal/UUID/datetime/etc.
+        # are converted to JSON-safe primitives before serialization.
+        from fastapi.encoders import jsonable_encoder
+        safe_errors = jsonable_encoder(exc.errors(), custom_encoder={Decimal: str})
+        return JSONResponse(status_code=422, content={"detail": safe_errors})
 
     @_app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception):

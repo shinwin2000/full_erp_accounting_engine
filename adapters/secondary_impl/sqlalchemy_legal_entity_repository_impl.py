@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -573,15 +573,29 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
     # CONSOLIDATION — DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
-    async def create_consolidation_group(self, group_name: str, description: str | None = None, created_by: UUID | None = None) -> UUID:
+    async def create_consolidation_group(
+        self,
+        group_name: str,
+        description: str | None = None,
+        created_by: UUID | None = None,
+        group_code: str | None = None,
+        parent_entity_id: UUID | None = None,
+        functional_currency: str = "IDR",
+        fiscal_year_start: int = 1,
+    ) -> UUID:
         try:
             table = ConsolidationGroupTable(
                 id=uuid4(),
+                group_code=group_code or group_name[:30].upper().replace(" ", "-"),
                 group_name=group_name,
                 description=description,
+                parent_entity_id=parent_entity_id,
+                base_currency=functional_currency,
+                fiscal_year_start=fiscal_year_start,
                 is_active=True,
                 created_at=datetime.utcnow(),
                 created_by=created_by,
+                version=1,
             )
             self.session.add(table)
             await self.session.flush()
@@ -616,20 +630,26 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             await self.session.rollback()
             raise LegalEntityRepositoryError(f"Failed to add to group: {e}") from e
 
-    async def get_consolidation_groups(self, is_active: bool = True) -> list[dict[str, Any]]:
+    async def get_consolidation_groups(self, is_active: bool | None = True) -> list[dict[str, Any]]:
         """
         Ambil semua group konsolidasi beserta jumlah anggota masing-masing.
         Menggunakan satu query agregasi (LEFT JOIN + GROUP BY) untuk menghindari N+1.
         """
         try:
-            # Satu query: LEFT JOIN dengan member, group by group id, count member id
             stmt = (
                 select(
                     ConsolidationGroupTable.id,
+                    ConsolidationGroupTable.group_code,
                     ConsolidationGroupTable.group_name,
                     ConsolidationGroupTable.description,
+                    ConsolidationGroupTable.parent_entity_id,
+                    ConsolidationGroupTable.base_currency,
+                    ConsolidationGroupTable.fiscal_year_start,
                     ConsolidationGroupTable.is_active,
                     ConsolidationGroupTable.created_at,
+                    ConsolidationGroupTable.updated_at,
+                    ConsolidationGroupTable.created_by,
+                    ConsolidationGroupTable.version,
                     func.count(ConsolidationGroupMemberTable.id).label("member_count"),
                 )
                 .outerjoin(
@@ -639,25 +659,179 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
                         ConsolidationGroupMemberTable.deleted_at.is_(None),
                     )
                 )
-                .where(ConsolidationGroupTable.is_active == is_active)
+                .where(ConsolidationGroupTable.deleted_at.is_(None))
                 .group_by(ConsolidationGroupTable.id)
                 .order_by(ConsolidationGroupTable.group_name)
             )
+            if is_active is not None:
+                stmt = stmt.where(ConsolidationGroupTable.is_active == is_active)
             result = await self.session.execute(stmt)
             rows = result.all()
             groups = []
             for row in rows:
                 groups.append({
                     "id": row.id,
+                    "group_code": row.group_code,
                     "group_name": row.group_name,
                     "description": row.description,
+                    "parent_entity_id": row.parent_entity_id,
+                    "functional_currency": row.base_currency,
+                    "fiscal_year_start": row.fiscal_year_start,
                     "member_count": row.member_count or 0,
                     "is_active": row.is_active,
                     "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                    "created_by": row.created_by,
+                    "version": row.version,
                 })
             return groups
         except Exception as e:
             raise LegalEntityRepositoryError(f"Failed to get consolidation groups: {e}") from e
+
+    async def get_consolidation_group_meta(self, group_id: UUID) -> dict[str, Any] | None:
+        try:
+            count_stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
+                ConsolidationGroupMemberTable.group_id == group_id,
+                ConsolidationGroupMemberTable.deleted_at.is_(None),
+            )
+            member_count = (await self.session.execute(count_stmt)).scalar_one()
+            stmt = select(ConsolidationGroupTable).where(
+                ConsolidationGroupTable.id == group_id,
+                ConsolidationGroupTable.deleted_at.is_(None),
+            )
+            row = (await self.session.execute(stmt)).scalar_one_or_none()
+            if not row:
+                return None
+            data = row.to_dict()
+            data["functional_currency"] = data.pop("base_currency")
+            data["member_count"] = member_count
+            return data
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get consolidation group meta: {e}") from e
+
+    async def update_consolidation_group_meta(
+        self,
+        group_id: UUID,
+        group_name: str | None = None,
+        parent_entity_id: UUID | None = None,
+        functional_currency: str | None = None,
+        description: str | None = None,
+        is_active: bool | None = None,
+        updated_by: UUID | None = None,
+    ) -> dict[str, Any] | None:
+        try:
+            stmt = select(ConsolidationGroupTable).where(
+                ConsolidationGroupTable.id == group_id,
+                ConsolidationGroupTable.deleted_at.is_(None),
+            ).with_for_update()
+            row = (await self.session.execute(stmt)).scalar_one_or_none()
+            if not row:
+                return None
+            if group_name is not None:
+                row.group_name = group_name
+            if parent_entity_id is not None:
+                row.parent_entity_id = parent_entity_id
+            if functional_currency is not None:
+                row.base_currency = functional_currency
+            if description is not None:
+                row.description = description
+            if is_active is not None:
+                row.is_active = is_active
+            row.version += 1
+            await self.session.flush()
+            await self.session.refresh(row)
+            data = row.to_dict()
+            data["functional_currency"] = data.pop("base_currency")
+            count_stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
+                ConsolidationGroupMemberTable.group_id == group_id,
+                ConsolidationGroupMemberTable.deleted_at.is_(None),
+            )
+            data["member_count"] = (await self.session.execute(count_stmt)).scalar_one()
+            return data
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to update consolidation group: {e}") from e
+
+    async def add_consolidation_group_member(
+        self,
+        group_id: UUID,
+        legal_entity_id: UUID,
+        ownership_percentage: Decimal,
+        consolidation_method: str,
+        effective_date: date | None,
+        notes: str | None,
+        added_by: UUID | None,
+    ) -> dict[str, Any]:
+        try:
+            existing_stmt = select(ConsolidationGroupMemberTable).where(
+                ConsolidationGroupMemberTable.group_id == group_id,
+                ConsolidationGroupMemberTable.entity_id == legal_entity_id,
+                ConsolidationGroupMemberTable.deleted_at.is_(None),
+            )
+            existing = (await self.session.execute(existing_stmt)).scalar_one_or_none()
+            if existing:
+                member_row = existing
+                member_row.ownership_percentage = ownership_percentage
+                member_row.consolidation_method = consolidation_method
+                member_row.effective_date = effective_date
+                member_row.notes = notes
+            else:
+                member_row = ConsolidationGroupMemberTable(
+                    id=uuid4(),
+                    group_id=group_id,
+                    entity_id=legal_entity_id,
+                    ownership_percentage=ownership_percentage,
+                    consolidation_method=consolidation_method,
+                    effective_date=effective_date,
+                    notes=notes,
+                    joined_at=datetime.now(UTC),
+                )
+                self.session.add(member_row)
+
+            entity_stmt = update(LegalEntityTable).where(
+                LegalEntityTable.id == legal_entity_id
+            ).values(consolidation_group_id=group_id)
+            await self.session.execute(entity_stmt)
+            await self.session.flush()
+            await self.session.refresh(member_row)
+
+            name_stmt = select(LegalEntityTable.legal_name, LegalEntityTable.registration_number).where(
+                LegalEntityTable.id == legal_entity_id
+            )
+            name_row = (await self.session.execute(name_stmt)).one_or_none()
+            await self._log_audit("ADD_CONSOLIDATION_MEMBER", legal_entity_id, {"group_id": str(group_id)})
+
+            data = member_row.to_dict()
+            data["legal_entity_name"] = name_row.legal_name if name_row else None
+            data["legal_entity_code"] = name_row.registration_number if name_row else None
+            return data
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to add consolidation group member: {e}") from e
+
+    async def remove_consolidation_group_member(self, member_id: UUID, group_id: UUID, removed_by: UUID | None) -> UUID | None:
+        try:
+            stmt = select(ConsolidationGroupMemberTable).where(
+                ConsolidationGroupMemberTable.id == member_id,
+                ConsolidationGroupMemberTable.group_id == group_id,
+                ConsolidationGroupMemberTable.deleted_at.is_(None),
+            )
+            row = (await self.session.execute(stmt)).scalar_one_or_none()
+            if not row:
+                return None
+            entity_id = row.entity_id
+            row.deleted_at = datetime.now(UTC)
+            entity_stmt = update(LegalEntityTable).where(
+                LegalEntityTable.id == entity_id,
+                LegalEntityTable.consolidation_group_id == group_id,
+            ).values(consolidation_group_id=None)
+            await self.session.execute(entity_stmt)
+            await self.session.flush()
+            await self._log_audit("REMOVE_CONSOLIDATION_MEMBER", entity_id, {"group_id": str(group_id)})
+            return entity_id
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to remove consolidation group member: {e}") from e
 
     async def get_consolidation_group(self, group_id: UUID) -> list[LegalEntity]:
         try:

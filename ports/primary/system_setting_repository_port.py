@@ -147,7 +147,7 @@ class SystemSetting:
                 return self.value
             return str(self.value).lower() in ("true", "1", "yes")
         elif self.value_type == SettingValueType.JSON:
-            if isinstance(self.value, (dict, list)):
+            if isinstance(self.value, dict | list):
                 return self.value
             return json.loads(self.value)
         elif self.value_type == SettingValueType.DECIMAL:
@@ -278,6 +278,7 @@ class SystemSettingRepositoryPort(abc.ABC):
         """Health check."""
         ...
 
+    @abc.abstractmethod
     def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:
         """Daftarkan custom validation hook (implementasi opsional)."""
         ...
@@ -299,7 +300,7 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
         self._validation_hooks: dict[str, Callable[[Any], bool]] = {}
         self._lock = asyncio.Lock()
         self._default_settings_loaded = False
-        asyncio.create_task(self._init_default_settings())
+        self._init_task: asyncio.Task | None = asyncio.create_task(self._init_default_settings())
 
     async def _init_default_settings(self) -> None:
         if self._default_settings_loaded:
@@ -418,18 +419,16 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
             elif setting.value_type == SettingValueType.UUID:
                 if not isinstance(new_value, UUID):
                     new_value = UUID(str(new_value))
-            elif setting.value_type == SettingValueType.JSON:
-                if isinstance(new_value, str):
-                    new_value = json.loads(new_value)
+            elif setting.value_type == SettingValueType.JSON and isinstance(new_value, str):
+                new_value = json.loads(new_value)
         except Exception as e:
             raise ValueError(f"Type validation failed for {setting.key}: {e}")
 
-        if setting.validation_regex:
-            if not re.match(setting.validation_regex, str(new_value)):
-                raise ValueError(f"Value '{new_value}' does not match regex {setting.validation_regex}")
+        if setting.validation_regex and not re.match(setting.validation_regex, str(new_value)):
+            raise ValueError(f"Value '{new_value}' does not match regex {setting.validation_regex}")
 
         if setting.min_value is not None or setting.max_value is not None:
-            if not isinstance(new_value, (Decimal, int, float)):
+            if not isinstance(new_value, Decimal | int | float):
                 try:
                     new_value = Decimal(str(new_value))
                 except Exception:
@@ -443,13 +442,11 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
                 if new_value > max_val:
                     raise ValueError(f"Value {new_value} exceeds maximum {max_val}")
 
-        if setting.allowed_values:
-            if new_value not in setting.allowed_values:
-                raise ValueError(f"Value '{new_value}' not in allowed values: {setting.allowed_values}")
+        if setting.allowed_values and new_value not in setting.allowed_values:
+            raise ValueError(f"Value '{new_value}' not in allowed values: {setting.allowed_values}")
 
-        if setting.key in self._validation_hooks:
-            if not self._validation_hooks[setting.key](new_value):
-                raise ValueError(f"Custom validation failed for {setting.key}")
+        if setting.key in self._validation_hooks and not self._validation_hooks[setting.key](new_value):
+            raise ValueError(f"Custom validation failed for {setting.key}")
 
         return True
 
@@ -616,7 +613,7 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
             return SettingValueType.FLOAT
         if isinstance(value, Decimal):
             return SettingValueType.DECIMAL
-        if isinstance(value, (dict, list)):
+        if isinstance(value, dict | list):
             return SettingValueType.JSON
         if isinstance(value, date):
             return SettingValueType.DATE
@@ -643,12 +640,12 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
     ) -> list[SystemSetting]:
         result = []
         for setting in self._storage.values():
-            if legal_entity_id is not None:
-                if (
-                    setting.scope == SettingScope.LEGAL_ENTITY
-                    and setting.legal_entity_id != legal_entity_id
-                ):
-                    continue
+            if (
+                legal_entity_id is not None
+                and setting.scope == SettingScope.LEGAL_ENTITY
+                and setting.legal_entity_id != legal_entity_id
+            ):
+                continue
             if not include_deleted and setting.deleted_at is not None:
                 continue
             result.append(setting)
@@ -729,7 +726,7 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
                     max_val = Decimal(str(max_val))
                 allowed_vals = setting_data.get("allowed_values")
                 if allowed_vals is not None:
-                    allowed_vals = [Decimal(str(v)) if isinstance(v, (int, float)) else v for v in allowed_vals]
+                    allowed_vals = [Decimal(str(v)) if isinstance(v, int | float) else v for v in allowed_vals]
 
                 setting = SystemSetting(
                     id=UUID(setting_data["id"]) if overwrite else uuid4(),

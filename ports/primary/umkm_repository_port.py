@@ -32,7 +32,7 @@ class UMKMTransactionEntity:
         category: str,          # e.g., SALES, PURCHASE, RENT, SALARY, TAX
         payment_method: str,    # CASH, BANK_TRANSFER, CARD
         reference_number: str | None = None,
-        attachment_ids: list[UUID] = None,
+        attachment_ids: list[UUID] | None = None,
         created_by: UUID | None = None,
         created_at: datetime | None = None,
     ):
@@ -225,9 +225,13 @@ class InMemoryUMKMRepository(UMKMRepositoryPort):
         async with self._lock:
             total = Decimal(0)
             for t in self._transactions:
-                if t.legal_entity_id == legal_entity_id and t.transaction_date.year == year:
-                    if t.transaction_type == "REVENUE":
-                        total += t.amount
+                # Gabungkan nested if menjadi satu (SIM102)
+                if (
+                    t.legal_entity_id == legal_entity_id
+                    and t.transaction_date.year == year
+                    and t.transaction_type == "REVENUE"
+                ):
+                    total += t.amount
             return total
 
 

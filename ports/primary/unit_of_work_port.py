@@ -223,7 +223,7 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
                 raise RuntimeError(f"Before-commit hook failed: {e}")
 
         try:
-            for repo_name, repo in self._repositories.items():
+            for _, repo in self._repositories.items():
                 if hasattr(repo, "_commit"):
                     await repo._commit()
             self._status = TransactionStatus.COMMITTED
@@ -251,7 +251,7 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
     async def rollback(self) -> None:
         if self._status not in (TransactionStatus.ACTIVE, TransactionStatus.FAILED):
             return
-        for repo_name, repo in self._repositories.items():
+        for _, repo in self._repositories.items():
             if hasattr(repo, "_rollback"):
                 await repo._rollback()
         self._status = TransactionStatus.ROLLED_BACK
@@ -344,7 +344,7 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
     async def flush(self) -> None:
         if self._status != TransactionStatus.ACTIVE:
             raise ValueError("Cannot flush in non-active transaction")
-        for repo_name, repo in self._repositories.items():
+        for _, repo in self._repositories.items():
             if hasattr(repo, "_flush"):
                 await repo._flush()
         await self._log_audit("FLUSH", {})
@@ -417,10 +417,7 @@ class DeadlockDetector:
         if holder is None:
             return False
         waiting_locks = self._waiting.get(holder, [])
-        for wl in waiting_locks:
-            if self._locks.get(wl) == tx_id:
-                return True
-        return False
+        return any(self._locks.get(wl) == tx_id for wl in waiting_locks)
 
 
 # ==================== PROVIDER (untuk backward compatibility) ====================

@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,9 @@ class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
         index=True,
     )
     ownership_percentage: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0.00"))
+    consolidation_method: Mapped[str] = mapped_column(default="full")
+    effective_date: Mapped[Any] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
@@ -59,6 +62,9 @@ class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
             "group_id": str(self.group_id),
             "entity_id": str(self.entity_id),
             "ownership_percentage": float(self.ownership_percentage),
+            "consolidation_method": self.consolidation_method,
+            "effective_date": self.effective_date.isoformat() if self.effective_date else None,
+            "notes": self.notes,
             "joined_at": self.joined_at.isoformat(),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

@@ -197,7 +197,16 @@ class LegalEntityRepositoryPort(ABC):
 
     # ---------- Consolidation ----------
     @abstractmethod
-    async def create_consolidation_group(self, group_name: str, description: str | None = None, created_by: UUID | None = None) -> UUID:
+    async def create_consolidation_group(
+        self,
+        group_name: str,
+        description: str | None = None,
+        created_by: UUID | None = None,
+        group_code: str | None = None,
+        parent_entity_id: UUID | None = None,
+        functional_currency: str = "IDR",
+        fiscal_year_start: int = 1,
+    ) -> UUID:
         pass
 
     @abstractmethod
@@ -206,6 +215,42 @@ class LegalEntityRepositoryPort(ABC):
 
     @abstractmethod
     async def get_consolidation_groups(self, is_active: bool = True) -> list[dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def get_consolidation_group_meta(self, group_id: UUID) -> dict[str, Any] | None:
+        """Metadata satu grup konsolidasi (bukan daftar anggotanya - lihat get_consolidation_group)."""
+        pass
+
+    @abstractmethod
+    async def update_consolidation_group_meta(
+        self,
+        group_id: UUID,
+        group_name: str | None = None,
+        parent_entity_id: UUID | None = None,
+        functional_currency: str | None = None,
+        description: str | None = None,
+        is_active: bool | None = None,
+        updated_by: UUID | None = None,
+    ) -> dict[str, Any] | None:
+        pass
+
+    @abstractmethod
+    async def add_consolidation_group_member(
+        self,
+        group_id: UUID,
+        legal_entity_id: UUID,
+        ownership_percentage: Decimal,
+        consolidation_method: str,
+        effective_date: date | None,
+        notes: str | None,
+        added_by: UUID | None,
+    ) -> dict[str, Any]:
+        pass
+
+    @abstractmethod
+    async def remove_consolidation_group_member(self, member_id: UUID, group_id: UUID, removed_by: UUID | None) -> UUID | None:
+        """Return entity_id anggota yang dihapus, atau None kalau member_id tidak ditemukan."""
         pass
 
     @abstractmethod

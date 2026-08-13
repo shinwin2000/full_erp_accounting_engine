@@ -288,9 +288,10 @@ class InMemoryTimestampNotary(TimestampNotaryPort):
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
         self._tsa_name = "ERP In-Memory TSA v1.0"
+        self._init_task: asyncio.Task | None = None
 
         # Inisialisasi default certificate (background)
-        asyncio.create_task(self._init_default_certificate())
+        self._init_task = asyncio.create_task(self._init_default_certificate())
 
     # ------------------- Initialization -------------------
 
@@ -443,7 +444,10 @@ class InMemoryTimestampNotary(TimestampNotaryPort):
             parts = decoded.split("|")
             if len(parts) < 4:
                 return False, TimestampStatus.INVALID, None
-            serial, ts_iso, time_hash, signature = parts[0], parts[1], parts[2], parts[3]
+            # We only need serial for lookup, others not used directly
+            serial = parts[0]
+            # ts_iso, time_hash, signature are not needed for verification here
+            # (they are used in token comparison later)
         except Exception as e:
             logger.warning(f"Timestamp decode failed: {e}")
             return False, TimestampStatus.INVALID, None
@@ -456,7 +460,7 @@ class InMemoryTimestampNotary(TimestampNotaryPort):
 
         if not found_token:
             hashed_tokens = self._hash_index.get(data_hash, [])
-            for tok, req in hashed_tokens:
+            for tok, _req in hashed_tokens:
                 if tok.token == timestamp_token or tok.serial_number == serial:
                     found_token = tok
                     break

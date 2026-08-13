@@ -85,7 +85,7 @@ class FiscalPeriod:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -99,7 +99,6 @@ class FiscalPeriod:
 
     def is_open_for_posting(self, allow_locked: bool = False) -> bool:
         """Apakah periode terbuka untuk posting."""
-        # FIX: SIM103 - return condition directly
         return self.status == PeriodStatus.OPEN or (allow_locked and self.status == PeriodStatus.LOCKED)
 
     def can_be_adjusted(self) -> bool:
@@ -130,7 +129,7 @@ class _FallbackFiscalPeriodRepository:
     Tidak mengimpor adapters atau infrastructure.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._periods: dict[UUID, FiscalPeriod] = {}
         self._by_entity: dict[UUID, list[UUID]] = {}
         self._by_year: dict[tuple[UUID, int], list[UUID]] = {}
@@ -284,7 +283,7 @@ class PeriodLockCheckResult:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -455,17 +454,17 @@ class PeriodLockGuard(BasePeriodLockGuard):
     perubahan setelah periode ditutup.
     """
 
-    def __init__(self, period_repository: Any | None = None):
+    def __init__(self, period_repository: Any | None = None) -> None:
         self._period_repo = period_repository or _FallbackFiscalPeriodRepository()
         self._check_history: list[PeriodLockCheckResult] = []
-        self._max_history = 10000
+        self._max_history: int = 10000
         self._lock = threading.RLock()
-        self._allow_future_posting = False
-        self._max_future_days = 7
-        self._max_backdate_days = 30
-        self._enabled = True
+        self._allow_future_posting: bool = False
+        self._max_future_days: int = 7
+        self._max_backdate_days: int = 30
+        self._enabled: bool = True
         # Entity fields
-        self._version = 1
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
@@ -475,7 +474,7 @@ class PeriodLockGuard(BasePeriodLockGuard):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         period_id = context.get("period_id")
         legal_entity_id = context.get("legal_entity_id")
         transaction_date = context.get("transaction_date")
@@ -506,7 +505,7 @@ class PeriodLockGuard(BasePeriodLockGuard):
 
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         if self._max_future_days < 0:
@@ -1149,18 +1148,18 @@ class PeriodLockGuard(BasePeriodLockGuard):
             violations = [r for r in self._check_history if not r.is_allowed]
             violation_count = len(violations)
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for sev in PeriodLockSeverity:
                 count = len([r for r in violations if r.severity == sev])
                 if count > 0:
                     by_severity[sev.name] = count
 
-            by_status = {}
+            by_status: dict[str, int] = {}
             for r in violations:
                 status = r.period_status.value
                 by_status[status] = by_status.get(status, 0) + 1
 
-            by_period = {}
+            by_period: dict[str, int] = {}
             for r in violations:
                 by_period[r.period_name] = by_period.get(r.period_name, 0) + 1
 

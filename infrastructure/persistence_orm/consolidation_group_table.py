@@ -39,6 +39,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     group_code: Mapped[str] = mapped_column(String(50), nullable=False)
     group_name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     fiscal_year_start: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     fiscal_year_end: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
@@ -71,6 +72,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
             "group_code": self.group_code,
             "group_name": self.group_name,
             "description": self.description,
+            "parent_entity_id": str(self.parent_entity_id) if self.parent_entity_id else None,
             "base_currency": self.base_currency,
             "fiscal_year_start": self.fiscal_year_start,
             "fiscal_year_end": self.fiscal_year_end,

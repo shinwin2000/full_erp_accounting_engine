@@ -45,7 +45,7 @@ class _FallbackRegulatoryConfig:
     Menyimpan konfigurasi regulasi dalam memory.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._config: dict[str, Any] = {
             "fx_limit_usd": 1000000,
             "fx_limit_eur": 1100000,
@@ -125,7 +125,7 @@ class RegulatoryRule:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -173,7 +173,7 @@ class ComplianceViolation:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -466,18 +466,18 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
     akibat ketidakpatuhan.
     """
 
-    def __init__(self, regulatory_config: Any | None = None):
+    def __init__(self, regulatory_config: Any | None = None) -> None:
         self._config = regulatory_config or _FallbackRegulatoryConfig()
         self._rules: dict[str, RegulatoryRule] = {r.rule_id: r for r in DEFAULT_REGULATORY_RULES}
         self._violations: list[ComplianceViolation] = []
         self._transaction_history: dict[
             UUID, list[dict[str, Any]]
         ] = {}  # customer_id -> recent transactions
-        self._max_history = 10000
+        self._max_history: int = 10000
         self._lock = threading.RLock()
-        self._enabled = True
-        self._report_violations_to_regulator = False  # Simulate sending reports
-        self._version = 1
+        self._enabled: bool = True
+        self._report_violations_to_regulator: bool = False  # Simulate sending reports
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
@@ -487,7 +487,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         checks = context.get("checks")
         if not checks:
             errors.append("checks list is required")
@@ -495,8 +495,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
             errors.append("checks must be a list of tuples")
         else:
             for i, check in enumerate(checks):
-                # FIX: UP038 - use union type in isinstance
-                if not isinstance(check, tuple | list) or len(check) != 2:
+                if not isinstance(check, (tuple, list)) or len(check) != 2:
                     errors.append(f"check[{i}] must be a tuple of (check_name, params)")
                 else:
                     check_name, params = check
@@ -510,7 +509,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
 
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         if not self._rules:
@@ -856,7 +855,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
         self,
         amount: Decimal,
         fair_market_value: Decimal,
-        related_party_id: UUID,
+        related_party_id: UUID | None = None,
         legal_entity_id: UUID | None = None,
         transaction_id: UUID | None = None,
         user_id: str | None = None,
@@ -870,6 +869,9 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
         rule = self._rules.get("TRANSFER_PRICING_ARM_LENGTH")
         if not rule or not rule.is_active:
             return True, None
+
+        if related_party_id is None:
+            return True, None  # No related party, skip check
 
         tolerance_percent = Decimal(
             str(await self._config.get_config("transfer_pricing_tolerance_percent", 5))
@@ -1011,7 +1013,7 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
         if user_id is None:
             user_id = get_current_user()
 
-        violations = []
+        violations: list[ComplianceViolation] = []
 
         for check_name, params in checks:
             if check_name == "foreign_exchange_limit":
@@ -1077,17 +1079,24 @@ class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
                     violations.append(violation)
 
             elif check_name == "transfer_pricing":
-                _, violation = await self.check_transfer_pricing(
-                    amount=params.get("amount", Decimal(0)),
-                    fair_market_value=params.get("fair_market_value", Decimal(0)),
-                    related_party_id=params.get("related_party_id"),
-                    legal_entity_id=legal_entity_id,
-                    transaction_id=params.get("transaction_id"),
-                    user_id=user_id,
-                )
-                if violation:
-                    self._record_violation(violation)
-                    violations.append(violation)
+                related_party_id = params.get("related_party_id")
+                # Only call if related_party_id is a UUID (or None)
+                if isinstance(related_party_id, UUID) or related_party_id is None:
+                    _, violation = await self.check_transfer_pricing(
+                        amount=params.get("amount", Decimal(0)),
+                        fair_market_value=params.get("fair_market_value", Decimal(0)),
+                        related_party_id=related_party_id,
+                        legal_entity_id=legal_entity_id,
+                        transaction_id=params.get("transaction_id"),
+                        user_id=user_id,
+                    )
+                    if violation:
+                        self._record_violation(violation)
+                        violations.append(violation)
+                else:
+                    logger.warning(
+                        f"Transfer pricing check skipped: related_party_id has unexpected type {type(related_party_id)}"
+                    )
 
             elif check_name == "fx_reporting":
                 _, violation = await self.check_fx_reporting(

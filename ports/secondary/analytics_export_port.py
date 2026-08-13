@@ -444,7 +444,7 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
         elif method == DeliveryMethod.EMAIL:
             recipients = config.get("recipients", [])
             subject = config.get("subject", f"Export {job.name}")
-            logger.info(f"EMAIL would be sent to {recipients} with attachment of {len(data)} bytes")
+            logger.info(f"EMAIL would be sent to {recipients} with subject '{subject}' and attachment of {len(data)} bytes")
             return f"email://{','.join(recipients)}"
         elif method == DeliveryMethod.FTP:
             logger.info(f"FTP upload to {config.get('host')}:{config.get('port')}")

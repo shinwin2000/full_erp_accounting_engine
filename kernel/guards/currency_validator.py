@@ -48,7 +48,7 @@ class _FallbackExchangeRateRepository:
     Tidak mengimpor apapun dari adapters atau infrastructure.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Default rates: (from_curr, to_curr) -> rate
         self._default_rates: dict[tuple[str, str], Decimal] = {
             ("USD", "IDR"): Decimal("15250.00"),
@@ -123,7 +123,7 @@ class _FallbackExchangeRateRepository:
         self, from_currency: str, to_currency: str, start_date: datetime, end_date: datetime
     ) -> dict[date, Decimal]:
         """Mendapatkan kurs historis dalam rentang tanggal."""
-        result = {}
+        result: dict[date, Decimal] = {}
         current = start_date
         while current <= end_date:
             rate = await self.get_rate(from_currency, to_currency, current)
@@ -146,7 +146,7 @@ class _FallbackLegalEntityRepository:
     Tidak mengimpor adapters atau infrastructure.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._entities: dict[UUID, dict[str, Any]] = {}
         self._entity_by_code: dict[str, UUID] = {}
 
@@ -197,7 +197,7 @@ class _FallbackLegalEntityRepository:
         name: str = "",
         entity_code: str = "",
         multi_currency_enabled: bool = True,
-    ):
+    ) -> None:
         """Mendaftarkan entitas ke fallback storage."""
         self._entities[entity_id] = {
             "entity_id": entity_id,
@@ -280,7 +280,7 @@ class CurrencyValidationResult:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -488,15 +488,15 @@ class CurrencyValidator(BaseCurrencyValidator):
         self,
         exchange_rate_repo: Any | None = None,
         legal_entity_repo: Any | None = None,
-    ):
+    ) -> None:
         self._exchange_rate_repo = exchange_rate_repo or _FallbackExchangeRateRepository()
         self._legal_entity_repo = legal_entity_repo or _FallbackLegalEntityRepository()
         self._check_history: list[CurrencyValidationResult] = []
-        self._max_history = 10000
+        self._max_history: int = 10000
         self._lock = threading.RLock()
-        self._enabled = True
-        self._strict_mode = True  # Jika True, transaksi dengan kurs missing akan ditolak
-        self._version = 1
+        self._enabled: bool = True
+        self._strict_mode: bool = True  # Jika True, transaksi dengan kurs missing akan ditolak
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
@@ -506,7 +506,7 @@ class CurrencyValidator(BaseCurrencyValidator):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         currency = context.get("currency")
         legal_entity_id = context.get("legal_entity_id")
         transaction_date = context.get("transaction_date")
@@ -540,7 +540,7 @@ class CurrencyValidator(BaseCurrencyValidator):
 
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -895,7 +895,7 @@ class CurrencyValidator(BaseCurrencyValidator):
         Returns:
             (is_valid, list_of_violations, total_converted_amount)
         """
-        violations = []
+        violations: list[CurrencyValidationResult] = []
         total_converted = Decimal(0)
 
         if legal_entity_id is None:
@@ -1102,13 +1102,13 @@ class CurrencyValidator(BaseCurrencyValidator):
             ]
             violation_count = len(violations)
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for sev in CurrencyValidatorSeverity:
                 count = len([r for r in violations if r.severity == sev])
                 if count > 0:
                     by_severity[sev.name] = count
 
-            by_currency = {}
+            by_currency: dict[str, int] = {}
             for r in violations:
                 curr = r.currency
                 by_currency[curr] = by_currency.get(curr, 0) + 1

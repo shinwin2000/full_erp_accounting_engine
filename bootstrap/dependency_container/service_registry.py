@@ -221,6 +221,76 @@ class ServiceRegistrar:
             logger.info("LegalEntityService registered")
             logger.info("ApprovalService registered")
 
+            # ----- Registrasi IntangibleAssetService -----
+            # FIX: Service ini (beserta SQLAlchemyIntangibleAssetRepository dan
+            # port IntangibleAssetRepositoryPort, yang sudah punya manual mapping
+            # di adapter_registry.py) TIDAK PERNAH didaftarkan di sini, padahal
+            # fastapi_intangible_asset_router.py memanggil
+            # container.resolve_async(IntangibleAssetService) di setiap endpoint.
+            # Akibatnya semua endpoint /intangible-assets/* selalu gagal dengan
+            # DependencyNotFoundError. asset_repo/uow/cache/event_publisher-nya
+            # sendiri sudah bisa di-resolve otomatis lewat auto-injection
+            # (_construct_with_injection) karena port-nya sudah terdaftar,
+            # jadi cukup register class-nya sebagai singleton di sini.
+            from application.service_layer.service_intangible_asset import IntangibleAssetService
+
+            container.register_singleton(IntangibleAssetService, IntangibleAssetService)
+            logger.info("IntangibleAssetService registered")
+
+            # ----- Registrasi MaintenanceService -----
+            # FIX: application/service_layer/service_maintenance.py sebelumnya
+            # tidak ada sama sekali padahal fastapi_maintenance_router.py sudah
+            # lengkap dan mengimpornya di get_maintenance_svc(). Modul sudah
+            # dibuat; di sini cukup didaftarkan seperti service lain. Constructor-
+            # nya hanya butuh EventPublisherPort opsional, jadi factory kecil ini
+            # meniru pola EmployeeService/CapitalService di atas.
+            from application.service_layer.service_maintenance import MaintenanceService
+
+            async def _create_maintenance_service():
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    ev_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    ev_publisher = None
+                return MaintenanceService(event_publisher=ev_publisher)
+
+            container.register_singleton(MaintenanceService, factory=_create_maintenance_service)
+            logger.info("MaintenanceService registered")
+
+            # ----- Registrasi ConsolidationService (sebelumnya TIDAK PERNAH
+            # terdaftar sama sekali - endpoint /consolidation/consolidation/*
+            # selalu gagal dengan DependencyNotFoundError) -----
+            from application.service_layer.service_consolidation import ConsolidationService
+            from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
+            from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort as LERepoPort
+
+            async def _create_consolidation_service():
+                cons_repo = await container.resolve_async(ConsolidationRepositoryPort)
+                le_repo = await container.resolve_async(LERepoPort)
+                try:
+                    ledger_repo = await container.resolve_async(LedgerRepositoryPort)
+                except Exception:
+                    ledger_repo = None
+                try:
+                    uow = await container.resolve_async(UnitOfWorkPort)
+                except Exception:
+                    uow = None
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return ConsolidationService(
+                    consolidation_repo=cons_repo,
+                    legal_entity_repo=le_repo,
+                    ledger_repo=ledger_repo,
+                    uow=uow,
+                    event_publisher=event_publisher,
+                )
+
+            container.register_singleton(ConsolidationService, factory=_create_consolidation_service)
+            logger.info("ConsolidationService registered")
+
             # ----- Registrasi CapitalService dengan factory yang aman -----
             async def _create_capital_service():
                 try:

@@ -2,7 +2,7 @@
 """
 Module: tax_transaction_repository_port.py
 Layer: Ports (Primary)
-Responsibility: 
+Responsibility:
     - Mendefinisikan antarmuka (port) untuk repository transaksi pajak.
     - Menyediakan implementasi in-memory untuk keperluan testing/fallback.
 """
@@ -451,18 +451,20 @@ class InMemoryTaxTransactionRepository(TaxTransactionRepositoryPort):
     ) -> Decimal:
         total = Decimal(0)
         for tx in self._storage.values():
+            # Gabungkan semua kondisi nested if menjadi satu (SIM102)
             if (
                 tx.legal_entity_id == legal_entity_id
                 and tx.tax_type == tax_type
                 and not tx.is_credit
+                and start_date <= tx.transaction_date <= end_date
+                and tx.status in (
+                    TaxTransactionStatus.SUBMITTED,
+                    TaxTransactionStatus.PAID,
+                    TaxTransactionStatus.REPORTED,
+                )
+                and tx.deleted_at is None
             ):
-                if start_date <= tx.transaction_date <= end_date:
-                    if tx.status in (
-                        TaxTransactionStatus.SUBMITTED,
-                        TaxTransactionStatus.PAID,
-                        TaxTransactionStatus.REPORTED,
-                    ):
-                        total += tx.tax_amount
+                total += tx.tax_amount
         return total
 
     async def get_total_tax_credit(
@@ -470,14 +472,20 @@ class InMemoryTaxTransactionRepository(TaxTransactionRepositoryPort):
     ) -> Decimal:
         total = Decimal(0)
         for tx in self._storage.values():
-            if tx.legal_entity_id == legal_entity_id and tx.tax_type == tax_type and tx.is_credit:
-                if start_date <= tx.transaction_date <= end_date:
-                    if tx.status in (
-                        TaxTransactionStatus.SUBMITTED,
-                        TaxTransactionStatus.PAID,
-                        TaxTransactionStatus.REPORTED,
-                    ):
-                        total += tx.tax_amount
+            # Gabungkan semua kondisi nested if menjadi satu (SIM102)
+            if (
+                tx.legal_entity_id == legal_entity_id
+                and tx.tax_type == tax_type
+                and tx.is_credit
+                and start_date <= tx.transaction_date <= end_date
+                and tx.status in (
+                    TaxTransactionStatus.SUBMITTED,
+                    TaxTransactionStatus.PAID,
+                    TaxTransactionStatus.REPORTED,
+                )
+                and tx.deleted_at is None
+            ):
+                total += tx.tax_amount
         return total
 
     async def find_by_reference(

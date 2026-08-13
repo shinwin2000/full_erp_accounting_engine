@@ -512,21 +512,31 @@ class FixedAssetService:
     async def list_assets(
         self,
         legal_entity_id: UUID,
-        asset_type: str | None = None,
+        category: str | None = None,
         status: str | None = None,
-        category_id: UUID | None = None,
-        limit: int = 100,
-        offset: int = 0,
+        is_active: bool | None = None,
+        location: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
     ) -> list[AssetResponse]:
-        assets = await self._asset_repo.list_assets(
-            legal_entity_id=legal_entity_id,
-            asset_type=asset_type,
+        # FIX: previous signature (asset_type/category_id/limit/offset) did not
+        # match what SQLAlchemyFixedAssetRepository.list_assets() actually accepts
+        # (category/status/is_active/location/search/page/page_size), and the
+        # repo returns a (assets, total) tuple, not a bare list. The router
+        # (fastapi_fixed_asset_router.py) already calls this method with the
+        # correct kwarg names below, so we now pass them straight through.
+        assets, _total = await self._asset_repo.list_assets(
+            legal_entity_id,
+            category=category,
             status=status,
-            category_id=category_id,
-            limit=limit,
-            offset=offset,
+            is_active=is_active,
+            location=location,
+            search=search,
+            page=page,
+            page_size=page_size,
         )
-        return [self._to_response(a) for a in assets]
+        return [self._to_response(a.asset if hasattr(a, "asset") else a) for a in assets]
 
     # ==================== DEPRECIATION ====================
 

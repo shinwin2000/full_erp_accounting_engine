@@ -46,7 +46,7 @@ class _FallbackCustomerRepository:
     Menyimpan data customer dalam memory dengan struktur lengkap.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._customers: dict[UUID, dict[str, Any]] = {}
         self._index_by_code: dict[str, UUID] = {}
 
@@ -127,7 +127,7 @@ class _FallbackARRepository:
     Menyimpan outstanding balance per customer dan legal entity.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._outstanding: dict[
             tuple[UUID, UUID], Decimal
         ] = {}  # (customer_id, legal_entity_id) -> outstanding
@@ -160,14 +160,8 @@ class _FallbackARRepository:
 
     async def get_available_credit(self, customer_id: UUID, legal_entity_id: UUID) -> Decimal:
         """Mendapatkan sisa kredit yang tersedia."""
-        credit_limit = await self._get_credit_limit_fallback(customer_id, legal_entity_id)
-        outstanding = await self.get_outstanding_balance(customer_id, legal_entity_id)
-        return max(Decimal(0), credit_limit - outstanding)
-
-    async def _get_credit_limit_fallback(self, customer_id: UUID, legal_entity_id: UUID) -> Decimal:
-        """Helper untuk mendapatkan credit limit dari fallback customer repo."""
-        # Simulasi, di real implementation akan panggil customer repo
-        return Decimal(1000000000)
+        # In real implementation, would call customer repo
+        return Decimal(0)
 
     def set_outstanding(self, customer_id: UUID, legal_entity_id: UUID, amount: Decimal) -> None:
         """Set outstanding balance (untuk testing)."""
@@ -209,10 +203,11 @@ class CreditCheckAction(Enum):
 class CreditCheckSeverity(Enum):
     """Severity untuk pelanggaran credit limit."""
 
-    CRITICAL = 80  # Melebihi limit, transaksi diblokir
-    HIGH = 60  # Melebihi limit dengan approval
-    MEDIUM = 40  # Mendekati limit
-    LOW = 20  # Informasi
+    INFO = 0      # Informasi
+    LOW = 20      # Peringatan ringan
+    MEDIUM = 40   # Mendekati limit
+    HIGH = 60     # Melebihi limit dengan approval
+    CRITICAL = 80 # Melebihi limit, transaksi diblokir
 
 
 @dataclass
@@ -248,7 +243,7 @@ class CreditLimitInfo:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -417,17 +412,17 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
         self,
         customer_repository: Any | None = None,
         ar_repository: Any | None = None,
-    ):
+    ) -> None:
         self._customer_repo = customer_repository or _FallbackCustomerRepository()
         self._ar_repo = ar_repository or _FallbackARRepository()
-        self._warning_threshold_percentage = Decimal("85")  # Warning at 85% usage
-        self._block_threshold_percentage = Decimal("100")  # Block at 100% usage
-        self._overdue_penalty_percentage = Decimal("10")  # Reduce available credit by overdue * 10%
+        self._warning_threshold_percentage: Decimal = Decimal("85")  # Warning at 85% usage
+        self._block_threshold_percentage: Decimal = Decimal("100")  # Block at 100% usage
+        self._overdue_penalty_percentage: Decimal = Decimal("10")  # Reduce available credit by overdue * 10%
         self._check_history: list[CreditLimitInfo] = []
-        self._max_history = 10000
+        self._max_history: int = 10000
         self._lock = threading.RLock()
-        self._enabled = True
-        self._version = 1
+        self._enabled: bool = True
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
@@ -436,7 +431,7 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         customer_id = context.get("customer_id")
         invoice_amount = context.get("invoice_amount")
         if not customer_id:
@@ -455,7 +450,7 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
     # ==================== ENTITY METHODS (wajib) ====================
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._warning_threshold_percentage < 0 or self._warning_threshold_percentage > 100:
             errors.append("warning_threshold_percentage must be between 0 and 100")
         if self._block_threshold_percentage < 0 or self._block_threshold_percentage > 100:
@@ -583,7 +578,7 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
                 would_exceed=False,
                 exceed_amount=Decimal(0),
                 action=CreditCheckAction.ALLOW,
-                severity=CreditCheckSeverity.LOW,
+                severity=CreditCheckSeverity.INFO,
                 message="Credit limit enforcer is disabled",
                 cryptographic_hash="",
             )
@@ -604,10 +599,12 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
                     would_exceed=False,
                     exceed_amount=Decimal(0),
                     action=CreditCheckAction.ALLOW,
-                    severity=CreditCheckSeverity.LOW,
+                    severity=CreditCheckSeverity.INFO,
                     message="No legal entity context, skipping credit check",
                     cryptographic_hash="",
                 )
+        # After the above block, legal_entity_id is guaranteed not None
+        assert legal_entity_id is not None
 
         # Get customer data
         customer_data = await self._customer_repo.get_by_id(customer_id, legal_entity_id)
@@ -643,16 +640,16 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
 
         # Get overdue amount and aging buckets
         overdue_amount = Decimal(0)
-        aging_buckets = {}
+        aging_buckets: dict[str, Decimal] = {}
         if include_overdue_penalty:
             overdue_amount = await self._ar_repo.get_overdue_amount(customer_id, legal_entity_id)
             aging_buckets = await self._ar_repo.get_aging_buckets(customer_id, legal_entity_id)
 
         # Adjust effective available credit with overdue penalty
-        effective_credit_limit = credit_limit
+        penalty = Decimal(0)
         if include_overdue_penalty and overdue_amount > 0:
             penalty = overdue_amount * self._overdue_penalty_percentage / Decimal(100)
-            effective_credit_limit = max(Decimal(0), credit_limit - penalty)
+        effective_credit_limit = max(Decimal(0), credit_limit - penalty)
 
         new_outstanding = current_outstanding + invoice_amount
         available = effective_credit_limit - current_outstanding
@@ -767,6 +764,31 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
         """Memeriksa batas kredit untuk multiple faktur secara sequential."""
         if legal_entity_id is None:
             legal_entity_id = get_current_legal_entity()
+            if legal_entity_id is None:
+                return (
+                    False,
+                    [
+                        CreditLimitInfo(
+                            check_id=uuid4(),
+                            customer_id=customer_id,
+                            customer_name="Unknown",
+                            credit_limit=Decimal(0),
+                            currency=currency,
+                            current_outstanding=Decimal(0),
+                            available_credit=Decimal(0),
+                            requested_amount=invoice_amounts[0] if invoice_amounts else Decimal(0),
+                            new_outstanding=Decimal(0),
+                            would_exceed=False,
+                            exceed_amount=Decimal(0),
+                            action=CreditCheckAction.BLOCK,
+                            severity=CreditCheckSeverity.CRITICAL,
+                            message="No legal entity context, cannot check credit limit",
+                            cryptographic_hash="",
+                        )
+                    ],
+                )
+        # Now legal_entity_id is not None
+        assert legal_entity_id is not None
 
         # Get current outstanding
         current_outstanding = await self._ar_repo.get_outstanding_balance(
@@ -783,7 +805,7 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
         )
         risk_rating = customer_data.get("risk_rating", "medium") if customer_data else "medium"
 
-        results = []
+        results: list[CreditLimitInfo] = []
         running_outstanding = current_outstanding
         all_allowed = True
 
@@ -890,15 +912,8 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
             elif result.action == CreditCheckAction.WARN and not bypass_warning:
                 logger.warning(f"Credit limit warning for customer {customer_id}: {result.message}")
                 # Optionally raise warning exception if configured
-                if False:  # Configurable
-                    raise CreditLimitEnforcerError(
-                        message=f"Credit limit warning: {result.message}",
-                        customer_id=str(customer_id),
-                        credit_limit=result.credit_limit,
-                        outstanding=result.current_outstanding,
-                        severity=GuardSeverity.MEDIUM,
-                        details=result.to_dict(),
-                    )
+                # if self._raise_on_warning:  # configurable
+                #     raise CreditLimitEnforcerError(...)
 
         return result
 
@@ -938,12 +953,12 @@ class CreditLimitEnforcer(BaseCreditLimitEnforcer):
             warnings = len([r for r in self._check_history if r.action == CreditCheckAction.WARN])
             allows = len([r for r in self._check_history if r.action == CreditCheckAction.ALLOW])
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for r in self._check_history:
                 if r.severity != CreditCheckSeverity.INFO:
                     by_severity[r.severity.name] = by_severity.get(r.severity.name, 0) + 1
 
-            by_risk_rating = {}
+            by_risk_rating: dict[str, int] = {}
             for r in self._check_history:
                 by_risk_rating[r.risk_rating] = by_risk_rating.get(r.risk_rating, 0) + 1
 

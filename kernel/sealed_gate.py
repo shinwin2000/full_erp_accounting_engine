@@ -107,7 +107,7 @@ class BaseSealedGate(ABC):
 class SealedGate(BaseSealedGate):
     _instance: SealedGate | None = None
     _lock = asyncio.Lock()
-    _initialized: bool  # Tambahkan deklarasi tipe
+    _initialized: bool
 
     def __new__(cls) -> SealedGate:
         if cls._instance is None:
@@ -291,10 +291,8 @@ class SealedGate(BaseSealedGate):
 
             envelope.status = CommandStatus.EXECUTING
 
-            # Buat UOW terlebih dahulu, lalu closure yang menggunakan uow
-            uow = _get_uow()
-
-            async def execute_with_uow() -> Any:
+            # Definisi callback yang menerima uow dari transactional executor
+            async def execute_with_uow(uow: UnitOfWorkProtocol) -> Any:
                 self._audit_hook.before_execution(envelope)
                 try:
                     if inspect.iscoroutinefunction(handler):
@@ -307,9 +305,14 @@ class SealedGate(BaseSealedGate):
                     self._audit_hook.on_error(envelope, e)
                     raise
 
-            execution_result = await self._transactional_executor.execute(
-                execute_with_uow,
-                retry_policy=None,  # atau default policy
+            # Gunakan execute_transaction yang sesuai, tanpa keyword retry_policy
+            execution_result = await self._transactional_executor.execute_transaction(
+                uow_callback=execute_with_uow,
+                command_id=envelope.command_id,
+                idempotency_key=idempotency_key,
+                isolation_level="READ_COMMITTED",
+                timeout_seconds=60,
+                max_retries=3,
             )
             if execution_result.status == ExecutionStatus.SUCCESS:
                 envelope.status = CommandStatus.SUCCESS

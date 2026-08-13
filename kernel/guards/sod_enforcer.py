@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum, auto
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_user
@@ -45,7 +45,7 @@ class _FallbackUserRepository:
     Menyimpan data user, roles, dan permissions dalam memory.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._user_roles: dict[str, list[str]] = {
             "maker": ["maker"],
             "checker": ["checker", "maker"],
@@ -139,7 +139,7 @@ class SODRule:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -183,7 +183,7 @@ class SODViolation:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -564,15 +564,15 @@ class SODEnforcer(BaseSODEnforcer):
         "_violations",
     )
 
-    def __init__(self, user_repository: Any | None = None):
+    def __init__(self, user_repository: Any | None = None) -> None:
         self._user_repo = user_repository or _FallbackUserRepository()
         self._rules: dict[str, SODRule] = {r.rule_id: r for r in DEFAULT_SOD_RULES}
         self._violations: list[SODViolation] = []
-        self._max_history = 10000
+        self._max_history: int = 10000
         self._lock = threading.RLock()
-        self._enabled = True
-        self._strict_mode = True  # Jika True, semua aturan ditegakkan; jika False, hanya CRITICAL
-        self._version = 1
+        self._enabled: bool = True
+        self._strict_mode: bool = True  # Jika True, semua aturan ditegakkan; jika False, hanya CRITICAL
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
@@ -582,7 +582,7 @@ class SODEnforcer(BaseSODEnforcer):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         transaction_type = context.get("transaction_type")
         creator_user_id = context.get("creator_user_id")
         approver_user_id = context.get("approver_user_id")
@@ -609,7 +609,7 @@ class SODEnforcer(BaseSODEnforcer):
 
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         if not self._rules:
@@ -817,7 +817,7 @@ class SODEnforcer(BaseSODEnforcer):
         if not self._enabled:
             return True, []
 
-        violations = []
+        violations: list[SODViolation] = []
         user_roles_set = set(roles)
 
         for rule in self._rules.values():
@@ -855,7 +855,7 @@ class SODEnforcer(BaseSODEnforcer):
         if not self._enabled:
             return True, None, []
 
-        applicable_rules = []
+        applicable_rules: list[SODRule] = []
         for r in self._rules.values():
             if r.rule_type == SODRuleType.TRANSACTION_LIMIT and r.is_active:
                 threshold = r.parameters.get("threshold")
@@ -961,9 +961,8 @@ class SODEnforcer(BaseSODEnforcer):
         if not self._enabled:
             return True, None
 
-        applicable_rules = []
+        applicable_rules: list[SODRule] = []
         for r in self._rules.values():
-            # FIX: SIM102 - Gabungkan kondisi nested if menjadi satu
             if (
                 r.rule_type == SODRuleType.TIME_BASED
                 and r.is_active
@@ -1042,7 +1041,7 @@ class SODEnforcer(BaseSODEnforcer):
         if creator_user_id is None:
             creator_user_id = get_current_user()
 
-        violations = []
+        violations: list[SODViolation] = []
 
         # Get user roles if not provided
         if user_roles is None and creator_user_id:
@@ -1115,7 +1114,6 @@ class SODEnforcer(BaseSODEnforcer):
 
         # Raise if any CRITICAL violation (or HIGH if strict mode)
         if raise_on_violation:
-            # FIX: F841 - Hapus variabel `critical_severity` yang tidak digunakan
             if self._strict_mode:
                 critical_violations = [
                     v for v in violations if v.severity in (SODSeverity.CRITICAL, SODSeverity.HIGH)
@@ -1242,7 +1240,7 @@ class SODEnforcer(BaseSODEnforcer):
                 if not v.is_resolved:
                     unresolved += 1
 
-            by_rule = {}
+            by_rule: dict[str, int] = {}
             for v in self._violations:
                 by_rule[v.rule_id] = by_rule.get(v.rule_id, 0) + 1
 
@@ -1300,7 +1298,7 @@ SodEnforcer = SODEnforcer  # Alias with lowercase 'o' after S
 SegregationOfDutiesGuard = SODEnforcer  # <-- ADDED for test_sox_404_controls.py
 
 
-def enforce_sod(
+async def enforce_sod(
     transaction_type: str,
     amount: Decimal | None = None,
     creator_user_id: str | None = None,
@@ -1318,7 +1316,7 @@ def enforce_sod(
     Delegates to SODEnforcer.enforce().
     """
     enforcer = get_sod_enforcer()
-    return enforcer.enforce(
+    return await enforcer.enforce(
         transaction_type=transaction_type,
         amount=amount,
         creator_user_id=creator_user_id,
@@ -1333,7 +1331,7 @@ def enforce_sod(
     )
 
 
-def check_segregation(
+async def check_segregation(
     transaction_type: str,
     creator_user_id: str,
     approver_user_id: str,
@@ -1345,7 +1343,7 @@ def check_segregation(
     Delegates to SODEnforcer.check_maker_checker().
     """
     enforcer = get_sod_enforcer()
-    return enforcer.check_maker_checker(
+    return await enforcer.check_maker_checker(
         creator_user_id=creator_user_id,
         approver_user_id=approver_user_id,
         transaction_type=transaction_type,

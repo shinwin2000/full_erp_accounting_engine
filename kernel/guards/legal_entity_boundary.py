@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_legal_entity, get_current_user
@@ -46,7 +46,7 @@ class _FallbackUserRepository:
     Menyimpan data user dan entitas yang diizinkan dalam memory.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._user_entities: dict[str, set[UUID]] = {}
         self._user_roles: dict[str, list[str]] = {}
         self._cross_entity_auths: dict[
@@ -71,7 +71,7 @@ class _FallbackUserRepository:
         key = (user_id, from_entity, to_entity)
         if key in self._cross_entity_auths:
             return self._cross_entity_auths[key]
-        # Check if user is owner of both entities - return condition directly (SIM103)
+        # Check if user is owner of both entities
         return (
             self._entity_owners.get(from_entity) == user_id
             and self._entity_owners.get(to_entity) == user_id
@@ -171,7 +171,7 @@ class EntityAccessCheckResult:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -364,22 +364,22 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
     otorisasi khusus.
     """
 
-    def __init__(self, user_repository: Any | None = None):
+    def __init__(self, user_repository: Any | None = None) -> None:
         self._user_repo = user_repository or _FallbackUserRepository()
         self._check_history: list[EntityAccessCheckResult] = []
-        self._max_history = 10000
+        self._max_history: int = 10000
         self._lock = threading.RLock()
-        self._strict_mode = True  # Jika True, cross-entity tanpa auth ditolak
-        self._allowed_cross_entity_operations = {
+        self._strict_mode: bool = True  # Jika True, cross-entity tanpa auth ditolak
+        self._allowed_cross_entity_operations: set[str] = {
             "READ",
             "REPORT",
             "AUDIT",
         }  # Operasi yang mungkin diizinkan
-        self._enabled = True
-        self._cache_ttl_seconds = 300  # Cache hasil check selama 5 menit
+        self._enabled: bool = True
+        self._cache_ttl_seconds: int = 300  # Cache hasil check selama 5 menit
         self._cache: dict[str, tuple[EntityAccessCheckResult, datetime]] = {}
         # Entity fields
-        self._version = 1
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
@@ -389,7 +389,7 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         target_entity_id = context.get("target_entity_id")
         user_id = context.get("user_id")
         operation = context.get("operation", "READ")
@@ -401,9 +401,11 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
                 UUID(str(target_entity_id))
             except Exception:
                 errors.append("target_entity_id must be a valid UUID")
+
         # SIM102: combine nested if using and
-        if user_id and not isinstance(user_id, str):
+        if user_id is not None and not isinstance(user_id, str):
             errors.append("user_id must be a string")
+
         if operation:
             try:
                 EntityAccessOperation(operation.upper())
@@ -415,7 +417,7 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
 
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         if self._cache_ttl_seconds <= 0:
@@ -708,7 +710,7 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
         Returns:
             (is_allowed, list_of_check_results)
         """
-        results = []
+        results: list[EntityAccessCheckResult] = []
         all_allowed = True
         any_allowed = False
 
@@ -795,7 +797,7 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
         Returns:
             (is_allowed, list_of_check_results)
         """
-        results = []
+        results: list[EntityAccessCheckResult] = []
 
         # Check access to from_entity (WRITE karena akan mengurangi saldo)
         result_from = await self.check_entity_access(from_entity_id, user_id, "WRITE")
@@ -840,7 +842,7 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
         Returns:
             (is_allowed, list_of_check_results)
         """
-        results = []
+        results: list[EntityAccessCheckResult] = []
 
         # Check access to parent (READ)
         result_parent = await self.check_entity_access(parent_entity_id, user_id, "CONSOLIDATE")
@@ -912,13 +914,13 @@ class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
             denied = [r for r in self._check_history if not r.is_allowed]
             denied_count = len(denied)
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for sev in EntityAccessSeverity:
                 count = len([r for r in denied if r.severity == sev])
                 if count > 0:
                     by_severity[sev.name] = count
 
-            by_operation = {}
+            by_operation: dict[str, int] = {}
             for r in denied:
                 op = r.operation
                 by_operation[op] = by_operation.get(op, 0) + 1

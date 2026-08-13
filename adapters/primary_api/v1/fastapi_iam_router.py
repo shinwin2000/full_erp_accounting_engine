@@ -1960,11 +1960,20 @@ async def logout(
 )
 async def refresh_token(
     request: RefreshTokenRequestSchema,
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
     session: AsyncSession = Depends(get_db_session),
     service: IAMService = Depends(get_iam_service),
 ) -> TokenRefreshResponseSchema:
-    service.set_context(session, legal_entity_id)
+    # CATATAN: TIDAK boleh depend on get_current_legal_entity (atau apa pun
+    # yang butuh request.state.user) di endpoint ini. /iam/refresh sengaja
+    # didaftarkan sebagai public_path di app/main.py supaya bisa dipanggil
+    # justru saat access token sudah/hampir kadaluarsa - middleware auth
+    # TIDAK dijalankan untuk public_path, jadi request.state.user tidak
+    # pernah ter-set, dan dependency apa pun yang butuh itu (termasuk
+    # get_current_legal_entity) akan selalu raise 401 "Not authenticated"
+    # sebelum handler ini sempat jalan. legal_entity_id untuk konteks
+    # diambil dari isi refresh_token itu sendiri oleh
+    # service.refresh_access_token(), bukan dari request.state.
+    service.set_context(session, None)
 
     try:
         new_access_token = await service.refresh_access_token(request.refresh_token)

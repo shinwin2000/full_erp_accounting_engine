@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from kernel.guards.guard_exceptions import (
@@ -44,9 +44,9 @@ logger = logging.getLogger(__name__)
 class _FallbackSovereigntyGuardian:
     """Fallback sovereignty guardian jika module constitution belum tersedia."""
 
-    def __init__(self):
-        self._status = "NORMAL"
-        self._version = 1
+    def __init__(self) -> None:
+        self._status: str = "NORMAL"
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
 
     def emergency_lockdown(self, reason: str, initiated_by: str) -> None:
@@ -61,7 +61,7 @@ class _FallbackSovereigntyGuardian:
 
     def check(self, context: dict) -> list[str]:
         """Sync check method untuk compliance checker."""
-        errors = []
+        errors: list[str] = []
         return errors
 
     def validate(self) -> dict[str, Any]:
@@ -122,7 +122,7 @@ class _FallbackSovereigntyGuardian:
         })
 
 
-def _get_sovereignty_guardian():
+def _get_sovereignty_guardian() -> Any:
     try:
         from constitution.sovereignty_declaration import get_sovereignty_guardian
         return get_sovereignty_guardian()
@@ -264,7 +264,7 @@ class FreezeRecord:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -428,8 +428,9 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
     khusus yang dapat melakukan freeze/unfreeze.
     """
 
-    _instance: EmergencyFreezeGuard | None = None
+    _instance: Optional[EmergencyFreezeGuard] = None
     _lock = threading.Lock()
+    _initialized: bool = False  # class variable, akan di-shadow oleh instance
 
     def __new__(cls) -> EmergencyFreezeGuard:
         if cls._instance is None:
@@ -443,13 +444,13 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
         if self._initialized:
             return
         self._initialized = True
-        self._is_frozen = False
+        self._is_frozen: bool = False
         self._current_freeze: FreezeRecord | None = None
         self._freeze_history: list[FreezeRecord] = []
-        self._max_history = 100
-        self._sovereignty_guardian = _get_sovereignty_guardian()
-        self._emergency_roles = {"emergency_admin", "super_admin", "ceo", "cfo"}
-        self._version = 1
+        self._max_history: int = 100
+        self._sovereignty_guardian: Any = _get_sovereignty_guardian()
+        self._emergency_roles: set[str] = {"emergency_admin", "super_admin", "ceo", "cfo"}
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
         # Store auto-unfreeze task reference to satisfy RUF006
         self._auto_unfreeze_task: asyncio.Task | None = None
@@ -461,7 +462,7 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
         Sync check method untuk compliance checker.
         Memvalidasi context dan mengembalikan daftar error jika ada.
         """
-        errors = []
+        errors: list[str] = []
         operation_type = context.get("operation_type")
         user_id = context.get("user_id")
 
@@ -475,7 +476,7 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
 
     def validate(self) -> dict[str, Any]:
         """Validasi internal state."""
-        errors = []
+        errors: list[str] = []
         if self._max_history <= 0:
             errors.append("max_history must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -721,12 +722,17 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
         if not self._is_frozen:
             return True, None
 
+        # Safety check: if frozen but no current freeze record, treat as not frozen
+        if self._current_freeze is None:
+            logger.warning("System is frozen but no freeze record found; allowing write")
+            return True, None
+
         # Emergency override for super admin / emergency roles
         if user_id and user_id in self._emergency_roles:
             logger.warning(f"Emergency override by {user_id} during freeze")
             return True, None
 
-        # Check scope - FIX: SIM102 - combine nested if into single condition
+        # Check scope
         if self._current_freeze.scope == FreezeScope.ALL_WRITES:
             return False, "System is in emergency freeze. No write operations allowed."
 

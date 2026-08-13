@@ -26,6 +26,8 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 # Import domain events
 from domain.consolidation.domain_events import (
     ConsolidationArchivedEvent,
@@ -132,6 +134,44 @@ class LegalEntityRequest:
     is_active: bool = True
 
 
+@dataclass(kw_only=True)
+class ConsolidationGroupDTO:
+    """Hasil create_group/list_groups/get_group_by_id/update_group/deactivate_group.
+
+    Bentuknya menyamai field yang dibaca fastapi_consolidation_router.py
+    ConsolidationGroupResponseSchema.
+    """
+    id: UUID
+    group_code: str
+    group_name: str
+    parent_entity_id: UUID | None = None
+    parent_entity_name: str | None = None
+    functional_currency: str = "IDR"
+    description: str | None = None
+    is_active: bool = True
+    member_count: int = 0
+    fiscal_year_start: int = 1
+    created_at: datetime
+    updated_at: datetime
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    version: int = 1
+
+
+@dataclass(kw_only=True)
+class ConsolidationGroupMemberDTO:
+    """Hasil add_member/remove_member."""
+    id: UUID
+    group_id: UUID
+    legal_entity_id: UUID
+    legal_entity_name: str | None = None
+    legal_entity_code: str | None = None
+    ownership_percentage: Decimal = Decimal("0")
+    consolidation_method: str = "full"
+    effective_date: date | None = None
+    notes: str | None = None
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -183,6 +223,36 @@ class ConsolidationService:
         self._audit_trail: list[dict[str, Any]] = []
 
         logger.info("ConsolidationService initialized")
+
+    def set_context(self, session: AsyncSession) -> None:
+        """
+        Ikat session DB per-request ke repo yang butuh session eksternal.
+
+        CATATAN: ConsolidationService & self._le_repo/self._cons_repo di-
+        registrasi sebagai singleton di IoC container (satu instance untuk
+        seumur hidup aplikasi), sedangkan AsyncSession harus per-request/
+        per-transaksi. Tanpa ini, self._le_repo.session akan selalu error
+        "Session not set" (repo-nya butuh session di-set manual, lihat
+        SQLAlchemyLegalEntityRepository.session setter) - itu penyebab
+        semua endpoint /consolidation/consolidation/groups/* 500 kemarin.
+        HARUS dipanggil oleh router (Depends(get_db_session) + set_context)
+        di awal setiap endpoint, sebelum method service manapun dipanggil.
+
+        CATATAN BUG: `hasattr(self._le_repo, "session")` TIDAK AMAN dipakai
+        di sini - properti .session getter-nya raise LegalEntityRepositoryError
+        (custom exception) kalau session belum di-set, BUKAN AttributeError,
+        jadi hasattr() ikut meledak alih-alih diam-diam return False (hasattr
+        hanya meredam AttributeError). Pola bug yang sama pernah ketemu &
+        diperbaiki di modul Customer sebelumnya. Fix: cek lewat class
+        (hasattr(type(obj), ...)), bukan lewat instance.
+        """
+        if hasattr(type(self._le_repo), "session"):
+            self._le_repo.session = session
+        if hasattr(type(self._cons_repo), "session"):
+            try:
+                self._cons_repo.session = session
+            except Exception:
+                pass
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 
@@ -768,6 +838,193 @@ class ConsolidationService:
 
     def get_audit_trail(self) -> list[dict[str, Any]]:
         return self._audit_trail.copy()
+
+    # ==================== GROUP MANAGEMENT ====================
+    # CATATAN: method2 di bawah ini SEBELUMNYA TIDAK ADA SAMA SEKALI, padahal
+    # fastapi_consolidation_router.py (yang dipanggil menu "Grup Konsolidasi"
+    # di frontend) sudah memanggilnya sejak awal -> selalu AttributeError.
+    # Diimplementasikan lewat self._le_repo (LegalEntityRepositoryPort),
+    # bukan self._cons_repo, karena ConsolidationRepositoryPort memang tidak
+    # punya method group management sama sekali (hanya untuk hasil
+    # konsolidasi/intercompany).
+
+    async def _resolve_parent_name(self, parent_entity_id: UUID | None) -> str | None:
+        if not parent_entity_id or not hasattr(self._le_repo, "get_by_id"):
+            return None
+        try:
+            entity = await self._le_repo.get_by_id(parent_entity_id)
+            return getattr(entity, "legal_name", None) if entity else None
+        except Exception:
+            return None
+
+    def _group_dict_to_dto(self, data: dict[str, Any], parent_name: str | None = None) -> ConsolidationGroupDTO:
+        return ConsolidationGroupDTO(
+            id=data["id"],
+            group_code=data["group_code"],
+            group_name=data["group_name"],
+            parent_entity_id=data.get("parent_entity_id"),
+            parent_entity_name=parent_name,
+            functional_currency=data.get("functional_currency", "IDR"),
+            description=data.get("description"),
+            is_active=data["is_active"],
+            member_count=data.get("member_count", 0),
+            fiscal_year_start=data.get("fiscal_year_start", 1),
+            created_at=data["created_at"],
+            updated_at=data.get("updated_at", data["created_at"]),
+            created_by=data.get("created_by"),
+            created_by_name=None,
+            version=data.get("version", 1),
+        )
+
+    @audit
+    async def create_group(
+        self,
+        group_code: str,
+        group_name: str,
+        parent_entity_id: UUID | None = None,
+        functional_currency: str = "IDR",
+        description: str | None = None,
+        fiscal_year_start: int = 1,
+        created_by: UUID | None = None,
+    ) -> ConsolidationGroupDTO:
+        self._check_authority(created_by, "create_consolidation_group")
+        group_id = await self._le_repo.create_consolidation_group(
+            group_name=group_name,
+            description=description,
+            created_by=created_by,
+            group_code=group_code,
+            parent_entity_id=parent_entity_id,
+            functional_currency=functional_currency,
+            fiscal_year_start=fiscal_year_start,
+        )
+        if self._uow is not None:
+            await self._uow.commit()
+        data = await self._le_repo.get_consolidation_group_meta(group_id)
+        parent_name = await self._resolve_parent_name(parent_entity_id)
+        self._record_audit("create_group", {"group_id": str(group_id), "group_code": group_code})
+        return self._group_dict_to_dto(data, parent_name)
+
+    async def list_groups(self, is_active: bool | None = None) -> list[ConsolidationGroupDTO]:
+        groups = await self._le_repo.get_consolidation_groups(is_active=is_active)
+        result = []
+        for data in groups:
+            parent_name = await self._resolve_parent_name(data.get("parent_entity_id"))
+            result.append(self._group_dict_to_dto(data, parent_name))
+        return result
+
+    async def get_group_by_id(self, group_id: UUID) -> ConsolidationGroupDTO | None:
+        data = await self._le_repo.get_consolidation_group_meta(group_id)
+        if not data:
+            return None
+        parent_name = await self._resolve_parent_name(data.get("parent_entity_id"))
+        return self._group_dict_to_dto(data, parent_name)
+
+    @audit
+    async def update_group(
+        self,
+        group_id: UUID,
+        group_name: str | None = None,
+        parent_entity_id: UUID | None = None,
+        functional_currency: str | None = None,
+        description: str | None = None,
+        is_active: bool | None = None,
+        updated_by: UUID | None = None,
+    ) -> ConsolidationGroupDTO | None:
+        self._check_authority(updated_by, "update_consolidation_group")
+        data = await self._le_repo.update_consolidation_group_meta(
+            group_id=group_id,
+            group_name=group_name,
+            parent_entity_id=parent_entity_id,
+            functional_currency=functional_currency,
+            description=description,
+            is_active=is_active,
+            updated_by=updated_by,
+        )
+        if not data:
+            return None
+        if self._uow is not None:
+            await self._uow.commit()
+        parent_name = await self._resolve_parent_name(data.get("parent_entity_id"))
+        self._record_audit("update_group", {"group_id": str(group_id)})
+        return self._group_dict_to_dto(data, parent_name)
+
+    @audit
+    async def deactivate_group(self, group_id: UUID, updated_by: UUID) -> ConsolidationGroupDTO | None:
+        self._check_authority(updated_by, "deactivate_consolidation_group")
+        data = await self._le_repo.update_consolidation_group_meta(group_id=group_id, is_active=False, updated_by=updated_by)
+        if not data:
+            return None
+        if self._uow is not None:
+            await self._uow.commit()
+        self._record_audit("deactivate_group", {"group_id": str(group_id)})
+        return self._group_dict_to_dto(data)
+
+    @audit
+    async def add_member(
+        self,
+        group_id: UUID,
+        legal_entity_id: UUID,
+        ownership_percentage: Decimal,
+        consolidation_method: str,
+        effective_date: date | None = None,
+        notes: str | None = None,
+        added_by: UUID | None = None,
+    ) -> ConsolidationGroupMemberDTO:
+        self._check_authority(added_by, "add_consolidation_group_member")
+        data = await self._le_repo.add_consolidation_group_member(
+            group_id=group_id,
+            legal_entity_id=legal_entity_id,
+            ownership_percentage=ownership_percentage,
+            consolidation_method=consolidation_method,
+            effective_date=effective_date,
+            notes=notes,
+            added_by=added_by,
+        )
+        if self._uow is not None:
+            await self._uow.commit()
+        self._record_audit("add_member", {"group_id": str(group_id), "legal_entity_id": str(legal_entity_id)})
+        return ConsolidationGroupMemberDTO(
+            id=UUID(data["id"]),
+            group_id=group_id,
+            legal_entity_id=legal_entity_id,
+            legal_entity_name=data.get("legal_entity_name"),
+            legal_entity_code=data.get("legal_entity_code"),
+            ownership_percentage=Decimal(str(data["ownership_percentage"])),
+            consolidation_method=data.get("consolidation_method", consolidation_method),
+            effective_date=effective_date,
+            notes=data.get("notes"),
+        )
+
+    @audit
+    async def remove_member(self, member_id: UUID, group_id: UUID, removed_by: UUID) -> ConsolidationGroupMemberDTO | None:
+        self._check_authority(removed_by, "remove_consolidation_group_member")
+
+        entity_id = await self._le_repo.remove_consolidation_group_member(member_id, group_id, removed_by)
+        if not entity_id:
+            return None
+        if self._uow is not None:
+            await self._uow.commit()
+
+        entity_name = None
+        if hasattr(self._le_repo, "get_by_id"):
+            try:
+                entity = await self._le_repo.get_by_id(entity_id)
+                entity_name = getattr(entity, "legal_name", None) if entity else None
+            except Exception:
+                entity_name = None
+
+        self._record_audit("remove_member", {"member_id": str(member_id), "group_id": str(group_id)})
+        return ConsolidationGroupMemberDTO(
+            id=member_id,
+            group_id=group_id,
+            legal_entity_id=entity_id,
+            legal_entity_name=entity_name,
+            legal_entity_code=None,
+            ownership_percentage=Decimal("0"),
+            consolidation_method="full",
+            effective_date=None,
+            notes=None,
+        )
 
 
 # ============================================================================
