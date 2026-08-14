@@ -12,6 +12,7 @@ Perbaikan transaksi (Final):
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import re
@@ -759,9 +760,9 @@ class _FallbackEMeteraiRepository(EMeteraiRepositoryPort):
     async def get_by_npwp(self, npwp: str, status: EMeteraiStatus | None = None) -> list[EMeterai]:
         result = []
         for meterai in self._store.values():
-            if meterai.npwp == npwp:
-                if status is None or meterai.status == status:
-                    result.append(meterai)
+            # Gabungkan nested if menjadi satu (SIM102)
+            if meterai.npwp == npwp and (status is None or meterai.status == status):
+                result.append(meterai)
         return result
 
     async def get_stock_count(self, npwp: str) -> int:
@@ -814,18 +815,14 @@ class EMeteraiIntegrator:
     async def _rollback_if_exists(self) -> None:
         """Rollback transaksi jika repository mendukung."""
         if hasattr(self._repository, 'rollback'):
-            try:
+            with contextlib.suppress(Exception):
                 await self._repository.rollback()
-            except Exception:
-                pass
 
     async def _commit_if_exists(self) -> None:
         """Commit transaksi jika repository mendukung."""
         if hasattr(self._repository, 'commit'):
-            try:
+            with contextlib.suppress(Exception):
                 await self._repository.commit()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------------
     # Helpers existing

@@ -160,6 +160,8 @@ class ImmutabilityEnforcer(BaseEnforcer):
         instance = cls()
         instance._version = data.get("version", 1)
         instance._immutable_events = set(data.get("immutable_events", []))
+        if "name" in data:
+            instance.name = data["name"]
         return instance
 
     def clone(self) -> ImmutabilityEnforcer:
@@ -221,6 +223,8 @@ class EvidenceMandateEnforcer(BaseEnforcer):
         instance._mandatory_transaction_types = data.get(
             "mandatory_transaction_types", instance._mandatory_transaction_types
         )
+        if "name" in data:
+            instance.name = data["name"]
         return instance
 
     def clone(self) -> EvidenceMandateEnforcer:
@@ -276,6 +280,8 @@ class DualApprovalEnforcer(BaseEnforcer):
         instance._require_dual_approval_for = data.get(
             "require_dual_approval_for", instance._require_dual_approval_for
         )
+        if "name" in data:
+            instance.name = data["name"]
         return instance
 
     def clone(self) -> DualApprovalEnforcer:
@@ -544,6 +550,8 @@ class AssetExistenceEnforcer(BaseEnforcer):
         instance = cls()
         instance._version = data.get("version", 1)
         instance._asset_register = set(data.get("asset_register", []))
+        if "name" in data:
+            instance.name = data["name"]
         return instance
 
     def clone(self) -> AssetExistenceEnforcer:
@@ -599,6 +607,8 @@ class FairValueMeasurementEnforcer(BaseEnforcer):
         instance._fair_value_asset_types = data.get(
             "fair_value_asset_types", instance._fair_value_asset_types
         )
+        if "name" in data:
+            instance.name = data["name"]
         return instance
 
     def clone(self) -> FairValueMeasurementEnforcer:

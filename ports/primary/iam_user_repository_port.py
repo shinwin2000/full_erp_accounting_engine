@@ -8,6 +8,8 @@ Responsibility: Port interface untuk IAM User Repository.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -68,8 +70,65 @@ class Permission(Enum):
     PERIOD_REOPEN = "period:reopen"
 
 
-# Dataclass definitions (Role, User, UserSession, LoginAttempt) tetap sama seperti sebelumnya
-# Saya tidak menulis ulang semuanya untuk menghemat, tapi pastikan ada di file.
+# ==================== DOMAIN DATA CLASSES ====================
+
+@dataclass
+class User:
+    id: UUID
+    username: str
+    email: str
+    password_hash: str
+    legal_entity_id: UUID
+    status: UserStatus
+    roles: list[str] = field(default_factory=list)
+    permissions: list[Permission] = field(default_factory=list)
+    mfa_type: MFAType = MFAType.NONE
+    mfa_secret: str | None = None
+    is_locked: bool = False
+    failed_attempts: int = 0
+    locked_until: datetime | None = None
+    last_login: datetime | None = None
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+    created_by: UUID | None = None
+    updated_by: UUID | None = None
+    deleted_at: datetime | None = None
+
+
+@dataclass
+class Role:
+    id: UUID
+    code: str
+    name: str
+    permissions: list[Permission]
+    description: str | None = None
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class UserSession:
+    id: UUID
+    user_id: UUID
+    token: str
+    ip_address: str
+    user_agent: str
+    created_at: datetime = field(default_factory=datetime.now)
+    expires_at: datetime | None = None
+    is_active: bool = True
+
+
+@dataclass
+class LoginAttempt:
+    id: UUID
+    username: str
+    success: bool
+    ip_address: str
+    failure_reason: str | None = None
+    attempted_at: datetime = field(default_factory=datetime.now)
+
+
+# ==================== PORT (INTERFACE) ====================
 
 class IAMUserRepositoryPort(ABC):
     """Port interface untuk IAM User Repository."""
@@ -226,6 +285,8 @@ class IAMUserRepositoryPort(ABC):
     async def list_roles(self) -> list[Role]:
         pass
 
+
+# ==================== EXPORTS ====================
 
 __all__ = [
     "IAMUserRepositoryPort",

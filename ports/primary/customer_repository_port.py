@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from typing import Any
+from uuid import UUID
+
 """
 Module: customer_repository_port.py
 Layer: 7 - Ports / Primary Ports
 Responsibility: Menetapkan kontrak abstract murni (Interface) untuk manajemen data
                Customer di dalam domain Accounts Receivable (AR).
 """
-
-from abc import ABC, abstractmethod
-from typing import Any
-from uuid import UUID
 
 
 class CustomerRepositoryPort(ABC):

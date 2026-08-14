@@ -12,7 +12,7 @@ Dependencies:
 - kernel.context_holder (get_current_user)
 - kernel.immutable_laws.law_violation_exceptions (ImmutableLawViolationError, DualApprovalViolation)
 
-Audit: Setiap transaksi yang memerlukan dual approval dictat status approval-nya.
+Audit: Setiap transaksi yang memerlukan dual approval dicatat status approval-nya.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ VERSION = "1.0.0"  # version of this enforcer implementation
 class _FallbackApprovalRepository:
     """Fallback approval repository (synchronous)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._approvals: dict[UUID, list[dict[str, Any]]] = {}  # transaction_id -> approvals
 
     def get_by_transaction(self, transaction_id: UUID, legal_entity_id: UUID) -> list[Any]:
@@ -87,12 +87,12 @@ class _FallbackApprovalRepository:
         )
         return True
 
-    def clear(self):
+    def clear(self) -> None:
         self._approvals.clear()
 
 
 class _ApprovalProxy:
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any]) -> None:
         self.transaction_id = data.get("transaction_id")
         self.legal_entity_id = data.get("legal_entity_id")
         self.approver_id = data.get("approver_id")
@@ -105,7 +105,7 @@ class _ApprovalProxy:
 class _FallbackJournalRepository:
     """Fallback journal repository (synchronous)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._journals: dict[UUID, dict[str, Any]] = {}
 
     def get_by_id(self, journal_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
@@ -162,7 +162,7 @@ class ApprovalRecord:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -210,7 +210,7 @@ class DualApprovalEnforcer:
         self,
         approval_repository: Any | None = None,
         journal_repository: Any | None = None,
-    ):
+    ) -> None:
         self._approval_repo = approval_repository or _FallbackApprovalRepository()
         self._journal_repo = journal_repository or _FallbackJournalRepository()
         self._thresholds = self.DEFAULT_THRESHOLDS.copy()
@@ -348,21 +348,30 @@ class DualApprovalEnforcer:
         legal_entity_id: UUID,
     ) -> dict[str, Any]:
         approvals = self._approval_repo.get_by_transaction(transaction_id, legal_entity_id)
-        return {
-            "transaction_id": str(transaction_id),
-            "total_approvals": len(approvals),
-            "approvals": [
+        
+        formatted_approvals: list[dict[str, Any]] = []
+        for a in approvals:
+            approved_at_val = getattr(a, "approved_at", None)
+            notes_val = getattr(a, "notes", "") or ""
+            
+            formatted_approvals.append(
                 {
                     "approver_id": getattr(a, "approver_id", ""),
                     "approval_level": getattr(a, "approval_level", 0),
                     "status": getattr(a, "status", ""),
-                    "approved_at": getattr(a, "approved_at", None).isoformat()
-                    if getattr(a, "approved_at", None)
-                    else None,
-                    "notes": getattr(a, "notes", "")[:100],
+                    "approved_at": (
+                        approved_at_val.isoformat()
+                        if approved_at_val is not None
+                        else None
+                    ),
+                    "notes": notes_val[:100],
                 }
-                for a in approvals
-            ],
+            )
+
+        return {
+            "transaction_id": str(transaction_id),
+            "total_approvals": len(approvals),
+            "approvals": formatted_approvals,
         }
 
     def _record_violation(self, violation: DualApprovalViolation) -> None:
@@ -400,7 +409,7 @@ class DualApprovalEnforcer:
             if total_approvals == 0 and total_violations == 0:
                 return {"total_approvals": 0, "total_violations": 0, "enabled": self._enabled}
 
-            by_level = {}
+            by_level: dict[int, int] = {}
             for a in self._approval_history:
                 by_level[a.approval_level] = by_level.get(a.approval_level, 0) + 1
 
@@ -506,7 +515,6 @@ class DualApprovalEnforcer:
             }
         if "max_history" in data:
             instance._max_history = data["max_history"]
-        # last_touched is not restored; it is updated on usage.
         return instance
 
     def clone(self) -> DualApprovalEnforcer:
@@ -515,11 +523,9 @@ class DualApprovalEnforcer:
         Repositories are not cloned; the new instance gets fresh fallback repos.
         """
         new_instance = DualApprovalEnforcer()
-        # Copy configuration
         new_instance._enabled = self._enabled
         new_instance._thresholds = self._thresholds.copy()
         new_instance._max_history = self._max_history
-        # Do NOT copy history or violations to keep clones isolated.
         return new_instance
 
     def snapshot(self) -> dict[str, Any]:
@@ -547,7 +553,7 @@ class DualApprovalEnforcer:
                 {
                     "transaction_id": v.transaction_id,
                     "amount": v.amount,
-                    "message": v.message,
+                    "message": getattr(v, "message", str(v)),
                     "severity": v.severity.value if hasattr(v, "severity") else None,
                 }
                 for v in violations

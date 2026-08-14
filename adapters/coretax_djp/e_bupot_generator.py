@@ -1180,7 +1180,6 @@ class EBupotGenerator:
         return self._cache.get(key)
 
     async def _set_cached(self, bupot_number: str, data: dict[str, Any]) -> None:
-        ttl = self._load_config().get("coretax_djp", {}).get("e_bupot", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         key = self._get_cache_key(bupot_number)
         self._cache[key] = data
 

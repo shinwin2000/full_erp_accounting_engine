@@ -26,13 +26,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import JSON, Column, DateTime, Index, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.declarative import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
+from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 from infrastructure.telemetry.structured_json_logging import get_logger
 from projections.analytics_bi.financial_ratios_calculator import (
     FinancialRatiosCalculator,
@@ -77,6 +78,28 @@ class DashboardDataError(Exception):
     """Base exception untuk dashboard data provider."""
 
     pass
+
+
+# ============================================================================
+# ORM MODEL (untuk menyimpan dashboard snapshots opsional)
+# ============================================================================
+
+Base = declarative_base()
+
+
+class DashboardSnapshotTable(Base):
+    __tablename__ = "dashboard_snapshot"
+    __table_args__ = (
+        Index("idx_dashboard_snapshot_legal_entity", "legal_entity_id"),
+        Index("idx_dashboard_snapshot_period", "period_id"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_id = Column(PGUUID(as_uuid=True), nullable=False)
+    data = Column(JSON, nullable=False)
+    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -361,30 +384,6 @@ class DashboardDataProvider:
         """Menghapus cache dashboard."""
         self._cache.clear()
         logger.info("Dashboard data cache cleared")
-
-
-# ============================================================================
-# ORM MODEL (tambahan untuk menyimpan dashboard snapshots opsional)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, DateTime, Index
-
-Base = declarative_base()
-
-
-class DashboardSnapshotTable(Base):
-    __tablename__ = "dashboard_snapshot"
-    __table_args__ = (
-        Index("idx_dashboard_snapshot_legal_entity", "legal_entity_id"),
-        Index("idx_dashboard_snapshot_period", "period_id"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_id = Column(PGUUID(as_uuid=True), nullable=False)
-    data = Column(JSON, nullable=False)
-    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

@@ -37,25 +37,26 @@ from ports.primary.forex_repository_port import (
     RevaluationRecord,
 )
 
+# CATATAN PENTING: ExchangeRateTable REAL (dipakai migrasi & seluruh app)
+# ada di infrastructure.persistence_orm.exchange_rate_table, tabelnya
+# "exchange_rate" (tunggal). Sebelumnya file ini mendeklarasikan model ORM
+# DUPLIKAT secara lokal (declarative_base() sendiri, __tablename__ =
+# "exchange_rates" - JAMAK) yang TIDAK PERNAH dibuat oleh migrasi manapun -
+# setiap query lewat model duplikat itu akan gagal "relation exchange_rates
+# does not exist" begitu benar-benar dieksekusi. Sekarang pakai model asli.
+from infrastructure.persistence_orm.exchange_rate_table import ExchangeRateTable
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# ORM MODELS
+# ORM MODELS (RevaluationRecordTable & PeriodStatusTable MASIH lokal/belum
+# pernah di-migrasi - lihat catatan di save_revaluation/mark_period_closed/
+# is_period_closed/get_last_revaluation_rate/get_foreign_currency_balances/
+# get_unrealized_differences di bawah. Di luar scope perbaikan CRUD
+# exchange rate kali ini; method2 itu akan tetap gagal kalau dipanggil.)
 # ============================================================================
 
 Base = declarative_base()
-
-
-class ExchangeRateTable(Base):
-    __tablename__ = "exchange_rates"
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    from_currency = Column(String(3), nullable=False)
-    to_currency = Column(String(3), nullable=False)
-    rate = Column(Numeric(20, 6), nullable=False)
-    rate_date = Column(Date, nullable=False)
-    source = Column(String(50), nullable=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
 class RevaluationRecordTable(Base):
@@ -94,11 +95,52 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
         self._session = session
         self._legal_entity_id = legal_entity_id
 
+    @property
+    def legal_entity_id(self) -> UUID | None:
+        return self._legal_entity_id
+
+    @legal_entity_id.setter
+    def legal_entity_id(self, value: UUID) -> None:
+        """
+        CATATAN: repo ini didaftarkan sebagai singleton di IoC container
+        (satu instance untuk seumur hidup aplikasi), sedangkan
+        legal_entity_id itu per-request. Tanpa setter ini, legal_entity_id
+        cuma bisa diisi lewat konstruktor sekali di awal - method manapun
+        yang mengandalkan self._get_legal_entity_id() (get_rate, set_rate,
+        get_last_revaluation_rate, dll) akan selalu ValueError "not set" di
+        request kedua dan seterusnya. Service (ForexService.set_context)
+        HARUS memanggil ini di awal setiap request.
+        """
+        self._legal_entity_id = value
+
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            from infrastructure.database.session_factory_sqlalchemy import get_async_session
-            self._session = await get_async_session()
+            # FIX: get_async_session() itu AsyncGenerator (dipakai via
+            # `async with`/`async for`, mis. sebagai FastAPI dependency),
+            # BUKAN sesuatu yang bisa langsung di-`await` untuk dapat
+            # AsyncSession - itu penyebab "TypeError: object async_generator
+            # can't be used in 'await' expression". get_async_session_direct()
+            # memang didesain untuk kasus repo yang mengelola session sendiri
+            # seperti di sini.
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
+            self._session = await get_async_session_direct()
         return self._session
+
+    async def commit(self) -> None:
+        """
+        Commit session yang dipegang repo ini.
+
+        CATATAN BUG (sama persis dengan yang sudah diperbaiki di
+        service_iam.py & service_consolidation.py): ForexService dulunya
+        selalu manggil self.uow.commit() langsung, padahal self.uow
+        (UnitOfWorkPort) di service ini TIDAK PERNAH di-`begin()`/dimasuki
+        lewat `async with self.uow:` - jadi commit() selalu raise "UoW not
+        started or transaction not active". Repo ini sudah mengelola
+        session-nya sendiri secara lazy (_get_session), jadi commit
+        langsung lewat session itu, bukan lewat UoW yang tidak pernah aktif.
+        """
+        if self._session is not None:
+            await self._session.commit()
 
     def _get_legal_entity_id(self) -> UUID:
         if self._legal_entity_id is None:
@@ -413,6 +455,172 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
 
     async def find_rate(self, rate_id: UUID) -> ExchangeRateEntity | None:
         return await self.get_rate_by_id(rate_id)
+
+    # ========================================================================
+    # EXCHANGE RATE CRUD LENGKAP (dict-based - dipakai ForexService)
+    # ========================================================================
+
+    async def create_rate_full(
+        self,
+        legal_entity_id: UUID,
+        from_currency: str,
+        to_currency: str,
+        rate: Decimal,
+        rate_type: str,
+        effective_date: date,
+        provider: str,
+        bid_rate: Decimal | None,
+        ask_rate: Decimal | None,
+        notes: str | None,
+        created_by: UUID | None,
+    ) -> dict[str, Any]:
+        session = await self._get_session()
+        table = ExchangeRateTable(
+            id=uuid.uuid4(),
+            legal_entity_id=legal_entity_id,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            rate=rate,
+            rate_type=rate_type,
+            rate_date=effective_date,
+            source=provider,
+            bid_rate=bid_rate if bid_rate is not None else Decimal("0"),
+            ask_rate=ask_rate if ask_rate is not None else Decimal("0"),
+            notes=notes,
+            status="active",
+            is_active=True,
+            created_by=created_by,
+            version=1,
+        )
+        session.add(table)
+        await session.flush()
+        await session.refresh(table)
+        return table.to_dict()
+
+    async def list_rates_full(
+        self,
+        legal_entity_id: UUID,
+        from_currency: str | None = None,
+        to_currency: str | None = None,
+        rate_type: str | None = None,
+        effective_date: date | None = None,
+        provider: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        stmt = select(ExchangeRateTable).where(
+            ExchangeRateTable.legal_entity_id == legal_entity_id,
+            ExchangeRateTable.deleted_at.is_(None),
+        )
+        if from_currency:
+            stmt = stmt.where(ExchangeRateTable.from_currency == from_currency)
+        if to_currency:
+            stmt = stmt.where(ExchangeRateTable.to_currency == to_currency)
+        if rate_type:
+            stmt = stmt.where(ExchangeRateTable.rate_type == rate_type)
+        if effective_date:
+            stmt = stmt.where(ExchangeRateTable.rate_date == effective_date)
+        if provider:
+            stmt = stmt.where(ExchangeRateTable.source == provider)
+        stmt = (
+            stmt.order_by(ExchangeRateTable.rate_date.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        result = await session.execute(stmt)
+        return [row.to_dict() for row in result.scalars().all()]
+
+    async def get_rate_by_id_full(self, rate_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
+        session = await self._get_session()
+        stmt = select(ExchangeRateTable).where(
+            ExchangeRateTable.id == rate_id,
+            ExchangeRateTable.legal_entity_id == legal_entity_id,
+            ExchangeRateTable.deleted_at.is_(None),
+        )
+        row = (await session.execute(stmt)).scalar_one_or_none()
+        return row.to_dict() if row else None
+
+    async def update_rate_full(
+        self,
+        rate_id: UUID,
+        legal_entity_id: UUID,
+        rate: Decimal | None = None,
+        bid_rate: Decimal | None = None,
+        ask_rate: Decimal | None = None,
+        provider: str | None = None,
+        notes: str | None = None,
+        status: str | None = None,
+        updated_by: UUID | None = None,
+    ) -> dict[str, Any] | None:
+        session = await self._get_session()
+        stmt = select(ExchangeRateTable).where(
+            ExchangeRateTable.id == rate_id,
+            ExchangeRateTable.legal_entity_id == legal_entity_id,
+            ExchangeRateTable.deleted_at.is_(None),
+        ).with_for_update()
+        row = (await session.execute(stmt)).scalar_one_or_none()
+        if not row:
+            return None
+        if row.is_locked:
+            raise ValueError(f"Exchange rate {rate_id} is locked and cannot be updated")
+        if rate is not None:
+            row.rate = rate
+        if bid_rate is not None:
+            row.bid_rate = bid_rate
+        if ask_rate is not None:
+            row.ask_rate = ask_rate
+        if provider is not None:
+            row.source = provider
+        if notes is not None:
+            row.notes = notes
+        if status is not None:
+            row.status = status
+            row.is_active = status == "active"
+        row.updated_by = updated_by
+        await session.flush()
+        await session.refresh(row)
+        return row.to_dict()
+
+    async def deactivate_rate_full(
+        self, rate_id: UUID, legal_entity_id: UUID, reason: str, deactivated_by: UUID | None
+    ) -> dict[str, Any] | None:
+        session = await self._get_session()
+        stmt = select(ExchangeRateTable).where(
+            ExchangeRateTable.id == rate_id,
+            ExchangeRateTable.legal_entity_id == legal_entity_id,
+            ExchangeRateTable.deleted_at.is_(None),
+        ).with_for_update()
+        row = (await session.execute(stmt)).scalar_one_or_none()
+        if not row:
+            return None
+        row.deactivate()
+        row.status = "inactive"
+        if reason:
+            row.notes = f"{row.notes or ''}\n[deactivated: {reason}]".strip()
+        row.updated_by = deactivated_by
+        await session.flush()
+        await session.refresh(row)
+        return row.to_dict()
+
+    async def set_rate_lock(
+        self, rate_id: UUID, legal_entity_id: UUID, is_locked: bool, actor_id: UUID | None
+    ) -> dict[str, Any] | None:
+        session = await self._get_session()
+        stmt = select(ExchangeRateTable).where(
+            ExchangeRateTable.id == rate_id,
+            ExchangeRateTable.legal_entity_id == legal_entity_id,
+            ExchangeRateTable.deleted_at.is_(None),
+        ).with_for_update()
+        row = (await session.execute(stmt)).scalar_one_or_none()
+        if not row:
+            return None
+        row.is_locked = is_locked
+        row.locked_by = actor_id if is_locked else None
+        row.locked_at = datetime.utcnow() if is_locked else None
+        await session.flush()
+        await session.refresh(row)
+        return row.to_dict()
 
 
 # ============================================================================

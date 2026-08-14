@@ -48,7 +48,7 @@ class _FallbackFileStorage:
     Tidak mengimpor apapun dari adapters atau infrastructure.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._storage: dict[str, bytes] = {}
         self._metadata: dict[str, dict[str, Any]] = {}
         self._max_size_bytes = 100 * 1024 * 1024  # 100 MB limit
@@ -138,9 +138,9 @@ class EvidenceType(Enum):
 class EvidenceVerificationStatus(Enum):
     PENDING = "pending"
     VERIFIED = "verified"
-    FAILED = "failed"
-    EXPIRED = "expired"
+    FAILED = "failed"      
     REJECTED = "rejected"
+    EXPIRED = "expired"
 
 
 @dataclass
@@ -172,7 +172,7 @@ class Evidence:
         )
         return hashlib.sha3_256(content.encode()).hexdigest()
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Cryptographic hash mismatch")
 
@@ -469,7 +469,7 @@ class EvidenceAttacherGuard(BaseEvidenceAttacherGuard):
     terutama untuk transaksi material atau penyesuaian.
     """
 
-    def __init__(self, file_storage: Any | None = None):
+    def __init__(self, file_storage: Any | None = None) -> None:
         self._file_storage = file_storage or _FallbackFileStorage()
         self._requirements = DEFAULT_EVIDENCE_REQUIREMENTS.copy()
         self._evidences: dict[UUID, Evidence] = {}

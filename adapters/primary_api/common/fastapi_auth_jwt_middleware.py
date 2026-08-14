@@ -30,7 +30,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from jose import JWTError, jwt
 from jose.exceptions import ExpiredSignatureError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -499,9 +499,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         exp = datetime.fromtimestamp(exp_ts, tz=UTC)
         iat = datetime.fromtimestamp(iat_ts, tz=UTC)
 
-        if self.revocation_check:
-            if await self._is_token_revoked(jti):
-                raise TokenRevokedError("Token is revoked")
+        if self.revocation_check and await self._is_token_revoked(jti):
+            raise TokenRevokedError("Token is revoked")
 
         return TokenPayload(
             user_id=user_id,
@@ -713,23 +712,21 @@ def require_permission(permission: str):
         request: Request,
         current_user: TokenPayload = Depends(get_current_user),
     ) -> TokenPayload:
+        # Jika tidak memiliki permission secara eksplisit, cek wildcard
         if not current_user.has_permission(permission):
-            # Juga cek wildcard di sini (untuk jaga-jaga)
-            # Tapi karena middleware sudah cek, ini redundant, tapi tetap aman
-            if not current_user.has_permission_wildcard(None, None):
-                # Jika permission berupa "resource:action", kita bisa split
-                if ":" in permission:
-                    res, act = permission.split(":", 1)
-                    if not current_user.has_permission_wildcard(res, act):
-                        raise HTTPException(
-                            status_code=HTTP_403_FORBIDDEN,
-                            detail=f"Missing permission: {permission}",
-                        )
-                else:
+            # Parse resource:action jika ada
+            if ":" in permission:
+                resource, action = permission.split(":", 1)
+                if not current_user.has_permission_wildcard(resource, action):
                     raise HTTPException(
                         status_code=HTTP_403_FORBIDDEN,
                         detail=f"Missing permission: {permission}",
                     )
+            else:
+                raise HTTPException(
+                    status_code=HTTP_403_FORBIDDEN,
+                    detail=f"Missing permission: {permission}",
+                )
         return current_user
     return dependency
 

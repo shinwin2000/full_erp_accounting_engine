@@ -23,9 +23,23 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    delete,
+    func,
+    insert,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -57,6 +71,44 @@ class PPNSettlementError(Exception):
     """Base exception untuk PPN settlement projection."""
 
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class PPNSettlementTable(Base):
+    __tablename__ = "ppn_settlement"
+    __table_args__ = (
+        Index("idx_ppn_settlement_npwp", "npwp"),
+        Index("idx_ppn_settlement_period", "tahun_pajak", "masa_pajak"),
+        Index("idx_ppn_settlement_legal_entity", "legal_entity_id"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    npwp = Column(String(20), nullable=False)
+    masa_pajak = Column(Integer, nullable=False)
+    tahun_pajak = Column(Integer, nullable=False)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    total_ppn_keluaran = Column(Numeric(20, 2), nullable=False, default=0)
+    total_ppn_masukan = Column(Numeric(20, 2), nullable=False, default=0)
+    kompensasi_dari_sebelumnya = Column(Numeric(20, 2), nullable=False, default=0)
+    ppn_kurang_bayar = Column(Numeric(20, 2), nullable=False, default=0)
+    ppn_lebih_bayar = Column(Numeric(20, 2), nullable=False, default=0)
+    status_pembayaran = Column(String(20), nullable=False, default="unpaid")
+    ntpn = Column(String(16), nullable=True)
+    payment_date = Column(Date, nullable=True)
+    settlement_status = Column(String(20), nullable=False, default="draft")
+    spt_number = Column(String(50), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
 # ============================================================================
@@ -351,47 +403,6 @@ class PPNSettlement:
 
 
 # ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import Column, Date, DateTime, Index, Integer, Numeric, String
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class PPNSettlementTable(Base):
-    __tablename__ = "ppn_settlement"
-    __table_args__ = (
-        Index("idx_ppn_settlement_npwp", "npwp"),
-        Index("idx_ppn_settlement_period", "tahun_pajak", "masa_pajak"),
-        Index("idx_ppn_settlement_legal_entity", "legal_entity_id"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    npwp = Column(String(20), nullable=False)
-    masa_pajak = Column(Integer, nullable=False)
-    tahun_pajak = Column(Integer, nullable=False)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
-    total_ppn_keluaran = Column(Numeric(20, 2), nullable=False, default=0)
-    total_ppn_masukan = Column(Numeric(20, 2), nullable=False, default=0)
-    kompensasi_dari_sebelumnya = Column(Numeric(20, 2), nullable=False, default=0)
-    ppn_kurang_bayar = Column(Numeric(20, 2), nullable=False, default=0)
-    ppn_lebih_bayar = Column(Numeric(20, 2), nullable=False, default=0)
-    status_pembayaran = Column(String(20), nullable=False, default="unpaid")
-    ntpn = Column(String(16), nullable=True)
-    payment_date = Column(Date, nullable=True)
-    settlement_status = Column(String(20), nullable=False, default="draft")
-    spt_number = Column(String(50), nullable=True)
-    submitted_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True)
-
-
-# ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================
 
@@ -413,7 +424,7 @@ async def get_ppn_settlement() -> PPNSettlement:
 
 class PpnProjection:
     """
-    Simple in‑memory projection for tests.
+    Simple in-memory projection for tests.
     Implements handle() and get_output_ppn().
     """
 

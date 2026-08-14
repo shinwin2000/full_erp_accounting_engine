@@ -79,28 +79,48 @@ class DisposalReason(str, Enum):
 
 @dataclass(kw_only=True)
 class AssetCreateRequest:
-    """Request DTO for creating a new fixed asset."""
+    """Request DTO for creating a new fixed asset.
+
+    FIX: field names/types here now mirror exactly what
+    fastapi_fixed_asset_router.py's create_asset() endpoint constructs from
+    AssetCreateSchema (asset_category as a plain str - the enum's .value -
+    not asset_category_id; residual_value not salvage_value; invoice_id not
+    invoice_number; responsible_party as free text, not a UUID; plus the
+    depreciation_rate/is_component/parent_asset_id/notes/
+    revaluation_frequency/use_fiscal_depreciation/created_by fields the
+    router always sends). The old field set didn't match at all, so every
+    POST /fixed-assets/assets failed immediately with
+    "AssetCreateRequest.__init__() got an unexpected keyword argument
+    'asset_category'" before the request ever reached the service layer.
+    """
 
     asset_code: str
     asset_name: str
-    asset_category_id: UUID
+    asset_category: str
     acquisition_date: date
     acquisition_cost: Decimal
-    salvage_value: Decimal = Decimal(0)
+    residual_value: Decimal = Decimal(0)
     useful_life_years: int = 5
     depreciation_method: str = "straight_line"
+    depreciation_rate: Decimal | None = None
     location: str | None = None
-    responsible_party: UUID | None = None
-    description: str | None = None
+    responsible_party: str | None = None
     supplier_id: UUID | None = None
-    invoice_number: str | None = None
-    is_active: bool = True
-    legal_entity_id: UUID | None = None
     purchase_order_id: UUID | None = None
+    invoice_id: UUID | None = None
+    serial_number: str | None = None
+    is_active: bool = True
+    is_component: bool = False
+    parent_asset_id: UUID | None = None
+    notes: str | None = None
+    revaluation_frequency: str = "never"
+    use_fiscal_depreciation: bool = False
+    created_by: UUID | None = None
+    legal_entity_id: UUID | None = None
+    description: str | None = None
     warranty_expiry_date: date | None = None
     insurance_policy_number: str | None = None
     insurance_expiry_date: date | None = None
-    serial_number: str | None = None
     model_number: str | None = None
 
     def __post_init__(self) -> None:
@@ -110,10 +130,10 @@ class AssetCreateRequest:
             raise ValueError("Asset name is required")
         if self.acquisition_cost <= 0:
             raise ValueError(f"Acquisition cost must be positive: {self.acquisition_cost}")
-        if self.salvage_value < 0:
-            raise ValueError(f"Salvage value cannot be negative: {self.salvage_value}")
-        if self.salvage_value > self.acquisition_cost:
-            raise ValueError("Salvage value cannot exceed acquisition cost")
+        if self.residual_value < 0:
+            raise ValueError(f"Residual value cannot be negative: {self.residual_value}")
+        if self.residual_value > self.acquisition_cost:
+            raise ValueError("Residual value cannot exceed acquisition cost")
         if self.useful_life_years < 1:
             raise ValueError(f"Useful life must be at least 1 year: {self.useful_life_years}")
         valid_methods = [m.value for m in DepreciationMethod]
@@ -123,7 +143,7 @@ class AssetCreateRequest:
     @property
     def depreciable_amount(self) -> Decimal:
         """Calculate depreciable amount."""
-        return (self.acquisition_cost - self.salvage_value).quantize(
+        return (self.acquisition_cost - self.residual_value).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_EVEN
         )
 
@@ -147,20 +167,27 @@ class AssetCreateRequest:
         return {
             "asset_code": self.asset_code,
             "asset_name": self.asset_name,
-            "asset_category_id": str(self.asset_category_id),
+            "asset_category": self.asset_category,
             "acquisition_date": self.acquisition_date.isoformat(),
             "acquisition_cost": str(self.acquisition_cost),
-            "salvage_value": str(self.salvage_value),
+            "residual_value": str(self.residual_value),
             "useful_life_years": self.useful_life_years,
             "depreciation_method": self.depreciation_method,
+            "depreciation_rate": str(self.depreciation_rate) if self.depreciation_rate is not None else None,
             "location": self.location,
-            "responsible_party": str(self.responsible_party) if self.responsible_party else None,
+            "responsible_party": self.responsible_party,
             "description": self.description,
             "supplier_id": str(self.supplier_id) if self.supplier_id else None,
-            "invoice_number": self.invoice_number,
-            "is_active": self.is_active,
-            "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
             "purchase_order_id": str(self.purchase_order_id) if self.purchase_order_id else None,
+            "invoice_id": str(self.invoice_id) if self.invoice_id else None,
+            "is_active": self.is_active,
+            "is_component": self.is_component,
+            "parent_asset_id": str(self.parent_asset_id) if self.parent_asset_id else None,
+            "notes": self.notes,
+            "revaluation_frequency": self.revaluation_frequency,
+            "use_fiscal_depreciation": self.use_fiscal_depreciation,
+            "created_by": str(self.created_by) if self.created_by else None,
+            "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
             "warranty_expiry_date": self.warranty_expiry_date.isoformat()
             if self.warranty_expiry_date
             else None,
@@ -180,24 +207,31 @@ class AssetCreateRequest:
         return cls(
             asset_code=data["asset_code"],
             asset_name=data["asset_name"],
-            asset_category_id=UUID(data["asset_category_id"]),
+            asset_category=data["asset_category"],
             acquisition_date=date.fromisoformat(data["acquisition_date"]),
             acquisition_cost=Decimal(str(data["acquisition_cost"])),
-            salvage_value=Decimal(str(data.get("salvage_value", 0))),
+            residual_value=Decimal(str(data.get("residual_value", 0))),
             useful_life_years=data.get("useful_life_years", 5),
             depreciation_method=data.get("depreciation_method", "straight_line"),
-            location=data.get("location"),
-            responsible_party=UUID(data["responsible_party"])
-            if data.get("responsible_party")
+            depreciation_rate=Decimal(str(data["depreciation_rate"]))
+            if data.get("depreciation_rate")
             else None,
+            location=data.get("location"),
+            responsible_party=data.get("responsible_party"),
             description=data.get("description"),
             supplier_id=UUID(data["supplier_id"]) if data.get("supplier_id") else None,
-            invoice_number=data.get("invoice_number"),
-            is_active=data.get("is_active", True),
-            legal_entity_id=UUID(data["legal_entity_id"]) if data.get("legal_entity_id") else None,
             purchase_order_id=UUID(data["purchase_order_id"])
             if data.get("purchase_order_id")
             else None,
+            invoice_id=UUID(data["invoice_id"]) if data.get("invoice_id") else None,
+            is_active=data.get("is_active", True),
+            is_component=data.get("is_component", False),
+            parent_asset_id=UUID(data["parent_asset_id"]) if data.get("parent_asset_id") else None,
+            notes=data.get("notes"),
+            revaluation_frequency=data.get("revaluation_frequency", "never"),
+            use_fiscal_depreciation=data.get("use_fiscal_depreciation", False),
+            created_by=UUID(data["created_by"]) if data.get("created_by") else None,
+            legal_entity_id=UUID(data["legal_entity_id"]) if data.get("legal_entity_id") else None,
             warranty_expiry_date=date.fromisoformat(data["warranty_expiry_date"])
             if data.get("warranty_expiry_date")
             else None,
@@ -674,21 +708,21 @@ class FixedAssetRequestFactory:
     def create_asset(
         asset_code: str,
         asset_name: str,
-        asset_category_id: UUID,
+        asset_category: str,
         acquisition_date: date,
         acquisition_cost: Decimal,
         legal_entity_id: UUID,
-        salvage_value: Decimal = Decimal(0),
+        residual_value: Decimal = Decimal(0),
         useful_life_years: int = 5,
         depreciation_method: str = "straight_line",
     ) -> AssetCreateRequest:
         return AssetCreateRequest(
             asset_code=asset_code,
             asset_name=asset_name,
-            asset_category_id=asset_category_id,
+            asset_category=asset_category,
             acquisition_date=acquisition_date,
             acquisition_cost=acquisition_cost,
-            salvage_value=salvage_value,
+            residual_value=residual_value,
             useful_life_years=useful_life_years,
             depreciation_method=depreciation_method,
             legal_entity_id=legal_entity_id,

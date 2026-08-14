@@ -291,6 +291,60 @@ class ServiceRegistrar:
             container.register_singleton(ConsolidationService, factory=_create_consolidation_service)
             logger.info("ConsolidationService registered")
 
+            # ----- Registrasi ForexService (sebelumnya TIDAK PERNAH
+            # terdaftar sama sekali - endpoint /forex/forex/* selalu gagal
+            # dengan DependencyNotFoundError) -----
+            from application.service_layer.service_forex import ForexService
+            from ports.primary.forex_repository_port import ForexRepositoryPort
+
+            async def _create_forex_service():
+                forex_repo = await container.resolve_async(ForexRepositoryPort)
+                uow = await container.resolve_async(UnitOfWorkPort)
+                try:
+                    from ports.primary.cache_port import CachePort
+                    cache = await container.resolve_async(CachePort)
+                except Exception:
+                    cache = None
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return ForexService(
+                    forex_repo=forex_repo,
+                    uow=uow,
+                    cache=cache,
+                    event_publisher=event_publisher,
+                )
+
+            container.register_singleton(ForexService, factory=_create_forex_service)
+            logger.info("ForexService registered")
+
+            # ----- Registrasi ForexRevaluationUseCase (sebelumnya TIDAK
+            # PERNAH terdaftar - endpoint POST /forex/forex/revaluation
+            # selalu gagal DependencyNotFoundError) -----
+            from application.use_cases.forex_revaluation import ForexRevaluationUseCase
+            from application.service_layer.service_ledger import LedgerService as _LedgerServiceRef
+            from application.service_layer.service_journal import JournalService as _JournalServiceRef
+
+            async def _create_forex_revaluation_use_case():
+                forex_service = await container.resolve_async(ForexService)
+                ledger_service = await container.resolve_async(_LedgerServiceRef)
+                journal_service = await container.resolve_async(_JournalServiceRef)
+                try:
+                    sealed_gate = await container.resolve_async(SealedGate)
+                except Exception:
+                    sealed_gate = None
+                return ForexRevaluationUseCase(
+                    forex_service=forex_service,
+                    ledger_service=ledger_service,
+                    journal_service=journal_service,
+                    sealed_gate=sealed_gate,
+                )
+
+            container.register_singleton(ForexRevaluationUseCase, factory=_create_forex_revaluation_use_case)
+            logger.info("ForexRevaluationUseCase registered")
+
             # ----- Registrasi CapitalService dengan factory yang aman -----
             async def _create_capital_service():
                 try:

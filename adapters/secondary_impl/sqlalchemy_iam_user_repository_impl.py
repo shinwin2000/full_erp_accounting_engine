@@ -34,6 +34,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -94,6 +95,8 @@ class LoginAttempt:
     ip_address: str
     attempted_at: datetime
     failure_reason: str | None = None
+    user_agent: str | None = None
+    user_id: UUID | None = None
 
 # ============================================================================
 # LOGGING & CONSTANTS
@@ -270,6 +273,11 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             legal_entity_ids=table.legal_entity_ids or [],
             role_ids=role_ids,
             is_locked=table.locked_until is not None and table.locked_until > datetime.utcnow(),
+            mfa_enabled=bool(getattr(table, "mfa_enabled", False)),
+            mfa_secret=getattr(table, "mfa_secret", None),
+            mfa_backup_codes=list(getattr(table, "mfa_backup_codes", None) or []),
+            password_reset_token_hash=getattr(table, "password_reset_token_hash", None),
+            password_reset_expires_at=getattr(table, "password_reset_expires_at", None),
         )
 
     async def _to_orm(self, aggregate: UserAggregate) -> IAMUserTable:
@@ -306,6 +314,11 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             created_by=aggregate.created_by,
             version=aggregate.version,
             legal_entity_ids=legal_entity_ids_json,
+            mfa_enabled=aggregate.mfa_enabled,
+            mfa_secret=aggregate.mfa_secret,
+            mfa_backup_codes=list(aggregate.mfa_backup_codes or []),
+            password_reset_token_hash=aggregate.password_reset_token_hash,
+            password_reset_expires_at=aggregate.password_reset_expires_at,
         )
 
     def _to_domain_role(self, table: IAMRoleTable) -> Role:
@@ -369,8 +382,8 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             role_ids=agg.role_ids,
             failed_login_attempts=agg.failed_login_count,
             locked_until=agg.locked_until,
-            mfa_enabled=False,
-            mfa_secret=None,
+            mfa_enabled=agg.mfa_enabled,
+            mfa_secret=agg.mfa_secret,
             audit=audit,
         )
 
@@ -1035,12 +1048,171 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         except Exception as e:
             raise IAMRepositoryError(f"Failed to find users by role: {e}") from e
 
-    # ---- MFA ----
-    async def enable_mfa(self, user_id: UUID, mfa_type: str, secret: str | None = None, actor_id: UUID | None = None) -> str:
-        return secret or "mfa_secret_placeholder"
+    # ---- MFA (implementasi lengkap port lama - WAJIB ada karena
+    # IAMRepositoryPort mendeklarasikan enable_mfa/verify_mfa sebagai
+    # @abstractmethod; kalau tidak di-override, Python akan menolak
+    # instantiate SQLAlchemyIAMRepository sama sekali dengan
+    # "Can't instantiate abstract class ... with abstract methods
+    # enable_mfa, verify_mfa" - ini persis error yang muncul saat startup.
+    # Method di bawah sebelumnya stub (enable_mfa tidak nulis ke DB,
+    # verify_mfa selalu return True); sekarang keduanya benar2 bekerja,
+    # dan didelegasikan ke set_mfa_secret/set_mfa_enabled di bawah supaya
+    # tidak ada duplikasi logic.)
+    async def enable_mfa(self, user_id: UUID, mfa_type: "MFAType", secret: str | None = None, actor_id: UUID | None = None) -> str:
+        if not secret:
+            try:
+                import pyotp
+                secret = pyotp.random_base32()
+            except ImportError:
+                secret = secrets.token_hex(16)
+        await self.set_mfa_secret(user_id, secret, backup_codes=None)
+        return secret
 
     async def verify_mfa(self, user_id: UUID, code: str) -> bool:
-        return True
+        user = await self.get_by_id(user_id)
+        if not user or not user.mfa_secret or not code:
+            return False
+        try:
+            import pyotp
+            if pyotp.TOTP(user.mfa_secret).verify(code.strip(), valid_window=1):
+                return True
+        except ImportError:
+            pass
+        backup_codes = user.mfa_backup_codes or []
+        return code.strip().upper() in [c.upper() for c in backup_codes]
+
+    # ---- MFA ----
+    # CATATAN: dua method di bawah ini sebelumnya stub total (enable_mfa
+    # tidak menulis apapun ke DB, verify_mfa selalu return True tanpa
+    # mengecek kode sama sekali - lubang keamanan). Verifikasi kode TOTP
+    # yang sesungguhnya dilakukan di IAMService (application layer, pakai
+    # pyotp) karena butuh akses ke secret yang sudah didekripsi/di-decode;
+    # repository di sini hanya bertanggung jawab untuk PERSISTENSI kolom
+    # mfa_enabled/mfa_secret/mfa_backup_codes ke tabel iam_user.
+    async def set_mfa_secret(self, user_id: UUID, secret: str | None, backup_codes: list[str] | None = None) -> None:
+        """Simpan/replace secret MFA (dipanggil saat setup, sebelum enabled=True)."""
+        try:
+            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
+                mfa_secret=secret,
+                mfa_backup_codes=backup_codes,
+                updated_at=datetime.utcnow(),
+            )
+            await self.session.execute(stmt)
+            await self.session.flush()
+            logger.info("MFA secret updated for user %s", user_id)
+        except Exception as e:
+            await self.session.rollback()
+            raise IAMRepositoryError(f"Failed to set MFA secret: {e}") from e
+
+    async def set_mfa_enabled(self, user_id: UUID, enabled: bool) -> None:
+        try:
+            values = {"mfa_enabled": enabled, "updated_at": datetime.utcnow()}
+            if not enabled:
+                values["mfa_secret"] = None
+                values["mfa_backup_codes"] = None
+            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(**values)
+            await self.session.execute(stmt)
+            await self.session.flush()
+            logger.info("MFA %s for user %s", "enabled" if enabled else "disabled", user_id)
+        except Exception as e:
+            await self.session.rollback()
+            raise IAMRepositoryError(f"Failed to set MFA enabled flag: {e}") from e
+
+    # ---- Sessions (list per user, dipakai halaman "Sesi Login Aktif") ----
+    async def list_sessions_for_user(self, user_id: UUID, active_only: bool = False) -> list[IAMSessionTable]:
+        try:
+            conditions = [IAMSessionTable.user_id == user_id]
+            if active_only:
+                conditions.append(IAMSessionTable.is_active == True)
+            stmt = select(IAMSessionTable).where(and_(*conditions)).order_by(IAMSessionTable.last_accessed_at.desc())
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        except Exception as e:
+            raise IAMRepositoryError(f"Failed to list sessions: {e}") from e
+
+    async def revoke_session_for_user(self, session_id: UUID, user_id: UUID, reason: str = "user_revoke") -> bool:
+        """Revoke satu sesi, hanya jika memang milik user_id (proteksi IDOR)."""
+        try:
+            stmt = (
+                update(IAMSessionTable)
+                .where(IAMSessionTable.id == session_id, IAMSessionTable.user_id == user_id)
+                .values(is_active=False, is_revoked=True, revoke_reason=reason)
+            )
+            result = await self.session.execute(stmt)
+            await self.session.flush()
+            return result.rowcount > 0
+        except Exception as e:
+            await self.session.rollback()
+            raise IAMRepositoryError(f"Failed to revoke session: {e}") from e
+
+    async def revoke_all_other_sessions_for_user(self, user_id: UUID, keep_session_id: UUID | None = None) -> int:
+        """Revoke semua sesi aktif user, kecuali keep_session_id (biasanya sesi yang sedang dipakai)."""
+        try:
+            conditions = [
+                IAMSessionTable.user_id == user_id,
+                IAMSessionTable.is_active == True,
+            ]
+            if keep_session_id is not None:
+                conditions.append(IAMSessionTable.id != keep_session_id)
+            stmt = update(IAMSessionTable).where(and_(*conditions)).values(
+                is_active=False, is_revoked=True, revoke_reason="revoke_all_other_sessions"
+            )
+            result = await self.session.execute(stmt)
+            await self.session.flush()
+            return result.rowcount
+        except Exception as e:
+            await self.session.rollback()
+            raise IAMRepositoryError(f"Failed to revoke other sessions: {e}") from e
+
+    # ---- Password reset via token (alur "Lupa Password" self-service) ----
+    async def set_password_reset_token(self, user_id: UUID, token_hash: str | None, expires_at: datetime | None) -> None:
+        try:
+            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
+                password_reset_token_hash=token_hash,
+                password_reset_expires_at=expires_at,
+                updated_at=datetime.utcnow(),
+            )
+            await self.session.execute(stmt)
+            await self.session.flush()
+        except Exception as e:
+            await self.session.rollback()
+            raise IAMRepositoryError(f"Failed to set password reset token: {e}") from e
+
+    async def get_by_password_reset_token_hash(self, token_hash: str) -> UserAggregate | None:
+        try:
+            stmt = select(IAMUserTable).where(IAMUserTable.password_reset_token_hash == token_hash)
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            return self._to_domain(table) if table else None
+        except Exception as e:
+            raise IAMRepositoryError(f"Failed to look up password reset token: {e}") from e
+
+    async def set_password_direct(self, user_id: UUID, new_password: str) -> None:
+        """Ganti password langsung tanpa verifikasi old_password - dipakai
+        setelah token reset password sudah tervalidasi (bukan untuk dipakai
+        di alur ganti password biasa, yang harus tetap lewat change_password())."""
+        try:
+            user = await self.get_by_id(user_id)
+            if not user:
+                raise UserNotFoundError(f"User {user_id} not found")
+            hashed = PasswordHelper.hash_password(new_password)
+            stmt = update(IAMUserTable).where(IAMUserTable.id == user_id).values(
+                password_hash=hashed,
+                password_changed_at=datetime.utcnow(),
+                must_change_password=False,
+                password_reset_token_hash=None,
+                password_reset_expires_at=None,
+                updated_at=datetime.utcnow(),
+            )
+            await self.session.execute(stmt)
+            await self.session.flush()
+            await self._log_audit("PASSWORD_RESET_VIA_TOKEN", user_id, {})
+            logger.info("Password reset via token for user %s", user_id)
+        except UserNotFoundError:
+            raise
+        except Exception as e:
+            await self.session.rollback()
+            raise IAMRepositoryError(f"Failed to reset password: {e}") from e
 
     # ---- Get All Users ----
     async def get_all_users(
@@ -1222,12 +1394,32 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         except Exception as e:
             raise IAMRepositoryError(f"Failed to get statistics: {e}") from e
 
-    async def get_login_attempts(self, username: str | None = None, limit: int = 50) -> list[LoginAttempt]:
+    async def get_login_attempts(
+        self,
+        username: str | None = None,
+        success: bool | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[LoginAttempt]:
         try:
             conditions = []
             if username:
                 conditions.append(LoginAttemptTable.username == username)
-            stmt = select(LoginAttemptTable).where(and_(*conditions)).order_by(LoginAttemptTable.attempted_at.desc()).limit(limit)
+            if success is not None:
+                conditions.append(LoginAttemptTable.success == success)
+            if start_date is not None:
+                conditions.append(LoginAttemptTable.attempted_at >= start_date)
+            if end_date is not None:
+                conditions.append(LoginAttemptTable.attempted_at <= end_date)
+            stmt = (
+                select(LoginAttemptTable)
+                .where(and_(*conditions))
+                .order_by(LoginAttemptTable.attempted_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
             return [
@@ -1237,7 +1429,8 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                     success=t.success,
                     ip_address=t.ip_address,
                     attempted_at=t.attempted_at,
-                    failure_reason=None,
+                    failure_reason=getattr(t, "failure_reason", None),
+                    user_agent=getattr(t, "user_agent", None),
                 )
                 for t in tables
             ]
@@ -1306,14 +1499,27 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         except Exception as e:
             raise IAMRepositoryError(f"Failed to get all permissions: {e}") from e
 
-    async def record_login_attempt(self, username: str, success: bool, ip_address: str, failure_reason: str | None = None) -> None:
+    async def record_login_attempt(
+        self,
+        username: str,
+        success: bool,
+        ip_address: str,
+        failure_reason: str | None = None,
+        user_agent: str | None = None,
+    ) -> None:
         try:
+            # FIX BUG: sebelumnya di sini "user_agent=failure_reason" - kolom
+            # user_agent di tabel iam_login_attempt sebelumnya tidak ada sama
+            # sekali, jadi baris ini akan TypeError kalau sampai terpanggil.
+            # Sekarang tabel sudah punya kolom user_agent DAN failure_reason
+            # (migration e5f6a7b8c9d0), masing2 diisi dengan benar.
             attempt = LoginAttemptTable(
                 id=uuid4(),
                 username=username,
                 success=success,
                 ip_address=ip_address,
-                user_agent=failure_reason,
+                user_agent=user_agent,
+                failure_reason=failure_reason,
                 attempted_at=datetime.utcnow(),
             )
             self.session.add(attempt)

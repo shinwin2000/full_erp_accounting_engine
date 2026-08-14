@@ -22,7 +22,7 @@ Method Standards (ERP):
 """
 
 
-from __future__ import annotationsimport hashlibimport jsonimport loggingfrom datetime import date, datetimefrom decimal import Decimalfrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, statusfrom fastapi.responses import Responsefrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)logger = logging.getLogger(__name__)
+from __future__ import annotationsimport hashlibimport jsonimport loggingfrom datetime import date, datetimefrom decimal import Decimalfrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, statusfrom fastapi.responses import Responsefrom sqlalchemy.ext.asyncio import AsyncSessionfrom infrastructure.database.session_factory_sqlalchemy import get_async_sessionfrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)logger = logging.getLogger(__name__)
 
 # ============================================================================
 # IDEMPOTENCY MANAGER (for write operations)
@@ -478,15 +478,27 @@ class FixedAssetSummaryResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_fixed_asset_svc(request: Request) -> Any:
+async def get_fixed_asset_svc(
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+) -> Any:
     """
     Get Fixed Asset Service instance.
     LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+
+    FIX: previously this never bound a request-scoped DB session onto the
+    (singleton) service repository, so every call into
+    SQLAlchemyFixedAssetRepository blew up with "Session not set" (its
+    .session property raises if _session is still None). Every other
+    working router (AR, AP, Bank/Cash, Ledger) follows this same
+    `svc._x_repo.session = session` pattern - fixed asset just never did.
     """
     from application.service_layer.service_fixed_asset import FixedAssetService
 
     container = request.app.state.container
-    return await container.resolve_async(FixedAssetService)
+    svc = await container.resolve_async(FixedAssetService)
+    svc._asset_repo.session = session
+    return svc
 
 
 async def get_depreciation_run_use_case() -> Any:

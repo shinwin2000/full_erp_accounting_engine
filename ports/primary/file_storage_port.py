@@ -12,6 +12,7 @@ Features: upload, download, delete, metadata, presigned URL, chunking, versionin
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import mimetypes
@@ -725,10 +726,8 @@ class InMemoryFileStorage(FileStoragePort):
         self._running = False
         if self._cleanup_task:
             self._cleanup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
             self._cleanup_task = None
         for task in self._background_tasks:
             if not task.done():

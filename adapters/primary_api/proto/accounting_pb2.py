@@ -4,6 +4,8 @@
 # Protobuf Python Version: 5.28.1
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 """Generated protocol buffer code."""
 
 from google.protobuf import descriptor as _descriptor

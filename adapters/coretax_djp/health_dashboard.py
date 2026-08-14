@@ -235,7 +235,7 @@ class CoretaxHealthChecker:
         return alert
 
     async def _resolve_alert(self, component: str, title: str) -> None:
-        for alert_id, alert in self._alerts.items():
+        for _alert_id, alert in self._alerts.items():
             if alert.component == component and alert.title == title and not alert.resolved_at:
                 alert.resolved_at = datetime.utcnow()
                 logger.info(f"Alert resolved: {title}")
@@ -451,7 +451,7 @@ class CoretaxHealthChecker:
 
     async def check_rate_limits(self) -> ComponentHealth:
         try:
-            client = await self._get_coretax_client()
+            # client = await self._get_coretax_client()  # not used; removed
             remaining = 1000
             if PROMETHEUS_AVAILABLE:
                 coretax_rate_limit_remaining.labels(endpoint="general").set(remaining)
@@ -480,10 +480,7 @@ class CoretaxHealthChecker:
 
     async def _get_pending_faktur_count(self) -> int:
         try:
-            from adapters.secondary_impl.sqlalchemy_tax_repository_impl import (
-                SQLAlchemyTaxRepository,
-            )
-            repo = SQLAlchemyTaxRepository()
+            # Just return 0 placeholder; no need to instantiate repo
             return 0
         except ImportError:
             return 0

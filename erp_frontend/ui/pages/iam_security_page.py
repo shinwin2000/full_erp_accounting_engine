@@ -19,7 +19,8 @@ from core.api_client import api_client
 from core.formatting import extract_list, format_datetime
 from core.session import session
 from core.workers import run_task
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFormLayout,
@@ -35,6 +36,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+try:
+    import qrcode
+    HAS_QRCODE = True
+except ImportError:
+    HAS_QRCODE = False
 
 BASE = "/iam/iam"
 
@@ -160,12 +167,20 @@ class MfaTab(QWidget):
         outer.addWidget(QLabel(
             "<b>Setup MFA (Google Authenticator / Authy)</b><br>"
             "<span style='color:#6B7280;'>Langkah 1: klik Setup untuk dapat kode rahasia & QR code. "
-            "Langkah 2: scan dengan aplikasi authenticator, lalu masukkan kode 6-digit untuk verifikasi.</span>"
+            "Langkah 2: <b>scan QR code di bawah pakai kamera aplikasi authenticator di HP Anda</b> "
+            "(bukan dengan cara diklik/dibuka di browser/link \"otpauth://...\" tidak bisa dibuka "
+            "langsung di PC - itu format khusus untuk di-scan atau diketik manual ke aplikasi authenticator). "
+            "Langkah 3: masukkan kode 6-digit untuk verifikasi.</span>"
         ))
         setup_btn = QPushButton("🔑 Setup MFA")
         setup_btn.setObjectName("primaryButton")
         setup_btn.clicked.connect(self._setup)
         outer.addWidget(setup_btn)
+
+        self.qr_label = QLabel("")
+        self.qr_label.setAlignment(Qt.AlignCenter)
+        self.qr_label.setFixedHeight(220)
+        outer.addWidget(self.qr_label)
 
         self.setup_result = QTextEdit()
         self.setup_result.setReadOnly(True)
@@ -208,14 +223,41 @@ class MfaTab(QWidget):
     def _on_setup_result(self, data: Any) -> None:
         data = data or {}
         backup_codes = data.get("backup_codes", [])
+        qr_code_url = data.get("qr_code_url", "")
+
+        # PENTING: qr_code_url berformat "otpauth://..." - ini BUKAN link
+        # web biasa, jadi memang tidak bisa/tidak seharusnya diklik atau
+        # dibuka di browser (tidak ada handler untuk skema "otpauth://" di
+        # PC/browser biasa). Ini format standar TOTP yang cuma dikenali oleh
+        # aplikasi authenticator (Google Authenticator, Authy, Microsoft
+        # Authenticator, dll) - caranya: SCAN sebagai QR code pakai kamera
+        # HP, atau ketik manual "Secret Key"-nya ke aplikasi authenticator.
+        if HAS_QRCODE and qr_code_url:
+            try:
+                img = qrcode.make(qr_code_url, box_size=6, border=2)
+                buf_path = None
+                from io import BytesIO
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                pixmap = QPixmap()
+                pixmap.loadFromData(buf.getvalue(), "PNG")
+                self.qr_label.setPixmap(pixmap)
+            except Exception:
+                self.qr_label.setText("(gagal membuat gambar QR - masukkan Secret Key di bawah secara manual)")
+        elif not HAS_QRCODE:
+            self.qr_label.setText(
+                "(package 'qrcode' belum terpasang di frontend - jalankan `pip install qrcode[pil]`\n"
+                "untuk bisa lihat QR code. Sementara itu, masukkan Secret Key di bawah secara manual\n"
+                "ke aplikasi authenticator Anda.)"
+            )
+
         lines = [
-            f"Secret Key: {data.get('secret_key', '')}",
-            f"QR Code URL: {data.get('qr_code_url', '')}",
+            f"Secret Key (masukkan manual kalau tidak bisa scan QR): {data.get('secret_key', '')}",
             "",
-            "Backup Codes (simpan di tempat aman):",
+            "Backup Codes (simpan di tempat aman, masing-masing hanya bisa dipakai sekali):",
         ] + [f"  - {c}" for c in backup_codes]
         self.setup_result.setPlainText("\n".join(lines))
-        self.status_label.setText("Scan QR code / masukkan secret key ke aplikasi authenticator, lalu verifikasi di bawah.")
+        self.status_label.setText("Scan QR code di atas (atau masukkan Secret Key manual) ke aplikasi authenticator, lalu verifikasi di bawah.")
 
     def _verify(self) -> None:
         code = self.verify_code_edit.text().strip()

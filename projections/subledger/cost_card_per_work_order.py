@@ -212,40 +212,39 @@ class CostCardPerWorkOrder:
             }
 
     async def save_cost_card(self, cost_card_data: dict[str, Any]) -> None:
-        async with await self._get_session() as session:
-            async with session.begin():
-                await session.execute(
-                    delete(CostCardTable).where(
-                        CostCardTable.work_order_id == UUID(cost_card_data["work_order_id"])
-                    )
+        async with await self._get_session() as session, session.begin():
+            await session.execute(
+                delete(CostCardTable).where(
+                    CostCardTable.work_order_id == UUID(cost_card_data["work_order_id"])
                 )
-                stmt = insert(CostCardTable).values(
-                    id=uuid4(),
-                    work_order_id=UUID(cost_card_data["work_order_id"]),
-                    work_order_number=cost_card_data["work_order_number"],
-                    product_id=UUID(cost_card_data["product_id"]),
-                    product_name=cost_card_data["product_name"],
-                    status=cost_card_data["status"],
-                    planned_quantity=Decimal(str(cost_card_data["planned_quantity"])),
-                    completed_quantity=Decimal(str(cost_card_data["completed_quantity"])),
-                    material_actual=Decimal(str(cost_card_data["cost_breakdown"]["material"]["actual"])),
-                    material_standard=Decimal(str(cost_card_data["cost_breakdown"]["material"]["standard"])),
-                    material_variance=Decimal(str(cost_card_data["cost_breakdown"]["material"]["variance"])),
-                    labor_actual=Decimal(str(cost_card_data["cost_breakdown"]["labor"]["actual"])),
-                    labor_standard=Decimal(str(cost_card_data["cost_breakdown"]["labor"]["standard"])),
-                    labor_variance=Decimal(str(cost_card_data["cost_breakdown"]["labor"]["variance"])),
-                    overhead_actual=Decimal(str(cost_card_data["cost_breakdown"]["overhead"]["actual"])),
-                    overhead_standard=Decimal(str(cost_card_data["cost_breakdown"]["overhead"]["standard"])),
-                    overhead_variance=Decimal(str(cost_card_data["cost_breakdown"]["overhead"]["variance"])),
-                    total_actual=Decimal(str(cost_card_data["total_actual_cost"])),
-                    total_standard=Decimal(str(cost_card_data["total_standard_cost"])),
-                    total_variance=Decimal(str(cost_card_data["total_variance"])),
-                    unit_actual=Decimal(str(cost_card_data["unit_actual_cost"])),
-                    unit_standard=Decimal(str(cost_card_data["unit_standard_cost"])),
-                    unit_variance=Decimal(str(cost_card_data["unit_variance"])),
-                    last_updated=datetime.now(UTC),
-                )
-                await session.execute(stmt)
+            )
+            stmt = insert(CostCardTable).values(
+                id=uuid4(),
+                work_order_id=UUID(cost_card_data["work_order_id"]),
+                work_order_number=cost_card_data["work_order_number"],
+                product_id=UUID(cost_card_data["product_id"]),
+                product_name=cost_card_data["product_name"],
+                status=cost_card_data["status"],
+                planned_quantity=Decimal(str(cost_card_data["planned_quantity"])),
+                completed_quantity=Decimal(str(cost_card_data["completed_quantity"])),
+                material_actual=Decimal(str(cost_card_data["cost_breakdown"]["material"]["actual"])),
+                material_standard=Decimal(str(cost_card_data["cost_breakdown"]["material"]["standard"])),
+                material_variance=Decimal(str(cost_card_data["cost_breakdown"]["material"]["variance"])),
+                labor_actual=Decimal(str(cost_card_data["cost_breakdown"]["labor"]["actual"])),
+                labor_standard=Decimal(str(cost_card_data["cost_breakdown"]["labor"]["standard"])),
+                labor_variance=Decimal(str(cost_card_data["cost_breakdown"]["labor"]["variance"])),
+                overhead_actual=Decimal(str(cost_card_data["cost_breakdown"]["overhead"]["actual"])),
+                overhead_standard=Decimal(str(cost_card_data["cost_breakdown"]["overhead"]["standard"])),
+                overhead_variance=Decimal(str(cost_card_data["cost_breakdown"]["overhead"]["variance"])),
+                total_actual=Decimal(str(cost_card_data["total_actual_cost"])),
+                total_standard=Decimal(str(cost_card_data["total_standard_cost"])),
+                total_variance=Decimal(str(cost_card_data["total_variance"])),
+                unit_actual=Decimal(str(cost_card_data["unit_actual_cost"])),
+                unit_standard=Decimal(str(cost_card_data["unit_standard_cost"])),
+                unit_variance=Decimal(str(cost_card_data["unit_variance"])),
+                last_updated=datetime.now(UTC),
+            )
+            await session.execute(stmt)
 
     async def get_cost_card(self, work_order_id: UUID) -> dict | None:
         async with await self._get_session() as session:

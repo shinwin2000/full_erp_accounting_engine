@@ -63,7 +63,6 @@ class _FallbackAuditRepository:
         result = []
         for e in self._events:
             ts = e.get("timestamp")
-            # Gabungkan nested if menjadi satu (SIM102)
             if ts and from_date <= ts <= to_date and e.get("legal_entity_id") == legal_entity_id:
                 result.append(_AuditEventProxy(e))
         return result
@@ -174,6 +173,7 @@ class AuditTrailSeverity(Enum):
     HIGH = 60
     MEDIUM = 40
     LOW = 20
+    INFO = 0  # Added for informational messages
 
 
 @dataclass
@@ -525,7 +525,7 @@ class AuditTrailCompletenessEnforcer(BaseAuditTrailCompletenessEnforcer):
             return False, violation
 
         seq_numbers = sorted([getattr(e, "sequence_number", 0) for e in events])
-        missing = []
+        missing: list[int] = []  # FIX: added type annotation
         for i in range(1, len(seq_numbers)):
             expected = seq_numbers[i - 1] + 1
             if seq_numbers[i] != expected:
@@ -606,7 +606,7 @@ class AuditTrailCompletenessEnforcer(BaseAuditTrailCompletenessEnforcer):
             )
 
         sorted_events = sorted(events, key=lambda e: getattr(e, "timestamp", datetime.min))
-        time_gaps = []
+        time_gaps: list[tuple[datetime, datetime, float]] = []  # FIX: added type annotation
         prev_ts = None
         for e in sorted_events:
             ts = getattr(e, "timestamp", None)
@@ -710,10 +710,18 @@ class AuditTrailCompletenessEnforcer(BaseAuditTrailCompletenessEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "message": violation.message,
-                "severity": violation.severity.name,
-            })
+            # Use getattr to safely access attributes that may not exist
+            user_id = getattr(violation, "user_id", None) or "system"
+            message = getattr(violation, "message", str(violation))
+            severity = getattr(violation, "severity", LawViolationSeverity.MEDIUM)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "message": message,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_violations(
         self,
@@ -734,7 +742,7 @@ class AuditTrailCompletenessEnforcer(BaseAuditTrailCompletenessEnforcer):
                     "version": self._version,
                 }
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}  # FIX: added type annotation
             for v in self._violation_history:
                 by_severity[v.severity.name] = by_severity.get(v.severity.name, 0) + 1
 

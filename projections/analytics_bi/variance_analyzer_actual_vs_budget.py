@@ -23,10 +23,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import JSON, Column, DateTime, Index, Integer, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -70,6 +70,29 @@ class VarianceAnalyzerError(Exception):
     """Base exception untuk variance analyzer."""
 
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class VarianceAnalysisTable(Base):
+    __tablename__: ClassVar[str] = "variance_analysis"
+    __table_args__: ClassVar[tuple] = (
+        Index("idx_variance_legal_entity", "legal_entity_id"),
+        Index("idx_variance_period", "fiscal_year", "period"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    fiscal_year = Column(Integer, nullable=False)
+    period = Column(Integer, nullable=False)
+    analysis_data = Column(JSON, nullable=False)
+    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -469,31 +492,6 @@ class VarianceAnalyzerActualVsBudget:
             await self.save_variance_analysis(legal_entity_id, fiscal_year, period, analysis)
             logger.info(f"Variance analysis saved for {legal_entity_id} FY{fiscal_year}P{period}")
         return analysis
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, DateTime, Index, Integer
-
-Base = declarative_base()
-
-
-class VarianceAnalysisTable(Base):
-    __tablename__ = "variance_analysis"
-    __table_args__ = (
-        Index("idx_variance_legal_entity", "legal_entity_id"),
-        Index("idx_variance_period", "fiscal_year", "period"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    fiscal_year = Column(Integer, nullable=False)
-    period = Column(Integer, nullable=False)
-    analysis_data = Column(JSON, nullable=False)
-    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

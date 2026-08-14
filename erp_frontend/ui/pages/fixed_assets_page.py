@@ -38,13 +38,15 @@ FORM_FIELDS = [
     FieldSpec("asset_category", "Kategori", FieldType.SELECT, required=True, choices=("building", "land", "machinery", "vehicle", "equipment", "furniture", "computer", "software", "leasehold", "other",)),
     FieldSpec("acquisition_date", "Tanggal Perolehan", FieldType.DATE, required=True),
     FieldSpec("acquisition_cost", "Harga Perolehan (harus > 0)", FieldType.DECIMAL, required=True),
-    FieldSpec("residual_value", "Nilai Residu", FieldType.DECIMAL, default=0),
+    FieldSpec("residual_value", "Nilai Residu/Salvage (default 0)", FieldType.DECIMAL, default=0),
     FieldSpec("useful_life_years", "Umur Manfaat (tahun, harus > 0)", FieldType.NUMBER, required=True),
     FieldSpec("depreciation_method", "Metode Depresiasi", FieldType.SELECT, choices=("straight_line", "declining_balance", "double_declining", "sum_of_years", "units_of_production",), default="straight_line"),
     FieldSpec("depreciation_rate", "Tarif Depresiasi (%)", FieldType.DECIMAL),
     FieldSpec("location", "Lokasi"),
     FieldSpec("responsible_party", "Penanggung Jawab"),
     FieldSpec("serial_number", "No. Seri"),
+    FieldSpec("supplier_id", "ID Supplier"),
+    FieldSpec("invoice_number", "No. Faktur"),
 ]
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Index, Integer, String, Text
+from sqlalchemy import Boolean, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,13 +31,23 @@ if TYPE_CHECKING:
 class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "consolidation_group"
     __table_args__ = (
-        Index("idx_cons_group_name", "group_name", unique=True),
+        # Partial unique index: nama grup hanya wajib unik di antara yang
+        # masih aktif & belum di-soft-delete. Grup yang dinonaktifkan lewat
+        # tombol "Hapus" (is_active=False) tidak lagi memblokir nama yang
+        # sama dipakai grup baru. Lihat migrasi
+        # e5f6a7b8c9d0_fix_consolidation_group_name_uniqueness.py.
+        Index(
+            "idx_cons_group_name_active",
+            "group_name",
+            unique=True,
+            postgresql_where=text("is_active = true AND deleted_at IS NULL"),
+        ),
         {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     group_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    group_name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
+    group_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     parent_entity_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")

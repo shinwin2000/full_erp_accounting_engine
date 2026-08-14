@@ -492,9 +492,13 @@ class InMemoryAPRepository(APRepositoryPort):
                 and invoice.id in self._status_index[invoice.status]
             ):
                 self._status_index[invoice.status].remove(invoice.id)
-            if invoice.purchase_order_id and invoice.purchase_order_id in self._po_index:
-                if invoice.id in self._po_index[invoice.purchase_order_id]:
-                    self._po_index[invoice.purchase_order_id].remove(invoice.id)
+            # Gabungkan nested if (SIM102)
+            if (
+                invoice.purchase_order_id
+                and invoice.purchase_order_id in self._po_index
+                and invoice.id in self._po_index[invoice.purchase_order_id]
+            ):
+                self._po_index[invoice.purchase_order_id].remove(invoice.id)
             del self._storage[invoice_id]
             await self._log_audit("DELETE_PERMANENT", invoice_id, user_id, {})
         else:
@@ -618,17 +622,25 @@ class InMemoryAPRepository(APRepositoryPort):
     ) -> list[APInvoice]:
         result = []
         for inv in self._storage.values():
-            if inv.legal_entity_id == legal_entity_id and inv.status == APInvoiceStatus.APPROVED:
-                if inv.due_date <= as_of_date:
-                    result.append(inv)
+            # Gabungkan nested if (SIM102)
+            if (
+                inv.legal_entity_id == legal_entity_id
+                and inv.status == APInvoiceStatus.APPROVED
+                and inv.due_date <= as_of_date
+            ):
+                result.append(inv)
         return sorted(result, key=lambda x: x.due_date)
 
     async def get_outstanding_balance(self, vendor_id: UUID, as_of_date: date) -> Decimal:
         total = Decimal(0)
         for inv in self._storage.values():
-            if inv.vendor_id == vendor_id and inv.due_date <= as_of_date:
-                if inv.status in (APInvoiceStatus.APPROVED, APInvoiceStatus.PARTIALLY_PAID):
-                    total += inv.outstanding_amount
+            # Gabungkan nested if (SIM102)
+            if (
+                inv.vendor_id == vendor_id
+                and inv.due_date <= as_of_date
+                and inv.status in (APInvoiceStatus.APPROVED, APInvoiceStatus.PARTIALLY_PAID)
+            ):
+                total += inv.outstanding_amount
         return total
 
     async def find_by_payment_run(self, payment_run_id: UUID) -> list[APInvoice]:
@@ -864,6 +876,7 @@ class InMemoryAPRepository(APRepositoryPort):
 # Untuk backward compatibility: aliases di-prefix underscore agar tidak ter-discard sebagai port.
 # Jika digunakan di test, import secara eksplisit atau gunakan InMemoryAPRepository langsung.
 _APRepository = InMemoryAPRepository
+APRepository = InMemoryAPRepository  # Tambahkan agar tersedia di __all__
 
 # Alias untuk test compatibility
 ApRepositoryPort = APRepositoryPort

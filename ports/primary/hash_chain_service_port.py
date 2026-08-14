@@ -412,7 +412,7 @@ class InMemoryHashChainService(HashChainServicePort):
 
         prev_hash_calc = None
         invalid_sequences = []
-        for idx, entry in enumerate(chain):
+        for entry in chain:
             combined = {"payload_hash": entry.payload_hash}
             expected_hash = await self.compute_hash(combined, prev_hash_calc)
             if expected_hash != entry.current_hash:
@@ -477,7 +477,7 @@ class InMemoryHashChainService(HashChainServicePort):
         results = {}
         for chain_type, chains in self._chains.items():
             results[chain_type] = {}
-            for chain_id in chains.keys():
+            for chain_id in chains:
                 results[chain_type][chain_id] = await self.verify_chain(
                     chain_type, chain_id, check_signatures=check_signatures
                 )

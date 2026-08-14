@@ -24,9 +24,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import JSON, Column, DateTime, Index, Integer, Numeric, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -56,6 +57,34 @@ class FiscalIncomeStatementError(Exception):
     """Base exception untuk fiscal income statement projection."""
 
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class FiscalIncomeStatementTable(Base):
+    __tablename__ = "fiscal_income_statement"
+    __table_args__ = (
+        Index("idx_fiscal_income_legal_entity", "legal_entity_id"),
+        Index("idx_fiscal_income_year", "fiscal_year"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    fiscal_year = Column(Integer, nullable=False)
+    total_revenue = Column(Numeric(20, 2), nullable=False, default=0)
+    total_expense = Column(Numeric(20, 2), nullable=False, default=0)
+    total_cogs = Column(Numeric(20, 2), nullable=False, default=0)
+    gross_profit = Column(Numeric(20, 2), nullable=False, default=0)
+    operating_income = Column(Numeric(20, 2), nullable=False, default=0)
+    net_income = Column(Numeric(20, 2), nullable=False, default=0)
+    periods_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -317,22 +346,21 @@ class FiscalIncomeStatement:
                 result.append(data)
 
         # Calculate year-over-year changes
-        if len(result) >= 2:
-            for i in range(1, len(result)):
-                prev = result[i - 1]
-        curr = result[i]
-        curr["yoy_revenue_change"] = curr["total_revenue"] - prev["total_revenue"]
-        curr["yoy_revenue_percent"] = (
-            (curr["yoy_revenue_change"] / prev["total_revenue"] * 100)
-            if prev["total_revenue"] != 0
-            else 0
-        )
-        curr["yoy_net_income_change"] = curr["net_income"] - prev["net_income"]
-        curr["yoy_net_income_percent"] = (
-            (curr["yoy_net_income_change"] / prev["net_income"] * 100)
-            if prev["net_income"] != 0
-            else 0
-        )
+        for i in range(1, len(result)):
+            prev = result[i - 1]
+            curr = result[i]
+            curr["yoy_revenue_change"] = curr["total_revenue"] - prev["total_revenue"]
+            curr["yoy_revenue_percent"] = (
+                (curr["yoy_revenue_change"] / prev["total_revenue"] * 100)
+                if prev["total_revenue"] != 0
+                else 0
+            )
+            curr["yoy_net_income_change"] = curr["net_income"] - prev["net_income"]
+            curr["yoy_net_income_percent"] = (
+                (curr["yoy_net_income_change"] / prev["net_income"] * 100)
+                if prev["net_income"] != 0
+                else 0
+            )
 
         return result
 
@@ -355,11 +383,7 @@ class FiscalIncomeStatement:
             return {"error": "No actual data found for current year"}
 
         # Get historical average growth rates for remaining periods
-        async with await self._get_session() as session:
-            # Get previous year's same periods
-            prev_year_data = await self.get_fiscal_income(legal_entity_id, current_fiscal_year - 1)
-            if not prev_year_data:
-                return {"error": "No previous year data for forecast"}
+        prev_year_data = await self.get_fiscal_income(legal_entity_id, current_fiscal_year - 1)
 
         # Calculate average revenue per remaining period
         total_periods = 12  # Assuming monthly periods
@@ -374,12 +398,16 @@ class FiscalIncomeStatement:
         forecast_revenue = avg_revenue_per_period * periods_remaining
 
         # Historical growth adjustment
-        historical_growth = (
-            (actual["total_revenue"] / prev_year_data["total_revenue"] - 1)
-            if prev_year_data["total_revenue"] > 0
-            else 0
-        )
-        adjusted_forecast = forecast_revenue * (1 + historical_growth)
+        if prev_year_data:
+            historical_growth = (
+                (actual["total_revenue"] / prev_year_data["total_revenue"] - 1)
+                if prev_year_data["total_revenue"] > 0
+                else 0
+            )
+            adjusted_forecast = forecast_revenue * (1 + historical_growth)
+        else:
+            adjusted_forecast = forecast_revenue
+            historical_growth = 0
 
         return {
             "legal_entity_id": str(legal_entity_id),
@@ -414,37 +442,6 @@ class FiscalIncomeStatement:
             # Recompute for the fiscal year of this period
             await self.rebuild_for_legal_entity(period.legal_entity_id)
             logger.info(f"Fiscal income statement updated for year {period.fiscal_year}")
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, DateTime, Index, Integer, Numeric
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class FiscalIncomeStatementTable(Base):
-    __tablename__ = "fiscal_income_statement"
-    __table_args__ = (
-        Index("idx_fiscal_income_legal_entity", "legal_entity_id"),
-        Index("idx_fiscal_income_year", "fiscal_year"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    fiscal_year = Column(Integer, nullable=False)
-    total_revenue = Column(Numeric(20, 2), nullable=False, default=0)
-    total_expense = Column(Numeric(20, 2), nullable=False, default=0)
-    total_cogs = Column(Numeric(20, 2), nullable=False, default=0)
-    gross_profit = Column(Numeric(20, 2), nullable=False, default=0)
-    operating_income = Column(Numeric(20, 2), nullable=False, default=0)
-    net_income = Column(Numeric(20, 2), nullable=False, default=0)
-    periods_data = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

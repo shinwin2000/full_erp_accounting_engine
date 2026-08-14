@@ -293,10 +293,9 @@ class WebhookVerifier:
         for allowed in self.allowed_ips:
             if allowed == client_ip:
                 return True
-            if "/" in allowed:
-                # CIDR matching (simple implementation)
-                if self._ip_in_cidr(client_ip, allowed):
-                    return True
+            # Gabungkan nested if menjadi satu (SIM102)
+            if "/" in allowed and self._ip_in_cidr(client_ip, allowed):
+                return True
 
         # FIX: Hindari kata "IP" yang terlalu eksplisit
         logger.warning("Webhook source verification failed for client address")
@@ -1113,7 +1112,7 @@ class WebhookReceiver:
     async def retry_failed(self, webhook_id: str) -> dict[str, Any]:
         """Retry a failed webhook."""
         pending = await self.idempotency.get_pending_webhooks(1)
-        for wid, payload in pending:
+        for wid, _payload in pending:
             if wid == webhook_id:
                 # Simplified retry - actual implementation would reconstruct request
                 logger.info("Retrying webhook")

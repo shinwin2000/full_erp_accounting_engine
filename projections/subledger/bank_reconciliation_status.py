@@ -24,9 +24,22 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Numeric,
+    String,
+    delete,
+    func,
+    insert,
+    select,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -48,6 +61,37 @@ RECON_STATUS_PENDING = "pending"
 RECON_STATUS_IN_PROGRESS = "in_progress"
 RECON_STATUS_COMPLETED = "completed"
 RECON_STATUS_ADJUSTED = "adjusted"
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class BankReconciliationStatusTable(Base):
+    __tablename__ = "bank_reconciliation_status"
+    __table_args__ = (
+        Index("idx_bank_recon_status_account", "bank_account_id"),
+        Index("idx_bank_recon_status_period", "period_end_date"),
+        Index("idx_bank_recon_status_reconciled", "reconciled"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    bank_account_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_end_date = Column(Date, nullable=False)
+    reconciled = Column(Boolean, nullable=False, default=False)
+    status = Column(String(20), nullable=False)
+    statement_balance = Column(Numeric(20, 2), nullable=True)
+    book_balance = Column(Numeric(20, 2), nullable=True)
+    difference = Column(Numeric(20, 2), nullable=True)
+    outstanding_deposits = Column(Numeric(20, 2), nullable=False, default=0)
+    outstanding_checks = Column(Numeric(20, 2), nullable=False, default=0)
+    last_reconciliation_date = Column(DateTime(timezone=True), nullable=True)
+    reconciled_by = Column(PGUUID(as_uuid=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -152,7 +196,7 @@ class BankReconciliationStatus:
                 func.sum(BankTransactionTable.amount).label("total_deposits")
             ).where(
                 BankTransactionTable.bank_account_id == bank_account_id,
-                BankTransactionTable.is_reconciled == False,
+                BankTransactionTable.is_reconciled.is_(False),
                 BankTransactionTable.transaction_date <= period_end_date,
                 BankTransactionTable.transaction_type == "deposit",
             )
@@ -163,7 +207,7 @@ class BankReconciliationStatus:
                 func.sum(BankTransactionTable.amount).label("total_checks")
             ).where(
                 BankTransactionTable.bank_account_id == bank_account_id,
-                BankTransactionTable.is_reconciled == False,
+                BankTransactionTable.is_reconciled.is_(False),
                 BankTransactionTable.transaction_date <= period_end_date,
                 BankTransactionTable.transaction_type == "withdrawal",
             )
@@ -286,7 +330,7 @@ class BankReconciliationStatus:
             # Get all active bank accounts
             account_stmt = select(BankAccountTable).where(
                 BankAccountTable.legal_entity_id == legal_entity_id,
-                BankAccountTable.is_active == True,
+                BankAccountTable.is_active.is_(True),
                 BankAccountTable.deleted_at.is_(None),
             )
             account_result = await session.execute(account_stmt)
@@ -340,7 +384,7 @@ class BankReconciliationStatus:
                 select(BankReconciliationStatusTable.period_end_date)
                 .where(
                     BankReconciliationStatusTable.bank_account_id == bank_account_id,
-                    BankReconciliationStatusTable.reconciled == True,
+                    BankReconciliationStatusTable.reconciled.is_(True),
                 )
                 .order_by(BankReconciliationStatusTable.period_end_date.desc())
                 .limit(1)
@@ -362,7 +406,7 @@ class BankReconciliationStatus:
                 .select_from(BankAccountTable)
                 .where(
                     BankAccountTable.legal_entity_id == legal_entity_id,
-                    BankAccountTable.is_active == True,
+                    BankAccountTable.is_active.is_(True),
                 )
             )
             account_result = await session.execute(account_stmt)
@@ -375,7 +419,7 @@ class BankReconciliationStatus:
                 .select_from(BankReconciliationStatusTable)
                 .where(
                     BankReconciliationStatusTable.period_end_date >= month_start,
-                    BankReconciliationStatusTable.reconciled == True,
+                    BankReconciliationStatusTable.reconciled.is_(True),
                     BankReconciliationStatusTable.bank_account_id.in_(
                         select(BankAccountTable.id).where(
                             BankAccountTable.legal_entity_id == legal_entity_id
@@ -444,40 +488,6 @@ class BankReconciliationStatus:
             logger.info(
                 f"Reconciliation status updated for account {reconciliation.bank_account_id}"
             )
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import Boolean, Column, Date, DateTime, Index, Numeric, String
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class BankReconciliationStatusTable(Base):
-    __tablename__ = "bank_reconciliation_status"
-    __table_args__ = (
-        Index("idx_bank_recon_status_account", "bank_account_id"),
-        Index("idx_bank_recon_status_period", "period_end_date"),
-        Index("idx_bank_recon_status_reconciled", "reconciled"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    bank_account_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_end_date = Column(Date, nullable=False)
-    reconciled = Column(Boolean, nullable=False, default=False)
-    status = Column(String(20), nullable=False)
-    statement_balance = Column(Numeric(20, 2), nullable=True)
-    book_balance = Column(Numeric(20, 2), nullable=True)
-    difference = Column(Numeric(20, 2), nullable=True)
-    outstanding_deposits = Column(Numeric(20, 2), nullable=False, default=0)
-    outstanding_checks = Column(Numeric(20, 2), nullable=False, default=0)
-    last_reconciliation_date = Column(DateTime(timezone=True), nullable=True)
-    reconciled_by = Column(PGUUID(as_uuid=True), nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

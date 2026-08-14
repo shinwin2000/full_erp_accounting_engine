@@ -335,7 +335,7 @@ class FixedAssetRepositoryPort(ABC):
 class _InMemoryFixedAssetRepository:
     """
     In-memory implementation of FixedAssetRepositoryPort.
-    (PRIVATE – untuk testing/development, tidak diekspor)
+    (PRIVATE - untuk testing/development, tidak diekspor)
     """
 
     def __init__(self):
@@ -737,7 +737,7 @@ class _InMemoryFixedAssetRepository:
     async def get_audit_log(self, asset_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         logs = self._audit_log
         if asset_id:
-            logs = [l for l in logs if l.get("asset_id") == str(asset_id)]
+            logs = [log for log in logs if log.get("asset_id") == str(asset_id)]
         return logs[-limit:]
 
     async def health_check(self) -> dict[str, Any]:

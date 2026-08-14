@@ -859,12 +859,12 @@ class AssetExistenceEnforcer(BaseAssetExistenceEnforcer):
                     "version": self._version,
                 }
 
-            by_asset_type = {}
+            by_asset_type: dict[str, int] = {}  # FIX: added type annotation
             for r in self._verification_records:
                 at = r.asset_type.value
                 by_asset_type[at] = by_asset_type.get(at, 0) + 1
 
-            by_method = {}
+            by_method: dict[str, int] = {}  # FIX: added type annotation
             for r in self._verification_records:
                 vm = r.verification_method.value
                 by_method[vm] = by_method.get(vm, 0) + 1

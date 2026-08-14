@@ -28,10 +28,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import JSON, Column, DateTime, Index, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -87,6 +87,28 @@ class FinancialRatiosError(Exception):
     """Base exception untuk financial ratios calculator."""
 
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class FinancialRatiosTable(Base):
+    __tablename__: ClassVar[str] = "financial_ratios"
+    __table_args__: ClassVar[tuple] = (
+        Index("idx_financial_ratios_legal_entity", "legal_entity_id"),
+        Index("idx_financial_ratios_period", "period_id"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_id = Column(PGUUID(as_uuid=True), nullable=False)
+    ratios_data = Column(JSON, nullable=False)
+    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -411,30 +433,6 @@ class FinancialRatiosCalculator:
         """
         self._industry_averages.update(benchmarks)
         logger.info(f"Industry benchmarks updated: {benchmarks}")
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, DateTime, Index
-
-Base = declarative_base()
-
-
-class FinancialRatiosTable(Base):
-    __tablename__ = "financial_ratios"
-    __table_args__ = (
-        Index("idx_financial_ratios_legal_entity", "legal_entity_id"),
-        Index("idx_financial_ratios_period", "period_id"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_id = Column(PGUUID(as_uuid=True), nullable=False)
-    ratios_data = Column(JSON, nullable=False)
-    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

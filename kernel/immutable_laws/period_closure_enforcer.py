@@ -276,7 +276,6 @@ class FiscalPeriod:
         return start <= date <= end
 
     def is_open_for_posting(self, allow_locked: bool = False) -> bool:
-        # FIX: SIM103 - return condition directly
         return self.status == PeriodStatus.OPEN or (allow_locked and self.status == PeriodStatus.LOCKED)
 
     def is_closed(self) -> bool:
@@ -993,7 +992,9 @@ class PeriodClosureEnforcer(BasePeriodClosureEnforcer):
             raise_on_violation=False,
         )
         if not is_valid and violation:
-            logger.error(f"Period closure blocked: {violation.message}")
+            # Use getattr to safely access message attribute
+            msg = getattr(violation, "message", str(violation))
+            logger.error(f"Period closure blocked: {msg}")
             return False
 
         pending = await self._journal_repo.get_pending_by_period(period_id, legal_entity_id)
@@ -1107,16 +1108,22 @@ class PeriodClosureEnforcer(BasePeriodClosureEnforcer):
 
         periods = []
         for p in periods_data:
+            # Safe extraction of datetime fields
+            start_date_val = p.get("start_date")
+            end_date_val = p.get("end_date")
+            closed_at_val = p.get("closed_at")
+            locked_at_val = p.get("locked_at")
+
             periods.append(
                 {
                     "period_number": p.get("period_number"),
                     "period_name": p.get("period_name"),
                     "status": p.get("status"),
-                    "start_date": p.get("start_date").isoformat() if p.get("start_date") else None,
-                    "end_date": p.get("end_date").isoformat() if p.get("end_date") else None,
-                    "closed_at": p.get("closed_at").isoformat() if p.get("closed_at") else None,
+                    "start_date": start_date_val.isoformat() if start_date_val else None,
+                    "end_date": end_date_val.isoformat() if end_date_val else None,
+                    "closed_at": closed_at_val.isoformat() if closed_at_val else None,
                     "closed_by": p.get("closed_by"),
-                    "locked_at": p.get("locked_at").isoformat() if p.get("locked_at") else None,
+                    "locked_at": locked_at_val.isoformat() if locked_at_val else None,
                     "locked_by": p.get("locked_by"),
                 }
             )
@@ -1211,7 +1218,7 @@ class PeriodClosureEnforcer(BasePeriodClosureEnforcer):
             allowed = len([r for r in self._closure_history if r.is_allowed])
             blocked = total_checks - allowed
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for r in self._closure_history:
                 if not r.is_allowed:
                     sev = r.severity.name

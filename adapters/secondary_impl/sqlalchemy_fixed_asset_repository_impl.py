@@ -18,7 +18,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.fixed_asset.aggregate_root import FixedAssetAggregate
-from domain.fixed_asset.asset_entity import AssetStatus, DepreciationMethod
+from domain.fixed_asset.asset_entity import AssetStatus, AssetType, DepreciationMethod, FixedAsset
 from domain.fixed_asset.depreciation_schedule_engine import DepreciationScheduleLine
 from domain.fixed_asset.disposal_entity import Disposal
 from domain.fixed_asset.revaluation_entity import Revaluation
@@ -98,82 +98,123 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
     # ========================================================================
 
     def _to_domain(self, table: FixedAssetTable) -> FixedAssetAggregate:
-        depreciation_map = {
-            "straight_line": DepreciationMethod.STRAIGHT_LINE,
-            "declining_balance": DepreciationMethod.DECLINING_BALANCE,
-            "sum_of_years": DepreciationMethod.SUM_OF_YEARS,
-            "units_of_production": DepreciationMethod.UNITS_OF_PRODUCTION,
-        }
+        # FIX: FixedAssetAggregate.__init__(self, asset: FixedAsset | None = None)
+        # only accepts a single `asset` kwarg - it is NOT a flat dataclass with
+        # ~20 fields. The old code here called
+        # FixedAssetAggregate(id=..., asset_code=..., asset_category=..., ...)
+        # which would raise TypeError on every row ever read back from the DB
+        # (get_by_id/get_by_code/list_assets all route through this method).
+        # We now build the actual nested FixedAsset entity and wrap it.
         status_map = {
             "active": AssetStatus.ACTIVE,
             "fully_depreciated": AssetStatus.FULLY_DEPRECIATED,
             "disposed": AssetStatus.DISPOSED,
             "impaired": AssetStatus.IMPAIRED,
+            "idle": AssetStatus.IDLE,
+            "draft": AssetStatus.DRAFT,
+            "construction": AssetStatus.UNDER_CONSTRUCTION,
         }
-        return FixedAssetAggregate(
+        metadata: dict[str, Any] = {
+            "is_active": table.is_active,
+            "notes": table.notes,
+            "revaluation_frequency": table.revaluation_frequency,
+        }
+        if table.depreciation_rate is not None:
+            metadata["depreciation_rate"] = str(table.depreciation_rate)
+        if table.invoice_id is not None:
+            metadata["invoice_id"] = str(table.invoice_id)
+        if table.serial_number is not None:
+            metadata["serial_number"] = table.serial_number
+
+        asset = FixedAsset(
             id=table.id,
+            legal_entity_id=table.legal_entity_id,
             asset_code=table.asset_code,
-            asset_name=table.asset_name,
-            asset_category=table.asset_category,
-            acquisition_date=table.acquisition_date,
-            acquisition_cost=Money(amount=table.acquisition_cost, currency=table.currency or "IDR"),
-            residual_value=Money(amount=table.residual_value, currency=table.currency or "IDR"),
-            useful_life_years=table.useful_life_years,
-            depreciation_method=depreciation_map.get(table.depreciation_method, DepreciationMethod.STRAIGHT_LINE),
-            depreciation_rate=Decimal(str(table.depreciation_rate)) if table.depreciation_rate else None,
-            accumulated_depreciation=Money(amount=table.accumulated_depreciation, currency=table.currency or "IDR"),
-            last_depreciation_date=table.last_depreciation_date,
-            current_period_depreciation=Money(amount=table.current_period_depreciation, currency=table.currency or "IDR"),
-            location=table.location,
-            responsible_party=table.responsible_party,
-            supplier_id=table.supplier_id,
-            purchase_order_id=table.purchase_order_id,
-            invoice_id=table.invoice_id,
-            serial_number=table.serial_number,
-            is_active=table.is_active,
+            name=table.asset_name,
+            asset_type=AssetType.TANGIBLE,
             status=status_map.get(table.status, AssetStatus.ACTIVE),
-            notes=table.notes,
-            revaluation_frequency=table.revaluation_frequency,
+            acquisition_date=table.acquisition_date,
+            acquisition_cost=Decimal(str(table.acquisition_cost)),
+            salvage_value=Decimal(str(table.residual_value)),
+            useful_life_years=table.useful_life_years,
+            depreciation_method=table.depreciation_method,
+            accumulated_depreciation=Decimal(str(table.accumulated_depreciation)),
+            net_book_value=Decimal(str(table.acquisition_cost)) - Decimal(str(table.accumulated_depreciation)),
+            description=None,
+            location=table.location,
+            responsible_person=table.responsible_party,
+            supplier_id=table.supplier_id,
+            po_number=str(table.purchase_order_id) if table.purchase_order_id else None,
+            category=table.asset_category,
+            currency=table.currency or "IDR",
+            last_depreciation_date=table.last_depreciation_date,
+            created_by=table.created_by,
             created_at=table.created_at,
             updated_at=table.updated_at,
-            created_by=table.created_by,
+            updated_by=None,
             version=table.version,
-            legal_entity_id=table.legal_entity_id,
+            metadata=metadata,
         )
+        aggregate = FixedAssetAggregate(asset=asset)
+        return aggregate
 
     async def _to_orm(self, aggregate: FixedAssetAggregate) -> FixedAssetTable:
-        depreciation_str = aggregate.depreciation_method.value if hasattr(aggregate.depreciation_method, "value") else str(aggregate.depreciation_method)
-        status_str = aggregate.status.value if hasattr(aggregate.status, "value") else str(aggregate.status)
+        # FIX: aggregate.asset_category / aggregate.acquisition_cost.amount /
+        # etc. do not exist on the real FixedAssetAggregate - the actual
+        # fields live on aggregate.asset (a FixedAsset entity), and
+        # acquisition_cost/residual_value there are plain Decimal, not a
+        # Money value object. Read everything off aggregate.asset instead.
+        asset = aggregate.asset
+        meta = asset.metadata or {}
+        depreciation_rate = None
+        if meta.get("depreciation_rate"):
+            try:
+                depreciation_rate = Decimal(str(meta["depreciation_rate"]))
+            except Exception:
+                depreciation_rate = None
+        invoice_id = None
+        if meta.get("invoice_id"):
+            try:
+                invoice_id = UUID(str(meta["invoice_id"]))
+            except Exception:
+                invoice_id = None
+        purchase_order_id = None
+        if asset.po_number:
+            try:
+                purchase_order_id = UUID(str(asset.po_number))
+            except Exception:
+                purchase_order_id = None
+
         return FixedAssetTable(
-            id=aggregate.id,
-            asset_code=aggregate.asset_code,
-            asset_name=aggregate.asset_name,
-            asset_category=aggregate.asset_category,
-            acquisition_date=aggregate.acquisition_date,
-            acquisition_cost=aggregate.acquisition_cost.amount,
-            residual_value=aggregate.residual_value.amount,
-            useful_life_years=aggregate.useful_life_years,
-            depreciation_method=depreciation_str,
-            depreciation_rate=float(aggregate.depreciation_rate) if aggregate.depreciation_rate else None,
-            accumulated_depreciation=aggregate.accumulated_depreciation.amount,
-            last_depreciation_date=aggregate.last_depreciation_date,
-            current_period_depreciation=aggregate.current_period_depreciation.amount,
-            location=aggregate.location,
-            responsible_party=aggregate.responsible_party,
-            supplier_id=aggregate.supplier_id,
-            purchase_order_id=aggregate.purchase_order_id,
-            invoice_id=aggregate.invoice_id,
-            serial_number=aggregate.serial_number,
-            is_active=aggregate.is_active,
-            status=status_str,
-            notes=aggregate.notes,
-            revaluation_frequency=aggregate.revaluation_frequency,
-            currency=aggregate.acquisition_cost.currency,
-            created_at=aggregate.created_at,
-            updated_at=datetime.utcnow(),
-            created_by=aggregate.created_by,
-            version=aggregate.version,
-            legal_entity_id=aggregate.legal_entity_id,
+            id=asset.id,
+            legal_entity_id=asset.legal_entity_id,
+            asset_code=asset.asset_code,
+            asset_name=asset.name,
+            asset_category=asset.category or "other",
+            acquisition_date=asset.acquisition_date,
+            acquisition_cost=asset.acquisition_cost,
+            residual_value=asset.salvage_value,
+            currency=asset.currency or "IDR",
+            useful_life_years=asset.useful_life_years,
+            depreciation_method=asset.depreciation_method,
+            depreciation_rate=depreciation_rate,
+            accumulated_depreciation=asset.accumulated_depreciation,
+            last_depreciation_date=asset.last_depreciation_date,
+            current_period_depreciation=Decimal("0"),
+            location=asset.location,
+            responsible_party=asset.responsible_person,
+            supplier_id=asset.supplier_id,
+            purchase_order_id=purchase_order_id,
+            invoice_id=invoice_id,
+            serial_number=meta.get("serial_number"),
+            is_active=bool(meta.get("is_active", True)),
+            status=asset.status.value,
+            revaluation_frequency=meta.get("revaluation_frequency", "never"),
+            notes=meta.get("notes"),
+            created_at=asset.created_at,
+            updated_at=datetime.now(UTC),
+            created_by=asset.created_by,
+            version=asset.version,
         )
 
     def _to_domain_schedule_line(self, table: DepreciationScheduleTable) -> DepreciationScheduleLine:
@@ -216,31 +257,34 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         """
         Delete asset with pessimistic locking to prevent race conditions.
         LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+
+        FIX: same autobegin conflict as add_asset() - no longer wraps in
+        `async with self.session.begin()`, since a transaction may already
+        be active on this session by the time delete() runs.
         """
         try:
-            async with self.session.begin():
-                # 1. Lock the row with SELECT FOR UPDATE
-                stmt_lock = select(FixedAssetTable).where(FixedAssetTable.id == asset_id).with_for_update()
-                result = await self.session.execute(stmt_lock)
-                asset = result.scalar_one_or_none()
-                if not asset:
-                    return False
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(FixedAssetTable).where(FixedAssetTable.id == asset_id).with_for_update()
+            result = await self.session.execute(stmt_lock)
+            asset = result.scalar_one_or_none()
+            if not asset:
+                return False
 
-                # 2. Perform delete on the locked row
-                if permanent:
-                    # Hard delete (not recommended, but available)
-                    await self.session.delete(asset)
-                else:
-                    # Soft delete
-                    asset.deleted_at = datetime.utcnow()
-                    asset.is_active = False
-                    asset.status = "disposed"
-                    asset.updated_at = datetime.utcnow()
-                await self.session.flush()
-                if not permanent:
-                    await self._log_audit("DELETE", asset_id, {"user_id": str(user_id)})
-                    logger.info("Asset %s soft deleted by %s", asset_id, user_id)
-                return True
+            # 2. Perform delete on the locked row
+            if permanent:
+                # Hard delete (not recommended, but available)
+                await self.session.delete(asset)
+            else:
+                # Soft delete
+                asset.deleted_at = datetime.utcnow()
+                asset.is_active = False
+                asset.status = "disposed"
+                asset.updated_at = datetime.utcnow()
+            await self.session.flush()
+            if not permanent:
+                await self._log_audit("DELETE", asset_id, {"user_id": str(user_id)})
+                logger.info("Asset %s soft deleted by %s", asset_id, user_id)
+            return True
         except Exception as e:
             await self.session.rollback()
             raise FixedAssetRepositoryError(f"Failed to delete asset: {e}") from e
@@ -269,27 +313,37 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         """
         Add new asset with pessimistic locking to prevent duplicate asset_code.
         LOCKING: SELECT FOR UPDATE on existence check to prevent concurrent inserts.
+
+        FIX: no longer wraps in `async with self.session.begin()`. AsyncSession
+        autobegins a transaction on first use, and by the time this method
+        runs, create_asset() has already executed a SELECT on this same
+        session (the duplicate-code check via get_by_asset_code), so a
+        transaction is already active. Calling session.begin() again raised
+        "InvalidRequestError: A transaction is already begun on this
+        Session." Every other working repository (AR, AP) relies on
+        autobegin plus the outer get_async_session() FastAPI dependency
+        committing/rolling back at the end of the request - doing the same
+        here instead of managing an explicit transaction block.
         """
         try:
-            async with self.session.begin():
-                # 1. Lock the row (if exists) with SELECT FOR UPDATE to prevent duplicate
-                # Since we are checking existence, we lock potential duplicate rows.
-                stmt_lock = select(FixedAssetTable).where(
-                    FixedAssetTable.asset_code == asset.asset_code,
-                    FixedAssetTable.legal_entity_id == asset.legal_entity_id,
-                    FixedAssetTable.deleted_at.is_(None),
-                ).with_for_update()
-                result = await self.session.execute(stmt_lock)
-                existing = result.scalar_one_or_none()
-                if existing:
-                    raise DuplicateAssetCodeError(f"Asset code {asset.asset_code} already exists")
+            # 1. Lock the row (if exists) with SELECT FOR UPDATE to prevent duplicate
+            # Since we are checking existence, we lock potential duplicate rows.
+            stmt_lock = select(FixedAssetTable).where(
+                FixedAssetTable.asset_code == asset.asset.asset_code,
+                FixedAssetTable.legal_entity_id == asset.asset.legal_entity_id,
+                FixedAssetTable.deleted_at.is_(None),
+            ).with_for_update()
+            result = await self.session.execute(stmt_lock)
+            existing = result.scalar_one_or_none()
+            if existing:
+                raise DuplicateAssetCodeError(f"Asset code {asset.asset.asset_code} already exists")
 
-                # 2. Insert the new asset
-                table = await self._to_orm(asset)
-                self.session.add(table)
-                await self.session.flush()
-                await self._log_audit("ADD", asset.id, {"asset_code": asset.asset_code})
-                logger.info("Fixed asset added: %s", asset.asset_code)
+            # 2. Insert the new asset
+            table = await self._to_orm(asset)
+            self.session.add(table)
+            await self.session.flush()
+            await self._log_audit("ADD", asset.id, {"asset_code": asset.asset.asset_code})
+            logger.info("Fixed asset added: %s", asset.asset.asset_code)
         except DuplicateAssetCodeError:
             raise
         except IntegrityError as e:
@@ -335,8 +389,8 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             table.updated_at = datetime.utcnow()
             await self.session.merge(table)
             await self.session.flush()
-            await self._log_audit("UPDATE", asset.id, {"asset_code": asset.asset_code})
-            logger.info("Asset updated: %s", asset.asset_code)
+            await self._log_audit("UPDATE", asset.id, {"asset_code": asset.asset.asset_code})
+            logger.info("Asset updated: %s", asset.asset.asset_code)
         except (AssetNotFoundError, OptimisticLockError):
             raise
         except Exception as e:
@@ -347,23 +401,25 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         """
         Internal soft delete with pessimistic locking to prevent race conditions.
         LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+
+        FIX: same autobegin conflict as add_asset()/delete() - no longer
+        wraps in `async with self.session.begin()`.
         """
         try:
-            async with self.session.begin():
-                # 1. Lock the row with SELECT FOR UPDATE
-                stmt_lock = select(FixedAssetTable).where(FixedAssetTable.id == asset_id).with_for_update()
-                result = await self.session.execute(stmt_lock)
-                asset = result.scalar_one_or_none()
-                if not asset:
-                    return False
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(FixedAssetTable).where(FixedAssetTable.id == asset_id).with_for_update()
+            result = await self.session.execute(stmt_lock)
+            asset = result.scalar_one_or_none()
+            if not asset:
+                return False
 
-                # 2. Soft delete the locked row
-                asset.deleted_at = datetime.utcnow()
-                asset.is_active = False
-                await self.session.flush()
-                await self._log_audit("DELETE", asset_id, {})
-                logger.info("Asset %s soft deleted", asset_id)
-                return True
+            # 2. Soft delete the locked row
+            asset.deleted_at = datetime.utcnow()
+            asset.is_active = False
+            await self.session.flush()
+            await self._log_audit("DELETE", asset_id, {})
+            logger.info("Asset %s soft deleted", asset_id)
+            return True
         except Exception as e:
             await self.session.rollback()
             raise FixedAssetRepositoryError(f"Failed to delete asset: {e}") from e

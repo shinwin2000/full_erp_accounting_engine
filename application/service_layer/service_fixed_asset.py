@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
+from application.dto_objects.fixed_asset_request import AssetCreateRequest
 from domain.fixed_asset.aggregate_root import FixedAssetAggregate
 from domain.fixed_asset.asset_entity import AssetStatus, AssetType, DepreciationMethod, FixedAsset
 from domain.fixed_asset.depreciation_schedule_engine import (
@@ -138,24 +139,52 @@ class UpdateAssetRequest:
 
 
 @dataclass(kw_only=True)
+class AssetListResult:
+    """Paginated container for list_assets(). The router reads .items off
+    this (fastapi_fixed_asset_router.py's list_assets() does
+    `for asset in result.items`), plus .total/.page/.page_size for future
+    pagination metadata use."""
+
+    items: list[AssetResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+@dataclass(kw_only=True)
 class AssetResponse:
     id: UUID
     asset_code: str
     asset_name: str
     asset_type: str
-    asset_category_id: UUID
+    asset_category: str
     acquisition_date: date
     acquisition_cost: Decimal
-    salvage_value: Decimal
+    residual_value: Decimal
     useful_life_years: int
     depreciation_method: str
+    depreciation_rate: Decimal | None
     accumulated_depreciation: Decimal
     net_book_value: Decimal
+    current_period_depreciation: Decimal
     location: str | None
-    responsible_party: UUID | None
+    responsible_party: str | None
     status: str
     is_active: bool
+    is_locked: bool
+    is_component: bool
+    parent_asset_id: UUID | None
+    parent_asset_code: str | None
+    serial_number: str | None
+    supplier_name: str | None
+    purchase_order_number: str | None
+    invoice_number: str | None
+    notes: str | None
     created_at: datetime
+    updated_at: datetime
+    created_by: UUID
+    created_by_name: str | None
+    version: int
 
 
 @dataclass(kw_only=True)
@@ -351,11 +380,18 @@ class FixedAssetService:
 
     @audit
     async def create_asset(
-        self, request: CreateAssetRequest, user_id: UUID, correlation_id: str | None = None
+        self, request: AssetCreateRequest, correlation_id: str | None = None
     ) -> AssetResponse:
+        # FIX: router calls `fixed_asset_svc.create_asset(dto)` with a single
+        # positional arg - the old signature required a separate `user_id`
+        # the router never passed, which would have raised a TypeError the
+        # moment DTO construction was fixed. user_id now comes from
+        # request.created_by (which the router always sets from the
+        # authenticated user).
+        user_id = request.created_by
         self._check_authority(user_id, "create_asset")
 
-        existing = await self._asset_repo.find_by_code(request.legal_entity_id, request.asset_code)
+        existing = await self._asset_repo.get_by_asset_code(request.asset_code, request.legal_entity_id)
         if existing:
             raise FixedAssetServiceError(f"Asset code {request.asset_code} already exists")
 
@@ -366,34 +402,47 @@ class FixedAssetService:
         if request.acquisition_date > date.today():
             raise FixedAssetServiceError("Acquisition date cannot be in the future")
 
-        asset = FixedAsset(
-            id=uuid4(),
+        # Fields the FixedAsset entity doesn't have dedicated columns for
+        # (they live on FixedAssetTable/AssetCreateSchema but not on the
+        # domain entity) are kept in `metadata` so nothing is silently
+        # dropped; the repository reads them back out of there.
+        metadata: dict[str, Any] = {
+            "is_active": request.is_active,
+            "notes": request.notes,
+            "revaluation_frequency": request.revaluation_frequency,
+            "use_fiscal_depreciation": request.use_fiscal_depreciation,
+            "is_component": request.is_component,
+        }
+        if request.depreciation_rate is not None:
+            metadata["depreciation_rate"] = str(request.depreciation_rate)
+        if request.invoice_id is not None:
+            metadata["invoice_id"] = str(request.invoice_id)
+        if request.parent_asset_id is not None:
+            metadata["parent_asset_id"] = str(request.parent_asset_id)
+        if request.serial_number is not None:
+            metadata["serial_number"] = request.serial_number
+
+        asset = FixedAsset.acquire(
             legal_entity_id=request.legal_entity_id,
             asset_code=request.asset_code,
             name=request.asset_name,
-            description=request.description,
-            asset_type=AssetType.TANGIBLE,
-            status=AssetStatus.ACTIVE,
-            acquisition_date=request.acquisition_date,
             acquisition_cost=request.acquisition_cost,
-            salvage_value=request.salvage_value,
+            acquisition_date=request.acquisition_date,
+            salvage_value=request.residual_value,
             useful_life_years=request.useful_life_years,
-            depreciation_method=DepreciationMethod(request.depreciation_method.lower()),
-            accumulated_depreciation=Decimal("0"),
-            net_book_value=request.acquisition_cost,
+            depreciation_method=request.depreciation_method.lower(),
+            created_by=user_id,
+            description=request.description,
             location=request.location,
             responsible_person=request.responsible_party,
             supplier_id=request.supplier_id,
-            po_number=request.invoice_number,
-            category=str(request.asset_category_id),
-            created_by=user_id,
-            created_at=datetime.utcnow(),
-            updated_at=None,
-            updated_by=None,
+            po_number=str(request.purchase_order_id) if request.purchase_order_id else None,
+            category=request.asset_category,
+            metadata=metadata,
         )
 
-        aggregate = FixedAssetAggregate(asset=asset, version=0)
-        aggregate.acquire(user_id)
+        aggregate = FixedAssetAggregate()
+        aggregate.create(asset, created_by=str(user_id))
 
         await self._asset_repo.save_asset(aggregate)
         if self._uow:
@@ -402,15 +451,8 @@ class FixedAssetService:
         self._stats["assets_created"] += 1
 
         if self._event_publisher:
-            event = AssetAcquiredEvent(
-                aggregate_id=asset.id,
-                aggregate_version=aggregate.version,
-                asset=asset,
-                acquired_by=str(user_id),
-                user_id=str(user_id),
-                correlation_id=correlation_id,
-            )
-            await self._event_publisher.publish(event)
+            for event in aggregate.pull_events():
+                await self._event_publisher.publish(event)
 
         self._record_audit("create_asset", {
             "asset_id": str(asset.id),
@@ -419,7 +461,7 @@ class FixedAssetService:
         })
 
         logger.info(f"Asset created: {asset.asset_code} - {asset.name}")
-        return self._to_response(asset)
+        return self._to_response(aggregate.asset)
 
     @audit
     async def update_asset(
@@ -519,14 +561,19 @@ class FixedAssetService:
         search: str | None = None,
         page: int = 1,
         page_size: int = 50,
-    ) -> list[AssetResponse]:
+    ) -> AssetListResult:
         # FIX: previous signature (asset_type/category_id/limit/offset) did not
         # match what SQLAlchemyFixedAssetRepository.list_assets() actually accepts
         # (category/status/is_active/location/search/page/page_size), and the
         # repo returns a (assets, total) tuple, not a bare list. The router
         # (fastapi_fixed_asset_router.py) already calls this method with the
         # correct kwarg names below, so we now pass them straight through.
-        assets, _total = await self._asset_repo.list_assets(
+        #
+        # FIX 2: the router's list_assets() endpoint does `for asset in
+        # result.items` - it expects a paginated container, not a bare list.
+        # Returning a plain list crashed with
+        # "AttributeError: 'list' object has no attribute 'items'".
+        assets, total = await self._asset_repo.list_assets(
             legal_entity_id,
             category=category,
             status=status,
@@ -536,7 +583,8 @@ class FixedAssetService:
             page=page,
             page_size=page_size,
         )
-        return [self._to_response(a.asset if hasattr(a, "asset") else a) for a in assets]
+        items = [self._to_response(a.asset if hasattr(a, "asset") else a) for a in assets]
+        return AssetListResult(items=items, total=total, page=page, page_size=page_size)
 
     # ==================== DEPRECIATION ====================
 
@@ -1193,24 +1241,61 @@ class FixedAssetService:
     # ==================== HELPER ====================
 
     def _to_response(self, asset: FixedAsset) -> AssetResponse:
+        # FIX: asset.category is a plain string (e.g. "VEHICLE", the
+        # AssetCategory enum's .value) - it was never a UUID, so
+        # `UUID(asset.category)` crashed with ValueError on every response.
+        # Fields the domain entity has no dedicated column for (depreciation
+        # rate, notes, serial number, etc.) were stashed in asset.metadata by
+        # create_asset() and are read back out here.
+        meta = asset.metadata or {}
+
+        depreciation_rate = None
+        if meta.get("depreciation_rate"):
+            try:
+                depreciation_rate = Decimal(str(meta["depreciation_rate"]))
+            except Exception:
+                depreciation_rate = None
+
+        parent_asset_id = None
+        if meta.get("parent_asset_id"):
+            try:
+                parent_asset_id = UUID(str(meta["parent_asset_id"]))
+            except Exception:
+                parent_asset_id = None
+
         return AssetResponse(
             id=asset.id,
             asset_code=asset.asset_code,
             asset_name=asset.name,
             asset_type=asset.asset_type.value,
-            asset_category_id=UUID(asset.category) if asset.category else UUID(int=0),
+            asset_category=asset.category or "OTHER",
             acquisition_date=asset.acquisition_date,
             acquisition_cost=asset.acquisition_cost,
-            salvage_value=asset.salvage_value,
+            residual_value=asset.salvage_value,
             useful_life_years=asset.useful_life_years,
-            depreciation_method=asset.depreciation_method.value,
+            depreciation_method=asset.depreciation_method,
+            depreciation_rate=depreciation_rate,
             accumulated_depreciation=asset.accumulated_depreciation,
             net_book_value=asset.net_book_value,
+            current_period_depreciation=Decimal("0"),
             status=asset.status.value,
-            is_active=asset.status == AssetStatus.ACTIVE,
             location=asset.location,
             responsible_party=asset.responsible_person,
+            is_active=bool(meta.get("is_active", asset.status == AssetStatus.ACTIVE)),
+            is_locked=bool(meta.get("is_locked", False)),
+            is_component=bool(meta.get("is_component", False)),
+            parent_asset_id=parent_asset_id,
+            parent_asset_code=None,
+            serial_number=meta.get("serial_number"),
+            supplier_name=None,
+            purchase_order_number=asset.po_number,
+            invoice_number=meta.get("invoice_id"),
+            notes=meta.get("notes"),
             created_at=asset.created_at,
+            updated_at=asset.updated_at or asset.created_at,
+            created_by=asset.created_by,
+            created_by_name=None,
+            version=asset.version,
         )
 
     def get_stats(self) -> dict[str, int]:
@@ -1237,6 +1322,7 @@ async def create_fixed_asset_service(
 __all__ = [
     "AssetAlreadyDisposedError",
     "AssetNotFoundError",
+    "AssetListResult",
     "AssetResponse",
     "AssetTransferRequest",
     "CreateAssetRequest",

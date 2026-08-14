@@ -810,6 +810,10 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
             if not trace_data:
                 break
 
+            # Safe timestamp extraction
+            timestamp_val = trace_data.get("timestamp")
+            timestamp_str = timestamp_val.isoformat() if timestamp_val else None
+
             chain.append(
                 {
                     "transaction_id": str(trace_data.get("transaction_id")),
@@ -817,9 +821,7 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
                     "source_id": trace_data.get("source_id"),
                     "source_description": trace_data.get("source_description", "")[:100],
                     "user_id": trace_data.get("user_id"),
-                    "timestamp": trace_data.get("timestamp").isoformat()
-                    if trace_data.get("timestamp")
-                    else None,
+                    "timestamp": timestamp_str,
                     "correlation_id": trace_data.get("correlation_id"),
                     "causation_id": str(trace_data.get("causation_id"))
                     if trace_data.get("causation_id")
@@ -848,7 +850,6 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
         for i in range(1, len(chain)):
             prev = chain[i - 1]
             curr = chain[i]
-            # Gabungkan dua kondisi menjadi satu (SIM102)
             if curr.get("causation_id") and curr["causation_id"] != prev["transaction_id"]:
                 issues.append(
                     f"Chain break at {curr['transaction_id']}: causation {curr['causation_id']} "
@@ -881,6 +882,9 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
         chain = await self.get_traceability_chain(transaction_id, legal_entity_id)
         is_valid, _, issues = await self.verify_chain_integrity(transaction_id, legal_entity_id)
 
+        timestamp_val = trace_data.get("timestamp")
+        timestamp_str = timestamp_val.isoformat() if timestamp_val else None
+
         return {
             "transaction_id": str(transaction_id),
             "has_traceability": True,
@@ -888,9 +892,7 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
             "source_id": trace_data.get("source_id"),
             "source_description": trace_data.get("source_description", "")[:200],
             "user_id": trace_data.get("user_id"),
-            "timestamp": trace_data.get("timestamp").isoformat()
-            if trace_data.get("timestamp")
-            else None,
+            "timestamp": timestamp_str,
             "correlation_id": trace_data.get("correlation_id"),
             "causation_id": str(trace_data.get("causation_id"))
             if trace_data.get("causation_id")
@@ -955,10 +957,18 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "message": violation.message,
-                "severity": violation.severity.name,
-            })
+            # Use getattr to safely access attributes that may not exist
+            user_id = getattr(violation, "user_id", None) or "system"
+            message = getattr(violation, "message", str(violation))
+            severity = getattr(violation, "severity", LawViolationSeverity.MEDIUM)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "message": message,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_check_history(
         self,
@@ -1008,15 +1018,15 @@ class TraceabilityEnforcer(BaseTraceabilityEnforcer):
             valid = len([r for r in self._check_history if r.is_valid])
             invalid = total_checks - valid
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for r in self._check_history:
                 if not r.is_valid:
                     sev = r.severity.name
                     by_severity[sev] = by_severity.get(sev, 0) + 1
 
-            by_source_type = {}
-            for r in self._trace_records:
-                st = r.source_type.value
+            by_source_type: dict[str, int] = {}
+            for record in self._trace_records:  # changed variable name to avoid conflict
+                st = record.source_type.value
                 by_source_type[st] = by_source_type.get(st, 0) + 1
 
             return {

@@ -846,11 +846,7 @@ def is_retryable_exception(exception: Exception) -> bool:
     """Check if exception is retryable."""
     if isinstance(exception, CoretaxException):
         return exception.retryable
-    if isinstance(exception, (CoretaxNetworkError, CoretaxTimeoutError, CoretaxRateLimitError)):
-        return True
-    if isinstance(exception, (httpx.RequestError, asyncio.TimeoutError)):
-        return True
-    return False
+    return isinstance(exception, httpx.RequestError | asyncio.TimeoutError)
 
 
 def get_retry_delay(exception: Exception, attempt: int, base_delay: float = 1.0) -> float:
@@ -867,64 +863,55 @@ def get_retry_delay(exception: Exception, attempt: int, base_delay: float = 1.0)
 # ============================================================================
 
 __all__ = [
-    # Base
-    "CoretaxException",
-    # Authentication
     "CoretaxAuthError",
-    "CoretaxTokenExpiredError",
-    "CoretaxInvalidCredentialsError",
-    "CoretaxTokenRefreshError",
-    "CoretaxMissingCredentialsError",
-    # Validation
-    "CoretaxValidationError",
-    "CoretaxInvalidNPWPError",
-    "CoretaxInvalidFakturXMLError",
-    "CoretaxInvalidNTPNFormatError",
-    "CoretaxInvalidNSFPFormatError",
-    "CoretaxInvalidDateRangeError",
-    "CoretaxMissingRequiredFieldError",
-    # Network
-    "CoretaxNetworkError",
-    "CoretaxTimeoutError",
-    "CoretaxConnectionError",
-    "CoretaxRateLimitError",
-    "CoretaxServiceUnavailableError",
-    # Business
-    "CoretaxBusinessError",
-    "CoretaxFakturAlreadyExistsError",
-    "CoretaxFakturNotFoundError",
-    "CoretaxFakturCannotCancelError",
-    "CoretaxFakturCannotApproveError",
-    "CoretaxSPTNotFoundError",
-    "CoretaxSPTAlreadySubmittedError",
-    "CoretaxBupotNotFoundError",
+    "CoretaxBadGatewayError",
     "CoretaxBupotAlreadyExistsError",
-    "CoretaxNSFPExhaustedError",
-    "CoretaxNSFPNotFoundError",
-    "CoretaxNSFPAlreadyUsedError",
-    "CoretaxEMeteraiInvalidError",
+    "CoretaxBupotNotFoundError",
+    "CoretaxBusinessError",
+    "CoretaxConnectionError",
+    "CoretaxDataIntegrityError",
+    "CoretaxDuplicateSubmissionError",
     "CoretaxEMeteraiAlreadyUsedError",
     "CoretaxEMeteraiExpiredError",
-    "CoretaxNTPNNotFoundError",
+    "CoretaxEMeteraiInvalidError",
+    "CoretaxException",
+    "CoretaxFakturAlreadyExistsError",
+    "CoretaxFakturCannotApproveError",
+    "CoretaxFakturCannotCancelError",
+    "CoretaxFakturNotFoundError",
+    "CoretaxGatewayTimeoutError",
+    "CoretaxHashMismatchError",
+    "CoretaxInternalServerError",
+    "CoretaxInvalidCredentialsError",
+    "CoretaxInvalidDateRangeError",
+    "CoretaxInvalidFakturXMLError",
+    "CoretaxInvalidNPWPError",
+    "CoretaxInvalidNSFPFormatError",
+    "CoretaxInvalidNTPNFormatError",
+    "CoretaxMaintenanceError",
+    "CoretaxMissingCredentialsError",
+    "CoretaxMissingRequiredFieldError",
+    "CoretaxNSFPAlreadyUsedError",
+    "CoretaxNSFPExhaustedError",
+    "CoretaxNSFPNotFoundError",
     "CoretaxNTPNAlreadyUsedError",
     "CoretaxNTPNAmountMismatchError",
+    "CoretaxNTPNNotFoundError",
+    "CoretaxNetworkError",
     "CoretaxPeriodNotOpenError",
-    "CoretaxDuplicateSubmissionError",
-    # System
+    "CoretaxRateLimitError",
+    "CoretaxSPTAlreadySubmittedError",
+    "CoretaxSPTNotFoundError",
+    "CoretaxServiceUnavailableError",
     "CoretaxSystemError",
-    "CoretaxMaintenanceError",
-    "CoretaxInternalServerError",
-    "CoretaxBadGatewayError",
-    "CoretaxGatewayTimeoutError",
-    # Data Integrity
-    "CoretaxDataIntegrityError",
-    "CoretaxHashMismatchError",
-    # Webhook
+    "CoretaxTimeoutError",
+    "CoretaxTokenExpiredError",
+    "CoretaxTokenRefreshError",
+    "CoretaxValidationError",
     "CoretaxWebhookError",
-    "CoretaxWebhookSignatureError",
     "CoretaxWebhookIdempotencyError",
-    # Utility
-    "map_http_status_to_exception",
-    "is_retryable_exception",
+    "CoretaxWebhookSignatureError",
     "get_retry_delay",
+    "is_retryable_exception",
+    "map_http_status_to_exception",
 ]

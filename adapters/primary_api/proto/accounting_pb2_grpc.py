@@ -3,6 +3,8 @@
 # Idempotency is implemented in the actual service layer, not in this stub.
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 """Client and server classes corresponding to protobuf-defined services."""
 
 import hashlib
@@ -138,7 +140,7 @@ class AccountingServiceServicer:
         if idempotency_key:
             cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
             if cached is not None:
-                # Dummy return – sebenarnya tidak akan terjadi karena metode ini tidak diimplementasikan.
+                # Dummy return - sebenarnya tidak akan terjadi karena metode ini tidak diimplementasikan.
                 # Tapi untuk memenuhi checker, kita bisa return response dummy.
                 return adapters_dot_primary__api_dot_proto_dot_accounting__pb2.JournalResponse()
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -317,7 +319,7 @@ class AccountingService:
         if idempotency_key:
             cached = _idempotency_manager.get_cached_result(idempotency_key, "CreateJournal")
             if cached is not None:
-                # Dummy – tidak akan pernah terjadi karena ini hanya stub.
+                # Dummy - tidak akan pernah terjadi karena ini hanya stub.
                 pass
         result = grpc.experimental.unary_unary(
             request,

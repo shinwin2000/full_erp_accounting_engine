@@ -63,7 +63,7 @@ class LifecycleEvent:
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not isinstance(self.event_type, LifecycleEventType):
             errors.append("Invalid event_type")
         if not self.source:
@@ -132,7 +132,7 @@ class LifecycleCallback:
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not isinstance(self.event_type, LifecycleEventType):
             errors.append("Invalid event_type")
         if not callable(self.callback):
@@ -255,7 +255,7 @@ class BaseLifecycleListener(ABC):
 class LifecycleListener(BaseLifecycleListener):
     _instance: LifecycleListener | None = None
     _lock = threading.Lock()
-    _initialized: bool  # Tambahkan deklarasi tipe
+    _initialized: bool
 
     def __new__(cls) -> LifecycleListener:
         if cls._instance is None:
@@ -500,7 +500,7 @@ class LifecycleListener(BaseLifecycleListener):
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors: list[str] = []  # Tambahkan anotasi tipe
+        errors: list[str] = []  # Anotasi tipe ditambahkan untuk menghindari error mypy
         if self._shutdown_timeout <= 0:
             errors.append("shutdown_timeout must be positive")
         for et, cbs in self._callbacks.items():

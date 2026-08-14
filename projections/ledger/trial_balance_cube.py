@@ -418,9 +418,9 @@ class TrialBalanceCube:
                     continue
 
                 tb = await self.get_trial_balance(legal_entity_id, period.end_date)
-                total_assets = sum(Decimal(l["closing_balance"]) for l in tb if l["account_type"] == "Asset")
-                total_liabilities = sum(Decimal(l["closing_balance"]) for l in tb if l["account_type"] == "Liability")
-                total_equity = sum(Decimal(l["closing_balance"]) for l in tb if l["account_type"] == "Equity")
+                total_assets = sum(Decimal(line["closing_balance"]) for line in tb if line["account_type"] == "Asset")
+                total_liabilities = sum(Decimal(line["closing_balance"]) for line in tb if line["account_type"] == "Liability")
+                total_equity = sum(Decimal(line["closing_balance"]) for line in tb if line["account_type"] == "Equity")
 
                 result.append(
                     {

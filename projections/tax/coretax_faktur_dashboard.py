@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -61,8 +61,8 @@ Base = declarative_base()
 class CoretaxFakturTable(Base):
     """Tabel faktur Coretax (redefined locally)."""
 
-    __tablename__ = "coretax_faktur"
-    __table_args__ = {"schema": "public"}
+    __tablename__: ClassVar[str] = "coretax_faktur"
+    __table_args__: ClassVar[dict] = {"schema": "public"}
 
     id = Column(PGUUID(as_uuid=True), primary_key=True)
     npwp_penjual = Column(String(20), nullable=False)
@@ -81,8 +81,8 @@ class CoretaxFakturTable(Base):
 class CoretaxNSFPTable(Base):
     """Tabel NSFP Coretax."""
 
-    __tablename__ = "coretax_nsfp"
-    __table_args__ = {"schema": "public"}
+    __tablename__: ClassVar[str] = "coretax_nsfp"
+    __table_args__: ClassVar[dict] = {"schema": "public"}
 
     id = Column(PGUUID(as_uuid=True), primary_key=True)
     npwp = Column(String(20), nullable=False)
@@ -450,14 +450,15 @@ class CoretaxFakturDashboard:
         Mendapatkan dashboard (dari cache atau refresh).
         """
         cache_key = f"{npwp}:{legal_entity_id}"
-        if not force_refresh and cache_key in self._dashboard_cache:
-            # Check if cache is stale (older than DASHBOARD_REFRESH_INTERVAL)
-            if (
-                self._last_refresh
-                and (datetime.now(UTC) - self._last_refresh).total_seconds()
-                < DASHBOARD_REFRESH_INTERVAL
-            ):
-                return self._dashboard_cache[cache_key]
+        # Gabungkan nested if menjadi satu (SIM102)
+        if (
+            not force_refresh
+            and cache_key in self._dashboard_cache
+            and self._last_refresh
+            and (datetime.now(UTC) - self._last_refresh).total_seconds()
+            < DASHBOARD_REFRESH_INTERVAL
+        ):
+            return self._dashboard_cache[cache_key]
 
         return await self.refresh_dashboard(npwp, legal_entity_id)
 

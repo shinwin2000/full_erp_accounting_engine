@@ -386,8 +386,11 @@ class DistributedLock(BaseDistributedLock):
         for client in self._redis_clients:
             try:
                 value = await client.get(lock_key)
-                if value:
-                    return value.decode() if isinstance(value, bytes) else value
+                if value is None:
+                    continue
+                if isinstance(value, bytes):
+                    return value.decode()
+                return value
             except Exception:
                 continue
         return None

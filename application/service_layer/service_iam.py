@@ -10,11 +10,19 @@ FIX v10: Tambahkan logging untuk permission yang dihasilkan, agar mudah debuggin
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID, uuid4
+
+try:
+    import pyotp
+    HAS_PYOTP = True
+except ImportError:  # pragma: no cover - fallback kalau dependency belum di-install
+    HAS_PYOTP = False
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +56,7 @@ from application.events import (
     UserUpdatedEvent,
 )
 from domain.iam.aggregate_root import UserAggregate
-from domain.iam.password_hashed_vo import PasswordHashedVO
+from domain.iam.password_hashed_vo import PasswordHashedVO, verify_password
 from domain.iam.permission_vo import PermissionVO
 from domain.iam.role_entity import RoleEntity
 from domain.iam.user_entity import UserAudit, UserEntity, UserProfile, UserStatus
@@ -188,6 +196,16 @@ class RoleNotFoundError(IAMServiceError):
 
 
 class AuthenticationError(IAMServiceError):
+    pass
+
+
+class MFARequiredError(AuthenticationError):
+    """Password benar, tapi akun ini butuh kode MFA yang belum/tidak valid dikirim."""
+    pass
+
+
+class MFAError(IAMServiceError):
+    """Error umum untuk operasi setup/verify/disable MFA (bukan alur login)."""
     pass
 
 
@@ -1189,9 +1207,13 @@ class IAMService:
     ) -> LoginResponse:
         if legal_entity_id is None:
             raise AuthenticationError("Legal entity context is required for login")
+        # FIX BUG: sebelumnya mfa_code diterima sebagai parameter tapi tidak
+        # pernah diteruskan ke authenticate() - jadi walau user sudah aktifkan
+        # MFA, backend tidak pernah mengecek kodenya sama sekali saat login.
         return await self.authenticate(
             username=username,
             password=password,
+            mfa_code=mfa_code,
             legal_entity_id=legal_entity_id,
             ip_address=ip_address,
             user_agent=user_agent,
@@ -1203,6 +1225,7 @@ class IAMService:
         username: str,
         password: str,
         legal_entity_id: UUID,
+        mfa_code: str | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
         correlation_id: str | None = None,
@@ -1220,6 +1243,7 @@ class IAMService:
 
         if not user_agg:
             self._stats["login_failures"] += 1
+            await self._safe_record_login_attempt(username, False, ip_address, "invalid_credentials", user_agent)
             if self._event_publisher:
                 event = LoginFailureEvent(
                     aggregate_id=uuid4(),
@@ -1236,6 +1260,7 @@ class IAMService:
 
         if user.status != UserStatus.ACTIVE:
             self._stats["login_failures"] += 1
+            await self._safe_record_login_attempt(username, False, ip_address, f"account_{user.status.value}", user_agent)
             if self._event_publisher:
                 event = LoginFailureEvent(
                     aggregate_id=user.user_id,
@@ -1249,6 +1274,7 @@ class IAMService:
 
         if user.locked_until and user.locked_until > datetime.now(UTC):
             self._stats["login_failures"] += 1
+            await self._safe_record_login_attempt(username, False, ip_address, "account_locked", user_agent)
             if self._event_publisher:
                 event = LoginFailureEvent(
                     aggregate_id=user.user_id,
@@ -1259,6 +1285,22 @@ class IAMService:
                 )
                 await self._event_publisher.publish(event)
             raise AuthenticationError("User account is locked")
+
+        # ============================================================
+        # MFA CHECK
+        # ============================================================
+        # FIX BUG: sebelumnya blok ini tidak ada sama sekali - user dengan
+        # mfa_enabled=True bisa login hanya dengan password, kode MFA tidak
+        # pernah divalidasi.
+        if user.mfa_enabled:
+            if not mfa_code:
+                self._stats["login_failures"] += 1
+                await self._safe_record_login_attempt(username, False, ip_address, "mfa_code_required", user_agent)
+                raise MFARequiredError("Kode MFA diperlukan untuk akun ini")
+            if not self._verify_totp_code(user.mfa_secret, mfa_code, user_agg.mfa_backup_codes):
+                self._stats["login_failures"] += 1
+                await self._safe_record_login_attempt(username, False, ip_address, "mfa_code_invalid", user_agent)
+                raise MFARequiredError("Kode MFA tidak valid")
 
         # Dapatkan permissions dari IAM aggregate
         iam = await self._iam_repo.get()
@@ -1305,6 +1347,22 @@ class IAMService:
 
         self._stats["logins"] += 1
 
+        # FIX BUG: sebelumnya sesi login dan riwayat percobaan login hanya
+        # dicatat lewat in-memory event publisher (yang di environment ini
+        # None / tidak wired), jadi tabel iam_session dan iam_login_attempt
+        # tidak pernah terisi walau login berhasil - itu sebabnya tab
+        # "Sesi Login Aktif" & "Riwayat Percobaan Login" di frontend selalu
+        # kosong. Sekarang ditulis langsung ke DB lewat repository.
+        await self._safe_record_login_attempt(username, True, ip_address, None, user_agent)
+        try:
+            await self._iam_repo.create_session(
+                user_id=user.user_id,
+                ip_address=ip_address or "0.0.0.0",
+                user_agent=user_agent or "unknown",
+            )
+        except Exception:
+            logger.exception("Failed to persist login session record (non-fatal)")
+
         if self._event_publisher:
             event_success = LoginSuccessEvent(
                 aggregate_id=user.user_id,
@@ -1334,12 +1392,173 @@ class IAMService:
             "success": True,
         })
 
+        await self._commit()
         logger.info("Access issued")
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
             expires_in=3600,
             user=user,
+        )
+
+    # ========================================================================
+    # MFA helpers (dipakai internal oleh authenticate() & method setup/verify/disable)
+    # ========================================================================
+
+    async def _safe_record_login_attempt(
+        self,
+        username: str,
+        success: bool,
+        ip_address: str | None,
+        failure_reason: str | None,
+        user_agent: str | None,
+    ) -> None:
+        """Catat percobaan login & commit segera, tanpa pernah membuat proses
+        login gagal gara-gara audit trail-nya sendiri error."""
+        try:
+            await self._iam_repo.record_login_attempt(
+                username=username,
+                success=success,
+                ip_address=ip_address or "0.0.0.0",
+                failure_reason=failure_reason,
+                user_agent=user_agent,
+            )
+            await self._commit()
+        except Exception:
+            logger.exception("Failed to record login attempt (non-fatal)")
+
+    def _verify_totp_code(self, secret: str | None, code: str, backup_codes: list[str] | None = None) -> bool:
+        """Verifikasi kode 6-digit TOTP, dengan fallback ke backup code sekali-pakai."""
+        if not secret or not code:
+            return False
+        code = code.strip()
+        if HAS_PYOTP:
+            totp = pyotp.TOTP(secret)
+            if totp.verify(code, valid_window=1):
+                return True
+        if backup_codes and code.upper() in [c.upper() for c in backup_codes]:
+            return True
+        return False
+
+    def _generate_backup_codes(self, count: int = 10) -> list[str]:
+        return [secrets.token_hex(4).upper() for _ in range(count)]
+
+    # ========================================================================
+    # MFA (Multi-Factor Authentication) — setup / verify / disable
+    # ========================================================================
+
+    async def setup_mfa(self, user_id: UUID, username: str) -> dict[str, Any]:
+        """Langkah 1: generate secret TOTP baru + backup codes, simpan sebagai
+        PENDING (mfa_enabled masih False sampai user verifikasi kode pertama
+        lewat verify_and_enable_mfa)."""
+        if not HAS_PYOTP:
+            raise MFAError("Dependency 'pyotp' belum terpasang di server (pip install pyotp)")
+
+        user_agg = await self._iam_repo.get_by_id(user_id)
+        if not user_agg:
+            raise UserNotFoundError(f"User {user_id} not found")
+
+        secret = pyotp.random_base32()
+        backup_codes = self._generate_backup_codes()
+
+        await self._iam_repo.set_mfa_secret(user_id, secret, backup_codes)
+        await self._commit()
+
+        issuer = "ERP-Accounting-Engine"
+        totp = pyotp.TOTP(secret)
+        qr_code_url = totp.provisioning_uri(name=username, issuer_name=issuer)
+
+        self._record_audit("setup_mfa", {"user_id": str(user_id), "username": username})
+        logger.info("MFA setup initiated for user %s (belum aktif sampai diverifikasi)", user_id)
+
+        return {
+            "secret_key": secret,
+            "qr_code_url": qr_code_url,
+            "backup_codes": backup_codes,
+            "issuer": issuer,
+        }
+
+    async def verify_and_enable_mfa(self, user_id: UUID, code: str) -> bool:
+        """Langkah 2: user memasukkan kode 6-digit dari authenticator app untuk
+        membuktikan setup-nya benar, baru mfa_enabled di-set True."""
+        user_agg = await self._iam_repo.get_by_id(user_id)
+        if not user_agg:
+            raise UserNotFoundError(f"User {user_id} not found")
+
+        if not user_agg.mfa_secret:
+            raise MFAError("Belum ada setup MFA yang pending untuk user ini. Panggil setup_mfa dulu.")
+
+        if not self._verify_totp_code(user_agg.mfa_secret, code):
+            self._record_audit("verify_mfa_failed", {"user_id": str(user_id)})
+            return False
+
+        await self._iam_repo.set_mfa_enabled(user_id, True)
+        await self._commit()
+        self._record_audit("verify_mfa_enabled", {"user_id": str(user_id)})
+        logger.info("MFA enabled for user %s", user_id)
+        return True
+
+    async def disable_mfa(self, user_id: UUID, password: str, mfa_code: str | None = None) -> None:
+        """Nonaktifkan MFA. Selalu butuh password saat ini untuk konfirmasi;
+        kalau MFA masih aktif, kode MFA juga divalidasi (defense in depth)."""
+        user_agg = await self._iam_repo.get_by_id(user_id)
+        if not user_agg:
+            raise UserNotFoundError(f"User {user_id} not found")
+
+        if not verify_password(password, PasswordHashedVO(user_agg.hashed_password)):
+            self._record_audit("disable_mfa_failed", {"user_id": str(user_id), "reason": "wrong_password"})
+            raise MFAError("Password salah")
+
+        if user_agg.mfa_enabled:
+            if not mfa_code or not self._verify_totp_code(user_agg.mfa_secret, mfa_code, user_agg.mfa_backup_codes):
+                self._record_audit("disable_mfa_failed", {"user_id": str(user_id), "reason": "invalid_mfa_code"})
+                raise MFAError("Kode MFA tidak valid")
+
+        await self._iam_repo.set_mfa_enabled(user_id, False)
+        await self._commit()
+        self._record_audit("disable_mfa", {"user_id": str(user_id)})
+        logger.info("MFA disabled for user %s", user_id)
+
+    # ========================================================================
+    # Session management (halaman "Sesi Login Aktif")
+    # ========================================================================
+
+    async def get_user_sessions(self, user_id: UUID):
+        return await self._iam_repo.list_sessions_for_user(user_id)
+
+    async def revoke_session(self, session_id: UUID, user_id: UUID) -> bool:
+        ok = await self._iam_repo.revoke_session_for_user(session_id, user_id)
+        await self._commit()
+        self._record_audit("revoke_session", {"user_id": str(user_id), "session_id": str(session_id)})
+        return ok
+
+    async def revoke_all_other_sessions(self, user_id: UUID, keep_session_id: UUID | None = None) -> int:
+        count = await self._iam_repo.revoke_all_other_sessions_for_user(user_id, keep_session_id)
+        await self._commit()
+        self._record_audit("revoke_all_other_sessions", {"user_id": str(user_id), "count": count})
+        return count
+
+    # ========================================================================
+    # Login attempts (tab "Riwayat Percobaan Login")
+    # ========================================================================
+
+    async def get_login_attempts(
+        self,
+        username: str | None = None,
+        success: bool | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ):
+        offset = max(page - 1, 0) * page_size
+        return await self._iam_repo.get_login_attempts(
+            username=username,
+            success=success,
+            start_date=start_date,
+            end_date=end_date,
+            limit=page_size,
+            offset=offset,
         )
 
     async def refresh_access_token(self, refresh_token: str, correlation_id: str | None = None) -> str:
@@ -1495,6 +1714,69 @@ class IAMService:
         })
 
         logger.info("Security record reset")
+
+    # ========================================================================
+    # Password reset via token (alur self-service "Lupa Password")
+    # ========================================================================
+    # CATATAN: server ini belum punya integrasi SMTP untuk benar-benar
+    # mengirim email. request_password_reset() mengembalikan token
+    # plaintext-nya langsung di response (reset_token/reset_url), BUKAN
+    # dikirim lewat email, sampai SMTP dikonfigurasi. Yang disimpan ke DB
+    # hanya HASH SHA-256 dari token (bukan plaintext), supaya kalaupun DB
+    # bocor, token asli tidak bisa dipakai orang lain.
+
+    RESET_TOKEN_TTL_MINUTES = 60
+
+    @staticmethod
+    def _hash_reset_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    async def request_password_reset(self, email: str) -> dict[str, str | None]:
+        generic_message = "Jika email terdaftar, link reset password sudah dikirim."
+
+        user_agg = await self._iam_repo.get_by_email(email)
+        if not user_agg:
+            # Sengaja tidak membocorkan apakah email terdaftar atau tidak
+            # (mencegah user enumeration) - selalu balas pesan yang sama.
+            logger.info("Password reset requested for unknown email")
+            return {"message": generic_message, "reset_token": None, "reset_url": None}
+
+        token = secrets.token_urlsafe(32)
+        token_hash = self._hash_reset_token(token)
+        expires_at = datetime.now(UTC) + timedelta(minutes=self.RESET_TOKEN_TTL_MINUTES)
+
+        await self._iam_repo.set_password_reset_token(user_agg.id, token_hash, expires_at)
+        await self._commit()
+
+        self._record_audit("request_password_reset", {"user_id": str(user_agg.id)})
+        logger.info("Password reset token issued for user %s", user_agg.id)
+
+        # TODO: begitu SMTP dikonfigurasi, kirim `reset_url` lewat email dan
+        # jangan lagi kembalikan reset_token/reset_url langsung di response.
+        return {
+            "message": generic_message,
+            "reset_token": token,
+            "reset_url": f"/reset-password?token={token}",
+        }
+
+    async def confirm_password_reset(self, token: str, new_password: str) -> None:
+        token_hash = self._hash_reset_token(token)
+        user_agg = await self._iam_repo.get_by_password_reset_token_hash(token_hash)
+
+        if not user_agg or not user_agg.password_reset_token_hash:
+            raise AuthenticationError("Token reset password tidak valid atau sudah dipakai")
+
+        expires_at = user_agg.password_reset_expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at is None or expires_at < datetime.now(UTC):
+            raise AuthenticationError("Token reset password sudah kedaluwarsa, minta link baru")
+
+        await self._iam_repo.set_password_direct(user_agg.id, new_password)
+        await self._commit()
+
+        self._record_audit("confirm_password_reset", {"user_id": str(user_agg.id)})
+        logger.info("Password reset confirmed via token for user %s", user_agg.id)
 
     # ========================================================================
     # Permissions

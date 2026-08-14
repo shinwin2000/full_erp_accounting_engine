@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from application.dto_objects.intangible_asset_request import (
@@ -90,6 +91,18 @@ class CreateIntangibleAssetRequestDTO:
     description: str | None = None
     supplier_id: UUID | None = None
     is_active: bool = True
+
+
+@dataclass(kw_only=True)
+class IntangibleAssetListResult:
+    """Paginated container for list_assets(). The router reads .items off
+    this (fastapi_intangible_asset_router.py's list_assets() does
+    `for asset in result.items`)."""
+
+    items: list[Any]
+    total: int
+    page: int
+    page_size: int
 
 
 @dataclass(kw_only=True)
@@ -298,6 +311,39 @@ class IntangibleAssetService:
             await self.cache.set(f"intangible_asset:{asset_id}", asset.to_json(), ttl=3600)
 
         return self._to_response(asset) if asset else None
+
+    async def list_assets(
+        self,
+        legal_entity_id: UUID,
+        category: str | None = None,
+        status: str | None = None,
+        is_active: bool | None = None,
+        search: str | None = None,
+        expiry_before: date | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> IntangibleAssetListResult:
+        result = await self.asset_repo.list_assets(
+            legal_entity_id,
+            category=category,
+            status=status,
+            is_active=is_active,
+            search=search,
+            expiry_before=expiry_before,
+            page=page,
+            page_size=page_size,
+        )
+        # result is a dict {"items": [...], "total": ..., "page": ..., ...}
+        # from the repository - each item is already shaped exactly like
+        # IntangibleAssetResponseSchema needs, so no _to_response() mapping
+        # is needed/possible here (that mapping is for the differently-
+        # shaped IntangibleAssetEntity domain object, not this repo DTO).
+        return IntangibleAssetListResult(
+            items=result["items"],
+            total=result["total"],
+            page=result.get("page", page),
+            page_size=result.get("page_size", page_size),
+        )
 
     async def list_assets_by_legal_entity(
         self, legal_entity_id: UUID, include_inactive: bool = False
@@ -708,6 +754,7 @@ __all__ = [
     "AssetNotFoundError",
     "CreateIntangibleAssetRequestDTO",
     "DisposalResult",
+    "IntangibleAssetListResult",
     "IntangibleAssetResponse",
     "IntangibleAssetService",
     "IntangibleAssetServiceError",

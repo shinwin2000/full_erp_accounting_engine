@@ -1124,8 +1124,8 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
                     "version": self._version,
                 }
 
-            by_rule_type = {}
-            by_severity = {}
+            by_rule_type: dict[str, int] = {}
+            by_severity: dict[str, int] = {}
             unresolved = 0
 
             for v in self._violations:
@@ -1134,7 +1134,7 @@ class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
                 if not v.is_resolved:
                     unresolved += 1
 
-            by_rule = {}
+            by_rule: dict[str, int] = {}
             for v in self._violations:
                 by_rule[v.rule_id] = by_rule.get(v.rule_id, 0) + 1
 

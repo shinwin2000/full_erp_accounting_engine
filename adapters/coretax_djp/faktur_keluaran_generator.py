@@ -1272,7 +1272,6 @@ class FakturKeluaranGenerator:
         return self._cache.get(key)
 
     async def _set_cached(self, faktur_number: str, data: dict[str, Any]) -> None:
-        ttl = self._load_config().get("coretax_djp", {}).get("faktur_keluaran", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         key = self._get_cache_key(faktur_number)
         self._cache[key] = data
 

@@ -1223,11 +1223,9 @@ class SPTMasaPPNBuilder:
         return f"spt_ppn:{npwp}:{tahun}:{bulan:02d}"
 
     async def _get_cached(self, cache_key: str) -> dict[str, Any] | None:
-        ttl = self._load_config().get("coretax_djp", {}).get("spt_ppn", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         return self._cache.get(cache_key)
 
     async def _set_cached(self, cache_key: str, data: dict[str, Any]) -> None:
-        ttl = self._load_config().get("coretax_djp", {}).get("spt_ppn", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         self._cache[cache_key] = data
 
     # ========================================================================

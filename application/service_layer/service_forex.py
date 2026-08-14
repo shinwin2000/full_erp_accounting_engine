@@ -82,6 +82,60 @@ class ExchangeRateEntry:
     created_by: UUID | None = None
 
 
+@dataclass(kw_only=True)
+class ExchangeRateDTO:
+    """
+    Hasil list/create/get/update/deactivate/lock/unlock exchange rate.
+    Nama field sengaja disamakan persis dengan ExchangeRateResponseSchema
+    di fastapi_forex_router.py (effective_date bukan rate_date, provider
+    bukan source, spread_percent bukan spread_percentage) supaya router
+    bisa langsung construct response dari sini tanpa transformasi lagi.
+    """
+    id: UUID
+    from_currency: str
+    to_currency: str
+    rate: Decimal
+    rate_type: str
+    effective_date: date
+    provider: str
+    bid_rate: Decimal | None
+    ask_rate: Decimal | None
+    spread: Decimal | None
+    spread_percent: float | None
+    status: str
+    is_locked: bool
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: UUID | None
+    created_by_name: str | None = None
+    version: int = 1
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ExchangeRateDTO":
+        return cls(
+            id=UUID(data["id"]),
+            from_currency=data["from_currency"],
+            to_currency=data["to_currency"],
+            rate=Decimal(str(data["rate"])),
+            rate_type=data["rate_type"],
+            effective_date=date.fromisoformat(data["rate_date"]),
+            provider=data["source"],
+            bid_rate=Decimal(str(data["bid_rate"])) if data.get("bid_rate") is not None else None,
+            ask_rate=Decimal(str(data["ask_rate"])) if data.get("ask_rate") is not None else None,
+            spread=Decimal(str(data["spread"])) if data.get("spread") is not None else None,
+            spread_percent=data.get("spread_percentage"),
+            status=data["status"],
+            is_locked=data["is_locked"],
+            notes=data.get("notes"),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_by=UUID(data["created_by"]) if data.get("created_by") else None,
+            created_by_name=None,
+            version=data.get("version", 1),
+        )
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -129,6 +183,171 @@ class ForexService:
         self._audit_trail: list[dict[str, Any]] = []
 
         logger.info("ForexService initialized")
+
+    def set_context(self, legal_entity_id: UUID) -> None:
+        """
+        Ikat legal_entity_id per-request ke repo.
+
+        CATATAN: ForexService & self.forex_repo didaftarkan sebagai
+        singleton di IoC container (satu instance untuk seumur hidup
+        aplikasi), sedangkan legal_entity_id itu per-request/per-tenant.
+        Tanpa ini, beberapa method repo (get_rate/set_rate/
+        get_last_revaluation_rate, dll) akan selalu ValueError
+        "legal_entity_id not set in repository" begitu dipanggil, karena
+        legal_entity_id sebelumnya cuma bisa diisi lewat konstruktor sekali
+        di awal proses. HARUS dipanggil router di awal setiap endpoint
+        (sebelum method service manapun dipanggil), memakai
+        legal_entity_id yang dikirim frontend lewat query/path param.
+        """
+        if hasattr(type(self.forex_repo), "legal_entity_id"):
+            self.forex_repo.legal_entity_id = legal_entity_id
+
+    async def _commit(self) -> None:
+        """
+        Commit perubahan.
+
+        CATATAN BUG: self.uow (UnitOfWorkPort) di service ini TIDAK PERNAH
+        di-`begin()`/dimasuki lewat `async with self.uow:`, jadi
+        `self.uow.commit()` langsung selalu raise "UoW not started or
+        transaction not active" (pola bug yang sama seperti sudah
+        diperbaiki di service_iam.py & service_consolidation.py). Repo
+        forex mengelola session-nya sendiri (lihat
+        SQLAlchemyForexRepository.commit()) - commit lewat situ.
+        """
+        if hasattr(self.forex_repo, "commit"):
+            await self.forex_repo.commit()
+        elif self.uow is not None:
+            await self._commit()
+
+    # ==================== EXCHANGE RATE CRUD ====================
+    # CATATAN: 7 method di bawah ini SEBELUMNYA TIDAK ADA SAMA SEKALI,
+    # padahal fastapi_forex_router.py sudah memanggilnya sejak awal
+    # (AttributeError setiap dipanggil). Dibangun lewat method *_full di
+    # ForexRepositoryPort yang juga baru ditambahkan (create_rate_full,
+    # list_rates_full, get_rate_by_id_full, update_rate_full,
+    # deactivate_rate_full, set_rate_lock).
+
+    async def create_exchange_rate(
+        self,
+        from_currency: str,
+        to_currency: str,
+        rate: Decimal,
+        rate_type: str,
+        effective_date: date,
+        provider: str,
+        bid_rate: Decimal | None,
+        ask_rate: Decimal | None,
+        notes: str | None,
+        created_by: UUID | None,
+        legal_entity_id: UUID,
+    ) -> ExchangeRateDTO:
+        self._check_authority(created_by, "create_exchange_rate")
+        if from_currency == to_currency:
+            raise ValueError("from_currency dan to_currency tidak boleh sama")
+        if rate <= 0:
+            raise ValueError("rate harus lebih besar dari 0")
+        data = await self.forex_repo.create_rate_full(
+            legal_entity_id=legal_entity_id,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            rate=rate,
+            rate_type=rate_type,
+            effective_date=effective_date,
+            provider=provider,
+            bid_rate=bid_rate,
+            ask_rate=ask_rate,
+            notes=notes,
+            created_by=created_by,
+        )
+        if self.uow is not None:
+            await self._commit()
+        return ExchangeRateDTO.from_dict(data)
+
+    async def list_exchange_rates(
+        self,
+        legal_entity_id: UUID,
+        from_currency: str | None = None,
+        to_currency: str | None = None,
+        rate_type: str | None = None,
+        effective_date: date | None = None,
+        provider: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> list[ExchangeRateDTO]:
+        rows = await self.forex_repo.list_rates_full(
+            legal_entity_id=legal_entity_id,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            rate_type=rate_type,
+            effective_date=effective_date,
+            provider=provider,
+            page=page,
+            page_size=page_size,
+        )
+        return [ExchangeRateDTO.from_dict(row) for row in rows]
+
+    async def get_exchange_rate_by_id(self, rate_id: UUID, legal_entity_id: UUID) -> ExchangeRateDTO | None:
+        data = await self.forex_repo.get_rate_by_id_full(rate_id, legal_entity_id)
+        return ExchangeRateDTO.from_dict(data) if data else None
+
+    async def update_exchange_rate(
+        self,
+        rate_id: UUID,
+        legal_entity_id: UUID,
+        rate: Decimal | None = None,
+        bid_rate: Decimal | None = None,
+        ask_rate: Decimal | None = None,
+        provider: str | None = None,
+        notes: str | None = None,
+        status: str | None = None,
+        updated_by: UUID | None = None,
+    ) -> ExchangeRateDTO | None:
+        self._check_authority(updated_by, "update_exchange_rate")
+        data = await self.forex_repo.update_rate_full(
+            rate_id=rate_id,
+            legal_entity_id=legal_entity_id,
+            rate=rate,
+            bid_rate=bid_rate,
+            ask_rate=ask_rate,
+            provider=provider,
+            notes=notes,
+            status=status,
+            updated_by=updated_by,
+        )
+        if not data:
+            return None
+        if self.uow is not None:
+            await self._commit()
+        return ExchangeRateDTO.from_dict(data)
+
+    async def deactivate_exchange_rate(
+        self, rate_id: UUID, legal_entity_id: UUID, reason: str, deactivated_by: UUID | None
+    ) -> ExchangeRateDTO | None:
+        self._check_authority(deactivated_by, "deactivate_exchange_rate")
+        data = await self.forex_repo.deactivate_rate_full(rate_id, legal_entity_id, reason, deactivated_by)
+        if not data:
+            return None
+        if self.uow is not None:
+            await self._commit()
+        return ExchangeRateDTO.from_dict(data)
+
+    async def lock_exchange_rate(self, rate_id: UUID, legal_entity_id: UUID, locked_by: UUID) -> ExchangeRateDTO | None:
+        self._check_authority(locked_by, "lock_exchange_rate")
+        data = await self.forex_repo.set_rate_lock(rate_id, legal_entity_id, True, locked_by)
+        if not data:
+            return None
+        if self.uow is not None:
+            await self._commit()
+        return ExchangeRateDTO.from_dict(data)
+
+    async def unlock_exchange_rate(self, rate_id: UUID, legal_entity_id: UUID, unlocked_by: UUID) -> ExchangeRateDTO | None:
+        self._check_authority(unlocked_by, "unlock_exchange_rate")
+        data = await self.forex_repo.set_rate_lock(rate_id, legal_entity_id, False, unlocked_by)
+        if not data:
+            return None
+        if self.uow is not None:
+            await self._commit()
+        return ExchangeRateDTO.from_dict(data)
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 
@@ -220,7 +439,7 @@ class ForexService:
         )
 
         await self.forex_repo.save_rate(rate_entry)
-        await self.uow.commit()
+        await self._commit()
 
         if self.cache:
             cache_key = f"forex:rate:{from_currency}:{to_currency}:{rate_date.isoformat()}"
@@ -317,7 +536,7 @@ class ForexService:
             description=description,
             created_by=user_id,
         )
-        await self.uow.commit()
+        await self._commit()
 
         if self._event_publisher and difference != 0:
             try:
@@ -392,7 +611,7 @@ class ForexService:
             results.append(result)
 
         await self.forex_repo.mark_period_revalued(legal_entity_id, period_id)
-        await self.uow.commit()
+        await self._commit()
 
         if self._event_publisher and results:
             total_diff = sum(r.difference for r in results)
@@ -526,7 +745,7 @@ class ForexService:
                     logger.warning(f"Failed to publish JournalPostedEvent: {e}")
 
         await self.forex_repo.mark_period_closed(legal_entity_id, period_id, user_id)
-        await self.uow.commit()
+        await self._commit()
 
         self._record_audit("close_period_forex", {
             "legal_entity_id": str(legal_entity_id),

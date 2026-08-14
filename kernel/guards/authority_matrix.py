@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class _FallbackUserRepository:
     """In-memory user repository untuk fallback."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._user_roles: dict[str, list[str]] = {
             "admin": ["admin"],
             "maker": ["maker"],
@@ -52,11 +52,11 @@ class _FallbackUserRepository:
     async def get_legal_entities(self, user_id: str) -> list[UUID]:
         return self._user_entities.get(user_id, [])
 
-    def set_user_roles(self, user_id: str, roles: list[str]):
+    def set_user_roles(self, user_id: str, roles: list[str]) -> None:
         self._user_roles[user_id] = roles
 
 
-def _get_user_repository():
+def _get_user_repository() -> _FallbackUserRepository:
     # Selalu gunakan fallback in-memory untuk isolasi kernel
     logger.info("Using in-memory fallback for user repository (no infrastructure)")
     return _FallbackUserRepository()
@@ -592,7 +592,7 @@ class AuthorityMatrixGuard(BaseAuthorityMatrixGuard):
             if cache_key in self._permission_cache:
                 return self._permission_cache[cache_key]
 
-        permissions = set()
+        permissions: set[tuple] = set()  # FIX: tambahkan type annotation untuk mypy
         role = self._roles.get(role_name)
         if not role:
             return permissions
@@ -633,7 +633,7 @@ class AuthorityMatrixGuard(BaseAuthorityMatrixGuard):
             if perm_conditions and not self._check_conditions(perm_conditions, context):
                 continue
 
-            # Scope validation - FIX: SIM102 - gabungkan nested if untuk LEGAL_ENTITY
+            # Scope validation
             if perm_scope == PermissionScope.SELF:
                 if target_entity_id and current_entity and target_entity_id != current_entity:
                     continue
@@ -657,7 +657,7 @@ class AuthorityMatrixGuard(BaseAuthorityMatrixGuard):
                     (op == "lte" and actual <= value)
                     or (op == "gte" and actual >= value)
                     or (op == "eq" and actual == value)
-                    or (op == "in" and actual in value)
+                    or (op == "in" and actual in value)  # type: ignore[operator]
                 ):
                     continue
                 else:
@@ -891,7 +891,6 @@ class AuthorityMatrix:
             role_names = ["guest"]
 
         permission = f"{resource}:{action}"
-        # FIX: SIM110 - gunakan any() sebagai ganti for loop
         return any(self.has_permission(role_name, permission) for role_name in role_names)
 
     def get_permissions_for_role(self, role_name: str) -> list[str]:

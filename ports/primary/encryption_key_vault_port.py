@@ -367,7 +367,7 @@ class InMemoryEncryptionKeyVault(EncryptionKeyVaultPort):
     async def delete_key(self, key_id: str, version: str | None = None) -> bool:
         async with self._lock:
             if version is None:
-                to_delete = [k for k in self._keys.keys() if k.startswith(f"{key_id}:")]
+                to_delete = [k for k in self._keys if k.startswith(f"{key_id}:")]
                 for full in to_delete:
                     del self._keys[full]
                     if full in self._metadata:
@@ -386,7 +386,7 @@ class InMemoryEncryptionKeyVault(EncryptionKeyVaultPort):
                 if full in self._metadata:
                     self._metadata[full].status = KeyStatus.DESTROYED
                 if self._key_aliases.get(key_id) == full:
-                    remaining = [k for k in self._keys.keys() if k.startswith(f"{key_id}:")]
+                    remaining = [k for k in self._keys if k.startswith(f"{key_id}:")]
                     if remaining:
                         latest = sorted(
                             remaining,

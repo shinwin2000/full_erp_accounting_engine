@@ -61,7 +61,7 @@ class EmployeeRepositoryPort(ABC):
 
     @abstractmethod
     async def restore(self, employee_id: UUID, user_id: UUID) -> bool:
-        """Restore karyawan yang di‑soft delete."""
+        """Restore karyawan yang di-soft delete."""
         pass
 
     @abstractmethod

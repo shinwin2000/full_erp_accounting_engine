@@ -583,9 +583,13 @@ class InMemoryARRepository(ARRepositoryPort):
                 and invoice.id in self._status_index[invoice.status]
             ):
                 self._status_index[invoice.status].remove(invoice.id)
-            if invoice.sales_order_id and invoice.sales_order_id in self._so_index:
-                if invoice.id in self._so_index[invoice.sales_order_id]:
-                    self._so_index[invoice.sales_order_id].remove(invoice.id)
+            # Gabungkan nested if (SIM102)
+            if (
+                invoice.sales_order_id
+                and invoice.sales_order_id in self._so_index
+                and invoice.id in self._so_index[invoice.sales_order_id]
+            ):
+                self._so_index[invoice.sales_order_id].remove(invoice.id)
             del self._storage[invoice_id]
             await self._log_audit("DELETE_PERMANENT", invoice_id, user_id, {})
         else:
@@ -755,25 +759,30 @@ class InMemoryARRepository(ARRepositoryPort):
     ) -> list[ARInvoice]:
         result = []
         for inv in self._storage.values():
-            if inv.legal_entity_id == legal_entity_id and inv.status in (
-                ARInvoiceStatus.APPROVED,
-                ARInvoiceStatus.PARTIALLY_PAID,
+            # Gabungkan nested if (SIM102)
+            if (
+                inv.legal_entity_id == legal_entity_id
+                and inv.status in (ARInvoiceStatus.APPROVED, ARInvoiceStatus.PARTIALLY_PAID)
+                and inv.due_date < as_of_date
+                and inv.outstanding_amount > 0
             ):
-                if inv.due_date < as_of_date and inv.outstanding_amount > 0:
-                    result.append(inv)
+                result.append(inv)
         return sorted(result, key=lambda x: x.due_date)
 
     async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
         total = Decimal(0)
         for inv in self._storage.values():
-            if inv.customer_id == customer_id:
-                if inv.status in (
+            # Gabungkan nested if (SIM102)
+            if (
+                inv.customer_id == customer_id
+                and inv.status in (
                     ARInvoiceStatus.APPROVED,
                     ARInvoiceStatus.PARTIALLY_PAID,
                     ARInvoiceStatus.DISPUTED,
-                ):
-                    if inv.due_date <= as_of_date:
-                        total += inv.outstanding_amount
+                )
+                and inv.due_date <= as_of_date
+            ):
+                total += inv.outstanding_amount
         return total
 
     async def find_by_status(
@@ -1030,6 +1039,7 @@ class InMemoryARRepository(ARRepositoryPort):
 # Untuk backward compatibility: aliases di-prefix underscore agar tidak ter-discard sebagai port.
 # Jika digunakan di test, import secara eksplisit atau gunakan InMemoryARRepository langsung.
 _ARRepository = InMemoryARRepository
+ARRepository = InMemoryARRepository  # Tambahkan agar tersedia di __all__
 
 # Alias untuk test compatibility
 ArRepositoryPort = ARRepositoryPort

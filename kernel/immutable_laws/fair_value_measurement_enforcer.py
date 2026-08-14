@@ -1252,10 +1252,18 @@ class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "message": violation.message,
-                "severity": violation.severity.name,
-            })
+            # Use getattr to safely access attributes that may not exist
+            user_id = getattr(violation, "user_id", None) or "system"
+            message = getattr(violation, "message", str(violation))
+            severity = getattr(violation, "severity", LawViolationSeverity.MEDIUM)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "message": message,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_violations(
         self,
@@ -1280,14 +1288,22 @@ class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
                     "version": self._version,
                 }
 
-            by_hierarchy = {}
+            by_hierarchy: dict[str, int] = {}  # type annotation added
             for m in self._measurement_history:
                 level = f"LEVEL_{m.hierarchy_level.value}"
                 by_hierarchy[level] = by_hierarchy.get(level, 0) + 1
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}  # type annotation added
             for v in self._violation_history:
-                by_severity[v.severity.name] = by_severity.get(v.severity.name, 0) + 1
+                sev_name = v.severity.name if hasattr(v, "severity") else str(v.severity)
+                by_severity[sev_name] = by_severity.get(sev_name, 0) + 1
+
+            # Safely get timestamp from latest violation if exists
+            latest_violation_ts = None
+            if self._violation_history:
+                latest_v = self._violation_history[-1]
+                if hasattr(latest_v, "timestamp"):
+                    latest_violation_ts = latest_v.timestamp.isoformat()
 
             return {
                 "total_measurements": total_measurements,
@@ -1302,9 +1318,7 @@ class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
                 "latest_measurement": self._measurement_history[-1].measurement_date.isoformat()
                 if self._measurement_history
                 else None,
-                "latest_violation": self._violation_history[-1].timestamp.isoformat()
-                if self._violation_history
-                else None,
+                "latest_violation": latest_violation_ts,
             }
 
     def reset(self) -> None:

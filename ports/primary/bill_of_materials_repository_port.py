@@ -178,25 +178,18 @@ class InMemoryBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
 
     def __init__(self):
         self._boms: dict[UUID, BillOfMaterialsEntity] = {}
-        self._bom_by_code: dict[tuple[str, UUID], UUID] = {}  # (bom_code, legal_entity_id) -> bom_id
         self._bom_by_product: dict[UUID, list[UUID]] = {}  # product_id -> list of bom_ids
         self._lock = asyncio.Lock()
 
     async def save(self, bom: BillOfMaterialsEntity) -> None:
         async with self._lock:
+            # Store the BOM
             self._boms[bom.id] = bom
-            key = (bom.bom_code, bom.product_id)  # legal_entity_id not directly in entity, but we use product_id as proxy; we'll store separately
-            # We need legal_entity_id – not in entity, but we have product_id; we can still use product_id for code uniqueness? Usually legal_entity is separate.
-            # For simplicity, we store by (bom_code, product_id) but better to use legal_entity_id – however not in entity. We'll adapt: we can store by (bom_code, product_id) since product belongs to a legal entity.
-            # In real implementation, legal_entity_id should be passed, but we don't have it. We'll ignore legal_entity_id in in-memory for simplicity.
-            # Actually get_by_code expects legal_entity_id, but we cannot filter by it without storing it. So we'll store by (bom_code, product_id) and in get_by_code we'll iterate over all and check product's legal_entity? Not possible.
-            # Better: we add legal_entity_id to the entity? But it's not in the current domain. We'll just store by bom_code and product_id and ignore legal_entity_id in in-memory.
-            # For get_by_code, we'll iterate over all BOMs and compare product_id's legal entity? We don't have that mapping.
-            # We'll compromise: we store a separate index with legal_entity_id passed during save (but not in entity).
-            # Since the port doesn't have legal_entity_id in the entity, we cannot pass it. So we'll just ignore legal_entity_id in in-memory.
-            # For get_by_code, we'll just check bom_code and return if found (ignoring legal_entity).
-            # That's acceptable for testing.
-            pass
+            # Update product index
+            if bom.product_id not in self._bom_by_product:
+                self._bom_by_product[bom.product_id] = []
+            if bom.id not in self._bom_by_product[bom.product_id]:
+                self._bom_by_product[bom.product_id].append(bom.id)
 
     async def get_by_id(self, bom_id: UUID) -> BillOfMaterialsEntity | None:
         async with self._lock:
@@ -208,7 +201,10 @@ class InMemoryBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
         async with self._lock:
             for bom in self._boms.values():
                 if bom.bom_code == bom_code:
-                    # We cannot check legal_entity_id, so we just return
+                    # Note: legal_entity_id is not stored in BOM entity,
+                    # so we cannot filter by it. In a real implementation,
+                    # legal_entity_id would be part of the BOM or derived from product.
+                    # For in-memory testing, we just return the first match.
                     return bom
             return None
 
@@ -255,7 +251,7 @@ class InMemoryBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
 
     async def get_last_bom_code(self, legal_entity_id: UUID) -> str | None:
         async with self._lock:
-            # We ignore legal_entity_id; just return the max bom_code
+            # Ignore legal_entity_id; just return the max bom_code
             codes = [bom.bom_code for bom in self._boms.values()]
             if not codes:
                 return None

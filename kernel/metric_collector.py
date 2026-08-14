@@ -181,7 +181,19 @@ class MetricCollector(BaseMetricCollector):
 
     _instance: MetricCollector | None = None
     _lock = threading.Lock()
-    _initialized: bool  # Deklarasi tipe untuk mypy
+    _initialized: bool
+
+    # Deklarasi tipe atribut untuk mypy (dengan __slots__)
+    _audit_trail: list[dict[str, Any]]
+    _counters: dict[str, int]
+    _enabled: bool
+    _gauges: dict[str, float]
+    _histograms: dict[str, list[float]]
+    _lock_internal: threading.RLock
+    _max_histogram_samples: int
+    _metric_definitions: dict[str, Metric]
+    _snapshots: list[dict[str, Any]]
+    _version: int
 
     __slots__ = (
         "_audit_trail",
@@ -380,12 +392,13 @@ class MetricCollector(BaseMetricCollector):
     def get_all_metrics(self) -> dict[str, Any]:
         result: dict[str, Any] = {"counters": {}, "gauges": {}, "histograms": {}}
         with self._lock_internal:
-            for key, value in self._counters.items():
+            # Perbaikan: membedakan nama variabel untuk menghindari error Mypy
+            for key, counter_val in self._counters.items():
                 name, labels = self._parse_key(key)
-                result["counters"][key] = {"value": value, "name": name, "labels": labels}
-            for key, value in self._gauges.items():
+                result["counters"][key] = {"value": counter_val, "name": name, "labels": labels}
+            for key, gauge_val in self._gauges.items():
                 name, labels = self._parse_key(key)
-                result["gauges"][key] = {"value": value, "name": name, "labels": labels}
+                result["gauges"][key] = {"value": gauge_val, "name": name, "labels": labels}
             for key in self._histograms.keys():
                 name, labels = self._parse_key(key)
                 stats = self.get_histogram_stats(name, labels)
@@ -399,14 +412,17 @@ class MetricCollector(BaseMetricCollector):
         lines.append("# HELP kernel_metrics Metrics from kernel layer")
         lines.append("# TYPE kernel_metrics summary")
         with self._lock_internal:
-            for key, value in self._counters.items():
+            # Counter values are integers
+            for key, counter_value in self._counters.items():
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
-                lines.append(f"{name}_total{label_str} {value}")
-            for key, value in self._gauges.items():
+                lines.append(f"{name}_total{label_str} {counter_value}")
+            # Gauge values are floats
+            for key, gauge_value in self._gauges.items():
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
-                lines.append(f"{name}{label_str} {value}")
+                lines.append(f"{name}{label_str} {gauge_value}")
+            # Histogram stats
             for key in self._histograms.keys():
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""

@@ -109,7 +109,6 @@ class _FallbackLedgerRepository:
     ) -> dict[str, Decimal]:
         result = {}
         for (le, pid, acc), bal in self._balances.items():
-            # Gabungkan dua kondisi menjadi satu (SIM102)
             if le == legal_entity_id and pid == period_id and (account_prefix is None or acc.startswith(account_prefix)):
                 result[acc] = bal
         return result
@@ -1076,10 +1075,17 @@ class GLSupremacyEnforcer(BaseGLSupremacyEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "account_code": violation.account_code,
-                "severity": violation.severity.name,
-            })
+            # Use getattr to safely access attributes that may not exist
+            user_id = getattr(violation, "user_id", None) or "system"
+            severity = getattr(violation, "severity", LawViolationSeverity.CRITICAL)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "account_code": violation.account_code,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_reconciliation_history(
         self,
@@ -1142,7 +1148,7 @@ class GLSupremacyEnforcer(BaseGLSupremacyEnforcer):
                 ]
             )
 
-            by_subledger = {}
+            by_subledger: dict[str, int] = {}
             for r in self._reconciliation_history:
                 st = r.subledger_type.value
                 by_subledger[st] = by_subledger.get(st, 0) + 1

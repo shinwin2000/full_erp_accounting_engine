@@ -1,11 +1,11 @@
 # ports/primary/__init__.py
-from __future__ import annotations
-
 """Package ports.primary - Antarmuka (abstraksi) untuk use case dan repository.
 
 Layer ini mendefinisikan port yang diimplementasikan oleh adapter (primary dan secondary).
 Semua port bersifat abstract base class atau protocol.
 """
+
+from __future__ import annotations
 
 from .account_repository_port import AccountRepositoryPort
 from .ap_repository_port import APRepositoryPort

@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import secrets
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from enum import Enum
@@ -32,6 +33,8 @@ from application.service_layer.service_iam import (
     AuthenticationError,
     CreateUserRequest,
     IAMService,
+    MFAError,
+    MFARequiredError,
     RoleNotFoundError,
     UserNotFoundError,
 )
@@ -1124,6 +1127,60 @@ async def unlock_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.post(
+    "/iam/users/{user_id}/reset-password",
+    response_model=dict[str, str],
+    summary="Admin: reset password user lain secara paksa",
+    operation_id="admin_reset_user_password",
+)
+async def admin_reset_user_password(
+    user_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("iam:user_lock")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    session: AsyncSession = Depends(get_db_session),
+    service: IAMService = Depends(get_iam_service),
+) -> dict[str, str]:
+    """FIX BUG: tombol 'Reset Password' di halaman Pengguna & Role
+    (erp_frontend/ui/pages/iam_users_page.py, ActionSpec path_suffix
+    '/reset-password') sebelumnya memanggil endpoint yang TIDAK ADA sama
+    sekali di router ini - selalu 404. IAMService.reset_password() (admin
+    force-reset) sebenarnya sudah lengkap, cuma belum pernah di-wire ke
+    endpoint HTTP. User target akan diwajibkan ganti password saat login
+    berikutnya (must_change_password=True, lihat repo.change_password)."""
+    service.set_context(session, legal_entity_id)
+
+    method_name = "admin_reset_user_password"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            return cached
+
+    try:
+        temp_password = secrets.token_urlsafe(9)  # ~12 karakter, cukup entropi utk password sementara
+        await service.reset_password(
+            user_id=user_id,
+            new_password=temp_password,
+            reset_by=current_user.user_id,
+            correlation_id=idempotency_key,
+        )
+        response = {
+            "message": "Password berhasil direset. User wajib ganti password saat login berikutnya.",
+            "temporary_password": temp_password,
+        }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except AuthenticationError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Failed to admin-reset password: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # ----------------------------------------------------------------------------
 # ROLE MANAGEMENT
 # ----------------------------------------------------------------------------
@@ -1919,6 +1976,9 @@ async def login(
                 version=result.user.audit.version,
             ),
         )
+    except MFARequiredError as e:
+        logger.warning(f"Login failed: MFA required/invalid - {e!s}")
+        raise HTTPException(status_code=422, detail=str(e))
     except AuthenticationError as e:
         logger.warning(f"Login failed: AuthenticationError - {e!s}")
         raise HTTPException(status_code=401, detail="Invalid username or password")
@@ -1993,7 +2053,7 @@ async def refresh_token(
 
 
 @router.post(
-    "/change-password",
+    "/iam/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Change own password",
     operation_id="change_password",
@@ -2029,7 +2089,7 @@ async def change_password(
 
 
 @router.post(
-    "/forgot-password",
+    "/iam/forgot-password",
     response_model=ForgotPasswordResponseSchema,
     summary="Request password reset",
     operation_id="forgot_password",
@@ -2043,20 +2103,15 @@ async def forgot_password(
     service.set_context(session, legal_entity_id)
 
     try:
-        # IAMService tidak punya forgot_password, tapi kita bisa implement dummy
-        logger.warning("forgot_password not implemented in IAMService")
-        return ForgotPasswordResponseSchema(
-            message="Password reset link sent (dummy)",
-            reset_token=None,
-            reset_url=None,
-        )
+        result = await service.request_password_reset(email=request.email)
+        return ForgotPasswordResponseSchema(**result)
     except Exception as e:
         logger.exception(f"Reset request failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
-    "/reset-password",
+    "/iam/reset-password",
     response_model=dict[str, str],
     summary="Reset password with token",
     operation_id="reset_password",
@@ -2070,9 +2125,10 @@ async def reset_password(
     service.set_context(session, legal_entity_id)
 
     try:
-        # IAMService tidak punya reset_password, dummy
-        logger.warning("reset_password not implemented in IAMService")
-        return {"message": "Password reset successfully (dummy)"}
+        await service.confirm_password_reset(token=request.token, new_password=request.new_password)
+        return {"message": "Password berhasil direset. Silakan login dengan password baru."}
+    except AuthenticationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Reset failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2083,7 +2139,7 @@ async def reset_password(
 # ----------------------------------------------------------------------------
 
 @router.post(
-    "/mfa/setup",
+    "/iam/mfa/setup",
     response_model=MFASetupResponseSchema,
     summary="Setup MFA",
     operation_id="setup_mfa",
@@ -2097,16 +2153,19 @@ async def setup_mfa(
     service.set_context(session, legal_entity_id)
 
     try:
-        # IAMService tidak punya setup_mfa, dummy
-        logger.warning("setup_mfa not implemented in IAMService")
-        raise HTTPException(status_code=501, detail="MFA not implemented")
+        result = await service.setup_mfa(user_id=current_user.user_id, username=current_user.username)
+        return MFASetupResponseSchema(**result)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except MFAError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"MFA setup failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
-    "/mfa/verify",
+    "/iam/mfa/verify",
     response_model=dict[str, bool],
     summary="Verify and enable MFA",
     operation_id="verify_mfa",
@@ -2121,15 +2180,23 @@ async def verify_mfa(
     service.set_context(session, legal_entity_id)
 
     try:
-        logger.warning("verify_mfa not implemented in IAMService")
-        raise HTTPException(status_code=501, detail="MFA not implemented")
+        enabled = await service.verify_and_enable_mfa(user_id=current_user.user_id, code=request.code)
+        if not enabled:
+            raise HTTPException(status_code=422, detail="Kode MFA tidak valid")
+        return {"enabled": True}
+    except HTTPException:
+        raise
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except MFAError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"MFA verification failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
-    "/mfa/disable",
+    "/iam/mfa/disable",
     response_model=dict[str, bool],
     summary="Disable MFA",
     operation_id="disable_mfa",
@@ -2144,8 +2211,16 @@ async def disable_mfa(
     service.set_context(session, legal_entity_id)
 
     try:
-        logger.warning("disable_mfa not implemented in IAMService")
-        raise HTTPException(status_code=501, detail="MFA not implemented")
+        await service.disable_mfa(
+            user_id=current_user.user_id,
+            password=request.password,
+            mfa_code=request.mfa_code,
+        )
+        return {"enabled": False}
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except MFAError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception(f"MFA disable failed: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2170,13 +2245,8 @@ async def get_user_sessions(
     service.set_context(session, legal_entity_id)
 
     try:
-        # IAMService belum punya penyimpanan sesi, return kosong
-        logger.warning(
-            "get_user_sessions dipanggil tapi IAMService belum punya "
-            "penyimpanan sesi login — balikin list kosong (fitur belum "
-            "diimplementasikan)."
-        )
-        return []
+        sessions = await service.get_user_sessions(current_user.user_id)
+        return [SessionResponseSchema.model_validate(s) for s in sessions]
     except Exception as e:
         logger.exception(f"Failed to get user sessions: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2198,9 +2268,12 @@ async def revoke_session(
     service.set_context(session, legal_entity_id)
 
     try:
-        # IAMService tidak punya revoke_session
-        logger.warning("revoke_session not implemented in IAMService")
+        ok = await service.revoke_session(session_id, current_user.user_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Sesi tidak ditemukan")
         return None
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Failed to revoke session: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2221,8 +2294,14 @@ async def revoke_all_other_sessions(
     service.set_context(session, legal_entity_id)
 
     try:
-        # IAMService tidak punya revoke_all_other_sessions
-        logger.warning("revoke_all_other_sessions not implemented in IAMService")
+        # CATATAN ARSITEKTUR: token JWT (bearer) tidak membawa session_id dari
+        # tabel iam_session (auth-nya stateless), jadi backend tidak bisa tahu
+        # persis "sesi yang sedang dipakai request ini" secara pasti. Sebagai
+        # pendekatan yang wajar: sesi TERBARU (last_accessed_at paling baru)
+        # dianggap sebagai sesi aktif saat ini dan tidak ikut di-revoke.
+        existing = await service.get_user_sessions(current_user.user_id)
+        keep_id = existing[0].id if existing else None
+        await service.revoke_all_other_sessions(current_user.user_id, keep_session_id=keep_id)
         return None
     except Exception as e:
         logger.exception(f"Failed to revoke all other sessions: {type(e).__name__}")
@@ -2254,12 +2333,27 @@ async def get_login_attempts(
     service.set_context(session, legal_entity_id)
 
     try:
-        logger.warning(
-            "get_login_attempts dipanggil tapi IAMService belum punya "
-            "penyimpanan riwayat percobaan login — balikin list kosong "
-            "(fitur belum diimplementasikan)."
+        attempts = await service.get_login_attempts(
+            username=username,
+            success=success,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            page_size=page_size,
         )
-        return []
+        return [
+            LoginAttemptResponseSchema(
+                id=a.id,
+                username=a.username,
+                user_id=getattr(a, "user_id", None),
+                ip_address=a.ip_address,
+                user_agent=getattr(a, "user_agent", None),
+                success=a.success,
+                failure_reason=a.failure_reason,
+                attempted_at=a.attempted_at,
+            )
+            for a in attempts
+        ]
     except Exception as e:
         logger.exception(f"Failed to get login attempts: {type(e).__name__}")
         raise HTTPException(status_code=500, detail="Internal server error")

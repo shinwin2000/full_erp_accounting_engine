@@ -11,6 +11,7 @@ Responsibility:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import logging
 import os
@@ -206,10 +207,8 @@ class ApplicationFactory:
             except Exception as e:
                 logger.warning(f"Kafka initialization failed: {e}. Running in degraded mode.")
                 if self._kafka_producer is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         await self._kafka_producer.stop()
-                    except Exception:
-                        pass
                     self._kafka_producer = None
                 self._kafka_consumer = None
         else:

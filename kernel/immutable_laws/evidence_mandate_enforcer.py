@@ -119,7 +119,6 @@ class _FallbackEvidenceRepository:
         legal_entity_id: UUID,
         detached_by: str,
     ) -> bool:
-        # Gabungkan nested if menjadi satu (SIM102)
         if journal_id in self._journal_links and evidence_id in self._journal_links[journal_id]:
             self._journal_links[journal_id].remove(evidence_id)
             logger.info(
@@ -881,7 +880,6 @@ class EvidenceMandateEnforcer(BaseEvidenceMandateEnforcer):
             return True, None
 
         effective_mandatory = requirement.is_mandatory
-        # Gabungkan nested if menjadi satu (SIM102)
         if (
             not effective_mandatory
             and requirement.amount_threshold
@@ -1232,10 +1230,18 @@ class EvidenceMandateEnforcer(BaseEvidenceMandateEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "journal_type": violation.journal_type,
-                "severity": violation.severity.name,
-            })
+            # Use getattr to safely access attributes that may not exist
+            user_id = getattr(violation, "user_id", None) or "system"
+            journal_type = getattr(violation, "journal_type", "unknown")
+            severity = getattr(violation, "severity", LawViolationSeverity.MEDIUM)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "journal_type": journal_type,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_violations(
         self,
@@ -1246,7 +1252,7 @@ class EvidenceMandateEnforcer(BaseEvidenceMandateEnforcer):
         with self._lock:
             result = self._violation_history[-limit:]
         if journal_type:
-            result = [v for v in result if v.journal_type == journal_type]
+            result = [v for v in result if getattr(v, "journal_type", "") == journal_type]
         if unresolved_only:
             result = [v for v in result if not getattr(v, "is_resolved", False)]
         return result
@@ -1262,14 +1268,16 @@ class EvidenceMandateEnforcer(BaseEvidenceMandateEnforcer):
                     "version": self._version,
                 }
 
-            by_journal_type = {}
+            by_journal_type: dict[str, int] = {}
             for v in self._violation_history:
-                jt = v.journal_type
+                jt = getattr(v, "journal_type", "unknown")
                 by_journal_type[jt] = by_journal_type.get(jt, 0) + 1
 
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for v in self._violation_history:
-                by_severity[v.severity.name] = by_severity.get(v.severity.name, 0) + 1
+                sev = getattr(v, "severity", LawViolationSeverity.MEDIUM)
+                sev_name = sev.name if hasattr(sev, "name") else str(sev)
+                by_severity[sev_name] = by_severity.get(sev_name, 0) + 1
 
             return {
                 "total_violations": total,

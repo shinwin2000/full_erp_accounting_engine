@@ -272,11 +272,9 @@ class TokenBucketRateLimiter:
         local refill_rate = tonumber(ARGV[2])
         local interval = tonumber(ARGV[3])
         local now = tonumber(ARGV[4])
-        
         local bucket = redis.call('hmget', key, 'tokens', 'last_refill')
         local tokens = tonumber(bucket[1])
         local last_refill = tonumber(bucket[2])
-        
         if tokens == nil then
             tokens = capacity
             last_refill = now
@@ -286,7 +284,6 @@ class TokenBucketRateLimiter:
             tokens = math.min(capacity, tokens + refill)
             last_refill = last_refill + (math.floor(elapsed / interval) * interval)
         end
-        
         if tokens >= 1 then
             tokens = tokens - 1
             local ttl = math.ceil(capacity / refill_rate) * interval + 5

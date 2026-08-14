@@ -24,9 +24,22 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, insert, select
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    and_,
+    delete,
+    insert,
+    select,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -46,6 +59,36 @@ DEPRECIATION_METHOD_STRAIGHT_LINE = "straight_line"
 DEPRECIATION_METHOD_DECLINING_BALANCE = "declining_balance"
 DEPRECIATION_METHOD_SUM_OF_YEARS = "sum_of_years"
 DEPRECIATION_METHOD_UNITS_OF_PRODUCTION = "units_of_production"
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class FixedAssetNBVScheduleTable(Base):
+    __tablename__ = "fixed_asset_nbv_schedule"
+    __table_args__ = (
+        Index("idx_fa_nbv_asset", "asset_id"),
+        Index("idx_fa_nbv_period", "period_date"),
+        Index("idx_fa_nbv_legal_entity", "legal_entity_id"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    asset_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_date = Column(Date, nullable=False)
+    period_year = Column(Integer, nullable=False)
+    period_month = Column(Integer, nullable=False)
+    depreciation_amount = Column(Numeric(20, 2), nullable=False, default=0)
+    accumulated_depreciation = Column(Numeric(20, 2), nullable=False, default=0)
+    net_book_value = Column(Numeric(20, 2), nullable=False, default=0)
+    status = Column(String(20), nullable=False, default="projected")  # posted or projected
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -104,7 +147,6 @@ class FixedAssetNBVSchedule:
         depreciable_amount = acquisition_cost - residual_value
 
         method = asset.depreciation_method
-        rate = asset.depreciation_rate or Decimal("0.2")  # default 20%
 
         if method == DEPRECIATION_METHOD_STRAIGHT_LINE:
             return depreciable_amount / Decimal(total_periods)
@@ -426,39 +468,6 @@ class FixedAssetNBVSchedule:
         """
         await self.rebuild_for_asset(asset_id, legal_entity_id)
         logger.info(f"NBV schedule incrementally updated for asset {asset_id}")
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import Column, Date, DateTime, Index, Integer, Numeric, String
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class FixedAssetNBVScheduleTable(Base):
-    __tablename__ = "fixed_asset_nbv_schedule"
-    __table_args__ = (
-        Index("idx_fa_nbv_asset", "asset_id"),
-        Index("idx_fa_nbv_period", "period_date"),
-        Index("idx_fa_nbv_legal_entity", "legal_entity_id"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    asset_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_date = Column(Date, nullable=False)
-    period_year = Column(Integer, nullable=False)
-    period_month = Column(Integer, nullable=False)
-    depreciation_amount = Column(Numeric(20, 2), nullable=False, default=0)
-    accumulated_depreciation = Column(Numeric(20, 2), nullable=False, default=0)
-    net_book_value = Column(Numeric(20, 2), nullable=False, default=0)
-    status = Column(String(20), nullable=False, default="projected")  # posted or projected
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False)
-    updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
 # ============================================================================

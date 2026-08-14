@@ -1143,7 +1143,25 @@ async def create_consolidation_group(
 
 async def list_consolidation_groups(
 
-    is_active: bool | None = Query(None, description="Filter by active status"),
+    is_active: bool | None = Query(
+
+        True,
+
+        description=(
+
+            "Filter status aktif. Default True (hanya grup aktif) supaya grup yang "
+
+            "sudah di-nonaktifkan (tombol 'Hapus' di UI memanggil deactivate_group, "
+
+            "soft-delete - bukan hard delete) tidak lagi muncul di listing tanpa "
+
+            "perlu frontend mengirim parameter apapun. Kirim is_active=false untuk "
+
+            "lihat yang nonaktif, atau kosongkan nilainya (?is_active=) untuk semua."
+
+        ),
+
+    ),
 
     _permission: None = Depends(require_permission("consolidation:read")),
 

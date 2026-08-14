@@ -120,6 +120,11 @@ class UserAggregate:
     legal_entity_ids: list[UUID] = field(default_factory=list)
     role_ids: list[UUID] = field(default_factory=list)
     is_locked: bool = False  # convenience, dihitung dari locked_until
+    mfa_enabled: bool = False
+    mfa_secret: str | None = None
+    mfa_backup_codes: list[str] = field(default_factory=list)
+    password_reset_token_hash: str | None = None
+    password_reset_expires_at: datetime | None = None
 
 
 

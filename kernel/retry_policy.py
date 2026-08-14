@@ -133,6 +133,13 @@ class RetryPolicy(BaseRetryPolicy):
     custom_backoff_func: Callable[[int], float] | None = None
     backoff_factor: float = 2.0
 
+    # Deklarasi atribut instance (agar mypy mengenali)
+    _retry_count: int = field(init=False, default=0)
+    _current_delay: float = field(init=False, default=0.0)
+    _audit_trail: list[dict[str, Any]] = field(init=False, default_factory=list)
+    _snapshots: list[dict[str, Any]] = field(init=False, default_factory=list)
+    _version: int = field(init=False, default=1)
+
     def __post_init__(self):
         if self.max_retries < 0:
             raise ValueError("max_retries must be non-negative")
@@ -142,10 +149,11 @@ class RetryPolicy(BaseRetryPolicy):
             raise ValueError("max_delay_seconds must be positive")
         if self.strategy == RetryStrategy.CUSTOM and self.custom_backoff_func is None:
             raise ValueError("CUSTOM strategy requires custom_backoff_func")
+        # Inisialisasi ulang atribut yang mungkin sudah di-set oleh dataclass
         self._retry_count = 0
         self._current_delay = self.initial_delay_seconds
-        self._audit_trail: list[dict[str, Any]] = []
-        self._snapshots: list[dict[str, Any]] = []
+        self._audit_trail = []
+        self._snapshots = []
         self._version = 1
 
     @property
@@ -206,11 +214,12 @@ class RetryPolicy(BaseRetryPolicy):
         # context is ignored but kept for compatibility with base class
         # We need to wrap func to be a coroutine if it's not already
         async def wrapped() -> T:
-            # If func returns a coroutine, await it; otherwise return value directly
             result = func()
             if asyncio.iscoroutine(result):
                 return await result
-            return result  # type: ignore[return-value]  # mypy can't infer that result is T when not coroutine
+            # mypy tidak bisa menyimpulkan bahwa result adalah T jika bukan coroutine,
+            # kita gunakan cast atau type ignore, tapi lebih aman dengan cast
+            return result  # type: ignore[return-value]
 
         return await self.execute(wrapped)
 
@@ -331,7 +340,7 @@ class RetryPolicyService:
 
     _instance: RetryPolicyService | None = None
     _lock = asyncio.Lock()
-    _initialized: bool  # Tambahkan deklarasi tipe
+    _initialized: bool  # Deklarasi tipe
 
     def __new__(cls) -> RetryPolicyService:
         if cls._instance is None:
@@ -369,7 +378,6 @@ class RetryPolicyService:
         start_time = time.time()
         for attempt in range(policy.max_retries + 1):
             try:
-                # Executes func and handles coroutine if needed
                 result = func()
                 if asyncio.iscoroutine(result):
                     result = await result
@@ -541,9 +549,11 @@ class RetryPolicyService:
         }
 
     def get_default_policy(self) -> RetryPolicy:
+        """Get the default retry policy."""
         return self._default_policy
 
     def get_history(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get retry history."""
         return self._history[-limit:]
 
     # ==================== METODA ENTITY DASAR ====================

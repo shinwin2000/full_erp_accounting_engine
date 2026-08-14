@@ -58,7 +58,7 @@ _LAZY_MAP = {
     "get_credit_limit_enforcer": ("kernel.guards.credit_limit_enforcer", "get_credit_limit_enforcer"),
 }
 
-_cache = {}
+_cache: dict[str, Any] = {}  # Perbaikan: tambahkan anotasi tipe untuk mypy
 
 
 def __getattr__(name: str) -> Any:

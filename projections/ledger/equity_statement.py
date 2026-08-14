@@ -30,9 +30,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric, delete, func, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -78,6 +79,34 @@ class EquityStatementError(Exception):
     """Base exception untuk equity statement projection."""
 
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class EquityStatementTable(Base):
+    __tablename__ = "equity_statement"
+    __table_args__ = (
+        Index("idx_equity_stmt_legal_entity", "legal_entity_id"),
+        Index("idx_equity_stmt_dates", "start_date", "end_date"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    opening_total_equity = Column(Numeric(20, 2), nullable=False, default=0)
+    net_income = Column(Numeric(20, 2), nullable=False, default=0)
+    other_comprehensive_income = Column(Numeric(20, 2), nullable=False, default=0)
+    dividends_declared = Column(Numeric(20, 2), nullable=False, default=0)
+    closing_total_equity = Column(Numeric(20, 2), nullable=False, default=0)
+    changes_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -446,37 +475,6 @@ class EquityStatement:
 
             await self.rebuild_for_period(period.legal_entity_id, period_id)
             logger.info(f"Equity statement updated for period {period.period_name}")
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class EquityStatementTable(Base):
-    __tablename__ = "equity_statement"
-    __table_args__ = (
-        Index("idx_equity_stmt_legal_entity", "legal_entity_id"),
-        Index("idx_equity_stmt_dates", "start_date", "end_date"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    opening_total_equity = Column(Numeric(20, 2), nullable=False, default=0)
-    net_income = Column(Numeric(20, 2), nullable=False, default=0)
-    other_comprehensive_income = Column(Numeric(20, 2), nullable=False, default=0)
-    dividends_declared = Column(Numeric(20, 2), nullable=False, default=0)
-    closing_total_equity = Column(Numeric(20, 2), nullable=False, default=0)
-    changes_data = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

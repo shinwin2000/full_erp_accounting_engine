@@ -216,6 +216,7 @@ class ConsolidationService:
         self._le_repo = legal_entity_repo
         self._ledger_repo = ledger_repo
         self._uow = uow
+        self._session: AsyncSession | None = None
         self._event_publisher = event_publisher
         self._fx_translator = ForeignCurrencyTranslator()
         self._nci_calculator = NonControllingInterestCalculator()
@@ -246,6 +247,7 @@ class ConsolidationService:
         diperbaiki di modul Customer sebelumnya. Fix: cek lewat class
         (hasattr(type(obj), ...)), bukan lewat instance.
         """
+        self._session = session
         if hasattr(type(self._le_repo), "session"):
             self._le_repo.session = session
         if hasattr(type(self._cons_repo), "session"):
@@ -253,6 +255,23 @@ class ConsolidationService:
                 self._cons_repo.session = session
             except Exception:
                 pass
+
+    async def _commit(self) -> None:
+        """
+        Commit transaksi group CRUD.
+
+        CATATAN BUG (sama persis dengan yang sudah diperbaiki di
+        service_iam.py): self._uow (UnitOfWorkPort) di service ini TIDAK
+        PERNAH di-`begin()`/dimasuki lewat `async with self._uow:`, jadi
+        `self._uow.commit()` langsung selalu raise "UoW not started or
+        transaction not active". set_context() sudah mengikat session asli
+        (self._session) ke repo lewat DI, jadi commit session itu langsung
+        alih-alih lewat UoW yang tidak pernah aktif.
+        """
+        if self._session is not None:
+            await self._session.commit()
+        elif self._uow is not None:
+            await self._uow.commit()
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 
@@ -897,8 +916,7 @@ class ConsolidationService:
             functional_currency=functional_currency,
             fiscal_year_start=fiscal_year_start,
         )
-        if self._uow is not None:
-            await self._uow.commit()
+        await self._commit()
         data = await self._le_repo.get_consolidation_group_meta(group_id)
         parent_name = await self._resolve_parent_name(parent_entity_id)
         self._record_audit("create_group", {"group_id": str(group_id), "group_code": group_code})
@@ -942,8 +960,7 @@ class ConsolidationService:
         )
         if not data:
             return None
-        if self._uow is not None:
-            await self._uow.commit()
+        await self._commit()
         parent_name = await self._resolve_parent_name(data.get("parent_entity_id"))
         self._record_audit("update_group", {"group_id": str(group_id)})
         return self._group_dict_to_dto(data, parent_name)
@@ -954,8 +971,7 @@ class ConsolidationService:
         data = await self._le_repo.update_consolidation_group_meta(group_id=group_id, is_active=False, updated_by=updated_by)
         if not data:
             return None
-        if self._uow is not None:
-            await self._uow.commit()
+        await self._commit()
         self._record_audit("deactivate_group", {"group_id": str(group_id)})
         return self._group_dict_to_dto(data)
 
@@ -980,8 +996,7 @@ class ConsolidationService:
             notes=notes,
             added_by=added_by,
         )
-        if self._uow is not None:
-            await self._uow.commit()
+        await self._commit()
         self._record_audit("add_member", {"group_id": str(group_id), "legal_entity_id": str(legal_entity_id)})
         return ConsolidationGroupMemberDTO(
             id=UUID(data["id"]),
@@ -1002,8 +1017,7 @@ class ConsolidationService:
         entity_id = await self._le_repo.remove_consolidation_group_member(member_id, group_id, removed_by)
         if not entity_id:
             return None
-        if self._uow is not None:
-            await self._uow.commit()
+        await self._commit()
 
         entity_name = None
         if hasattr(self._le_repo, "get_by_id"):

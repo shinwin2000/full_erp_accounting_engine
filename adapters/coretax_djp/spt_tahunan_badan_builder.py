@@ -649,9 +649,9 @@ class SPTTahunanBadan:
             errors.append(
                 f"Kurang bayar tidak konsisten: expected {expected_kurang_bayar}, got {self._kurang_bayar}"
             )
-        if self._kurang_bayar > 0 and self._ntpn:
-            if not self._validate_ntpn_format(self._ntpn):
-                errors.append("Format NTPN tidak valid (harus 16 digit)")
+        # Gabungkan nested if menjadi satu (SIM102)
+        if self._kurang_bayar > 0 and self._ntpn and not self._validate_ntpn_format(self._ntpn):
+            errors.append("Format NTPN tidak valid (harus 16 digit)")
         if errors:
             raise SPTBadanValidationError("Validasi gagal: {}".format("; ".join(errors)))
         self._status = SPTStatus.VALIDATED
@@ -1317,11 +1317,10 @@ class SPTTahunanBadanBuilder:
         return f"spt_tahunan_badan:{npwp}:{tahun}"
 
     async def _get_cached(self, cache_key: str) -> dict[str, Any] | None:
-        ttl = self._load_config().get("coretax_djp", {}).get("spt_tahunan", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
+        # TTL is not used in this in-memory cache; we keep the method signature for potential future extension
         return self._cache.get(cache_key)
 
     async def _set_cached(self, cache_key: str, data: dict[str, Any]) -> None:
-        ttl = self._load_config().get("coretax_djp", {}).get("spt_tahunan", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         self._cache[cache_key] = data
 
     # ========================================================================

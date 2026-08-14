@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -61,12 +62,17 @@ iam_user_table = Table(
     Column("last_login_ip", String(45), nullable=True),
     Column("failed_login_count", Integer, nullable=False, default=0),
     Column("locked_until", DateTime(timezone=True), nullable=True),
+    Column("mfa_enabled", Boolean, nullable=False, default=False),
+    Column("mfa_secret", String(255), nullable=True),
+    Column("mfa_backup_codes", JSONB, nullable=True),
+    Column("password_reset_token_hash", String(255), nullable=True),
+    Column("password_reset_expires_at", DateTime(timezone=True), nullable=True),
     Column("preferences", JSONB, nullable=True),
     Column("user_metadata", JSONB, nullable=True),
     Column("legal_entity_ids", JSONB, nullable=True),
     Column("created_by", PGUUID(as_uuid=True), nullable=True),
     Column("created_at", DateTime(timezone=True), server_default="now()"),
-    Column("updated_at", DateTime(timezone=True), onupdate="now()"),
+    Column("updated_at", DateTime(timezone=True), onupdate=func.now()),
     Column("deleted_at", DateTime(timezone=True), nullable=True),
     Column("version", Integer, nullable=False, default=1),
     UniqueConstraint("username", name="uq_iam_user_username"),
@@ -75,6 +81,7 @@ iam_user_table = Table(
     Index("idx_iam_user_email", "email"),
     Index("idx_iam_user_status", "status"),
     Index("idx_iam_user_is_active", "is_active"),
+    Index("idx_iam_user_reset_token", "password_reset_token_hash"),
     extend_existing=True,
 )
 
@@ -88,7 +95,7 @@ iam_role_table = Table(
     Column("is_system_role", Boolean, nullable=False, default=False),
     Column("created_by", PGUUID(as_uuid=True), nullable=True),
     Column("created_at", DateTime(timezone=True), server_default="now()"),
-    Column("updated_at", DateTime(timezone=True), onupdate="now()"),
+    Column("updated_at", DateTime(timezone=True), onupdate=func.now()),
     Column("deleted_at", DateTime(timezone=True), nullable=True),
     UniqueConstraint("name", name="uq_iam_role_name"),
     Index("idx_iam_role_name", "name"),
@@ -105,7 +112,7 @@ iam_permission_table = Table(
     Column("action", String(50), nullable=False),
     Column("description", String(500), nullable=True),
     Column("created_at", DateTime(timezone=True), server_default="now()"),
-    Column("updated_at", DateTime(timezone=True), onupdate="now()"),
+    Column("updated_at", DateTime(timezone=True), onupdate=func.now()),
     UniqueConstraint("name", name="uq_iam_permission_name"),
     Index("idx_iam_permission_name", "name"),
     Index("idx_iam_permission_resource", "resource"),
@@ -120,9 +127,11 @@ iam_login_attempt_table = Table(
     Column("username", String(100), nullable=False),
     Column("success", Boolean, nullable=False, default=False),
     Column("ip_address", String(45), nullable=True),
+    Column("user_agent", String(500), nullable=True),
+    Column("failure_reason", String(255), nullable=True),
     Column("attempted_at", DateTime(timezone=True), nullable=False, server_default="now()"),
     Column("created_at", DateTime(timezone=True), server_default="now()"),
-    Column("updated_at", DateTime(timezone=True), onupdate="now()"),
+    Column("updated_at", DateTime(timezone=True), onupdate=func.now()),
     Index("idx_login_attempt_username", "username"),
     Index("idx_login_attempt_attempted_at", "attempted_at"),
     Index("idx_login_attempt_success", "success"),
@@ -145,7 +154,7 @@ iam_session_table = Table(
     Column("is_revoked", Boolean, nullable=False, default=False),
     Column("revoke_reason", String(255), nullable=True),
     Column("created_at", DateTime(timezone=True), server_default="now()"),
-    Column("updated_at", DateTime(timezone=True), onupdate="now()"),
+    Column("updated_at", DateTime(timezone=True), onupdate=func.now()),
     UniqueConstraint("session_token", name="uq_iam_session_token"),
     UniqueConstraint("refresh_token", name="uq_iam_session_refresh_token"),
     Index("idx_iam_session_user", "user_id"),
@@ -195,7 +204,21 @@ iam_user_legal_entity_table = iam_user_legal_entity
 # 2. ORM CLASSES
 # ============================================================================
 
-class IAMUserTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
+class IAMUserTable(Base, TimestampMixin, SoftDeleteMixin):
+    # FIX BUG: sebelumnya class ini juga inherit VersionMixin, yang
+    # mendeklarasikan kolom "version" sendiri lewat mapped_column() -
+    # padahal __table__ (iam_user_table) di atas SUDAH punya kolom
+    # "version" sendiri (Column("version", Integer, ...)). Konflik
+    # duplikat ini bikin mapper.version_id_col menunjuk ke Column yang
+    # sebenarnya tidak pernah termapping ke class ini, sehingga SETIAP
+    # kali ORM flush IAMUserTable (misal ganti password), muncul
+    # "UnmappedColumnError: No column (no name) is configured on mapper".
+    # App ini sudah punya optimistic locking manual sendiri (lihat
+    # OptimisticLockError di repository, dicek pakai perbandingan
+    # user.version vs current_version secara eksplisit) jadi
+    # VersionMixin (yang pakai mekanisme version_id_col bawaan
+    # SQLAlchemy) memang tidak pernah benar-benar dipakai di sini -
+    # aman dihapus.
     __table__ = iam_user_table
 
     roles: Mapped[list[IAMRoleTable]] = relationship(
@@ -357,6 +380,8 @@ class LoginAttemptTable(Base, TimestampMixin):
             "username": self.username,
             "success": self.success,
             "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
+            "failure_reason": self.failure_reason,
             "attempted_at": self.attempted_at.isoformat(),
         }
 

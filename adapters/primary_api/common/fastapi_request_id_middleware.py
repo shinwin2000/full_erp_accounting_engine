@@ -161,10 +161,8 @@ class CorrelationIdHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         # Tambahkan atribut request_id ke log record
         request_id = RequestIDContext.get()
-        if request_id:
-            # Gunakan filter atau tambahkan ke extra
-            if not hasattr(record, "request_id"):
-                record.request_id = request_id
+        if request_id and not hasattr(record, "request_id"):
+            record.request_id = request_id
         # Forward ke target handler
         self.target_handler.emit(record)
 

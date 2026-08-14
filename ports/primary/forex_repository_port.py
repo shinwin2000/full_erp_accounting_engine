@@ -154,6 +154,74 @@ class ForexRepositoryPort(abc.ABC):
         """Cek apakah periode forex sudah tertutup."""
         raise NotImplementedError
 
+    # --------------------------------------------------------------------
+    # Exchange Rate CRUD lengkap (dict-based - dipakai ForexService untuk
+    # list/create/get/update/deactivate/lock/unlock, beda dari
+    # get_rate/save_rate di atas yang cuma pakai ExchangeRateEntity minim
+    # dan dipakai jalur revaluasi/konversi lama).
+    # --------------------------------------------------------------------
+    @abc.abstractmethod
+    async def create_rate_full(
+        self,
+        legal_entity_id: UUID,
+        from_currency: str,
+        to_currency: str,
+        rate: Decimal,
+        rate_type: str,
+        effective_date: date,
+        provider: str,
+        bid_rate: Decimal | None,
+        ask_rate: Decimal | None,
+        notes: str | None,
+        created_by: UUID | None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def list_rates_full(
+        self,
+        legal_entity_id: UUID,
+        from_currency: str | None = None,
+        to_currency: str | None = None,
+        rate_type: str | None = None,
+        effective_date: date | None = None,
+        provider: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_rate_by_id_full(self, rate_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def update_rate_full(
+        self,
+        rate_id: UUID,
+        legal_entity_id: UUID,
+        rate: Decimal | None = None,
+        bid_rate: Decimal | None = None,
+        ask_rate: Decimal | None = None,
+        provider: str | None = None,
+        notes: str | None = None,
+        status: str | None = None,
+        updated_by: UUID | None = None,
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def deactivate_rate_full(
+        self, rate_id: UUID, legal_entity_id: UUID, reason: str, deactivated_by: UUID | None
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def set_rate_lock(
+        self, rate_id: UUID, legal_entity_id: UUID, is_locked: bool, actor_id: UUID | None
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
 
 class ForexRepositoryPortProtocol(Protocol):
     """Protocol version for structural typing."""

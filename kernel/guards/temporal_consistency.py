@@ -45,7 +45,7 @@ class _FallbackTransactionRepository:
     Menyimpan tanggal transaksi terakhir per legal entity dalam memory.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._last_transaction_by_entity: dict[UUID, datetime] = {}
         self._transaction_count_by_entity: dict[UUID, int] = {}
         self._all_transactions: list[dict[str, Any]] = []  # untuk history sederhana
@@ -659,6 +659,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
             severity = TemporalConsistencyValidator.get_severity(
                 abs_days, violation_type, self._max_backdate_days
             )
+            # Ensure message is a string; fallback to a default if msg is None
             violation = self._create_violation(
                 transaction_id=transaction_id or uuid4(),
                 legal_entity_id=legal_entity_id or UUID(int=0),
@@ -667,7 +668,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
                 violation_type=violation_type,
                 backdate_days=abs_days,
                 severity=severity,
-                message=msg or f"Timestamp validation failed: {violation_type}",
+                message=msg if msg else f"Timestamp validation failed: {violation_type}",
             )
             return False, violation
 
@@ -715,8 +716,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
                 violation_type="OUT_OF_ORDER",
                 backdate_days=days_back,
                 severity=severity,
-                message=msg
-                or f"Transaction out of order: date {transaction_date} before last transaction {last_date}",
+                message=msg or f"Transaction out of order: date {transaction_date} before last transaction {last_date}",
             )
             return False, violation
 
@@ -752,7 +752,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
                 violation_type="CLOCK_SKEW",
                 backdate_days=0,
                 severity=TemporalViolationSeverity.MEDIUM,
-                message=msg,
+                message=msg if msg else "Clock skew detected",
             )
             return False, violation
         return True, None
@@ -932,9 +932,7 @@ class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
             is_resolved=False,
             cryptographic_hash="",
         )
-        violation = TemporalViolation(
-            **{**violation.__dict__, "cryptographic_hash": violation.compute_hash()}
-        )
+        violation.cryptographic_hash = violation.compute_hash()
         return violation
 
     def _record_violation(self, violation: TemporalViolation) -> None:

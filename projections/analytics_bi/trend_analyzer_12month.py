@@ -24,9 +24,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import JSON, Column, DateTime, Index, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -61,6 +62,27 @@ TREND_METRICS = [
     "gross_profit_margin",
     "net_profit_margin",
 ]
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class TrendAnalysisTable(Base):
+    __tablename__ = "trend_analysis"
+    __table_args__ = (
+        Index("idx_trend_analysis_legal_entity", "legal_entity_id"),
+        Index("idx_trend_analysis_generated", "generated_at"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    analysis_data = Column(JSON, nullable=False)
+    generated_at = Column(DateTime(timezone=True), nullable=False)
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -230,12 +252,11 @@ class TrendAnalyzer12Month:
         by_month = {}
         for item in data:
             month = item["month"]
-            year = item["year"]
             if month not in by_month:
                 by_month[month] = []
             by_month[month].append(item)
 
-        for month, items in by_month.items():
+        for _month, items in by_month.items():
             # Sort by year ascending
             items_sorted = sorted(items, key=lambda x: x["year"])
             for i, current in enumerate(items_sorted):
@@ -428,30 +449,6 @@ class TrendAnalyzer12Month:
         await self.save_trend_analysis(legal_entity_id, analysis)
         logger.info(f"Trend analysis refreshed for legal entity {legal_entity_id}")
         return analysis
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, DateTime, Index
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class TrendAnalysisTable(Base):
-    __tablename__ = "trend_analysis"
-    __table_args__ = (
-        Index("idx_trend_analysis_legal_entity", "legal_entity_id"),
-        Index("idx_trend_analysis_generated", "generated_at"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    analysis_data = Column(JSON, nullable=False)
-    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

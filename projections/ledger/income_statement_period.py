@@ -12,10 +12,23 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import (
+    JSON,
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Numeric,
+    String,
+    delete,
+    func,
+    insert,
+    select,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -44,6 +57,39 @@ COGS_ACCOUNT_TYPES = ("Expense",)
 
 class IncomeStatementError(Exception):
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class IncomeStatementPeriodTable(Base):
+    __tablename__ = "income_statement_period"
+    __table_args__ = (
+        Index("idx_income_stmt_legal_entity", "legal_entity_id"),
+        Index("idx_income_stmt_period", "period_id"),
+        Index("idx_income_stmt_dates", "start_date", "end_date"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_name = Column(String(100), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    total_revenue = Column(Numeric(20, 2), nullable=False, default=0)
+    total_expense = Column(Numeric(20, 2), nullable=False, default=0)
+    total_cogs = Column(Numeric(20, 2), nullable=False, default=0)
+    gross_profit = Column(Numeric(20, 2), nullable=False, default=0)
+    operating_income = Column(Numeric(20, 2), nullable=False, default=0)
+    net_income = Column(Numeric(20, 2), nullable=False, default=0)
+    revenue_breakdown = Column(JSON, nullable=True)
+    expense_breakdown = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -419,42 +465,6 @@ class IncomeStatementPeriod:
                 logger.error(f"Failed to update income statement for period {period_id}: {e}")
             except Exception as e:
                 logger.error(f"Unexpected error updating income statement for period {period_id}: {e}")
-
-
-# ============================================================================
-# ORM MODEL
-# ============================================================================
-
-from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric, String
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class IncomeStatementPeriodTable(Base):
-    __tablename__ = "income_statement_period"
-    __table_args__ = (
-        Index("idx_income_stmt_legal_entity", "legal_entity_id"),
-        Index("idx_income_stmt_period", "period_id"),
-        Index("idx_income_stmt_dates", "start_date", "end_date"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_id = Column(PGUUID(as_uuid=True), nullable=False)
-    period_name = Column(String(100), nullable=False)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    total_revenue = Column(Numeric(20, 2), nullable=False, default=0)
-    total_expense = Column(Numeric(20, 2), nullable=False, default=0)
-    total_cogs = Column(Numeric(20, 2), nullable=False, default=0)
-    gross_profit = Column(Numeric(20, 2), nullable=False, default=0)
-    operating_income = Column(Numeric(20, 2), nullable=False, default=0)
-    net_income = Column(Numeric(20, 2), nullable=False, default=0)
-    revenue_breakdown = Column(JSON, nullable=True)
-    expense_breakdown = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

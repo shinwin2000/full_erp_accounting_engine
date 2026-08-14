@@ -122,6 +122,10 @@ class _FallbackJournalRepository:
             journal = await self.get_by_id(current_id, legal_entity_id)
             if not journal:
                 break
+            # Safe timestamp extraction
+            created_at_val = journal.get("created_at")
+            created_at_str = created_at_val.isoformat() if created_at_val else None
+
             chain.append(
                 {
                     "journal_id": str(journal.get("journal_id")),
@@ -137,9 +141,7 @@ class _FallbackJournalRepository:
                     "status": journal.get("status"),
                     "total_debit": str(journal.get("total_debit", 0)),
                     "total_credit": str(journal.get("total_credit", 0)),
-                    "created_at": journal.get("created_at").isoformat()
-                    if journal.get("created_at")
-                    else None,
+                    "created_at": created_at_str,
                 }
             )
             if journal.get("is_reversed") and journal.get("reversal_journal_id"):
@@ -784,7 +786,6 @@ class ReversalConstraintEnforcer(BaseReversalConstraintEnforcer):
                     raise violation
                 return result
         elif requires_reason and not requires_approval:
-            # FIX: SIM212 - gunakan approved_by if approved_by else [user_id]
             approved_by = approved_by if approved_by else [user_id]
 
         if reason is None:
@@ -921,10 +922,18 @@ class ReversalConstraintEnforcer(BaseReversalConstraintEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "message": violation.message,
-                "severity": violation.severity.name,
-            })
+            # Use getattr to safely access attributes that may not exist
+            user_id = getattr(violation, "user_id", None) or "system"
+            message = getattr(violation, "message", str(violation))
+            severity = getattr(violation, "severity", LawViolationSeverity.MEDIUM)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "message": message,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_check_history(
         self,
@@ -963,7 +972,7 @@ class ReversalConstraintEnforcer(BaseReversalConstraintEnforcer):
             allowed = len([r for r in self._check_history if r.is_allowed])
             blocked = total_checks - allowed
 
-            by_reason = {}
+            by_reason: dict[str, int] = {}
             for r in self._reversal_records:
                 reason = r.reason.value
                 by_reason[reason] = by_reason.get(reason, 0) + 1

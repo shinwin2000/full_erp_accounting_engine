@@ -37,26 +37,16 @@ class JournalStatus(Enum):
     VOID = "void"
 
 
+@dataclass
 class Journal:
-    def __init__(
-        self,
-        journal_id: UUID,
-        journal_number: str,
-        status: JournalStatus,
-        total_debit: Decimal,
-        total_credit: Decimal,
-        created_at: datetime,
-        is_reversed: bool = False,
-        reversal_journal_id: UUID | None = None,
-    ):
-        self.journal_id = journal_id
-        self.journal_number = journal_number
-        self.status = status
-        self.total_debit = total_debit
-        self.total_credit = total_credit
-        self.created_at = created_at
-        self.is_reversed = is_reversed
-        self.reversal_journal_id = reversal_journal_id
+    journal_id: UUID
+    journal_number: str
+    status: JournalStatus
+    total_debit: Decimal
+    total_credit: Decimal
+    created_at: datetime
+    is_reversed: bool = False
+    reversal_journal_id: UUID | None = None
 
     def is_balanced(self) -> bool:
         return abs(self.total_debit - self.total_credit) <= Decimal("0.0001")
@@ -832,13 +822,13 @@ class ImmutabilityEnforcer(BaseImmutabilityEnforcer):
                 return {"total_violations": 0, "enabled": self._enabled, "version": self._version}
 
             unresolved = len([v for v in self._violations if not v.resolved])
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for sev in ImmutabilityViolationSeverity:
                 count = len([v for v in self._violations if v.severity == sev])
                 if count > 0:
                     by_severity[sev.name] = count
 
-            by_operation = {}
+            by_operation: dict[str, int] = {}
             for v in self._violations:
                 op = v.attempted_operation
                 by_operation[op] = by_operation.get(op, 0) + 1

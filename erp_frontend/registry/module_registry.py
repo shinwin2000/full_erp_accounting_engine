@@ -750,18 +750,14 @@ _reg(ModuleConfig(
     base_path="/forex/forex", custom_page=True,
     description="Master mata uang, revaluasi kurs, posisi, dashboard (Forex).",
 ))
-_reg(ModuleConfig(
-    key="forex", label="Forex & Revaluasi", category="Treasury", icon="🌐",
-    base_path="/forex/forex", list_path="/rates",
-    columns=[("from_currency", "Dari"), ("to_currency", "Ke"), ("rate", "Kurs"), ("effective_date", "Tanggal")],
-    form_fields=[
-        FieldSpec("from_currency", "Dari Mata Uang", required=True),
-        FieldSpec("to_currency", "Ke Mata Uang", required=True),
-        FieldSpec("rate", "Kurs", FieldType.DECIMAL, required=True),
-        FieldSpec("effective_date", "Tanggal Berlaku", FieldType.DATE, required=True),
-    ],
-    can_edit=False,
-))
+# CATATAN: entry "forex" (generic list, label "Forex & Revaluasi", can_edit=False)
+# yang sebelumnya ada di sini DIHAPUS - dia duplikat base_path yang sama persis
+# dengan "forex_advanced" di atas (/forex/forex), cuma versi generic-list-page
+# yang jauh lebih terbatas (cuma list rates, tidak bisa edit). Itu sebabnya
+# muncul 2 menu "Forex" di sidebar yang berujung ke fitur sama. Custom page
+# forex_advanced sudah mencakup semua yang generic list itu bisa (plus lebih
+# banyak: dashboard, posisi, revaluasi, master mata uang) jadi entry lama
+# dibuang, bukan digabung.
 _reg(ModuleConfig(
     key="hedge_advanced", label="Fair Value & Ketidakefektifan Hedge", category="Treasury", icon="📈",
     base_path="/hedge/hedge", custom_page=True,

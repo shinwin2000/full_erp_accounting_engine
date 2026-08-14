@@ -15,6 +15,7 @@ Perbaikan presisi:
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import logging
 import xml.etree.ElementTree as ET
@@ -518,9 +519,9 @@ class SPTMasaPPH21:
             errors.append("Bulan pajak tidak valid")
         if self._tahun < 2000 or self._tahun > 2100:
             errors.append("Tahun pajak tidak valid")
-        if self.kurang_bayar > 0 and self._ntpn:
-            if not self._validate_ntpn_format(self._ntpn):
-                errors.append("Format NTPN tidak valid (harus 16 digit)")
+        # Gabungkan nested if menjadi satu (SIM102)
+        if self.kurang_bayar > 0 and self._ntpn and not self._validate_ntpn_format(self._ntpn):
+            errors.append("Format NTPN tidak valid (harus 16 digit)")
         if errors:
             raise SPTValidationError(f"Validasi gagal: {'; '.join(errors)}")
         self._status = SPTStatus.VALIDATED
@@ -1049,29 +1050,23 @@ class SPTMasaPPH21Builder:
         return f"spt_pph21:{npwp}:{tahun}:{bulan:02d}"
 
     async def _get_cached(self, cache_key: str) -> dict[str, Any] | None:
-        ttl = self._load_config().get("coretax_djp", {}).get("spt_pph21", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         return self._cache.get(cache_key)
 
     async def _set_cached(self, cache_key: str, data: dict[str, Any]) -> None:
-        ttl = self._load_config().get("coretax_djp", {}).get("spt_pph21", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         self._cache[cache_key] = data
 
     # Helper untuk rollback/commit (tambahan untuk mencegah transaction leak)
     async def _rollback_if_exists(self) -> None:
         """Rollback session jika ada."""
         if hasattr(self, '_session'):
-            try:
+            with contextlib.suppress(Exception):
                 await self._session.rollback()
-            except Exception:
-                pass
 
     async def _commit_if_exists(self) -> None:
         """Commit session jika ada."""
         if hasattr(self, '_session'):
-            try:
+            with contextlib.suppress(Exception):
                 await self._session.commit()
-            except Exception:
-                pass
 
     # ========================================================================
     # Core Business Methods

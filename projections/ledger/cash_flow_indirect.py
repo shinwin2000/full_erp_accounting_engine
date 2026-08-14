@@ -25,10 +25,21 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-# ✅ FIX: Menambahkan 'or_' ke dalam fungsi yang di-import dari sqlalchemy
-from sqlalchemy import delete, func, insert, or_, select
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Index,
+    Numeric,
+    delete,
+    func,
+    insert,
+    or_,
+    select,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -59,6 +70,37 @@ CASH_EQUIVALENT_PREFIXES = ("1-13",)  # Deposito jangka pendek
 
 # Account types that affect operating cash flow
 OPERATING_ACCOUNT_TYPES = {"Asset": "current", "Liability": "current", "Equity": "operating"}
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class CashFlowStatementTable(Base):
+    __tablename__ = "cash_flow_statement"
+    __table_args__ = (
+        Index("idx_cash_flow_legal_entity", "legal_entity_id"),
+        Index("idx_cash_flow_dates", "start_date", "end_date"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    net_income = Column(Numeric(20, 2), nullable=False, default=0)
+    depreciation_amortization = Column(Numeric(20, 2), nullable=False, default=0)
+    working_capital_change = Column(Numeric(20, 2), nullable=False, default=0)
+    operating_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
+    investing_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
+    financing_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
+    net_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
+    beginning_cash = Column(Numeric(20, 2), nullable=False, default=0)
+    ending_cash = Column(Numeric(20, 2), nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -199,11 +241,6 @@ class CashFlowIndirect:
                 dep_amount += Decimal(str(result.scalar() or 0))
 
         # Calculate changes in working capital
-        # Get prior period balance sheet
-        prior_balance = await self._get_balance_sheet().compute_snapshot(
-            legal_entity_id, period.id
-        )  # Actually need prior period
-        # For simplicity, we'll query changes in current assets and liabilities
         working_capital_change = await self._compute_working_capital_change(
             legal_entity_id, start_date, end_date
         )
@@ -242,7 +279,6 @@ class CashFlowIndirect:
                     current_liability_ids.append(acc[0])
 
             # Calculate change
-            # ✅ FIX: Mengubah 'def' menjadi 'async def' karena menggunakan await di dalam fungsinya
             async def get_balance(account_ids, as_of):
                 if not account_ids:
                     return Decimal(0)
@@ -323,7 +359,6 @@ class CashFlowIndirect:
             debt_account_ids = debt_result.scalars().all()
 
             # Change in debt
-            # ✅ FIX: Mengubah 'def' menjadi 'async def' karena menggunakan await di dalam fungsinya
             async def get_debt_balance(as_of):
                 if not debt_account_ids:
                     return Decimal(0)
@@ -475,40 +510,6 @@ class CashFlowIndirect:
             )
             await self.save_cash_flow_statement(cash_flow_data)
             logger.info(f"Cash flow statement saved for period {period.period_name}")
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import Column, Date, DateTime, Index, Numeric
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class CashFlowStatementTable(Base):
-    __tablename__ = "cash_flow_statement"
-    __table_args__ = (
-        Index("idx_cash_flow_legal_entity", "legal_entity_id"),
-        Index("idx_cash_flow_dates", "start_date", "end_date"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    net_income = Column(Numeric(20, 2), nullable=False, default=0)
-    depreciation_amortization = Column(Numeric(20, 2), nullable=False, default=0)
-    working_capital_change = Column(Numeric(20, 2), nullable=False, default=0)
-    operating_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
-    investing_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
-    financing_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
-    net_cash_flow = Column(Numeric(20, 2), nullable=False, default=0)
-    beginning_cash = Column(Numeric(20, 2), nullable=False, default=0)
-    ending_cash = Column(Numeric(20, 2), nullable=False, default=0)
-    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

@@ -84,6 +84,13 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     bid_rate: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=0)
     ask_rate: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False, default=0)
 
+    # Rate classification
+    rate_type: Mapped[str] = mapped_column(String(20), nullable=False, default="mid")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    is_locked: Mapped[bool] = mapped_column(nullable=False, default=False)
+    locked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Source of the rate (e.g., Bank Indonesia, internal, etc.)
     source: Mapped[str] = mapped_column(String(30), nullable=False, default="manual")
 
@@ -159,16 +166,24 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
             "to_currency": self.to_currency,
             "rate_date": self.rate_date.isoformat(),
             "rate": float(self.rate),
+            "rate_type": self.rate_type,
             "bid_rate": float(self.bid_rate),
             "ask_rate": float(self.ask_rate),
             "spread": float(self.spread),
             "spread_percentage": self.spread_percentage,
             "source": self.source,
             "source_identifier": self.source_identifier,
+            "status": self.status,
+            "is_locked": self.is_locked,
+            "locked_by": str(self.locked_by) if self.locked_by else None,
+            "locked_at": self.locked_at.isoformat() if self.locked_at else None,
             "notes": self.notes,
             "is_active": self.is_active,
             "is_approved": self.is_approved,
             "legal_entity_id": str(self.legal_entity_id),
+            "created_by": str(self.created_by) if self.created_by else None,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
             "version": self.version,
         }
 

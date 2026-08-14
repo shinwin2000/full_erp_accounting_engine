@@ -969,10 +969,18 @@ class NoRetroactivePolicyEnforcer(BaseNoRetroactivePolicyEnforcer):
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
-            self._record_audit("VIOLATION", violation.user_id or "system", {
-                "message": violation.message,
-                "severity": violation.severity.name,
-            })
+            # Safely extract attributes that may not exist on the violation object
+            user_id = getattr(violation, "user_id", None) or "system"
+            message = getattr(violation, "message", str(violation))
+            severity = getattr(violation, "severity", LawViolationSeverity.MEDIUM)
+            self._record_audit(
+                "VIOLATION",
+                user_id,
+                {
+                    "message": message,
+                    "severity": severity.name if hasattr(severity, "name") else str(severity),
+                }
+            )
 
     def get_violations(
         self,
@@ -995,7 +1003,7 @@ class NoRetroactivePolicyEnforcer(BaseNoRetroactivePolicyEnforcer):
             total_violations = len(self._violation_history)
             total_retroactive = len(self._retroactive_records)
 
-            by_reason = {}
+            by_reason: dict[str, int] = {}
             for r in self._retroactive_records:
                 by_reason[r.reason] = by_reason.get(r.reason, 0) + 1
 

@@ -10,11 +10,24 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from sqlalchemy import Date, DateTime, delete, func, insert, select
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Numeric,
+    String,
+    delete,
+    func,
+    insert,
+    select,
+)
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -40,6 +53,29 @@ BATCH_SIZE = 100
 
 class BalanceSheetSnapshotError(Exception):
     pass
+
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class BalanceSheetSnapshotTable(Base):
+    __tablename__: ClassVar[str] = "balance_sheet_snapshot"
+    __table_args__: ClassVar[dict] = {"schema": "projections"}
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_name = Column(String(100), nullable=False)
+    as_of_date = Column(Date, nullable=False)
+    total_assets = Column(Numeric(20, 2), nullable=False, default=0)
+    total_liabilities = Column(Numeric(20, 2), nullable=False, default=0)
+    total_equity = Column(Numeric(20, 2), nullable=False, default=0)
+    is_balanced = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================
@@ -266,37 +302,11 @@ class BalanceSheetSnapshot:
 
 
 # ============================================================================
-# ORM MODEL
-# ============================================================================
-
-from sqlalchemy import Boolean, Column, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class BalanceSheetSnapshotTable(Base):
-    __tablename__ = "balance_sheet_snapshot"
-    __table_args__ = {"schema": "projections"}
-
-    id = Column(UUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(UUID(as_uuid=True), nullable=False)
-    period_id = Column(UUID(as_uuid=True), nullable=False)
-    period_name = Column(String(100), nullable=False)
-    as_of_date = Column(Date, nullable=False)
-    total_assets = Column(Numeric(20, 2), nullable=False, default=0)
-    total_liabilities = Column(Numeric(20, 2), nullable=False, default=0)
-    total_equity = Column(Numeric(20, 2), nullable=False, default=0)
-    is_balanced = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), nullable=False)
-
-
-# ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================
 
 _balance_sheet_snapshot: BalanceSheetSnapshot | None = None
+
 
 async def get_balance_sheet_snapshot() -> BalanceSheetSnapshot:
     global _balance_sheet_snapshot

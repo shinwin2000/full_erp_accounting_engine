@@ -24,9 +24,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -50,6 +51,30 @@ BUCKETS = [
     {"name": "91-120 days", "min_days": 91, "max_days": 120, "order": 4},
     {"name": "120+ days", "min_days": 121, "max_days": None, "order": 5},
 ]
+
+# ============================================================================
+# ORM MODEL
+# ============================================================================
+
+Base = declarative_base()
+
+
+class APAgingSnapshotTable(Base):
+    __tablename__ = "ap_aging_snapshot"
+    __table_args__ = (
+        Index("idx_ap_aging_legal_entity", "legal_entity_id"),
+        Index("idx_ap_aging_as_of_date", "as_of_date"),
+        {"schema": "projections"},
+    )
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    as_of_date = Column(Date, nullable=False)
+    total_outstanding = Column(Numeric(20, 2), nullable=False, default=0)
+    buckets_data = Column(JSON, nullable=True)
+    suppliers_data = Column(JSON, nullable=True)
+    generated_at = Column(DateTime(timezone=True), nullable=False)
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -344,33 +369,6 @@ class APAgingBuckets:
             "cash_required_total": float(overdue + due_soon),
             "horizon_days": horizon_days,
         }
-
-
-# ============================================================================
-# ORM MODEL (tambahan)
-# ============================================================================
-
-from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
-class APAgingSnapshotTable(Base):
-    __tablename__ = "ap_aging_snapshot"
-    __table_args__ = (
-        Index("idx_ap_aging_legal_entity", "legal_entity_id"),
-        Index("idx_ap_aging_as_of_date", "as_of_date"),
-        {"schema": "projections"},
-    )
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    as_of_date = Column(Date, nullable=False)
-    total_outstanding = Column(Numeric(20, 2), nullable=False, default=0)
-    buckets_data = Column(JSON, nullable=True)
-    suppliers_data = Column(JSON, nullable=True)
-    generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
 # ============================================================================

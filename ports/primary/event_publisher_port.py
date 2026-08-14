@@ -10,6 +10,7 @@ Responsibility:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 from abc import ABC, abstractmethod
@@ -420,10 +421,8 @@ class InMemoryEventPublisher(EventPublisherPort):
         self._poller_running = False
         if self._poller_task:
             self._poller_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._poller_task
-            except asyncio.CancelledError:
-                pass
             self._poller_task = None
         for task in self._background_tasks:
             if not task.done():

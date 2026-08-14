@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -56,8 +56,8 @@ Base = declarative_base()
 class TaxTransactionTable(Base):
     """Tabel transaksi pajak (redefined locally with explicit String lengths)."""
 
-    __tablename__ = "tax_transaction"
-    __table_args__ = {"schema": "public"}
+    __tablename__: ClassVar[str] = "tax_transaction"
+    __table_args__: ClassVar[dict] = {"schema": "public"}
 
     id = Column(PGUUID(as_uuid=True), primary_key=True)
     legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
@@ -75,8 +75,8 @@ class TaxTransactionTable(Base):
 class CoretaxBupotTable(Base):
     """Tabel bukti potong Coretax (redefined locally)."""
 
-    __tablename__ = "coretax_bupot"
-    __table_args__ = {"schema": "public"}
+    __tablename__: ClassVar[str] = "coretax_bupot"
+    __table_args__: ClassVar[dict] = {"schema": "public"}
 
     id = Column(PGUUID(as_uuid=True), primary_key=True)
     npwp_pemotong = Column(String(20), nullable=False)

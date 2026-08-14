@@ -1,5 +1,3 @@
-# inventory_response.py - Hardened version with complete implementation
-
 #!/usr/bin/env python3
 
 """
@@ -33,9 +31,12 @@ class ItemResponseDTO:
     last_cost: Decimal
     reorder_point: Decimal
     safety_stock: Decimal
+    minimum_stock: Decimal | None = None
+    maximum_stock: Decimal | None = None
     standard_cost: Decimal
     selling_price: Decimal
     category: str | None
+    brand: str | None = None
     warehouse_code: str | None
     status: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -64,9 +65,12 @@ class ItemResponseDTO:
             "last_cost": float(self.last_cost),
             "reorder_point": float(self.reorder_point),
             "safety_stock": float(self.safety_stock),
+            "minimum_stock": float(self.minimum_stock) if self.minimum_stock else None,
+            "maximum_stock": float(self.maximum_stock) if self.maximum_stock else None,
             "standard_cost": float(self.standard_cost),
             "selling_price": float(self.selling_price),
             "category": self.category,
+            "brand": self.brand,
             "warehouse_code": self.warehouse_code,
             "status": self.status,
             "created_at": self.created_at.isoformat(),

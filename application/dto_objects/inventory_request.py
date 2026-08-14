@@ -1,5 +1,3 @@
-# inventory_request.py - Hardened version with complete implementation
-
 #!/usr/bin/env python3
 """
 Module: inventory_request.py
@@ -54,9 +52,15 @@ class CreateItemRequestDTO:
         valid_item_types = [
             "raw_material",
             "work_in_progress",
+            "finished_goods",
             "finished_good",
             "packaging",
             "spare_part",
+            "trading",
+            "consumable",
+            "service",
+            "asset",
+            "supplies",
         ]
         if self.item_type not in valid_item_types:
             raise ValueError(f"Invalid item_type: {self.item_type}")

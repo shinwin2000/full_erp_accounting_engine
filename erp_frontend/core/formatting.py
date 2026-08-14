@@ -7,7 +7,7 @@ dan util kecil untuk menampilkan data API secara human-readable di tabel.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -33,6 +33,22 @@ def format_money(value: Any, currency: str = "IDR") -> str:
     return f"{sign}{symbol} {text}"
 
 
+def _to_local(value: datetime) -> datetime:
+    """FIX BUG ("waktu log tidak pas"): backend selalu menyimpan & mengirim
+    waktu dalam UTC (datetime.utcnow()/datetime.now(UTC) di service_iam.py),
+    tapi sebelumnya format_date()/format_datetime() di sini langsung
+    strftime() nilai UTC itu apa adanya - ditampilkan seolah-olah sudah jam
+    lokal. Akibatnya jam yang tampil di UI selalu tertinggal ~7 jam dari
+    waktu asli WIB, dan kadang tanggalnya ikut mundur 1 hari untuk kejadian
+    dini hari WIB. Sekarang dikonversi eksplisit ke zona waktu lokal
+    komputer user sebelum ditampilkan. Kalau value naive (tidak ada info
+    zona sama sekali), dianggap UTC dulu (sesuai konvensi backend) baru
+    dikonversi - supaya tidak salah diasumsikan "sudah lokal" oleh Python."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone()
+
+
 def format_date(value: Any) -> str:
     if not value:
         return "-"
@@ -42,6 +58,7 @@ def format_date(value: Any) -> str:
         except ValueError:
             return value[:10]
     if isinstance(value, datetime):
+        value = _to_local(value)
         return f"{value.day:02d} {_MONTHS_ID[value.month]} {value.year}"
     return str(value)
 
@@ -55,6 +72,7 @@ def format_datetime(value: Any) -> str:
         except ValueError:
             return value
     if isinstance(value, datetime):
+        value = _to_local(value)
         return f"{value.day:02d} {_MONTHS_ID[value.month]} {value.year} {value.strftime('%H:%M')}"
     return str(value)
 
