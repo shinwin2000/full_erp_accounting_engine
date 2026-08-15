@@ -30,14 +30,21 @@ from uuid import UUID
 
 
 class AssetStatus(str, Enum):
-    """Status aset tetap."""
+    """Status aset tetap - mirrors fastapi_fixed_asset_router.py's own
+    AssetStatus enum exactly, since that's the enum whose .value is what
+    actually arrives here in update/status-change requests."""
 
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    UNDER_MAINTENANCE = "UNDER_MAINTENANCE"
-    DISPOSED = "DISPOSED"
-    FULLY_DEPRECIATED = "FULLY_DEPRECIATED"
-    IMPAIRED = "IMPAIRED"
+    DRAFT = "draft"
+    ACTIVE = "active"
+    IN_USE = "in_use"
+    UNDER_MAINTENANCE = "under_maintenance"
+    IDLE = "idle"
+    FULLY_DEPRECIATED = "fully_depreciated"
+    DISPOSED = "disposed"
+    SOLD = "sold"
+    SCRAPPED = "scrapped"
+    IMPAIRED = "impaired"
+    LOCKED = "locked"
 
 
 class DepreciationMethod(str, Enum):
@@ -246,19 +253,32 @@ class AssetCreateRequest:
 
 @dataclass(kw_only=True)
 class UpdateFixedAssetRequest:
-    """Request DTO for updating a fixed asset."""
+    """Request DTO for updating a fixed asset.
 
-    asset_id: UUID
+    FIX: field names now mirror what fastapi_fixed_asset_router.py's
+    update_asset() endpoint actually constructs from AssetUpdateSchema (id
+    not asset_id, residual_value not salvage_value, responsible_party as
+    free text not a UUID, plus notes/updated_by which the router always
+    sends and the old field set didn't accept at all). This was the direct
+    cause of "UpdateFixedAssetRequest.__init__() got an unexpected keyword
+    argument 'id'".
+    """
+
+    id: UUID
     asset_name: str | None = None
+    asset_category: str | None = None
+    acquisition_cost: Decimal | None = None
     location: str | None = None
-    responsible_party: UUID | None = None
+    responsible_party: str | None = None
     description: str | None = None
-    salvage_value: Decimal | None = None
+    residual_value: Decimal | None = None
     useful_life_years: int | None = None
     depreciation_method: str | None = None
     is_active: bool | None = None
+    notes: str | None = None
     legal_entity_id: UUID | None = None
     status: str | None = None
+    updated_by: UUID | None = None
     warranty_expiry_date: date | None = None
     insurance_policy_number: str | None = None
     insurance_expiry_date: date | None = None
@@ -267,13 +287,16 @@ class UpdateFixedAssetRequest:
         if not any(
             [
                 self.asset_name,
+                self.asset_category,
+                self.acquisition_cost,
                 self.location,
                 self.responsible_party,
                 self.description,
-                self.salvage_value,
+                self.residual_value,
                 self.useful_life_years,
                 self.depreciation_method,
                 self.is_active is not None,
+                self.notes,
                 self.status,
                 self.warranty_expiry_date,
                 self.insurance_policy_number,
@@ -283,35 +306,45 @@ class UpdateFixedAssetRequest:
             raise ValueError("At least one field to update must be provided")
         if self.asset_name and len(self.asset_name.strip()) < 2:
             raise ValueError("Asset name must be at least 2 characters")
-        if self.salvage_value is not None and self.salvage_value < 0:
-            raise ValueError(f"Salvage value cannot be negative: {self.salvage_value}")
+        if self.acquisition_cost is not None and self.acquisition_cost <= 0:
+            raise ValueError(f"Acquisition cost must be positive: {self.acquisition_cost}")
+        if self.residual_value is not None and self.residual_value < 0:
+            raise ValueError(f"Residual value cannot be negative: {self.residual_value}")
         if self.useful_life_years is not None and self.useful_life_years < 1:
             raise ValueError(f"Useful life must be at least 1 year: {self.useful_life_years}")
         if self.status and self.status not in [s.value for s in AssetStatus]:
             raise ValueError(f"Invalid status: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"asset_id": str(self.asset_id)}
+        result = {"id": str(self.id)}
         if self.asset_name is not None:
             result["asset_name"] = self.asset_name
+        if self.asset_category is not None:
+            result["asset_category"] = self.asset_category
+        if self.acquisition_cost is not None:
+            result["acquisition_cost"] = str(self.acquisition_cost)
         if self.location is not None:
             result["location"] = self.location
         if self.responsible_party is not None:
-            result["responsible_party"] = str(self.responsible_party)
+            result["responsible_party"] = self.responsible_party
         if self.description is not None:
             result["description"] = self.description
-        if self.salvage_value is not None:
-            result["salvage_value"] = str(self.salvage_value)
+        if self.residual_value is not None:
+            result["residual_value"] = str(self.residual_value)
         if self.useful_life_years is not None:
             result["useful_life_years"] = self.useful_life_years
         if self.depreciation_method is not None:
             result["depreciation_method"] = self.depreciation_method
         if self.is_active is not None:
             result["is_active"] = self.is_active
+        if self.notes is not None:
+            result["notes"] = self.notes
         if self.legal_entity_id is not None:
             result["legal_entity_id"] = str(self.legal_entity_id)
         if self.status is not None:
             result["status"] = self.status
+        if self.updated_by is not None:
+            result["updated_by"] = str(self.updated_by)
         if self.warranty_expiry_date is not None:
             result["warranty_expiry_date"] = self.warranty_expiry_date.isoformat()
         if self.insurance_policy_number is not None:

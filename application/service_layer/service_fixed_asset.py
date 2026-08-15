@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.dto_objects.fixed_asset_request import AssetCreateRequest
+from application.dto_objects.fixed_asset_request import AssetCreateRequest, AssetUpdateRequest
 from domain.fixed_asset.aggregate_root import FixedAssetAggregate
 from domain.fixed_asset.asset_entity import AssetStatus, AssetType, DepreciationMethod, FixedAsset
 from domain.fixed_asset.depreciation_schedule_engine import (
@@ -466,11 +467,15 @@ class FixedAssetService:
     @audit
     async def update_asset(
         self,
-        asset_id: UUID,
-        request: UpdateAssetRequest,
-        user_id: UUID,
+        request: AssetUpdateRequest,
         correlation_id: str | None = None,
     ) -> AssetResponse:
+        # FIX: router calls `fixed_asset_svc.update_asset(dto)` with a single
+        # positional arg - the old signature required separate `asset_id`/
+        # `user_id` args the router never passed. Both now come from the DTO
+        # (request.id / request.updated_by).
+        asset_id = request.id
+        user_id = request.updated_by
         self._check_authority(user_id, "update_asset")
 
         aggregate = await self._asset_repo.get_asset_by_id(asset_id)
@@ -478,11 +483,23 @@ class FixedAssetService:
             raise AssetNotFoundError(f"Asset {asset_id} not found")
 
         asset = aggregate.asset
+        meta = dict(asset.metadata or {})
         changes = {}
 
         if request.asset_name is not None and request.asset_name != asset.name:
             changes["name"] = {"old": asset.name, "new": request.asset_name}
             asset.name = request.asset_name
+
+        if request.asset_category is not None and request.asset_category != asset.category:
+            changes["asset_category"] = {"old": asset.category, "new": request.asset_category}
+            asset.category = request.asset_category
+
+        if request.acquisition_cost is not None and request.acquisition_cost != asset.acquisition_cost:
+            changes["acquisition_cost"] = {"old": asset.acquisition_cost, "new": request.acquisition_cost}
+            asset.acquisition_cost = request.acquisition_cost
+            asset.net_book_value = asset.acquisition_cost - asset.accumulated_depreciation
+            if asset.net_book_value < asset.salvage_value:
+                asset.net_book_value = asset.salvage_value
 
         if request.description is not None and request.description != asset.description:
             changes["description"] = {"old": asset.description, "new": request.description}
@@ -496,9 +513,11 @@ class FixedAssetService:
             changes["responsible_party"] = {"old": asset.responsible_person, "new": request.responsible_party}
             asset.responsible_person = request.responsible_party
 
-        if request.salvage_value is not None and request.salvage_value != asset.salvage_value:
-            changes["salvage_value"] = {"old": asset.salvage_value, "new": request.salvage_value}
-            asset.salvage_value = request.salvage_value
+        # FIX: DTO field renamed from salvage_value to residual_value to match
+        # what the router actually sends.
+        if request.residual_value is not None and request.residual_value != asset.salvage_value:
+            changes["residual_value"] = {"old": asset.salvage_value, "new": request.residual_value}
+            asset.salvage_value = request.residual_value
             asset.net_book_value = asset.acquisition_cost - asset.accumulated_depreciation
             if asset.net_book_value < asset.salvage_value:
                 asset.net_book_value = asset.salvage_value
@@ -508,14 +527,55 @@ class FixedAssetService:
             asset.useful_life_years = request.useful_life_years
 
         if request.depreciation_method is not None:
-            new_method = DepreciationMethod(request.depreciation_method.lower())
+            # FIX: asset.depreciation_method is stored as a plain string (see
+            # FixedAsset's own docstring), not a DepreciationMethod enum - the
+            # old code compared/read it as an enum (`!= new_method`,
+            # `.value`), which would crash with AttributeError the moment a
+            # depreciation_method change was actually submitted.
+            new_method = request.depreciation_method.lower()
             if new_method != asset.depreciation_method:
-                changes["depreciation_method"] = {"old": asset.depreciation_method.value, "new": new_method.value}
+                changes["depreciation_method"] = {"old": asset.depreciation_method, "new": new_method}
                 asset.depreciation_method = new_method
+
+        # FIX: status/notes/is_active are all sent by the router
+        # (AssetUpdateSchema) but were silently ignored before.
+        if request.status is not None:
+            # Router's own AssetStatus enum has more values (in_use,
+            # under_maintenance, sold, scrapped, locked) than the domain
+            # AssetStatus enum supports - map the ones that don't overlap to
+            # the closest domain equivalent, but always keep the exact
+            # router-sent string in metadata so _to_response() can echo it
+            # back losslessly (the router parses the response status back
+            # through its own enum, so it must stay within that value set).
+            _router_to_domain_status = {
+                "draft": "draft", "active": "active", "in_use": "active",
+                "under_maintenance": "idle", "idle": "idle",
+                "fully_depreciated": "fully_depreciated", "disposed": "disposed",
+                "sold": "disposed", "scrapped": "disposed", "impaired": "impaired",
+                "locked": None,
+            }
+            domain_value = _router_to_domain_status.get(request.status)
+            if domain_value is not None:
+                new_status = AssetStatus(domain_value)
+                if new_status != asset.status:
+                    changes["status"] = {"old": asset.status.value, "new": request.status}
+                    asset.status = new_status
+            if meta.get("display_status") != request.status:
+                changes.setdefault("status", {"old": meta.get("display_status", asset.status.value), "new": request.status})
+                meta["display_status"] = request.status
+
+        if request.notes is not None and meta.get("notes") != request.notes:
+            changes["notes"] = {"old": meta.get("notes"), "new": request.notes}
+            meta["notes"] = request.notes
+
+        if request.is_active is not None and meta.get("is_active") != request.is_active:
+            changes["is_active"] = {"old": meta.get("is_active"), "new": request.is_active}
+            meta["is_active"] = request.is_active
 
         if not changes:
             return self._to_response(asset)
 
+        asset.metadata = meta
         asset.updated_at = datetime.utcnow()
         asset.updated_by = user_id
 
@@ -526,10 +586,13 @@ class FixedAssetService:
         self._stats["assets_updated"] += 1
 
         if self._event_publisher:
+            # FIX: AssetUpdatedEvent requires an `asset=` kwarg (a FixedAsset
+            # instance), not `asset_code=` - the old call would have raised
+            # TypeError the moment an event_publisher was actually configured.
             event = AssetUpdatedEvent(
                 aggregate_id=asset.id,
                 aggregate_version=aggregate.version,
-                asset_code=asset.asset_code,
+                asset=asset,
                 changes=changes,
                 updated_by=str(user_id),
                 user_id=str(user_id),
@@ -544,6 +607,48 @@ class FixedAssetService:
         })
 
         return self._to_response(asset)
+
+    async def deactivate_asset(
+        self, asset_id: UUID, user_id: UUID, legal_entity_id: UUID, reason: str = ""
+    ) -> Any | None:
+        self._check_authority(user_id, "delete_asset")
+        aggregate = await self._asset_repo.get_asset_by_id(asset_id)
+        if not aggregate or aggregate.asset.legal_entity_id != legal_entity_id:
+            return None
+        asset_code = aggregate.asset.asset_code
+
+        ok = await self._asset_repo.delete(asset_id, user_id, permanent=False)
+        if not ok:
+            return None
+        if self._uow:
+            await self._uow.commit()
+
+        self._record_audit("deactivate_asset", {
+            "asset_id": str(asset_id), "reason": reason, "user_id": str(user_id),
+        })
+        logger.info(f"Asset deactivated: {asset_code}")
+        return SimpleNamespace(asset_code=asset_code)
+
+    async def void_asset(
+        self, asset_id: UUID, user_id: UUID, legal_entity_id: UUID, reason: str = ""
+    ) -> Any | None:
+        self._check_authority(user_id, "delete_asset")
+        aggregate = await self._asset_repo.get_asset_by_id(asset_id)
+        if not aggregate or aggregate.asset.legal_entity_id != legal_entity_id:
+            return None
+        asset_code = aggregate.asset.asset_code
+
+        ok = await self._asset_repo.delete(asset_id, user_id, permanent=True)
+        if not ok:
+            return None
+        if self._uow:
+            await self._uow.commit()
+
+        self._record_audit("void_asset", {
+            "asset_id": str(asset_id), "reason": reason, "user_id": str(user_id),
+        })
+        logger.info(f"Asset permanently voided: {asset_code}")
+        return SimpleNamespace(asset_code=asset_code)
 
     async def get_asset(self, asset_id: UUID) -> AssetResponse | None:
         aggregate = await self._asset_repo.get_asset_by_id(asset_id)
@@ -1278,7 +1383,7 @@ class FixedAssetService:
             accumulated_depreciation=asset.accumulated_depreciation,
             net_book_value=asset.net_book_value,
             current_period_depreciation=Decimal("0"),
-            status=asset.status.value,
+            status=meta.get("display_status", asset.status.value),
             location=asset.location,
             responsible_party=asset.responsible_person,
             is_active=bool(meta.get("is_active", asset.status == AssetStatus.ACTIVE)),

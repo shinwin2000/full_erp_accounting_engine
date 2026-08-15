@@ -170,7 +170,6 @@ class CurrencyDefinition:
             if hasattr(new_cur, key) and key not in ("currency_code", "created_at", "version"):
                 setattr(new_cur, key, value)
         new_cur.version = self.version + 1
-        # Reset hash agar di-recalculate
         object.__setattr__(new_cur, "cryptographic_hash", "")
         new_cur._ensure_hash()
         new_cur._record_audit("UPDATE", updated_by, {"changes": kwargs})
@@ -269,7 +268,6 @@ class CurrencyDefinition:
         )
 
     def clone(self) -> CurrencyDefinition:
-        # Perbaikan: buat currency_code tetap 3 huruf
         new_code = f"{self.currency_code[:2]}X"
         if new_code == self.currency_code:
             new_code = f"{self.currency_code[:2]}Z"
@@ -402,7 +400,6 @@ class ExchangeRate:
             ):
                 setattr(new_rate, key, value)
         new_rate.version = self.version + 1
-        # Reset hash agar di-recalculate jika diperlukan
         object.__setattr__(new_rate, "cryptographic_hash", "")
         new_rate._ensure_hash()
         new_rate._record_audit("UPDATE", updated_by, {"changes": kwargs})
@@ -978,6 +975,7 @@ class MonetaryUnitViolation:
 class CurrencyRegistry:
     _instance: ClassVar[CurrencyRegistry | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
 
     def __new__(cls) -> CurrencyRegistry:
         if cls._instance is None:
@@ -1241,6 +1239,7 @@ class MonetaryUnitValidator:
 class MonetaryUnitAxiom:
     _instance: ClassVar[MonetaryUnitAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
     _validator = MonetaryUnitValidator
     _registry = CurrencyRegistry()
 

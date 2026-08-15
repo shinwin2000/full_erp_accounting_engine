@@ -199,11 +199,23 @@ class AssetCreateSchema(BaseModel):
 
 
 class AssetUpdateSchema(BaseModel):
-    """Schema untuk update aset tetap."""
+    """Schema untuk update aset tetap.
+
+    FIX: asset_category/acquisition_cost/useful_life_years ditambahkan.
+    Form edit di desktop app (fixed_assets_page.py) memakai form yang
+    sama dengan form tambah, jadi selalu mengirim field-field ini - tapi
+    schema lama tidak mengenalnya, sehingga Pydantic membuangnya diam-
+    diam (extra field diabaikan secara default). Akibatnya PUT selalu
+    sukses (200 OK) tapi kolom Kategori/Harga Perolehan/Umur Manfaat di
+    daftar tidak pernah benar-benar berubah.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     asset_name: str | None = Field(None, min_length=3, max_length=200)
+    asset_category: AssetCategory | None = None
+    acquisition_cost: Decimal | None = Field(None, gt=0, decimal_places=2)
+    useful_life_years: int | None = Field(None, gt=0)
     location: str | None = Field(None, max_length=100)
     responsible_party: str | None = Field(None, max_length=100)
     is_active: bool | None = None
@@ -792,6 +804,9 @@ async def update_asset(
         dto = AssetUpdateRequest(
             id=asset_id,
             asset_name=request.asset_name,
+            asset_category=request.asset_category.value if request.asset_category else None,
+            acquisition_cost=request.acquisition_cost,
+            useful_life_years=request.useful_life_years,
             location=request.location,
             responsible_party=request.responsible_party,
             is_active=request.is_active,

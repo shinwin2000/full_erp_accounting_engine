@@ -1074,6 +1074,7 @@ class TimeIrreversibilityValidator:
 class TimeIrreversibilityAxiom:
     _instance: ClassVar[TimeIrreversibilityAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # Deklarasi tipe eksplisit
 
     def __new__(cls) -> TimeIrreversibilityAxiom:
         if cls._instance is None:
@@ -1155,16 +1156,17 @@ class TimeIrreversibilityAxiom:
                 return b
         return None
 
-    def record_transaction_timestamp(self, timestamp: TransactionTimestamp) -> None:
+    def record_transaction_timestamp(
+        self, timestamp: TransactionTimestamp, legal_entity_id: UUID | None = None
+    ) -> None:
         self.save_transaction_timestamp(timestamp)
-        key = timestamp.created_by
-        if timestamp.effective_date > self._last_transaction_date_by_entity.get(
-            key, datetime.min.replace(tzinfo=UTC)
-        ):
+        key = legal_entity_id or UUID(int=0)
+        current = self._last_transaction_date_by_entity.get(key)
+        if current is None or timestamp.effective_date > current:
             self._last_transaction_date_by_entity[key] = timestamp.effective_date
 
     def get_last_transaction_date(self, legal_entity_id: UUID | None = None) -> datetime | None:
-        key = str(legal_entity_id) if legal_entity_id else "default"
+        key = legal_entity_id or UUID(int=0)
         return self._last_transaction_date_by_entity.get(key)
 
     def enforce_effective_date(
@@ -1182,6 +1184,9 @@ class TimeIrreversibilityAxiom:
         override_by: str | None = None,
         override_reason: str | None = None,
     ) -> tuple[bool, TimeIrreversibilityViolation | None]:
+        # Fix: Deklarasikan violation dengan tipe Optional di awal
+        violation: TimeIrreversibilityViolation | None = None
+
         eff = effective_date if effective_date.tzinfo else effective_date.replace(tzinfo=UTC)
         period = self.get_time_boundary(period_id) if period_id else self.get_current_period(eff)
         if not period:
@@ -1206,6 +1211,7 @@ class TimeIrreversibilityAxiom:
             if raise_on_violation:
                 raise TimeIrreversibilityViolationError(violation.message, violation)
             return False, violation
+
         last_date = self.get_last_transaction_date(legal_entity_id)
         max_days = max_backdate_days or TimeIrreversibilityValidator.DEFAULT_MAX_BACKDATE_DAYS
         is_valid, violation = TimeIrreversibilityValidator.validate_effective_date(
@@ -1213,7 +1219,8 @@ class TimeIrreversibilityAxiom:
         )
         if violation:
             if allow_override and violation.is_blocked and override_by:
-                violation = self._grant_override(violation, override_by, override_reason)
+                reason = override_reason or "Override without reason"
+                violation = self._grant_override(violation, override_by, reason)
                 is_valid = True
             else:
                 self.save_violation(violation)
@@ -1224,10 +1231,9 @@ class TimeIrreversibilityAxiom:
                 ):
                     raise TimeIrreversibilityViolationError(violation.message, violation)
         if is_valid and transaction_id:
-            key = str(legal_entity_id) if legal_entity_id else "default"
-            if eff > self._last_transaction_date_by_entity.get(
-                key, datetime.min.replace(tzinfo=UTC)
-            ):
+            key = legal_entity_id or UUID(int=0)
+            current = self._last_transaction_date_by_entity.get(key)
+            if current is None or eff > current:
                 self._last_transaction_date_by_entity[key] = eff
         return is_valid, violation
 
@@ -1250,11 +1256,11 @@ class TimeIrreversibilityAxiom:
             ):
                 raise TimeIrreversibilityViolationError(v.message, v)
         if is_valid:
-            self.record_transaction_timestamp(timestamp)
+            self.record_transaction_timestamp(timestamp, None)
         return is_valid, violations
 
     def _grant_override(
-        self, violation: TimeIrreversibilityViolation, override_by: str, override_reason: str | None
+        self, violation: TimeIrreversibilityViolation, override_by: str, override_reason: str
     ) -> TimeIrreversibilityViolation:
         new_violation = violation.resolve(override_by, override_reason)
         for i, v in enumerate(self._violation_history):

@@ -1080,7 +1080,6 @@ class SubstanceOverFormValidator:
     def _notify_constitution(cls, violation: SubstanceViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            # Determine severity mapping but not used further; kept for clarity
             _ = {
                 SubstanceAssessmentSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 SubstanceAssessmentSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
@@ -1104,6 +1103,7 @@ class SubstanceOverFormValidator:
 class SubstanceOverFormAxiom:
     _instance: ClassVar[SubstanceOverFormAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # Deklarasi tipe eksplisit
 
     def __new__(cls) -> SubstanceOverFormAxiom:
         if cls._instance is None:
@@ -1329,7 +1329,7 @@ class SubstanceOverFormAxiom:
                 sev.name: len([v for v in self._violations if v.severity == sev])
                 for sev in SubstanceAssessmentSeverity
             }
-            by_type = {}
+            by_type: dict[str, int] = {}  # Perbaikan: tambahkan anotasi tipe
             for a in self._assessments:
                 tt = a.economic_substance.transaction_type.name
                 by_type[tt] = by_type.get(tt, 0) + 1

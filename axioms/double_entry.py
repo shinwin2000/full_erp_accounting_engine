@@ -576,11 +576,13 @@ class JournalEntry:
 
     @property
     def total_debit(self) -> Decimal:
-        return sum(line.amount for line in self.lines if line.side == Side.DEBIT)
+        # FIX: use Decimal(0) as start to ensure return type is Decimal
+        return sum((line.amount for line in self.lines if line.side == Side.DEBIT), Decimal(0))
 
     @property
     def total_credit(self) -> Decimal:
-        return sum(line.amount for line in self.lines if line.side == Side.CREDIT)
+        # FIX: use Decimal(0) as start to ensure return type is Decimal
+        return sum((line.amount for line in self.lines if line.side == Side.CREDIT), Decimal(0))
 
     @property
     def difference(self) -> Decimal:
@@ -811,6 +813,7 @@ class DoubleEntryVerificationRecord:
 class DoubleEntryAxiom:
     _instance: ClassVar[DoubleEntryAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # FIX: added type annotation
 
     def __new__(cls) -> DoubleEntryAxiom:
         if cls._instance is None:

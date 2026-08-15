@@ -905,6 +905,7 @@ class EntityIsolationValidator:
 class EntityIsolationAxiom:
     _instance: ClassVar[EntityIsolationAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # FIX: added type annotation
 
     def __new__(cls) -> EntityIsolationAxiom:
         if cls._instance is None:
@@ -1099,11 +1100,10 @@ class EntityIsolationAxiom:
             return False
         if ent1.parent_entity_id == entity_id2 or ent2.parent_entity_id == entity_id1:
             return True
-        return (
-            ent1.consolidation_group
-            and ent2.consolidation_group
-            and ent1.consolidation_group == ent2.consolidation_group
-        )
+        # Perbaikan: return bool dengan jelas
+        if ent1.consolidation_group and ent2.consolidation_group:
+            return ent1.consolidation_group == ent2.consolidation_group
+        return False
 
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:

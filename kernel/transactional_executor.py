@@ -283,7 +283,7 @@ class RetryableErrorDetector:
     def is_retryable(cls, error: Exception) -> bool:
         if isinstance(error, RetryableError):
             return True
-        if isinstance(error, (TimeoutError, ConnectionError)):
+        if isinstance(error, TimeoutError | ConnectionError):
             return True
         error_str = str(error).lower()
         if any(kw in error_str for kw in cls.NON_RETRYABLE_KEYWORDS):

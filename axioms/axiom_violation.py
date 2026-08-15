@@ -18,54 +18,66 @@ from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 # Import enums dari axioms lain (dengan fallback jika belum import)
+# Gunakan Any untuk fallback agar mypy tidak mengeluh tentang assignment None ke type
 try:
     from axioms.accrual_basis import AccrualBasisSeverity
 except ImportError:
-    AccrualBasisSeverity = None
+    AccrualBasisSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.causality_chain import CausalityViolationSeverity
 except ImportError:
-    CausalityViolationSeverity = None
+    CausalityViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.conservation_of_value import ConservationViolationSeverity
 except ImportError:
-    ConservationViolationSeverity = None
+    ConservationViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.double_entry import DoubleEntryViolationSeverity
 except ImportError:
-    DoubleEntryViolationSeverity = None
+    DoubleEntryViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.entity_isolation import EntityIsolationViolationSeverity
 except ImportError:
-    EntityIsolationViolationSeverity = None
+    EntityIsolationViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.going_concern import GoingConcernSeverity
 except ImportError:
-    GoingConcernSeverity = None
+    GoingConcernSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.immutability import ImmutabilityViolationSeverity
 except ImportError:
-    ImmutabilityViolationSeverity = None
+    ImmutabilityViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.materiality import MaterialitySeverity
 except ImportError:
-    MaterialitySeverity = None
+    MaterialitySeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.monetary_unit import MonetaryUnitViolationSeverity
 except ImportError:
-    MonetaryUnitViolationSeverity = None
+    MonetaryUnitViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.period_bound import PeriodBoundViolationSeverity
 except ImportError:
-    PeriodBoundViolationSeverity = None
+    PeriodBoundViolationSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.substance_over_form import SubstanceAssessmentSeverity
 except ImportError:
-    SubstanceAssessmentSeverity = None
+    SubstanceAssessmentSeverity: Any = None  # type: ignore[no-redef]
+
 try:
     from axioms.time_irreversibility import TimeIrreversibilityViolationSeverity
 except ImportError:
-    TimeIrreversibilityViolationSeverity = None
+    TimeIrreversibilityViolationSeverity: Any = None  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
@@ -565,6 +577,7 @@ class SubstanceOverFormViolation(AxiomViolationError):
 class AxiomViolationHandler:
     _instance: ClassVar[AxiomViolationHandler | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> AxiomViolationHandler:
         if cls._instance is None:
@@ -661,10 +674,10 @@ class AxiomViolationHandler:
         with self._lock:
             total = len(self._violations)
             unresolved = len([v for v in self._violations if not v.resolved])
-            by_axiom = {}
+            by_axiom: dict[str, int] = {}
             for v in self._violations:
                 by_axiom[v.axiom_name] = by_axiom.get(v.axiom_name, 0) + 1
-            by_severity = {}
+            by_severity: dict[str, int] = {}
             for sev in AxiomViolationSeverity:
                 count = len([v for v in self._violations if v.severity == sev])
                 if count > 0:

@@ -530,7 +530,7 @@ class AuditHookInjector(BaseAuditHookInjector):
             return f"<max depth {max_depth}>"
         if obj is None:
             return None
-        if isinstance(obj, (str, int, float, bool)):
+        if isinstance(obj, str | int | float | bool):
             return obj
         if isinstance(obj, UUID):
             return str(obj)
@@ -543,7 +543,7 @@ class AuditHookInjector(BaseAuditHookInjector):
             if len(obj) > 20:
                 dict_result["..."] = f"and {len(obj) - 20} more keys"
             return dict_result
-        if isinstance(obj, (list, tuple)):
+        if isinstance(obj, list | tuple):
             list_result: list[Any] = []
             for item in list(obj)[:10]:
                 list_result.append(self._safe_serialize(item, max_depth, current_depth + 1))

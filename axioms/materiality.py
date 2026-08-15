@@ -889,6 +889,7 @@ class MaterialityValidator:
 class MaterialityAxiom:
     _instance: ClassVar[MaterialityAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool  # Perbaikan: tambahkan deklarasi tipe
 
     def __new__(cls) -> MaterialityAxiom:
         if cls._instance is None:

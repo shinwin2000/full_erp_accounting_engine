@@ -222,6 +222,48 @@ class ForexRepositoryPort(abc.ABC):
     ) -> dict[str, Any] | None:
         raise NotImplementedError
 
+    # --------------------------------------------------------------------
+    # Currency Master (sebelumnya di-hardcode sebagai Python Enum
+    # CurrencyCode - lihat migrasi
+    # b2c3d4e5f6a7_add_fx_booking_rate_and_currency_master.py)
+    # --------------------------------------------------------------------
+    @abc.abstractmethod
+    async def create_currency(
+        self,
+        code: str,
+        name: str,
+        symbol: str | None,
+        decimal_places: int,
+        created_by: UUID | None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def list_currencies(self, is_active: bool | None = True) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_currency_by_code(self, code: str) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def deactivate_currency(self, code: str) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_currency_exposure_from_journal(
+        self, legal_entity_id: UUID, as_of_date: date
+    ) -> list[dict[str, Any]]:
+        """
+        Agregat per currency dari journal_line yang currency != IDR, sampai
+        as_of_date: total fc_amount, total nilai IDR yang dibukukan
+        (fc_amount * booking_rate per baris), jumlah baris yang punya data
+        booking_rate lengkap vs yang tidak (baris lama sebelum migrasi
+        b2c3d4e5f6a7 tidak punya booking_rate/fc_amount, dikecualikan).
+        """
+        raise NotImplementedError
+
+
 
 class ForexRepositoryPortProtocol(Protocol):
     """Protocol version for structural typing."""

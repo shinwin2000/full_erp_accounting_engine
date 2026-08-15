@@ -346,10 +346,10 @@ class TransactionSummarySchema(BaseModel):
 async def get_umkm_service(request: Request) -> Any:
     """Get UMKM Simplified Service instance."""
 
-    from application.service_layer.service_umkm import UMKMSimplifiedService
+    from application.service_layer.service_umkm import UMKMService
 
     container = request.app.state.container
-    return await container.resolve_async(UMKMSimplifiedService)
+    return await container.resolve_async(UMKMService)
 
 
 # ============================================================================

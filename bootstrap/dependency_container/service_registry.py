@@ -431,6 +431,34 @@ class ServiceRegistrar:
             container.register_singleton(EmployeeService, factory=_create_employee_service)
             logger.info("EmployeeService registered")
 
+            # ----- Registrasi UMKMService (bug: sebelumnya tidak pernah -----
+            # ----- didaftarkan ke IoC container sama sekali) -----
+            # Router memanggil container.resolve_async(UMKMService) tetapi
+            # tidak ada baris register_singleton untuk UMKMService di sini,
+            # sehingga selalu gagal dengan DependencyNotFoundError setiap
+            # request ke /api/v1/umkm/* (401 karena exception tertelan di
+            # auth middleware). UMKMRepositoryPort sudah otomatis
+            # ter-resolve oleh AdapterRegistry (manual mapping ke
+            # SQLAlchemyUMKMRepository), jadi di sini cukup rakit service-nya.
+            from application.service_layer.service_umkm import UMKMService
+            from ports.primary.umkm_repository_port import UMKMRepositoryPort
+
+            async def _create_umkm_service():
+                umkm_repo = await container.resolve_async(UMKMRepositoryPort)
+                try:
+                    uow = await container.resolve_async(UnitOfWorkPort)
+                except Exception:
+                    uow = None
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return UMKMService(umkm_repo, uow, event_publisher)
+
+            container.register_singleton(UMKMService, factory=_create_umkm_service)
+            logger.info("UMKMService registered")
+
             logger.info("Application services registered")
         except ImportError as e:
             logger.warning(f"Some application services could not be imported: {e}")

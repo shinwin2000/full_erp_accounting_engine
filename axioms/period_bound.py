@@ -968,7 +968,6 @@ class PeriodBoundValidator:
     def _notify_constitution(cls, violation: PeriodBoundViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            # Determine severity mapping but not used further; kept for clarity
             _ = {
                 PeriodBoundViolationSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
                 PeriodBoundViolationSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
@@ -993,6 +992,7 @@ class PeriodBoundValidator:
 class PeriodBoundAxiom:
     _instance: ClassVar[PeriodBoundAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> PeriodBoundAxiom:
         if cls._instance is None:
@@ -1177,22 +1177,31 @@ class PeriodBoundAxiom:
         return [p for p in periods if p.is_open_for_posting()]
 
     def get_period_sequence(self, period_id: UUID) -> list[AccountingPeriod]:
-        result = []
+        result: list[AccountingPeriod] = []
         period = self.get_period(period_id)
         if not period:
             return result
-        current = period
-        while current.previous_period_id:
-            prev = self.get_period(current.previous_period_id)
-            if not prev:
-                break
-            current = prev
+        current: AccountingPeriod | None = period
         while current:
-            result.append(current)
-            if current.next_period_id:
-                current = self.get_period(current.next_period_id)
-            else:
-                break
+            # Move to previous
+            while current and current.previous_period_id:
+                prev = self.get_period(current.previous_period_id)
+                if not prev:
+                    break
+                current = prev
+            # Now current is the first period in the chain
+            while current:
+                result.append(current)
+                if current.next_period_id:
+                    next_period = self.get_period(current.next_period_id)
+                    if next_period:
+                        current = next_period
+                    else:
+                        break
+                else:
+                    break
+            # The loop will naturally exit
+            break
         return result
 
     def enforce_transaction_period(
@@ -1209,6 +1218,8 @@ class PeriodBoundAxiom:
         raise_on_violation: bool = True,
     ) -> tuple[bool, PeriodBoundViolation | None, AccountingPeriod | None]:
         target_period = self.get_period_for_date(legal_entity_id, transaction_date)
+        violation: PeriodBoundViolation | None = None
+
         if not target_period:
             violation = PeriodBoundValidator._create_violation(
                 transaction_id,
@@ -1232,6 +1243,7 @@ class PeriodBoundAxiom:
                     violation.severity,
                 )
             return False, violation, None
+
         is_valid, violation, _ = PeriodBoundValidator.validate_transaction_period(
             transaction_date,
             target_period,

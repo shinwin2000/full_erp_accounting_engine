@@ -396,11 +396,11 @@ class ValueFlow:
 
     @property
     def total_source_value(self) -> Decimal:
-        return sum(node.amount for node in self.sources)
+        return sum((node.amount for node in self.sources), Decimal(0))
 
     @property
     def total_destination_value(self) -> Decimal:
-        return sum(node.amount for node in self.destinations)
+        return sum((node.amount for node in self.destinations), Decimal(0))
 
     @property
     def net_value_change(self) -> Decimal:
@@ -592,7 +592,7 @@ class ConservationRecord:
     violation_message: str | None
     auto_corrected: bool
     auto_correction_applied: str | None
-    forensic_hash: str
+    forensic_hash: str = ""
     version: int = 1
 
     _snapshots: ClassVar[list[dict[str, Any]]] = []
@@ -991,6 +991,7 @@ class ConservationOfValueValidator:
 class ConservationOfValueAxiom:
     _instance: ClassVar[ConservationOfValueAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False
     _validator = ConservationOfValueValidator
 
     def __new__(cls) -> ConservationOfValueAxiom:
@@ -1315,8 +1316,10 @@ def validate_value_flow(flow: ValueFlow) -> tuple[bool, list[str]]:
     violations = []
     try:
         is_conserved, record, _ = ConservationOfValueValidator.validate_flow(flow)
-        if not is_conserved:
+        if not is_conserved and record is not None:
             violations.append(record.violation_message or "Flow not conserved")
+        elif not is_conserved:
+            violations.append("Flow not conserved")
     except Exception as e:
         violations.append(str(e))
     return len(violations) == 0, violations

@@ -805,6 +805,7 @@ class GoingConcernValidator:
 class GoingConcernAxiom:
     _instance: ClassVar[GoingConcernAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # Perbaikan: tambahkan deklarasi tipe
 
     def __new__(cls) -> GoingConcernAxiom:
         if cls._instance is None:

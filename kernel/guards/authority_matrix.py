@@ -751,13 +751,16 @@ class AuthorityMatrixGuard(BaseAuthorityMatrixGuard):
             result = [r for r in result if not r["granted"]]
         return result
 
-    def get_statistics(self):
+    def get_statistics(self) -> dict[str, Any]:
         total = len(self._authorization_history)
         if total == 0:
             return {"total_authorizations": 0, "version": self._version}
         granted = len([r for r in self._authorization_history if r["granted"]])
         denied = total - granted
-        by_resource = {}
+
+        # PERBAIKAN: Menambahkan type annotation untuk kamus by_resource
+        by_resource: dict[str, int] = {}
+
         for r in self._authorization_history:
             res = r["resource"]
             by_resource[res] = by_resource.get(res, 0) + 1

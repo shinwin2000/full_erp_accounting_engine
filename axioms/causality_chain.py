@@ -477,7 +477,8 @@ class CausalityRecord:
     @property
     def total_cause_weight(self) -> Decimal:
         """Return total weight of all causes as Decimal to avoid floating point issues."""
-        return sum(Decimal(str(link.weight)) for link in self.causes)
+        # Perbaikan: gunakan Decimal(0) sebagai start agar sum mengembalikan Decimal
+        return sum((Decimal(str(link.weight)) for link in self.causes), Decimal(0))
 
     def add_cause(self, link: CausalLink) -> CausalityRecord:
         return CausalityRecord(
@@ -748,6 +749,7 @@ class CausalityViolation:
 class CausalityChainAxiom:
     _instance: ClassVar[CausalityChainAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # Perbaikan: tambahkan deklarasi tipe
 
     def __new__(cls) -> CausalityChainAxiom:
         if cls._instance is None:

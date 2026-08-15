@@ -802,6 +802,7 @@ class AccrualBasisValidator:
 class AccrualBasisAxiom:
     _instance: ClassVar[AccrualBasisAxiom | None] = None
     _lock: ClassVar[threading.Lock] = threading.Lock()
+    _initialized: bool = False  # Perbaikan: tambahkan deklarasi tipe
     _validator = AccrualBasisValidator
 
     def __new__(cls) -> AccrualBasisAxiom:

@@ -138,7 +138,7 @@ class EvidenceType(Enum):
 class EvidenceVerificationStatus(Enum):
     PENDING = "pending"
     VERIFIED = "verified"
-    FAILED = "failed"      
+    FAILED = "failed"
     REJECTED = "rejected"
     EXPIRED = "expired"
 

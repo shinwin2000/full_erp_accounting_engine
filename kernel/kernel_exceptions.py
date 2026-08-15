@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 
 # === 1. CONSTANTS & ENUMS ===

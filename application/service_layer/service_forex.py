@@ -136,6 +136,29 @@ class ExchangeRateDTO:
         )
 
 
+@dataclass(kw_only=True)
+class ForexPositionDTO:
+    """Hasil get_forex_position - bentuknya menyamai ForexPositionResponseSchema."""
+    by_currency: dict[str, dict[str, Any]]
+    total_foreign_currency_balance: Decimal
+    total_unrealized_gain: Decimal
+    total_unrealized_loss: Decimal
+    net_unrealized_position: Decimal
+
+
+@dataclass(kw_only=True)
+class ForexDashboardDTO:
+    """Hasil get_forex_dashboard - bentuknya menyamai ForexDashboardResponseSchema."""
+    latest_rates: dict[str, dict[str, Any]]
+    month_to_date_gain_loss: Decimal
+    year_to_date_gain_loss: Decimal
+    open_positions: dict[str, Decimal]
+    pending_revaluations: int
+    last_revaluation_date: date | None
+    last_revaluation_result: dict[str, Any] | None
+    rate_providers_status: dict[str, str]
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -184,7 +207,7 @@ class ForexService:
 
         logger.info("ForexService initialized")
 
-    def set_context(self, legal_entity_id: UUID) -> None:
+    def set_context(self, legal_entity_id: UUID | None) -> None:
         """
         Ikat legal_entity_id per-request ke repo.
 
@@ -198,7 +221,14 @@ class ForexService:
         di awal proses. HARUS dipanggil router di awal setiap endpoint
         (sebelum method service manapun dipanggil), memakai
         legal_entity_id yang dikirim frontend lewat query/path param.
+
+        legal_entity_id boleh None untuk endpoint yang genuinely tidak
+        scoped per entitas (mis. currency master - mata uang berlaku
+        global, bukan per legal entity) - dalam hal ini repo dibiarkan
+        seperti kondisi terakhir, tidak ditimpa.
         """
+        if legal_entity_id is None:
+            return
         if hasattr(type(self.forex_repo), "legal_entity_id"):
             self.forex_repo.legal_entity_id = legal_entity_id
 
@@ -348,6 +378,187 @@ class ForexService:
         if self.uow is not None:
             await self._commit()
         return ExchangeRateDTO.from_dict(data)
+
+    # ==================== CURRENCY MASTER ====================
+    # CATATAN: sebelumnya daftar mata uang di-hardcode sebagai Python Enum
+    # (CurrencyCode) di fastapi_forex_router.py - fitur "Tambah Mata Uang
+    # Baru" di UI selalu 404 karena endpoint-nya memang belum pernah
+    # dibuat. Method2 di bawah ini membungkus tabel currency_master yang
+    # baru (lihat migrasi b2c3d4e5f6a7).
+
+    async def create_currency(
+        self,
+        code: str,
+        name: str,
+        symbol: str | None,
+        decimal_places: int,
+        created_by: UUID | None,
+    ) -> dict[str, Any]:
+        self._check_authority(created_by, "create_currency")
+        code = code.strip().upper()
+        if len(code) != 3 or not code.isalpha():
+            raise ValueError("Kode mata uang harus 3 huruf (format ISO 4217), mis. USD")
+        data = await self.forex_repo.create_currency(code, name, symbol, decimal_places, created_by)
+        await self._commit()
+        return data
+
+    async def list_currencies(self, is_active: bool | None = True) -> list[dict[str, Any]]:
+        return await self.forex_repo.list_currencies(is_active)
+
+    async def get_currency_by_code(self, code: str) -> dict[str, Any] | None:
+        return await self.forex_repo.get_currency_by_code(code.strip().upper())
+
+    async def deactivate_currency(self, code: str, deactivated_by: UUID) -> dict[str, Any] | None:
+        self._check_authority(deactivated_by, "deactivate_currency")
+        data = await self.forex_repo.deactivate_currency(code.strip().upper())
+        if data:
+            await self._commit()
+        return data
+
+    # ==================== POSITION & DASHBOARD ====================
+    # CATATAN PENTING soal keterbatasan data: journal_line baru punya
+    # fc_amount/booking_rate mulai migrasi b2c3d4e5f6a7 - baris jurnal yang
+    # dibuat SEBELUM migrasi itu tidak punya nilai di 2 kolom itu (None),
+    # jadi otomatis DIKECUALIKAN dari perhitungan unrealized gain/loss di
+    # bawah (bukan dianggap 0 - dikecualikan sepenuhnya, supaya tidak
+    # menyesatkan). "coverage" pada hasil position menunjukkan proporsi
+    # baris yang punya data lengkap vs yang dikecualikan, supaya user bisa
+    # menilai seberapa bisa diandalkan angka gain/loss yang ditampilkan.
+
+    async def _compute_position_by_currency(
+        self, legal_entity_id: UUID, as_of_date: date
+    ) -> dict[str, dict[str, Any]]:
+        coa_accounts = await self.forex_repo.get_foreign_currency_balances(legal_entity_id, as_of_date)
+        accounts_by_currency: dict[str, list[str]] = {}
+        for bal in coa_accounts:
+            currency = bal.get("currency_code") or bal.get("currency")
+            if not currency or currency == "IDR":
+                continue
+            accounts_by_currency.setdefault(currency, []).append(bal.get("account_code"))
+
+        exposures = await self.forex_repo.get_currency_exposure_from_journal(legal_entity_id, as_of_date)
+
+        by_currency: dict[str, dict[str, Any]] = {}
+        for exp in exposures:
+            currency = exp["currency"]
+            try:
+                rate_entity = await self.forex_repo.get_rate(currency, "IDR", as_of_date)
+                if rate_entity is None:
+                    rate_entity = await self.forex_repo.get_latest_rate_before(currency, "IDR", as_of_date)
+            except Exception:
+                rate_entity = None
+
+            fc_amount_total = Decimal(str(exp["fc_amount_total"]))
+            booked_value = Decimal(str(exp["booked_functional_value_total"]))
+            current_value = None
+            unrealized_gain_loss = None
+            if rate_entity is not None and exp["lines_with_booking_data"] > 0:
+                current_value = fc_amount_total * rate_entity.rate
+                unrealized_gain_loss = current_value - booked_value
+
+            by_currency[currency] = {
+                "currency": currency,
+                "accounts": accounts_by_currency.get(currency, []),
+                "fc_amount_total": float(fc_amount_total),
+                "booked_functional_value_total": float(booked_value),
+                "current_functional_value": float(current_value) if current_value is not None else None,
+                "unrealized_gain_loss": float(unrealized_gain_loss) if unrealized_gain_loss is not None else None,
+                "latest_rate": float(rate_entity.rate) if rate_entity else None,
+                "latest_rate_date": rate_entity.rate_date.isoformat() if rate_entity else None,
+                "total_journal_lines": exp["total_lines"],
+                "lines_with_booking_data": exp["lines_with_booking_data"],
+                "lines_excluded_no_booking_data": exp["lines_excluded"],
+            }
+
+        for currency, accounts in accounts_by_currency.items():
+            if currency not in by_currency:
+                by_currency[currency] = {
+                    "currency": currency,
+                    "accounts": accounts,
+                    "fc_amount_total": 0.0,
+                    "booked_functional_value_total": 0.0,
+                    "current_functional_value": None,
+                    "unrealized_gain_loss": None,
+                    "latest_rate": None,
+                    "latest_rate_date": None,
+                    "total_journal_lines": 0,
+                    "lines_with_booking_data": 0,
+                    "lines_excluded_no_booking_data": 0,
+                }
+        return by_currency
+
+    async def get_forex_position(
+        self, legal_entity_id: UUID, as_of_date: date, functional_currency: str = "IDR"
+    ) -> ForexPositionDTO:
+        by_currency = await self._compute_position_by_currency(legal_entity_id, as_of_date)
+
+        total_balance = Decimal("0")
+        total_gain = Decimal("0")
+        total_loss = Decimal("0")
+        for entry in by_currency.values():
+            if entry["current_functional_value"] is not None:
+                total_balance += Decimal(str(entry["current_functional_value"]))
+            ugl = entry["unrealized_gain_loss"]
+            if ugl is not None:
+                if ugl >= 0:
+                    total_gain += Decimal(str(ugl))
+                else:
+                    total_loss += Decimal(str(-ugl))
+
+        return ForexPositionDTO(
+            by_currency=by_currency,
+            total_foreign_currency_balance=total_balance,
+            total_unrealized_gain=total_gain,
+            total_unrealized_loss=total_loss,
+            net_unrealized_position=total_gain - total_loss,
+        )
+
+    async def get_forex_dashboard(
+        self, legal_entity_id: UUID, as_of_date: date, functional_currency: str = "IDR"
+    ) -> ForexDashboardDTO:
+        position_now = await self.get_forex_position(legal_entity_id, as_of_date, functional_currency)
+
+        month_start = as_of_date.replace(day=1)
+        year_start = as_of_date.replace(month=1, day=1)
+        position_month_start = await self.get_forex_position(legal_entity_id, month_start, functional_currency)
+        position_year_start = await self.get_forex_position(legal_entity_id, year_start, functional_currency)
+
+        mtd = position_now.net_unrealized_position - position_month_start.net_unrealized_position
+        ytd = position_now.net_unrealized_position - position_year_start.net_unrealized_position
+
+        latest_rates_list = await self.forex_repo.list_rates_full(
+            legal_entity_id=legal_entity_id, effective_date=None, page=1, page_size=20,
+        )
+        latest_rates: dict[str, dict[str, Any]] = {}
+        for r in latest_rates_list:
+            pair = f"{r['from_currency']}/{r['to_currency']}"
+            if pair not in latest_rates:
+                latest_rates[pair] = r
+
+        open_positions: dict[str, Decimal] = {
+            cur: Decimal(str(entry["fc_amount_total"]))
+            for cur, entry in position_now.by_currency.items()
+        }
+
+        rate_providers_status: dict[str, str] = {
+            cur: ("tersedia" if entry["latest_rate"] is not None else "tidak ada kurs")
+            for cur, entry in position_now.by_currency.items()
+        }
+
+        return ForexDashboardDTO(
+            latest_rates=latest_rates,
+            month_to_date_gain_loss=mtd,
+            year_to_date_gain_loss=ytd,
+            open_positions=open_positions,
+            # CATATAN: belum ada infrastruktur pencatatan histori "revaluasi
+            # dijalankan kapan" (revaluation_records belum pernah dimigrasi -
+            # lihat catatan lama di sqlalchemy_forex_repository_impl.py).
+            # Daripada mengarang, nilai2 ini dikosongkan/nol secara eksplisit.
+            pending_revaluations=0,
+            last_revaluation_date=None,
+            last_revaluation_result=None,
+            rate_providers_status=rate_providers_status,
+        )
 
     # ==================== AUTHORITY CHECK (SOD) ====================
 

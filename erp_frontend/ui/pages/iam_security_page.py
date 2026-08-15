@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -101,6 +102,7 @@ class SessionsTab(QWidget):
 
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        self.status_label.setWordWrap(True)
         outer.addWidget(self.status_label)
 
     def refresh(self) -> None:
@@ -163,15 +165,45 @@ class MfaTab(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        outer = QVBoxLayout(self)
-        outer.addWidget(QLabel(
+        # FIX: sebelumnya semua konten tab ini (QR code, hasil setup,
+        # form verifikasi, form nonaktifkan MFA) ditumpuk langsung di
+        # widget tanpa scroll area - di layar/resolusi yang lebih kecil,
+        # bagian bawah (form "Nonaktifkan MFA") kepotong di luar batas
+        # layar dan tidak bisa dijangkau sama sekali. Sekarang dibungkus
+        # QScrollArea supaya selalu bisa di-scroll untuk menjangkau semua
+        # bagian, apapun ukuran layarnya.
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        # Cuma izinkan scroll VERTIKAL - konten harus selalu muat mengikuti
+        # lebar layar (word-wrap di semua label sudah memastikan itu), jadi
+        # scroll horizontal tidak seharusnya pernah muncul lagi.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        root_layout.addWidget(scroll)
+
+        content = QWidget()
+        scroll.setWidget(content)
+        outer = QVBoxLayout(content)
+        instructions_label = QLabel(
             "<b>Setup MFA (Google Authenticator / Authy)</b><br>"
             "<span style='color:#6B7280;'>Langkah 1: klik Setup untuk dapat kode rahasia & QR code. "
             "Langkah 2: <b>scan QR code di bawah pakai kamera aplikasi authenticator di HP Anda</b> "
-            "(bukan dengan cara diklik/dibuka di browser/link \"otpauth://...\" tidak bisa dibuka "
-            "langsung di PC - itu format khusus untuk di-scan atau diketik manual ke aplikasi authenticator). "
+            "(bukan dengan cara diklik/dibuka di browser - link \"otpauth://...\" tidak bisa dibuka "
+            "langsung di PC, itu format khusus untuk di-scan atau diketik manual ke aplikasi authenticator). "
             "Langkah 3: masukkan kode 6-digit untuk verifikasi.</span>"
-        ))
+        )
+        # FIX BUG: sebelumnya label ini tidak di-word-wrap, jadi Qt
+        # melebarkan seluruh teks jadi satu baris super panjang, memaksa
+        # seluruh halaman (termasuk tombol "Nonaktifkan MFA" di bawahnya)
+        # ikut melebar keluar layar dan butuh di-scroll ke KANAN untuk
+        # dibaca. setWordWrap(True) bikin teks membungkus ke baris
+        # berikutnya sesuai lebar yang tersedia, jadi halaman tetap
+        # muat 1 layar (cuma scroll vertikal kalau perlu, tidak horizontal).
+        instructions_label.setWordWrap(True)
+        outer.addWidget(instructions_label)
         setup_btn = QPushButton("🔑 Setup MFA")
         setup_btn.setObjectName("primaryButton")
         setup_btn.clicked.connect(self._setup)
@@ -179,12 +211,13 @@ class MfaTab(QWidget):
 
         self.qr_label = QLabel("")
         self.qr_label.setAlignment(Qt.AlignCenter)
-        self.qr_label.setFixedHeight(220)
-        outer.addWidget(self.qr_label)
+        self.qr_label.setFixedSize(200, 200)
+        self.qr_label.setStyleSheet("background-color: white; border: 1px solid #E5E7EB;")
+        outer.addWidget(self.qr_label, alignment=Qt.AlignCenter)
 
         self.setup_result = QTextEdit()
         self.setup_result.setReadOnly(True)
-        self.setup_result.setFixedHeight(140)
+        self.setup_result.setFixedHeight(110)
         outer.addWidget(self.setup_result)
 
         verify_row = QHBoxLayout()
@@ -215,6 +248,7 @@ class MfaTab(QWidget):
         outer.addStretch()
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        self.status_label.setWordWrap(True)
         outer.addWidget(self.status_label)
 
     def _setup(self) -> None:
@@ -234,14 +268,36 @@ class MfaTab(QWidget):
         # HP, atau ketik manual "Secret Key"-nya ke aplikasi authenticator.
         if HAS_QRCODE and qr_code_url:
             try:
-                img = qrcode.make(qr_code_url, box_size=6, border=2)
-                buf_path = None
+                # FIX BUG: sebelumnya box_size=6, border=2 - border=2 di
+                # BAWAH standar minimum QR code (ISO/IEC 18004 mewajibkan
+                # "quiet zone" minimal 4 modul di sekeliling kode). Dengan
+                # quiet zone terlalu tipis + background aplikasi berwarna
+                # (bukan putih polos), banyak aplikasi scanner kamera HP
+                # gagal mendeteksi pola finder QR-nya sama sekali - itu
+                # sebabnya QR tidak bisa di-scan walau gambarnya kelihatan
+                # normal di layar. box_size juga dinaikkan (6->10) supaya
+                # tiap modul lebih besar/tajam saat difoto dari jarak HP.
+                img = qrcode.make(qr_code_url, box_size=10, border=4)
                 from io import BytesIO
                 buf = BytesIO()
                 img.save(buf, format="PNG")
                 pixmap = QPixmap()
                 pixmap.loadFromData(buf.getvalue(), "PNG")
-                self.qr_label.setPixmap(pixmap)
+                # FIX BUG: sebelumnya QLabel cuma di-set TINGGI tetap tanpa
+                # lebar tetap, dan pixmap TIDAK di-scale sama sekali - QLabel
+                # secara default menampilkan pixmap di ukuran ASLI-nya dan
+                # MEMOTONG bagian yang melebihi batas label. Gambar QR
+                # 490x490px jadi terpotong di dalam label yang lebih kecil,
+                # bisa membuang sebagian pola QR (termasuk berpotensi
+                # "finder pattern" di pojok yang wajib ada untuk terdeteksi
+                # kamera) - ini kemungkinan besar penyebab utama QR tidak
+                # bisa di-scan sama sekali. Sekarang di-scale proporsional
+                # (KeepAspectRatio) supaya seluruh QR selalu utuh terlihat.
+                scaled = pixmap.scaled(
+                    self.qr_label.width(), self.qr_label.height(),
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation,
+                )
+                self.qr_label.setPixmap(scaled)
             except Exception:
                 self.qr_label.setText("(gagal membuat gambar QR - masukkan Secret Key di bawah secara manual)")
         elif not HAS_QRCODE:
@@ -328,6 +384,7 @@ class PasswordTab(QWidget):
         outer.addStretch()
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        self.status_label.setWordWrap(True)
         outer.addWidget(self.status_label)
 
     def _submit(self) -> None:
@@ -376,6 +433,7 @@ class LoginAttemptsTab(QWidget):
 
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color:#9CA3AF; font-size:11px;")
+        self.status_label.setWordWrap(True)
         outer.addWidget(self.status_label)
 
     def refresh(self) -> None:

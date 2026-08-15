@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from kernel.guards.guard_exceptions import (
@@ -428,7 +428,7 @@ class EmergencyFreezeGuard(BaseEmergencyFreezeGuard):
     khusus yang dapat melakukan freeze/unfreeze.
     """
 
-    _instance: Optional[EmergencyFreezeGuard] = None
+    _instance: EmergencyFreezeGuard | None = None
     _lock = threading.Lock()
     _initialized: bool = False  # class variable, akan di-shadow oleh instance
 

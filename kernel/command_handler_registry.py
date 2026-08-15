@@ -23,8 +23,6 @@ from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import Any
 
-from kernel.command_envelope import CommandEnvelope  # Langsung import, tidak perlu fallback
-
 logger = logging.getLogger(__name__)
 
 # === 2. ENUMS & DEFINITIONS ===

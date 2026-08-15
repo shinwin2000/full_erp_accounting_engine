@@ -25,6 +25,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    case,
+    func,
     select,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -45,6 +47,9 @@ from ports.primary.forex_repository_port import (
 # setiap query lewat model duplikat itu akan gagal "relation exchange_rates
 # does not exist" begitu benar-benar dieksekusi. Sekarang pakai model asli.
 from infrastructure.persistence_orm.exchange_rate_table import ExchangeRateTable
+from infrastructure.persistence_orm.currency_master_table import CurrencyMasterTable
+from infrastructure.persistence_orm.journal_line_table import JournalLineTable
+from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
 
 logger = logging.getLogger(__name__)
 
@@ -621,6 +626,125 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
         await session.flush()
         await session.refresh(row)
         return row.to_dict()
+
+    # ========================================================================
+    # CURRENCY MASTER
+    # ========================================================================
+
+    async def create_currency(
+        self,
+        code: str,
+        name: str,
+        symbol: str | None,
+        decimal_places: int,
+        created_by: UUID | None,
+    ) -> dict[str, Any]:
+        session = await self._get_session()
+        existing = (await session.execute(
+            select(CurrencyMasterTable).where(CurrencyMasterTable.code == code)
+        )).scalar_one_or_none()
+        if existing:
+            if not existing.is_active:
+                # Kode sama pernah ada tapi dinonaktifkan - aktifkan lagi
+                # daripada gagal karena primary key bentrok.
+                existing.is_active = True
+                existing.name = name
+                existing.symbol = symbol
+                existing.decimal_places = decimal_places
+                await session.flush()
+                await session.refresh(existing)
+                return existing.to_dict()
+            raise ValueError(f"Mata uang dengan kode {code} sudah ada")
+        row = CurrencyMasterTable(
+            code=code,
+            name=name,
+            symbol=symbol,
+            decimal_places=decimal_places,
+            is_active=True,
+            created_by=created_by,
+        )
+        session.add(row)
+        await session.flush()
+        await session.refresh(row)
+        return row.to_dict()
+
+    async def list_currencies(self, is_active: bool | None = True) -> list[dict[str, Any]]:
+        session = await self._get_session()
+        stmt = select(CurrencyMasterTable)
+        if is_active is not None:
+            stmt = stmt.where(CurrencyMasterTable.is_active == is_active)
+        stmt = stmt.order_by(CurrencyMasterTable.code)
+        result = await session.execute(stmt)
+        return [row.to_dict() for row in result.scalars().all()]
+
+    async def get_currency_by_code(self, code: str) -> dict[str, Any] | None:
+        session = await self._get_session()
+        row = (await session.execute(
+            select(CurrencyMasterTable).where(CurrencyMasterTable.code == code)
+        )).scalar_one_or_none()
+        return row.to_dict() if row else None
+
+    async def deactivate_currency(self, code: str) -> dict[str, Any] | None:
+        session = await self._get_session()
+        row = (await session.execute(
+            select(CurrencyMasterTable).where(CurrencyMasterTable.code == code)
+        )).scalar_one_or_none()
+        if not row:
+            return None
+        row.is_active = False
+        await session.flush()
+        await session.refresh(row)
+        return row.to_dict()
+
+    async def get_currency_exposure_from_journal(
+        self, legal_entity_id: UUID, as_of_date: date
+    ) -> list[dict[str, Any]]:
+        """
+        Agregat eksposur mata uang asing dari journal_line yang benar2
+        tercatat (posted), sampai as_of_date. HANYA baris dengan
+        fc_amount & booking_rate terisi yang diikutkan (baris lama sebelum
+        migrasi b2c3d4e5f6a7 tidak punya ini, dikecualikan - bukan
+        dianggap 0).
+        """
+        session = await self._get_session()
+        stmt = (
+            select(
+                JournalLineTable.currency,
+                func.count(JournalLineTable.id).label("total_lines"),
+                func.sum(
+                    case(
+                        (JournalLineTable.fc_amount.is_not(None), 1),
+                        else_=0,
+                    )
+                ).label("lines_with_booking_data"),
+                func.sum(func.coalesce(JournalLineTable.fc_amount, 0)).label("fc_amount_total"),
+                func.sum(
+                    func.coalesce(JournalLineTable.fc_amount, 0)
+                    * func.coalesce(JournalLineTable.booking_rate, 0)
+                ).label("booked_functional_value_total"),
+            )
+            .join(JournalHeaderTable, JournalHeaderTable.id == JournalLineTable.journal_id)
+            .where(
+                JournalLineTable.legal_entity_id == legal_entity_id,
+                JournalLineTable.currency != "IDR",
+                JournalLineTable.deleted_at.is_(None),
+                JournalHeaderTable.status == "posted",
+                JournalHeaderTable.journal_date <= as_of_date,
+            )
+            .group_by(JournalLineTable.currency)
+        )
+        result = await session.execute(stmt)
+        exposures = []
+        for row in result.all():
+            exposures.append({
+                "currency": row.currency,
+                "total_lines": row.total_lines,
+                "lines_with_booking_data": int(row.lines_with_booking_data or 0),
+                "lines_excluded": row.total_lines - int(row.lines_with_booking_data or 0),
+                "fc_amount_total": float(row.fc_amount_total or 0),
+                "booked_functional_value_total": float(row.booked_functional_value_total or 0),
+            })
+        return exposures
 
 
 # ============================================================================

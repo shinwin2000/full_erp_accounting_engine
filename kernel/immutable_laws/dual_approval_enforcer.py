@@ -348,12 +348,12 @@ class DualApprovalEnforcer:
         legal_entity_id: UUID,
     ) -> dict[str, Any]:
         approvals = self._approval_repo.get_by_transaction(transaction_id, legal_entity_id)
-        
+
         formatted_approvals: list[dict[str, Any]] = []
         for a in approvals:
             approved_at_val = getattr(a, "approved_at", None)
             notes_val = getattr(a, "notes", "") or ""
-            
+
             formatted_approvals.append(
                 {
                     "approver_id": getattr(a, "approver_id", ""),

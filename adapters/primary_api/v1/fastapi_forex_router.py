@@ -64,6 +64,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession 
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     TokenPayload,
@@ -71,6 +72,8 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
+
+from app.main import get_db_session  
 
 logger = logging.getLogger(__name__)
 
@@ -474,6 +477,50 @@ class ExchangeRateUpdateSchema(BaseModel):
 
 
 
+class CurrencyCreateSchema(BaseModel):
+
+    """Request tambah mata uang baru ke currency_master."""
+
+    code: str = Field(..., min_length=3, max_length=3, description="Kode ISO 4217, mis. AUD")
+
+    name: str = Field(..., min_length=1, max_length=100)
+
+    symbol: str | None = Field(None, max_length=10)
+
+    decimal_places: int = Field(2, ge=0, le=6)
+
+    @field_validator("code")
+
+    @classmethod
+
+    def _upper_code(cls, v: str) -> str:
+
+        return v.strip().upper()
+
+
+class CurrencyResponseSchema(BaseModel):
+
+    """Response satu mata uang dari currency_master."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+
+    name: str
+
+    symbol: str | None
+
+    decimal_places: int
+
+    is_active: bool
+
+    created_by: str | None = None
+
+    created_at: datetime
+
+    updated_at: datetime
+
+
 class ExchangeRateResponseSchema(BaseModel):
 
     """Response kurs."""
@@ -650,11 +697,45 @@ class ForexRevaluationRequestSchema(BaseModel):
 
     post_to_ledger: bool = Field(True, description="Posting ke general ledger")
 
-    gain_account_code: str = Field(DEFAULT_REVALUATION_ACCOUNT_GAIN, description="Akun gain")
+    gain_account_code: str | None = Field(DEFAULT_REVALUATION_ACCOUNT_GAIN, description="Akun gain")
 
-    loss_account_code: str = Field(DEFAULT_REVALUATION_ACCOUNT_LOSS, description="Akun loss")
+    loss_account_code: str | None = Field(DEFAULT_REVALUATION_ACCOUNT_LOSS, description="Akun loss")
 
     notes: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+
+    def _apply_account_code_defaults(self) -> "ForexRevaluationRequestSchema":
+
+        """
+
+        CATATAN: gain_account_code/loss_account_code sudah punya default
+
+        string di Field(...) di atas, TAPI Pydantic cuma pakai default itu
+
+        kalau key-nya memang tidak ada di body request - kalau frontend
+
+        kirim eksplisit "gain_account_code": null, validasi tetap gagal
+
+        (Input should be a valid string) karena None-nya dianggap nilai
+
+        yang benar-benar dikirim, bukan "tidak diisi". Frontend memang
+
+        mengirim null eksplisit untuk 2 field ini, jadi fallback-kan ke
+
+        default di sini supaya tidak 422 lagi.
+
+        """
+
+        if self.gain_account_code is None:
+
+            self.gain_account_code = DEFAULT_REVALUATION_ACCOUNT_GAIN
+
+        if self.loss_account_code is None:
+
+            self.loss_account_code = DEFAULT_REVALUATION_ACCOUNT_LOSS
+
+        return self
 
 
 
@@ -2918,6 +2999,176 @@ async def get_forex_dashboard(
 
 
 
+
+
+# ----------------------------------------------------------------------------
+
+# CURRENCY MASTER
+
+# ----------------------------------------------------------------------------
+
+# CATATAN: endpoint2 ini SEBELUMNYA TIDAK ADA SAMA SEKALI (fitur "Tambah
+
+# Mata Uang Baru" di UI selalu 404). Daftar mata uang sekarang datang dari
+
+# tabel currency_master (migrasi b2c3d4e5f6a7), bukan CurrencyCode Enum
+
+# yang di-hardcode lagi untuk endpoint2 ini secara khusus - supaya benar2
+
+# bisa menambah mata uang baru di luar daftar lama.
+
+
+@router.get(
+
+    "/currencies",
+
+    response_model=list[CurrencyResponseSchema],
+
+    summary="List mata uang",
+
+    operation_id="forex_list_currencies",
+
+)
+
+async def list_currencies(
+
+    is_active: bool | None = Query(True, description="Filter status aktif"),
+
+    _permission: None = Depends(require_permission("forex:read")),
+
+    forex_svc: Any = Depends(get_forex_svc),
+
+    session: AsyncSession = Depends(get_db_session),
+
+) -> list[CurrencyResponseSchema]:
+
+    """List semua mata uang di currency_master."""
+
+    forex_svc.set_context(None)
+
+    try:
+
+        rows = await forex_svc.list_currencies(is_active=is_active)
+
+        return [CurrencyResponseSchema(**row) for row in rows]
+
+    except Exception as e:
+
+        logger.exception("Failed to list currencies: %s", e)
+
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+
+    "/currencies",
+
+    response_model=CurrencyResponseSchema,
+
+    status_code=status.HTTP_201_CREATED,
+
+    summary="Tambah mata uang baru",
+
+    operation_id="forex_create_currency",
+
+)
+
+async def create_currency(
+
+    request: CurrencyCreateSchema,
+
+    _permission: None = Depends(require_permission("forex:create")),
+
+    current_user: TokenPayload = Depends(get_current_user),
+
+    forex_svc: Any = Depends(get_forex_svc),
+
+    session: AsyncSession = Depends(get_db_session),
+
+) -> CurrencyResponseSchema:
+
+    """Tambah mata uang baru ke currency_master."""
+
+    forex_svc.set_context(None)
+
+    try:
+
+        row = await forex_svc.create_currency(
+
+            code=request.code,
+
+            name=request.name,
+
+            symbol=request.symbol,
+
+            decimal_places=request.decimal_places,
+
+            created_by=current_user.user_id,
+
+        )
+
+        return CurrencyResponseSchema(**row)
+
+    except ValueError as e:
+
+        raise HTTPException(status_code=422, detail=str(e))
+
+    except Exception as e:
+
+        logger.exception("Failed to create currency: %s", e)
+
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+
+    "/currencies/{code}",
+
+    response_model=CurrencyResponseSchema,
+
+    summary="Nonaktifkan mata uang",
+
+    operation_id="forex_deactivate_currency",
+
+)
+
+async def deactivate_currency(
+
+    code: str,
+
+    _permission: None = Depends(require_permission("forex:delete")),
+
+    current_user: TokenPayload = Depends(get_current_user),
+
+    forex_svc: Any = Depends(get_forex_svc),
+
+    session: AsyncSession = Depends(get_db_session),
+
+) -> CurrencyResponseSchema:
+
+    """Nonaktifkan mata uang (soft-deactivate, bukan hapus permanen)."""
+
+    forex_svc.set_context(None)
+
+    try:
+
+        row = await forex_svc.deactivate_currency(code, current_user.user_id)
+
+        if not row:
+
+            raise HTTPException(status_code=404, detail="Mata uang tidak ditemukan")
+
+        return CurrencyResponseSchema(**row)
+
+    except HTTPException:
+
+        raise
+
+    except Exception as e:
+
+        logger.exception("Failed to deactivate currency: %s", e)
+
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------

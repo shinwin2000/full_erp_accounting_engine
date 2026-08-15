@@ -68,6 +68,16 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     debit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     credit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+    # fc_amount & booking_rate: nullable, diisi HANYA untuk baris jurnal
+    # yang currency != functional currency entitas. fc_amount = nilai asli
+    # dalam mata uang asing SEBELUM dikonversi; booking_rate = kurs yang
+    # dipakai saat itu (fc_amount * booking_rate seharusnya == debit_amount
+    # atau credit_amount, tergantung sisi). Tanpa keduanya, unrealized FX
+    # gain/loss tidak bisa dihitung akurat - baris lama (sebelum kolom ini
+    # ada) akan punya nilai None di sini dan otomatis dikecualikan dari
+    # perhitungan gain/loss sampai dibukukan ulang.
+    fc_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    booking_rate: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
     cost_center: Mapped[str | None] = mapped_column(String(20), nullable=True)
     department: Mapped[str | None] = mapped_column(String(20), nullable=True)
     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -129,6 +139,8 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
             "debit_amount": float(self.debit_amount),
             "credit_amount": float(self.credit_amount),
             "currency": self.currency,
+            "fc_amount": float(self.fc_amount) if self.fc_amount is not None else None,
+            "booking_rate": float(self.booking_rate) if self.booking_rate is not None else None,
             "cost_center": self.cost_center,
             "department": self.department,
             "account_name": self.account_name,

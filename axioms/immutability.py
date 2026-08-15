@@ -955,6 +955,7 @@ class ImmutabilityValidator:
 class ImmutabilityAxiom:
     _instance: ClassVar[ImmutabilityAxiom | None] = None
     _lock: ClassVar[threading.RLock] = threading.RLock()
+    _initialized: bool  # Perbaikan: tambahkan deklarasi tipe untuk instance variable
 
     def __new__(cls) -> ImmutabilityAxiom:
         if cls._instance is None:

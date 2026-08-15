@@ -21,7 +21,6 @@ from uuid import UUID, uuid4
 from kernel.context_holder import get_current_user
 from kernel.immutable_laws.law_violation_exceptions import (
     ImmutabilityLawViolation,
-    LawViolationSeverity,
 )
 
 logger = logging.getLogger(__name__)

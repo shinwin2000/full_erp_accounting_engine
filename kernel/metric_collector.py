@@ -392,14 +392,13 @@ class MetricCollector(BaseMetricCollector):
     def get_all_metrics(self) -> dict[str, Any]:
         result: dict[str, Any] = {"counters": {}, "gauges": {}, "histograms": {}}
         with self._lock_internal:
-            # Perbaikan: membedakan nama variabel untuk menghindari error Mypy
             for key, counter_val in self._counters.items():
                 name, labels = self._parse_key(key)
                 result["counters"][key] = {"value": counter_val, "name": name, "labels": labels}
             for key, gauge_val in self._gauges.items():
                 name, labels = self._parse_key(key)
                 result["gauges"][key] = {"value": gauge_val, "name": name, "labels": labels}
-            for key in self._histograms.keys():
+            for key in self._histograms:
                 name, labels = self._parse_key(key)
                 stats = self.get_histogram_stats(name, labels)
                 result["histograms"][key] = {"stats": stats, "name": name, "labels": labels}
@@ -412,18 +411,15 @@ class MetricCollector(BaseMetricCollector):
         lines.append("# HELP kernel_metrics Metrics from kernel layer")
         lines.append("# TYPE kernel_metrics summary")
         with self._lock_internal:
-            # Counter values are integers
             for key, counter_value in self._counters.items():
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 lines.append(f"{name}_total{label_str} {counter_value}")
-            # Gauge values are floats
             for key, gauge_value in self._gauges.items():
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 lines.append(f"{name}{label_str} {gauge_value}")
-            # Histogram stats
-            for key in self._histograms.keys():
+            for key in self._histograms:
                 name, labels = self._parse_key(key)
                 label_str = self._format_labels(labels) if labels else ""
                 stats = self.get_histogram_stats(name, labels)
@@ -592,11 +588,13 @@ class TimingContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         duration_ms = (time.time() - self._start_time) * 1000
-        self._collector.record_histogram(self.metric_name, Decimal(str(duration_ms)), self.labels)
-        if exc_type is not None:
-            self._collector.increment_counter(f"{self.metric_name}_errors", self.labels)
-        else:
-            self._collector.increment_counter(f"{self.metric_name}_success", self.labels)
+        # PERBAIKAN: Memastikan _collector tidak bernilai None sebelum memanggil method
+        if self._collector is not None:
+            self._collector.record_histogram(self.metric_name, Decimal(str(duration_ms)), self.labels)
+            if exc_type is not None:
+                self._collector.increment_counter(f"{self.metric_name}_errors", self.labels)
+            else:
+                self._collector.increment_counter(f"{self.metric_name}_success", self.labels)
 
 
 def timing(metric_name: str, labels: dict[str, str] | None = None):
