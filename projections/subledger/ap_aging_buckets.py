@@ -27,7 +27,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -56,7 +56,7 @@ BUCKETS = [
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class APAgingSnapshotTable(Base):
@@ -155,12 +155,12 @@ class APAgingBuckets:
             invoices = invoice_result.scalars().all()
 
             # Initialize bucket totals
-            bucket_totals = {}
+            bucket_totals: dict[str, Decimal] = {}
             for bucket in self._buckets:
                 bucket_totals[bucket["name"]] = Decimal(0)
 
             # Initialize per-supplier totals
-            supplier_totals = {}
+            supplier_totals: dict[str, dict[str, Any]] = {}
 
             for invoice in invoices:
                 outstanding = invoice.total_amount - invoice.paid_amount
@@ -181,10 +181,12 @@ class APAgingBuckets:
                             "buckets": {},
                             "total_outstanding": Decimal(0),
                         }
-                    supplier_totals[supplier_id]["buckets"][bucket_name] = (
-                        supplier_totals[supplier_id]["buckets"].get(bucket_name, Decimal(0))
-                        + outstanding
-                    )
+                    # Ensure buckets dict exists
+                    supp_buckets = supplier_totals[supplier_id]["buckets"]
+                    if not isinstance(supp_buckets, dict):
+                        supplier_totals[supplier_id]["buckets"] = {}
+                        supp_buckets = supplier_totals[supplier_id]["buckets"]
+                    supp_buckets[bucket_name] = supp_buckets.get(bucket_name, Decimal(0)) + outstanding
                     supplier_totals[supplier_id]["total_outstanding"] += outstanding
 
             # Get supplier names
@@ -201,6 +203,18 @@ class APAgingBuckets:
 
             total_outstanding = sum(bucket_totals.values())
 
+            # Build suppliers list with proper types
+            suppliers_list = []
+            for supp in supplier_totals.values():
+                suppliers_list.append(
+                    {
+                        "supplier_id": supp["supplier_id"],
+                        "supplier_name": supp["supplier_name"],
+                        "total_outstanding": float(supp["total_outstanding"]),
+                        "buckets": {k: float(v) for k, v in supp["buckets"].items()},
+                    }
+                )
+
             return {
                 "as_of_date": as_of_date.isoformat(),
                 "legal_entity_id": str(legal_entity_id),
@@ -215,15 +229,7 @@ class APAgingBuckets:
                     }
                     for bucket in self._buckets
                 ],
-                "suppliers": [
-                    {
-                        "supplier_id": supp["supplier_id"],
-                        "supplier_name": supp["supplier_name"],
-                        "total_outstanding": float(supp["total_outstanding"]),
-                        "buckets": {k: float(v) for k, v in supp["buckets"].items()},
-                    }
-                    for supp in supplier_totals.values()
-                ],
+                "suppliers": suppliers_list,
                 "generated_at": datetime.now(UTC).isoformat(),
             }
 
@@ -314,9 +320,11 @@ class APAgingBuckets:
         # Get snapshot or compute on the fly
         snapshot = await self.get_aging_snapshot(legal_entity_id, as_of_date)
         if snapshot:
-            for supp in snapshot.get("suppliers", []):
-                if supp["supplier_id"] == str(supplier_id):
-                    return supp
+            suppliers = snapshot.get("suppliers")
+            if suppliers and isinstance(suppliers, list):
+                for supp in suppliers:
+                    if supp.get("supplier_id") == str(supplier_id):
+                        return supp
 
         # Compute fresh if not in snapshot
         aging = await self.compute_aging(legal_entity_id, as_of_date)

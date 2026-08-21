@@ -141,19 +141,22 @@ class PSAK13InvestmentPropertyRegister:
     transfer_disclosure: str = ""
 
     def total_cost(self) -> Decimal:
-        return sum(p.cost for p in self.properties if p.is_active)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((p.cost for p in self.properties if p.is_active), Decimal(0))
 
     def total_carrying_amount(self) -> Decimal:
         if self.measurement_model == PSAK13MeasurementModel.COST:
-            return sum(p.carrying_amount_cost_model for p in self.properties if p.is_active)
+            return sum((p.carrying_amount_cost_model for p in self.properties if p.is_active), Decimal(0))
         else:
             return sum(
-                p.fair_value for p in self.properties if p.is_active and p.fair_value is not None
+                (p.fair_value for p in self.properties if p.is_active and p.fair_value is not None),
+                Decimal(0)
             )
 
     def total_fair_value(self) -> Decimal:
         return sum(
-            p.fair_value for p in self.properties if p.is_active and p.fair_value is not None
+            (p.fair_value for p in self.properties if p.is_active and p.fair_value is not None),
+            Decimal(0)
         )
 
     def to_dict(self) -> dict:
@@ -512,6 +515,8 @@ PropertyUsageStatus = PSAK13PropertyType  # atau sesuaikan
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak13_validator()
     entity_id = uuid4()
 

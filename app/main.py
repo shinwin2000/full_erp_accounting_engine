@@ -85,10 +85,21 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import JWTAuthMiddl
 from bootstrap.dependency_container.ioc_container import get_container  # noqa: E402
 from bootstrap.iam_setup import setup_iam_service  # noqa: E402
 
+
+# ============================================================
 # RCA ENGINE — via kernel.error_analysis (tidak langsung dari checker)
+# ============================================================
+# Placeholder for RCAResult (will be overridden if import succeeds)
+class RCAResult:
+    pass
+
 try:
-    from kernel.error_analysis import RCAResult, analyze_error, log_rca_result
+    from kernel.error_analysis import RCAResult as _RCAResult
+    from kernel.error_analysis import analyze_error, log_rca_result
     RCA_KERNEL_AVAILABLE = True
+    RCAResult = _RCAResult  # type: ignore[misc]
+    logger = logging.getLogger("erp_engine")
+    logger.info("RCA kernel loaded successfully")
 except ImportError:
     RCA_KERNEL_AVAILABLE = False
     logger = logging.getLogger("erp_engine")
@@ -122,8 +133,7 @@ except ImportError:
         if fix:
             logger_obj.info(f"{prefix} Fix: {fix[:200]}")
 
-    class RCAResult:
-        pass
+    # Keep the placeholder RCAResult
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -500,9 +510,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         rca_result = analyze_error(e, {"component": "postgresql"})
         log_rca_result(logger, rca_result, prefix="PostgreSQL")
         if rca_result:
-            sev = getattr(rca_result, "severity", "UNKNOWN")
-            if hasattr(sev, "value"):
-                sev = sev.value
+            sev = rca_result.get("severity") if isinstance(rca_result, dict) else getattr(rca_result, "severity", "UNKNOWN")
+            if sev is not None and hasattr(sev, "value"):
+                sev = sev.value  # type: ignore
             RCA_ANALYSIS_TOTAL.labels(severity=str(sev)).inc()
         raise RuntimeError("PostgreSQL is required but not available") from e
 
@@ -523,9 +533,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         rca_result = analyze_error(e, {"component": "redis"})
         log_rca_result(logger, rca_result, prefix="Redis")
         if rca_result:
-            sev = getattr(rca_result, "severity", "UNKNOWN")
-            if hasattr(sev, "value"):
-                sev = sev.value
+            sev = rca_result.get("severity") if isinstance(rca_result, dict) else getattr(rca_result, "severity", "UNKNOWN")
+            if sev is not None and hasattr(sev, "value"):
+                sev = sev.value  # type: ignore
             RCA_ANALYSIS_TOTAL.labels(severity=str(sev)).inc()
         raise RuntimeError("Redis is required but not available") from e
 
@@ -578,7 +588,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Shutting down...")
     await _stop_kafka()
     if _redis_client:
-        await _redis_client.aclose()
+        await _redis_client.close()
         logger.info("Redis closed")
     await engine.dispose()
     logger.info("DB engine disposed")
@@ -924,8 +934,8 @@ def create_app() -> FastAPI:
             else:
                 rca_dict = {"root_cause": str(rca_result)}
             sev = rca_result.get("severity") if isinstance(rca_result, dict) else getattr(rca_result, "severity", "UNKNOWN")
-            if hasattr(sev, "value"):
-                sev = sev.value
+            if sev is not None and hasattr(sev, "value"):
+                sev = sev.value  # type: ignore
             RCA_ANALYSIS_TOTAL.labels(severity=str(sev)).inc()
         return JSONResponse(
             status_code=500,

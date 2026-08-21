@@ -84,9 +84,9 @@ class PSAK46TemporaryDifference:
     carrying_amount: Decimal
     tax_base: Decimal
     difference_type: PSAK46TemporaryDifferenceType
-    temporary_difference: Decimal
     tax_rate: Decimal
-    deferred_tax_amount: Decimal
+    temporary_difference: Decimal = Decimal(0)
+    deferred_tax_amount: Decimal = Decimal(0)
 
     def __post_init__(self):
         self.temporary_difference = self.carrying_amount - self.tax_base
@@ -116,10 +116,10 @@ class PSAK46CurrentTax:
     entity_name: str
     taxable_profit: Decimal
     applicable_tax_rate: Decimal
-    current_tax_expense: Decimal
     over_under_provision_previous: Decimal = Decimal(0)
     tax_paid_ytd: Decimal = Decimal(0)
-    tax_payable: Decimal = Decimal(0)
+    current_tax_expense: Decimal = Decimal(0)  # Will be computed in __post_init__
+    tax_payable: Decimal = Decimal(0)  # Will be computed in __post_init__
 
     def __post_init__(self):
         self.current_tax_expense = (
@@ -158,12 +158,12 @@ class PSAK46DeferredTax:
 
     @property
     def deferred_tax_liability(self) -> Decimal:
-        total = sum(d.deferred_tax_amount for d in self.taxable_temporary_differences)
+        total = sum((d.deferred_tax_amount for d in self.taxable_temporary_differences), Decimal(0))
         return total.quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
 
     @property
     def deferred_tax_asset_before_allowance(self) -> Decimal:
-        total = sum(d.deferred_tax_amount for d in self.deductible_temporary_differences)
+        total = sum((d.deferred_tax_amount for d in self.deductible_temporary_differences), Decimal(0))
         total += (self.tax_loss_carryforwards * (self.applicable_tax_rate / 100)).quantize(
             Decimal("0"), rounding=ROUND_HALF_EVEN
         )
@@ -202,9 +202,9 @@ class PSAK46TaxReconciliation:
     entity_name: str
     accounting_profit_before_tax: Decimal
     applicable_tax_rate: Decimal
-    expected_tax_expense: Decimal
     actual_tax_expense: Decimal
     differences: list[str] = field(default_factory=list)
+    expected_tax_expense: Decimal = Decimal(0)  # Will be computed in __post_init__
 
     def __post_init__(self):
         self.expected_tax_expense = (
@@ -358,6 +358,7 @@ class PSAK46Validator:
             applicable_tax_rate=applicable_tax_rate,
             over_under_provision_previous=over_under_provision,
             tax_paid_ytd=tax_paid,
+            # current_tax_expense and tax_payable will be auto-computed in __post_init__
         )
 
     def create_temporary_difference(
@@ -421,6 +422,7 @@ class PSAK46Validator:
             applicable_tax_rate=applicable_tax_rate,
             actual_tax_expense=actual_tax_expense,
             differences=differences or [],
+            # expected_tax_expense will be auto-computed in __post_init__
         )
 
     def validate_deferred_tax(
@@ -465,6 +467,8 @@ def get_psak46_validator() -> PSAK46Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak46_validator()
     entity_id = uuid4()
 
@@ -526,6 +530,8 @@ if __name__ == "__main__":
     )
     print("\nValidation Result:")
     print(json.dumps(result.to_dict(), indent=2))
+
+
 # ============================================================================
 # Compatibility aliases for package-level aggregator (__init__.py)
 # ============================================================================

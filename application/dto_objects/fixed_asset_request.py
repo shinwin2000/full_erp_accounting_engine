@@ -316,7 +316,7 @@ class UpdateFixedAssetRequest:
             raise ValueError(f"Invalid status: {self.status}")
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"id": str(self.id)}
+        result: dict[str, Any] = {"id": str(self.id)}
         if self.asset_name is not None:
             result["asset_name"] = self.asset_name
         if self.asset_category is not None:
@@ -531,9 +531,9 @@ class AssetTransferRequest:
     def __post_init__(self) -> None:
         if not self.from_location or not self.to_location:
             raise ValueError("From location and to location are required")
-        if self.from_location == self.to_location:
-            if self.from_department == self.to_department:
-                raise ValueError("Source and destination cannot be the same")
+        # SIM102 fix: combine nested if using `and`
+        if self.from_location == self.to_location and self.from_department == self.to_department:
+            raise ValueError("Source and destination cannot be the same")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -841,32 +841,32 @@ AssetMaintenanceRequestDTO = AssetMaintenanceRequest
 # === 6. EXPORTS ===
 
 __all__ = [
-    # Enums
-    "AssetStatus",
-    "DepreciationMethod",
     "AssetCategory",
-    "DisposalReason",
     # Request DTOs
     "AssetCreateRequest",
-    "UpdateFixedAssetRequest",
-    "FixedAssetDisposalRequest",
-    "FixedAssetDepreciationRequest",
-    "ImpairmentTestRequest",
-    "RevaluationRequest",
-    "AssetTransferRequest",
     "AssetMaintenanceRequest",
-    "GetFixedAssetsQuery",
-    "GetAssetDetailRequest",
-    "GetAssetDepreciationScheduleRequest",
+    "AssetMaintenanceRequestDTO",
     # Response DTOs
     "AssetResponseDTO",
-    # Factory
-    "FixedAssetRequestFactory",
+    # Enums
+    "AssetStatus",
+    "AssetTransferRequest",
+    "AssetTransferRequestDTO",
+    "AssetUpdateRequest",
     # Aliases
     "CreateFixedAssetRequest",
-    "AssetUpdateRequest",
+    "DepreciationMethod",
     "DepreciationRunRequest",
+    "DisposalReason",
     "DisposalRequest",
-    "AssetTransferRequestDTO",
-    "AssetMaintenanceRequestDTO",
+    "FixedAssetDepreciationRequest",
+    "FixedAssetDisposalRequest",
+    # Factory
+    "FixedAssetRequestFactory",
+    "GetAssetDepreciationScheduleRequest",
+    "GetAssetDetailRequest",
+    "GetFixedAssetsQuery",
+    "ImpairmentTestRequest",
+    "RevaluationRequest",
+    "UpdateFixedAssetRequest",
 ]

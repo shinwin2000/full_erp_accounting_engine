@@ -340,7 +340,6 @@ class InvariantDefinition:
         return new_def
 
     def is_active_rule(self, at_date: datetime | None = None) -> bool:
-        # FIX: F841 - hapus variabel check yang tidak digunakan
         if self.deleted_at:
             return False
         return self.is_active
@@ -579,8 +578,9 @@ class InvariantViolation:
         self._record_audit("TOUCH", touched_by, {})
         return self
 
-    def is_resolved(self) -> bool:
-        return self.resolved_at is not None
+    # Hapus method is_resolved yang redundant karena atribut sudah ada
+    # def is_resolved(self) -> bool:
+    #     return self.resolved_at is not None
 
     def resolve(self, by: str, action: str) -> InvariantViolation:
         if self.is_resolved:
@@ -1262,14 +1262,6 @@ class ConstitutionalInvariants:
     def _notify_supreme_law(self, violation: InvariantViolation) -> None:
         try:
             supreme_law = get_supreme_law()
-            # FIX: F841 - hapus variabel severity_map yang tidak digunakan
-            # severity_map = {
-            #     InvariantSeverity.CATASTROPHIC: ConstitutionalSeverity.CRITICAL,
-            #     InvariantSeverity.CRITICAL: ConstitutionalSeverity.HIGH,
-            #     InvariantSeverity.HIGH: ConstitutionalSeverity.HIGH,
-            #     InvariantSeverity.MEDIUM: ConstitutionalSeverity.MEDIUM,
-            #     InvariantSeverity.LOW: ConstitutionalSeverity.LOW,
-            # }
             supreme_law.check_violation(
                 principle=ConstitutionalPrinciple.DOUBLE_ENTRY,
                 offending_module=violation.offending_module,
@@ -1366,7 +1358,8 @@ class ConstitutionalInvariants:
 
 class ConstitutionalInvariantsService:
     _instance: ConstitutionalInvariantsService | None = None
-    _invariants: ConstitutionalInvariants | None = None
+    _initialized: bool  # FIX: deklarasi
+    _invariants: ConstitutionalInvariants  # sekarang tidak Optional
 
     def __new__(cls) -> ConstitutionalInvariantsService:
         if cls._instance is None:

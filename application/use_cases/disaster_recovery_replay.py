@@ -317,7 +317,8 @@ class DisasterRecoveryReplayUseCase:
             )
 
     def _group_by_event_type(self, events: list[Any]) -> dict[str, int]:
-        groups = {}
+        # FIX: tambahkan type annotation untuk menghindari mypy error
+        groups: dict[str, int] = {}
         for e in events:
             et = e.get("event_type", "unknown")
             groups[et] = groups.get(et, 0) + 1

@@ -128,6 +128,7 @@ class EventHandlerRegistry:
 
     _instance: EventHandlerRegistry | None = None
     _lock = RLock()
+    _initialized: bool = False   # <-- FIX: add type annotation
 
     def __new__(cls) -> EventHandlerRegistry:
         with cls._lock:
@@ -136,7 +137,7 @@ class EventHandlerRegistry:
                 cls._instance._initialized = False
             return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if getattr(self, "_initialized", False):
             return
         with self._lock:

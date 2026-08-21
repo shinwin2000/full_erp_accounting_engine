@@ -32,20 +32,31 @@ from enum import Enum
 from typing import ClassVar
 from uuid import UUID, uuid4
 
-# Optional imports with fallback
-try:
-    from .rate_registry_dynamic import get_dynamic_rate_registry
-    from .tax_exceptions import PPhTariffNotFoundError
-except ImportError:
-    # Dummy for test compatibility
-    def get_dynamic_rate_registry():
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Dynamic imports - defined as functions/classes (no conditional redef)
+# ============================================================================
+
+def get_dynamic_rate_registry():
+    """
+    Get dynamic rate registry instance.
+    Import dilakukan di dalam fungsi untuk menghindari conditional redef.
+    """
+    try:
+        from .rate_registry_dynamic import get_dynamic_rate_registry as _get
+        return _get()
+    except ImportError:
         return None
 
-    class PPhTariffNotFoundError(Exception):
-        pass
 
-
-logger = logging.getLogger(__name__)
+# PPhTariffNotFoundError didefinisikan secara lokal, tidak diimport dari modul lain.
+class PPhTariffNotFoundError(Exception):
+    def __init__(self, message: str, pph_type: str, year: int):
+        super().__init__(message)
+        self.pph_type = pph_type
+        self.year = year
 
 
 # ============================================================================
@@ -221,7 +232,12 @@ class PPh23Calculator:
         """Mendapatkan tarif PPh 23 untuk jenis tertentu."""
         if pph23_type in self._rates:
             return self._rates[pph23_type]
-        raise PPhTariffNotFoundError(f"Tarif untuk {pph23_type.value} tidak ditemukan")
+        # FIX: berikan semua argumen yang diperlukan oleh PPhTariffNotFoundError
+        raise PPhTariffNotFoundError(
+            message=f"Tarif untuk {pph23_type.value} tidak ditemukan",
+            pph_type=pph23_type.value,
+            year=effective_date.year if effective_date else datetime.now().year,
+        )
 
     def calculate_tax(
         self,
@@ -314,7 +330,7 @@ class PPh23Calculator:
         }
 
     # ========================================================================
-    # METHODS FOR TEST COMPATIBILITY (added without removing original)
+    # METHODS FOR TEST COMPATIBILITY
     # ========================================================================
 
     @classmethod
@@ -322,7 +338,7 @@ class PPh23Calculator:
         """
         Class method untuk perhitungan PPh 23 sederhana (digunakan test).
         - jenis_jasa: "management" -> 2%
-        - has_npwp: False -> tarif 4.0% (2% x 2.0) -> 2.000.000 dari 50.000.000
+        - has_npwp: False -> tarif 4.0% (2% x 2.0)
         """
         if jenis_jasa == "management":
             rate = Decimal("2")
@@ -330,7 +346,7 @@ class PPh23Calculator:
             rate = Decimal("2")
 
         if not has_npwp:
-            rate = rate * Decimal("2")  # Kenaikan 100% (Tarif menjadi 4%)
+            rate = rate * Decimal("2")
 
         tax = bruto * (rate / cls.PERCENT_FACTOR)
         return Decimal(tax.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
@@ -388,6 +404,7 @@ if __name__ == "__main__":
     result = calc.calculate_tax(tx)
     print("PPh 23 Result:")
     print(json.dumps(result.to_dict(), indent=2))
+
 
 # ============================================================================
 # Compatibility alias for package-level aggregator

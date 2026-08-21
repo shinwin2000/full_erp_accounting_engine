@@ -29,35 +29,90 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-# Optional imports with fallback for test compatibility
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Import dependencies dengan fallback untuk test compatibility
+# ============================================================================
+
+# Coba import modul asli
 try:
     from .error_classifier_psak25 import ErrorClassifierPSAK25, ErrorType
     from .ethics_exceptions import ProfessionalJudgmentError
-    from .materiality_threshold_quantitative import QuantitativeMateriality
+    from .materiality_threshold_quantitative import (
+        BenchmarkType,
+        MaterialityThreshold,
+        QuantitativeMateriality,
+    )
+    _IMPORT_SUCCESS = True
 except ImportError:
-    # Dummy for test compatibility
-    class ErrorType(Enum):
+    _IMPORT_SUCCESS = False
+
+# Jika import gagal, definisikan dummy class (dengan # type: ignore untuk menghindari no-redef)
+if not _IMPORT_SUCCESS:
+    class ErrorType(Enum):  # type: ignore
         CHANGE_IN_ACCOUNTING_POLICY = "change_in_accounting_policy"
         CHANGE_IN_ACCOUNTING_ESTIMATE = "change_in_accounting_estimate"
         ERROR_IN_APPLYING_POLICIES = "error_in_applying_policies"
         OMISSION_OR_MISSTATEMENT = "omission_or_misstatement"
         FRAUD = "fraud"
 
-    class ErrorClassifierPSAK25:
-        def classify(self, description, intentional, policy_change, estimate_change):
-            return type(
-                "Classification", (), {"error_type": ErrorType.ERROR_IN_APPLYING_POLICIES}
-            )()
+    class BenchmarkType(Enum):  # type: ignore
+        REVENUE = "revenue"
+        TOTAL_ASSETS = "total_assets"
+        EQUITY = "equity"
 
-    class ProfessionalJudgmentError(Exception):
+    class MaterialityThreshold:  # type: ignore
+        # Deklarasi atribut class agar mypy tahu
+        is_material: bool
+
+        def __init__(
+            self,
+            materiality_type: Any,
+            benchmark: Any,
+            benchmark_value: Decimal,
+            percentage: Decimal,
+            threshold_value: Decimal,
+            calculated_at: datetime,
+            calculated_by: str,
+        ):
+            self.materiality_type = materiality_type
+            self.benchmark = benchmark
+            self.benchmark_value = benchmark_value
+            self.percentage = percentage
+            self.threshold_value = threshold_value
+            self.calculated_at = calculated_at
+            self.calculated_by = calculated_by
+            self.is_material = False  # default
+
+    class ErrorClassifierPSAK25:  # type: ignore
+        def classify(self, description, intentional, policy_change, estimate_change):
+            class Classification:
+                pass
+            result = Classification()
+            result.error_type = ErrorType.ERROR_IN_APPLYING_POLICIES
+            return result
+
+    class ProfessionalJudgmentError(Exception):  # type: ignore
         pass
 
-    class QuantitativeMateriality:
-        def is_material(self, amount, revenue, assets, equity):
-            return amount > revenue * Decimal("0.05")
-
-
-logger = logging.getLogger(__name__)
+    class QuantitativeMateriality:  # type: ignore
+        def is_material(
+            self, amount: Decimal, benchmarks: dict[BenchmarkType, Decimal]
+        ) -> tuple[bool, MaterialityThreshold]:
+            revenue = benchmarks.get(BenchmarkType.REVENUE, Decimal("0"))
+            is_mat = amount > revenue * Decimal("0.05")
+            threshold = MaterialityThreshold(
+                materiality_type="revenue",  # type: ignore
+                benchmark=BenchmarkType.REVENUE,  # type: ignore
+                benchmark_value=revenue,
+                percentage=Decimal("5"),
+                threshold_value=revenue * Decimal("0.05"),
+                calculated_at=datetime.utcnow(),
+                calculated_by=str(uuid4()),
+            )
+            threshold.is_material = is_mat  # type: ignore
+            return is_mat, threshold
 
 
 # ============================================================================
@@ -220,10 +275,17 @@ class CorrectionDoctrineEngine:
         base_amount: Decimal,
         is_material: bool | None = None,
     ) -> CorrectionMethod:
+        # Jika is_material belum diberikan, hitung menggunakan quantitative materiality
         if is_material is None:
-            is_material = self._quant_materiality.is_material(
-                error_amount, self._company_revenue, self._total_assets, self._equity
-            )
+            # Bangun dictionary benchmarks
+            benchmarks: dict[BenchmarkType, Decimal] = {
+                BenchmarkType.REVENUE: self._company_revenue,
+                BenchmarkType.TOTAL_ASSETS: self._total_assets,
+                BenchmarkType.EQUITY: self._equity,  # type: ignore
+            }
+            # Panggil method is_material, unpack hasil tuple
+            is_material, _ = self._quant_materiality.is_material(error_amount, benchmarks)
+
         # PSAK 25 guidelines
         if error_type == ErrorType.CHANGE_IN_ACCOUNTING_POLICY:
             if is_material:

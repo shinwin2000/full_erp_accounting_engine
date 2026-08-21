@@ -36,7 +36,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 from sqlalchemy import select
 
 # Internal dependencies
@@ -63,7 +63,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "output_dir": "/var/reports/ojk",
     "company_name": "PT ERP Accounting Engine Tbk",
     "company_address": "Jakarta Selatan, DKI Jakarta",
@@ -185,10 +185,11 @@ class OJKFormatBuilder:
     def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
-            result = DEFAULT_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_CONFIG.copy()
             for key, value in config.items():
-                if key in result and isinstance(value, dict):
-                    result[key].update(value)
+                # Only merge dicts; for other types, simply assign
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key].update(value)  # type: ignore[attr-defined]
                 else:
                     result[key] = value
             return result
@@ -236,9 +237,9 @@ class OJKFormatBuilder:
             legal_entity_id, start_date, end_date
         )
 
-        # Equity statement
+        # Equity statement (currently not used in data mapping, but kept for future)
         eq = await self._get_equity_statement()
-        eq_data = await eq.get_equity_statement(
+        _ = await eq.get_equity_statement(
             legal_entity_id, start_date, end_date
         )
 
@@ -408,7 +409,7 @@ class OJKFormatBuilder:
         }
 
     # ========================================================================
-    # EXPORT FUNCTIONS — DIPERBAIKI (async file I/O + thread pool)
+    # EXPORT FUNCTIONS â€” DIPERBAIKI (async file I/O + thread pool)
     # ========================================================================
 
     async def export_json(self, legal_entity_id: UUID, period_id: UUID) -> Path:

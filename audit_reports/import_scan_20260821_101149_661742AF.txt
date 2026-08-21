@@ -1,0 +1,27 @@
+================================================================================
+  SovereignImportValidator v3.0.0
+  Audit Standard : ISO/IEC 25010 | SOC 2 Type II | ISAE 3402
+  Scan ID        : 661742AF
+  Timestamp (UTC): 2026-08-21T03:10:54.011320Z
+  Host           : DESKTOP-6EKENHE
+  Python         : 3.11.9
+  Platform       : Windows-10-10.0.26200-SP0
+  Git Commit     : 893ed87 (master)
+  Project Root   : E:\full_erp_accounting_engine
+================================================================================
+
+── RINGKASAN ──────────────────────────────────────────────────────────────────
+  Total Modul    : 1101
+  Berhasil       : 1101
+  Gagal          : 0
+  Warning        : 0
+  Durasi         : 9178.78 detik
+  Pass Rate      : 100.0%
+  Status         : ✅ LULUS
+
+── RINGKASAN PER LAYER ─────────────────────────────────────────────────────────
+  ✅ Core Domain                     314/314 (100.0%)
+  ✅ Port Interface                  63/63 (100.0%)
+  ✅ Application Service             252/252 (100.0%)
+  ✅ Infrastructure                  444/444 (100.0%)
+  ✅ Composition Root                28/28 (100.0%)

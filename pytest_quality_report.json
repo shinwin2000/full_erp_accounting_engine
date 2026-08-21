@@ -1,14 +1,14 @@
 {
   "summary": {
-    "total_files": 5026,
-    "scanned_files": 1734,
+    "total_files": 5070,
+    "scanned_files": 1747,
     "files_with_tests": 1312,
-    "total_asserts": 78294,
-    "strong_asserts": 75943,
+    "total_asserts": 78319,
+    "strong_asserts": 75968,
     "weak_asserts": 2351,
-    "total_lines": 2156909
+    "total_lines": 2168697
   },
-  "quality_score": 96.99721562316397,
+  "quality_score": 96.99817413399047,
   "threshold": 70.0,
   "status": "✅ PASS",
   "weak_by_file": {
@@ -2632,7 +2632,7 @@
     ],
     "tests\\axioms\\test_monetary_unit.py": [
       {
-        "line": 799,
+        "line": 822,
         "code": "True",
         "reason": "Boolean constant (True)"
       }

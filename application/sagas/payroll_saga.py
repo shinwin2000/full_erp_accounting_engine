@@ -11,6 +11,7 @@ Responsibility:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -20,8 +21,6 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
-
-import aiofiles  # <-- Tambahan untuk async file I/O
 
 from application.sagas.saga_orchestrator_base import SagaOrchestratorBase
 from ports.primary.saga_state_store_port import SagaStateStorePort
@@ -283,7 +282,7 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
         return state
 
     # ========================================================================
-    # PERBAIKAN: _generate_bank_file menggunakan aiofiles
+    # PERBAIKAN: _generate_bank_file menggunakan asyncio.to_thread
     # ========================================================================
 
     async def _generate_bank_file(self, state: PayrollSagaState) -> PayrollSagaState:
@@ -309,14 +308,21 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
                     )
 
         file_path = f"/tmp/payroll_bank_{state.saga_id}.csv"
-        # ===== PERBAIKAN: Gunakan aiofiles.open untuk menulis secara async =====
-        async with aiofiles.open(file_path, "w") as f:
-            await f.write(output.getvalue())
+        content = output.getvalue()
+
+        # Write file asynchronously using thread pool
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._write_file, file_path, content)
 
         state.bank_file_path = file_path
         state.status = "BANK_FILE_GENERATED"
         state.updated_at = datetime.utcnow()
         return state
+
+    def _write_file(self, file_path: str, content: str) -> None:
+        """Synchronous file write helper."""
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
 
     async def _compensate_bank_file(self, state: PayrollSagaState) -> PayrollSagaState:
         logger.info(f"Compensating bank file for saga {state.saga_id}")
@@ -395,7 +401,9 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
             correlation_id=correlation_id,
         )
 
-    async def _serialize_data(self, data: PayrollSagaState) -> dict[str, Any]:
+    # ===================== FIX: synchronous serialization =====================
+
+    def _serialize_data(self, data: PayrollSagaState) -> dict[str, Any]:
         return {
             "saga_id": str(data.saga_id),
             "legal_entity_id": str(data.legal_entity_id),
@@ -419,7 +427,7 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
             "updated_at": data.updated_at.isoformat(),
         }
 
-    async def _deserialize_data(self, data_dict: dict[str, Any]) -> PayrollSagaState:
+    def _deserialize_data(self, data_dict: dict[str, Any]) -> PayrollSagaState:
         return PayrollSagaState(
             saga_id=UUID(data_dict["saga_id"]),
             legal_entity_id=UUID(data_dict["legal_entity_id"]),

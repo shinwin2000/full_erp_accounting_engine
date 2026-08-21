@@ -85,6 +85,16 @@ class Setting:
     category: str = "general"
     scope: SettingScope = SettingScope.GLOBAL
     legal_entity_id: UUID | None = None
+    # FIX: router (fastapi_system_settings_router.py) reads/writes
+    # user_id/role_id/branch_id (per-scope targeting for USER/ROLE/BRANCH
+    # scoped settings) and tags on every SettingResponseSchema, but these
+    # fields never existed on this dataclass, so every endpoint that built
+    # a SettingResponseSchema (create/get/update/list/activate/lock/unlock)
+    # crashed with AttributeError. Added here to match the router contract.
+    user_id: UUID | None = None
+    role_id: UUID | None = None
+    branch_id: UUID | None = None
+    tags: list[str] | None = None
     validation_regex: str | None = None
     min_value: Decimal | None = None
     max_value: Decimal | None = None
@@ -98,6 +108,13 @@ class Setting:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: UUID | None = None
+    # FIX: router also reads updated_by/updated_by_name/created_by_name on
+    # the response schema. We don't have a user-directory lookup wired into
+    # this service, so the *_name fields stay None unless explicitly
+    # supplied; the UI already tolerates null names.
+    updated_by: UUID | None = None
+    created_by_name: str | None = None
+    updated_by_name: str | None = None
 
     def get_typed_value(self) -> Any:
         if self.data_type == SettingDataType.INTEGER:
@@ -169,6 +186,10 @@ class Setting:
             "category": self.category,
             "scope": self.scope.value,
             "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "role_id": str(self.role_id) if self.role_id else None,
+            "branch_id": str(self.branch_id) if self.branch_id else None,
+            "tags": self.tags,
             "validation_regex": self.validation_regex,
             "min_value": str(self.min_value) if self.min_value is not None else None,
             "max_value": str(self.max_value) if self.max_value is not None else None,
@@ -182,6 +203,9 @@ class Setting:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "created_by": str(self.created_by) if self.created_by else None,
+            "created_by_name": self.created_by_name,
+            "updated_by": str(self.updated_by) if self.updated_by else None,
+            "updated_by_name": self.updated_by_name,
         }
 
     @classmethod
@@ -202,6 +226,10 @@ class Setting:
             category=data.get("category", "general"),
             scope=SettingScope(data.get("scope", "global")),
             legal_entity_id=UUID(data["legal_entity_id"]) if data.get("legal_entity_id") else None,
+            user_id=UUID(data["user_id"]) if data.get("user_id") else None,
+            role_id=UUID(data["role_id"]) if data.get("role_id") else None,
+            branch_id=UUID(data["branch_id"]) if data.get("branch_id") else None,
+            tags=data.get("tags"),
             validation_regex=data.get("validation_regex"),
             min_value=min_val,
             max_value=max_val,
@@ -215,6 +243,9 @@ class Setting:
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC),
             updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(UTC),
             created_by=UUID(data["created_by"]) if data.get("created_by") else None,
+            created_by_name=data.get("created_by_name"),
+            updated_by=UUID(data["updated_by"]) if data.get("updated_by") else None,
+            updated_by_name=data.get("updated_by_name"),
         )
 
 
@@ -232,6 +263,72 @@ class ImportResult:
     imported_count: int = 0
     skipped_count: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+# ============================================================================
+# FIX: supporting read-model dataclasses required by
+# fastapi_system_settings_router.py. None of these existed before, which is
+# why /schema, /categories, /audit, /{key}/history, /validate,
+# /{key}/lock, /{key}/unlock, and /{key}/activate all failed with
+# AttributeError ('SystemSettingsService' object has no attribute '...').
+# ============================================================================
+
+
+@dataclass(kw_only=True)
+class SettingHistoryEntry:
+    """Matches SettingHistorySchema in fastapi_system_settings_router.py."""
+
+    id: UUID = field(default_factory=uuid4)
+    setting_id: UUID
+    setting_key: str
+    legal_entity_id: UUID | None = None
+    old_value: str | None = None
+    new_value: str | None = None
+    changed_by: UUID | None = None
+    changed_by_name: str | None = None
+    changed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    reason: str | None = None
+    ip_address: str | None = None
+
+
+@dataclass(kw_only=True)
+class SettingValidationResult:
+    """Matches SettingValidationResultSchema in the router."""
+
+    is_valid: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    normalized_value: str | None = None
+
+
+@dataclass(kw_only=True)
+class SettingSchemaInfo:
+    """Matches SettingSchemaSchema in the router (GET /settings/schema)."""
+
+    key: str
+    data_type: str
+    description: str | None
+    category: str
+    scope: str
+    validation_regex: str | None
+    min_value: Decimal | None
+    max_value: Decimal | None
+    allowed_values: list[str] | None
+    default_value: str | None
+    is_readonly: bool
+    is_encrypted: bool
+    tags: list[str] | None
+
+
+@dataclass(kw_only=True)
+class SettingCategoryInfo:
+    """Matches the dict shape returned by GET /settings/categories."""
+
+    name: str
+    label: str
+    description: str | None
+    setting_count: int
+    active_count: int
 
 
 # ============================================================================
@@ -270,7 +367,7 @@ class SystemSettingsService:
     Mempublikasikan event untuk setiap perubahan.
     """
 
-    __slots__ = ("_audit_trail", "_event_publisher", "_locked", "_settings", "_stats")
+    __slots__ = ("_audit_trail", "_event_publisher", "_history", "_locked", "_settings", "_stats")
 
     def __init__(
         self,
@@ -281,6 +378,9 @@ class SystemSettingsService:
         self._event_publisher = event_publisher
         self._locked: bool = False
         self._audit_trail: list[dict[str, Any]] = []
+        # FIX: structured per-change history, needed by get_setting_history()
+        # and get_settings_audit_trail() (previously missing entirely).
+        self._history: list[SettingHistoryEntry] = []
 
         self._init_default_settings()
         logger.info("SystemSettingsService initialized")
@@ -305,6 +405,31 @@ class SystemSettingsService:
         self._audit_trail.append(entry)
         logger.info(f"AUDIT: {action} - {details}")
 
+    # ==================== STRUCTURED HISTORY (FIX) ====================
+    # Previously there was no structured per-setting history at all, so
+    # GET /settings/{key}/history and GET /settings/audit (audit trail)
+    # had nothing to call. This records one entry per value/state change.
+
+    def _record_history(
+        self,
+        setting: Setting,
+        *,
+        old_value: Any = None,
+        new_value: Any = None,
+        changed_by: UUID | None = None,
+        reason: str | None = None,
+    ) -> None:
+        entry = SettingHistoryEntry(
+            setting_id=setting.id,
+            setting_key=setting.key,
+            legal_entity_id=setting.legal_entity_id,
+            old_value=str(old_value) if old_value is not None else None,
+            new_value=str(new_value) if new_value is not None else None,
+            changed_by=changed_by,
+            reason=reason or None,
+        )
+        self._history.append(entry)
+
     # ==================== EVENT PUBLISHING HELPER ====================
 
     async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
@@ -320,16 +445,25 @@ class SystemSettingsService:
 
     def _init_default_settings(self) -> None:
         default_settings = [
-            Setting(key="company.name", value="ERP System", category="company", is_readonly=True),
-            Setting(key="company.currency", value="IDR", category="company"),
-            Setting(key="company.fiscal_year_start", value="1", data_type=SettingDataType.INTEGER, category="company"),
+            # FIX: category was "company", which is not a member of
+            # SettingCategory in fastapi_system_settings_router.py. Any
+            # attempt to fetch these settings (GET /{key}, list, schema,
+            # categories) crashed with a 422 "company is not a valid
+            # SettingCategory" when the router tried SettingCategory(s.category).
+            # Changed to "general", which is a valid category.
+            Setting(key="company.name", value="ERP System", category="general", is_readonly=True),
+            Setting(key="company.currency", value="IDR", category="general"),
+            Setting(key="company.fiscal_year_start", value="1", data_type=SettingDataType.INTEGER, category="general"),
             Setting(key="tax.ppn_rate", value="11", data_type=SettingDataType.DECIMAL, category="tax", min_value=Decimal("0"), max_value=Decimal("100")),
             Setting(key="tax.pph21_rate", value="5", data_type=SettingDataType.DECIMAL, category="tax", min_value=Decimal("0"), max_value=Decimal("100")),
             Setting(key="accounting.auto_approve_journal", value="false", data_type=SettingDataType.BOOLEAN, category="accounting"),
             Setting(key="inventory.valuation_method", value="FIFO", allowed_values=["FIFO", "AVERAGE"], category="inventory"),
             Setting(key="notification.email_enabled", value="true", data_type=SettingDataType.BOOLEAN, category="notification"),
             Setting(key="security.session_timeout_minutes", value="30", data_type=SettingDataType.INTEGER, category="security", min_value=Decimal("1"), max_value=Decimal("1440")),
-            Setting(key="coretax.enabled", value="false", data_type=SettingDataType.BOOLEAN, category="coretax"),
+            # FIX: same problem as above - "coretax" is not a valid
+            # SettingCategory either. Coretax is a tax-authority
+            # integration, so "tax" is the closest valid category.
+            Setting(key="coretax.enabled", value="false", data_type=SettingDataType.BOOLEAN, category="tax"),
         ]
 
         for setting in default_settings:
@@ -351,19 +485,27 @@ class SystemSettingsService:
         category: str = "general",
         scope: str = "global",
         legal_entity_id: UUID | None = None,
+        user_id: UUID | None = None,
+        role_id: UUID | None = None,
+        branch_id: UUID | None = None,
         description: str | None = None,
         validation_regex: str | None = None,
         min_value: Decimal | None = None,
         max_value: Decimal | None = None,
         allowed_values: list[str] | None = None,
+        default_value: str | None = None,
         is_readonly: bool = False,
         is_encrypted: bool = False,
+        tags: list[str] | None = None,
         created_by: UUID | None = None,
         correlation_id: str | None = None,
     ) -> Setting:
         self._check_authority(created_by, "create_setting")
 
-        existing = await this.get_setting(key, legal_entity_id)
+        # FIX: was `this.get_setting(...)` — `this` is not defined in Python
+        # (JS habit), so every call to create_setting() raised a NameError
+        # before it could even check for a duplicate key.
+        existing = await self.get_setting(key, legal_entity_id)
         if existing:
             raise SystemSettingsError(f"Setting {key} already exists")
 
@@ -374,13 +516,18 @@ class SystemSettingsService:
             category=category,
             scope=SettingScope(scope),
             legal_entity_id=legal_entity_id,
+            user_id=user_id,
+            role_id=role_id,
+            branch_id=branch_id,
             description=description,
             validation_regex=validation_regex,
             min_value=min_value,
             max_value=max_value,
             allowed_values=allowed_values,
+            default_value=default_value,
             is_readonly=is_readonly,
             is_encrypted=is_encrypted,
+            tags=tags,
             created_by=created_by,
         )
 
@@ -407,6 +554,7 @@ class SystemSettingsService:
             "key": key,
             "created_by": str(created_by) if created_by else None,
         })
+        self._record_history(setting, new_value=setting.value, changed_by=created_by, reason="created")
 
         return setting
 
@@ -456,7 +604,17 @@ class SystemSettingsService:
         legal_entity_id: UUID | None = None,
         value: Any | None = None,
         description: str | None = None,
+        category: str | None = None,
+        validation_regex: str | None = None,
+        min_value: Decimal | None = None,
+        max_value: Decimal | None = None,
+        allowed_values: list[str] | None = None,
+        default_value: str | None = None,
+        is_readonly: bool | None = None,
+        is_encrypted: bool | None = None,
         is_active: bool | None = None,
+        tags: list[str] | None = None,
+        reason: str | None = None,
         updated_by: UUID | None = None,
         correlation_id: str | None = None,
     ) -> Setting | None:
@@ -481,11 +639,30 @@ class SystemSettingsService:
 
         if description is not None:
             setting.description = description
+        if category is not None:
+            setting.category = category
+        if validation_regex is not None:
+            setting.validation_regex = validation_regex
+        if min_value is not None:
+            setting.min_value = min_value
+        if max_value is not None:
+            setting.max_value = max_value
+        if allowed_values is not None:
+            setting.allowed_values = allowed_values
+        if default_value is not None:
+            setting.default_value = default_value
+        if is_readonly is not None:
+            setting.is_readonly = is_readonly
+        if is_encrypted is not None:
+            setting.is_encrypted = is_encrypted
         if is_active is not None:
             setting.is_active = is_active
+        if tags is not None:
+            setting.tags = tags
 
         setting.version += 1
         setting.updated_at = datetime.now(UTC)
+        setting.updated_by = updated_by
 
         self._settings[key][legal_entity_id] = setting
         self._stats["updated"] += 1
@@ -507,6 +684,13 @@ class SystemSettingsService:
             "new_value": str(setting.value),
             "updated_by": str(updated_by) if updated_by else None,
         })
+        self._record_history(
+            setting,
+            old_value=old_value,
+            new_value=setting.value,
+            changed_by=updated_by,
+            reason=reason,
+        )
 
         return setting
 
@@ -516,6 +700,7 @@ class SystemSettingsService:
         key: str,
         legal_entity_id: UUID | None = None,
         updated_by: UUID | None = None,
+        reason: str | None = None,
         correlation_id: str | None = None,
     ) -> bool:
         self._check_authority(updated_by, "deactivate_setting")
@@ -532,6 +717,7 @@ class SystemSettingsService:
 
         setting.is_active = False
         setting.updated_at = datetime.now(UTC)
+        setting.updated_by = updated_by
         setting.version += 1
 
         self._settings[key][legal_entity_id] = setting
@@ -550,8 +736,47 @@ class SystemSettingsService:
             "key": key,
             "updated_by": str(updated_by) if updated_by else None,
         })
+        self._record_history(
+            setting, old_value="active", new_value="inactive", changed_by=updated_by, reason=reason
+        )
 
         return True
+
+    @audit
+    async def activate_setting(
+        self,
+        key: str,
+        legal_entity_id: UUID | None = None,
+        updated_by: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> Setting | None:
+        """FIX: previously missing entirely - POST /{key}/activate always
+        failed with AttributeError. Mirror of deactivate_setting."""
+        self._check_authority(updated_by, "activate_setting")
+
+        setting = await self.get_setting(key, legal_entity_id)
+        if not setting:
+            return None
+
+        if setting.is_locked:
+            raise SettingLockedError(f"Setting {key} is locked")
+
+        setting.is_active = True
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = updated_by
+        setting.version += 1
+
+        self._settings[key][legal_entity_id] = setting
+
+        self._record_audit("activate_setting", {
+            "key": key,
+            "updated_by": str(updated_by) if updated_by else None,
+        })
+        self._record_history(
+            setting, old_value="inactive", new_value="active", changed_by=updated_by, reason="activated"
+        )
+
+        return setting
 
     @audit
     async def reset_to_default(
@@ -559,6 +784,7 @@ class SystemSettingsService:
         key: str,
         legal_entity_id: UUID | None = None,
         updated_by: UUID | None = None,
+        reason: str | None = None,
         correlation_id: str | None = None,
     ) -> Setting | None:
         self._check_authority(updated_by, "reset_to_default")
@@ -578,6 +804,7 @@ class SystemSettingsService:
         if setting.default_value is not None:
             setting.value = setting.default_value
             setting.updated_at = datetime.now(UTC)
+            setting.updated_by = updated_by
             setting.version += 1
             self._settings[key][legal_entity_id] = setting
             self._stats["updated"] += 1
@@ -599,6 +826,13 @@ class SystemSettingsService:
                 "new_value": str(setting.value),
                 "updated_by": str(updated_by) if updated_by else None,
             })
+            self._record_history(
+                setting,
+                old_value=old_value,
+                new_value=setting.value,
+                changed_by=updated_by,
+                reason=reason or "reset_to_default",
+            )
 
         return setting
 
@@ -732,14 +966,110 @@ class SystemSettingsService:
             errors=errors,
         )
 
+    async def lock_setting(
+        self,
+        key: str,
+        legal_entity_id: UUID | None = None,
+        locked_by: UUID | None = None,
+        reason: str | None = None,
+        correlation_id: str | None = None,
+    ) -> Setting | None:
+        """FIX: previously missing entirely - POST /{key}/lock always
+        failed with AttributeError. Single-setting counterpart of
+        lock_settings(), returning the updated Setting (the router builds
+        a SettingResponseSchema straight from the result)."""
+        self._check_authority(locked_by, "lock_setting")
+
+        setting = await self.get_setting(key, legal_entity_id)
+        if not setting:
+            return None
+
+        if setting.is_readonly:
+            raise SettingReadonlyError(f"Setting {key} is read-only")
+
+        setting.is_locked = True
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = locked_by
+        setting.version += 1
+        self._settings[key][legal_entity_id] = setting
+        self._stats["locked"] += 1
+
+        if self._event_publisher:
+            event = SettingsLockedEvent(
+                keys=[key],
+                locked_by=str(locked_by) if locked_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._publish_event(event, f"Lock setting {key}", correlation_id)
+
+        self._record_audit("lock_setting", {
+            "key": key,
+            "locked_by": str(locked_by) if locked_by else None,
+        })
+        self._record_history(
+            setting, old_value="unlocked", new_value="locked", changed_by=locked_by, reason=reason
+        )
+
+        return setting
+
+    async def unlock_setting(
+        self,
+        key: str,
+        legal_entity_id: UUID | None = None,
+        unlocked_by: UUID | None = None,
+        reason: str | None = None,
+        correlation_id: str | None = None,
+    ) -> Setting | None:
+        """FIX: previously missing entirely - POST /{key}/unlock always
+        failed with AttributeError. Single-setting counterpart of
+        unlock_settings()."""
+        self._check_authority(unlocked_by, "unlock_setting")
+
+        setting = await self.get_setting(key, legal_entity_id)
+        if not setting:
+            return None
+
+        setting.is_locked = False
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = unlocked_by
+        setting.version += 1
+        self._settings[key][legal_entity_id] = setting
+        self._stats["unlocked"] += 1
+
+        if self._event_publisher:
+            event = SettingsUnlockedEvent(
+                keys=[key],
+                unlocked_by=str(unlocked_by) if unlocked_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._publish_event(event, f"Unlock setting {key}", correlation_id)
+
+        self._record_audit("unlock_setting", {
+            "key": key,
+            "unlocked_by": str(unlocked_by) if unlocked_by else None,
+        })
+        self._record_history(
+            setting, old_value="locked", new_value="unlocked", changed_by=unlocked_by, reason=reason
+        )
+
+        return setting
+
     @audit
     async def bulk_update_settings(
         self,
         settings: dict[str, str],
         legal_entity_id: UUID | None = None,
+        reason: str | None = None,
         updated_by: UUID | None = None,
         correlation_id: str | None = None,
     ) -> BulkUpdateResult:
+        # FIX: router calls this positionally as
+        # bulk_update_settings(request.settings, legal_entity_id, reason,
+        # current_user.user_id). The old signature was
+        # (settings, legal_entity_id, updated_by, correlation_id), so
+        # `reason` (a str) was silently landing in `updated_by` (expected a
+        # UUID) and the real user id was landing in `correlation_id`.
+        # Reordered to match the router's call site.
         self._check_authority(updated_by, "bulk_update_settings")
 
         success_count = 0
@@ -754,6 +1084,7 @@ class SystemSettingsService:
                     key=key,
                     legal_entity_id=legal_entity_id,
                     value=value,
+                    reason=reason,
                     updated_by=updated_by,
                     correlation_id=correlation_id,
                 )
@@ -784,6 +1115,97 @@ class SystemSettingsService:
             failed_keys=failed_keys,
             errors=errors,
         )
+
+    async def validate_bulk_update(
+        self,
+        settings: dict[str, str],
+        legal_entity_id: UUID | None = None,
+    ) -> BulkUpdateResult:
+        """FIX: previously missing. Used for POST /settings/bulk with
+        dry_run=true - validates every proposed value without mutating
+        anything, mirroring bulk_update_settings' result shape."""
+        success_count = 0
+        failed_count = 0
+        failed_keys: list[str] = []
+        errors: dict[str, str] = {}
+
+        for key, value in settings.items():
+            setting = await self.get_setting(key, legal_entity_id)
+            if not setting:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = "Setting not found"
+                continue
+            if setting.is_readonly:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = "Setting is read-only"
+                continue
+            if setting.is_locked:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = "Setting is locked"
+                continue
+            if not setting.validate(value):
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = f"Invalid value for setting {key}"
+                continue
+            success_count += 1
+
+        return BulkUpdateResult(
+            success_count=success_count,
+            failed_count=failed_count,
+            failed_keys=failed_keys,
+            errors=errors,
+        )
+
+    @audit
+    async def bulk_reset_settings(
+        self,
+        keys: list[str],
+        legal_entity_id: UUID | None = None,
+        reason: str | None = None,
+        updated_by: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> BulkUpdateResult:
+        """FIX: previously missing entirely - POST /settings/bulk/reset
+        always failed with AttributeError."""
+        self._check_authority(updated_by, "bulk_reset_settings")
+
+        success_count = 0
+        failed_count = 0
+        failed_keys: list[str] = []
+        errors: dict[str, str] = {}
+
+        for key in keys:
+            try:
+                await self.reset_to_default(
+                    key,
+                    legal_entity_id=legal_entity_id,
+                    updated_by=updated_by,
+                    reason=reason,
+                    correlation_id=correlation_id,
+                )
+                success_count += 1
+            except (SettingNotFoundError, SettingReadonlyError, SettingLockedError) as e:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = str(e)
+
+        self._record_audit("bulk_reset_settings", {
+            "keys": keys,
+            "success_count": success_count,
+            "updated_by": str(updated_by) if updated_by else None,
+        })
+
+        return BulkUpdateResult(
+            success_count=success_count,
+            failed_count=failed_count,
+            failed_keys=failed_keys,
+            errors=errors,
+        )
+
 
     # ========================================================================
     # Export / Import
@@ -888,6 +1310,122 @@ class SystemSettingsService:
     def get_audit_trail(self) -> list[dict[str, Any]]:
         return self._audit_trail.copy()
 
+    # ========================================================================
+    # FIX: read-model methods required by fastapi_system_settings_router.py.
+    # None of these existed before - every call site listed in each
+    # docstring previously crashed with AttributeError.
+    # ========================================================================
+
+    async def get_setting_history(
+        self,
+        key: str,
+        legal_entity_id: UUID | None = None,
+        limit: int = 50,
+    ) -> list[SettingHistoryEntry]:
+        """Used by GET /settings/{key}/history."""
+        entries = [
+            h for h in self._history
+            if h.setting_key == key and (legal_entity_id is None or h.legal_entity_id == legal_entity_id)
+        ]
+        entries.sort(key=lambda h: h.changed_at, reverse=True)
+        return entries[:limit]
+
+    async def get_settings_audit_trail(
+        self,
+        legal_entity_id: UUID | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        user_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[SettingHistoryEntry]:
+        """Used by GET /settings/audit."""
+        entries = []
+        for h in self._history:
+            if legal_entity_id is not None and h.legal_entity_id != legal_entity_id:
+                continue
+            if start_time is not None and h.changed_at < start_time:
+                continue
+            if end_time is not None and h.changed_at > end_time:
+                continue
+            if user_id is not None and h.changed_by != user_id:
+                continue
+            entries.append(h)
+        entries.sort(key=lambda h: h.changed_at, reverse=True)
+        return entries[:limit]
+
+    async def get_setting_schemas(
+        self, category: str | None = None
+    ) -> list[SettingSchemaInfo]:
+        """Used by GET /settings/schema. Derived from every known setting
+        definition (deduplicated by key) rather than a separate schema
+        registry, since no such registry exists in this service."""
+        seen: dict[str, SettingSchemaInfo] = {}
+        for scope_dict in self._settings.values():
+            for setting in scope_dict.values():
+                if category and setting.category != category:
+                    continue
+                if setting.key in seen:
+                    continue
+                seen[setting.key] = SettingSchemaInfo(
+                    key=setting.key,
+                    data_type=setting.data_type.value,
+                    description=setting.description,
+                    category=setting.category,
+                    scope=setting.scope.value,
+                    validation_regex=setting.validation_regex,
+                    min_value=setting.min_value,
+                    max_value=setting.max_value,
+                    allowed_values=setting.allowed_values,
+                    default_value=setting.default_value,
+                    is_readonly=setting.is_readonly,
+                    is_encrypted=setting.is_encrypted,
+                    tags=setting.tags,
+                )
+        return sorted(seen.values(), key=lambda s: s.key)
+
+    async def get_setting_categories(self) -> list[SettingCategoryInfo]:
+        """Used by GET /settings/categories."""
+        counts: dict[str, dict[str, int]] = {}
+        for scope_dict in self._settings.values():
+            for setting in scope_dict.values():
+                bucket = counts.setdefault(setting.category, {"total": 0, "active": 0})
+                bucket["total"] += 1
+                if setting.is_active:
+                    bucket["active"] += 1
+
+        return [
+            SettingCategoryInfo(
+                name=name,
+                label=name.replace("_", " ").title(),
+                description=None,
+                setting_count=data["total"],
+                active_count=data["active"],
+            )
+            for name, data in sorted(counts.items())
+        ]
+
+    async def validate_setting_value(
+        self,
+        key: str,
+        value: str,
+        legal_entity_id: UUID | None = None,
+    ) -> SettingValidationResult:
+        """Used by POST /settings/validate."""
+        setting = await self.get_setting(key, legal_entity_id)
+        if not setting:
+            return SettingValidationResult(is_valid=False, errors=[f"Setting {key} not found"])
+
+        if setting.is_locked:
+            return SettingValidationResult(is_valid=False, errors=[f"Setting {key} is locked"])
+
+        if not setting.validate(value):
+            return SettingValidationResult(
+                is_valid=False,
+                errors=[f"Invalid value for setting {key}"],
+            )
+
+        return SettingValidationResult(is_valid=True, normalized_value=str(value))
+
 
 # ============================================================================
 # Factory
@@ -904,12 +1442,16 @@ __all__ = [
     "BulkUpdateResult",
     "ImportResult",
     "Setting",
+    "SettingCategoryInfo",
     "SettingDataType",
+    "SettingHistoryEntry",
     "SettingLockedError",
     "SettingNotFoundError",
     "SettingReadonlyError",
+    "SettingSchemaInfo",
     "SettingScope",
     "SettingValidationError",
+    "SettingValidationResult",
     "SystemSettingsError",
     "SystemSettingsService",
     "create_system_settings_service",

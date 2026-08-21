@@ -43,6 +43,7 @@ class GenericListPage(QWidget):
         self.config = config
         self.page = 1
         self.total_rows = 0
+        self._write_buttons: list[QPushButton | QToolButton] = []
         self._build_ui()
         self.refresh()
 
@@ -82,11 +83,13 @@ class GenericListPage(QWidget):
                 act.triggered.connect(lambda checked=False, a=action: self._run_action(a))
             self.action_btn.setMenu(menu)
             toolbar.addWidget(self.action_btn)
+            self._write_buttons.append(self.action_btn)
 
         if self.config.can_delete:
             self.delete_btn = QPushButton("🗑 Hapus")
             self.delete_btn.clicked.connect(self._delete_selected)
             toolbar.addWidget(self.delete_btn)
+            self._write_buttons.append(self.delete_btn)
 
         self.export_btn = QPushButton("⬇ Export")
         self.export_btn.clicked.connect(self._export)
@@ -96,17 +99,20 @@ class GenericListPage(QWidget):
             self.import_btn = QPushButton("⬆ Import")
             self.import_btn.clicked.connect(self._import)
             toolbar.addWidget(self.import_btn)
+            self._write_buttons.append(self.import_btn)
 
         if self.config.can_edit:
             self.edit_btn = QPushButton("✎ Ubah")
             self.edit_btn.clicked.connect(self._edit_selected)
             toolbar.addWidget(self.edit_btn)
+            self._write_buttons.append(self.edit_btn)
 
         if self.config.can_create:
             self.new_btn = QPushButton("+ Baru")
             self.new_btn.setObjectName("primaryButton")
             self.new_btn.clicked.connect(self._create_new)
             toolbar.addWidget(self.new_btn)
+            self._write_buttons.append(self.new_btn)
 
         layout.addLayout(toolbar)
 
@@ -194,6 +200,18 @@ class GenericListPage(QWidget):
             return None
         return self.model.record_at(idx.row())
 
+    # ------------------------------------------------------------------
+    def _set_write_buttons_enabled(self, enabled: bool) -> None:
+        """Enable/disable semua tombol yang memicu operasi tulis (Baru,
+        Ubah, Hapus, Import, menu Aksi) selama satu request sedang
+        berjalan - mencegah double-submit akibat klik ganda/tidak sabar
+        (mis. dua kali klik "Post ke Buku Besar" sebelum response
+        pertama kembali, yang bisa memicu error 422 di request kedua
+        karena status record sudah berubah). Refresh/pagination TIDAK
+        ikut dikunci karena keduanya murni baca dan aman diulang."""
+        for btn in self._write_buttons:
+            btn.setEnabled(enabled)
+
     def _create_new(self) -> None:
         if not self.config.form_fields:
             QMessageBox.information(self, "Info", "Form untuk modul ini belum dikonfigurasi.")
@@ -203,6 +221,7 @@ class GenericListPage(QWidget):
             payload = dlg.result_payload()
             create_path = self.config.base_path + self.config.list_path
             self.status_label.setText("Menyimpan...")
+            self._set_write_buttons_enabled(False)
             run_task(
                 api_client.post,
                 on_success=lambda _r: self._after_write("Data berhasil ditambahkan."),
@@ -225,6 +244,7 @@ class GenericListPage(QWidget):
             rec_id = record.get(self.config.id_field)
             path = f"{self.config.base_path}{self.config.list_path.rstrip('/')}/{rec_id}"
             self.status_label.setText("Menyimpan perubahan...")
+            self._set_write_buttons_enabled(False)
             edit_fn = api_client.patch if self.config.edit_http_method.upper() == "PATCH" else api_client.put
             run_task(
                 edit_fn,
@@ -247,6 +267,7 @@ class GenericListPage(QWidget):
             return
         rec_id = record.get(self.config.id_field)
         path = f"{self.config.base_path}{self.config.list_path.rstrip('/')}/{rec_id}"
+        self._set_write_buttons_enabled(False)
         run_task(
             api_client.delete,
             on_success=lambda _r: self._after_write("Data dihapus."),
@@ -259,25 +280,49 @@ class GenericListPage(QWidget):
         if not record:
             QMessageBox.information(self, "Info", "Pilih baris terlebih dahulu.")
             return
-        if action.confirm:
+
+        params: dict[str, Any] | None = None
+        if getattr(action, "needs_reason", False):
+            from PySide6.QtWidgets import QInputDialog
+
+            reason, ok = QInputDialog.getText(
+                self, f"Alasan - {action.label}",
+                f"Masukkan alasan (minimal {action.reason_min_length} karakter):",
+            )
+            if not ok:
+                return
+            reason = reason.strip()
+            if len(reason) < action.reason_min_length:
+                QMessageBox.warning(
+                    self, "Validasi",
+                    f"Alasan minimal {action.reason_min_length} karakter.",
+                )
+                return
+            params = {"reason": reason}
+        elif action.confirm:
             confirm = QMessageBox.question(self, "Konfirmasi", f"Jalankan aksi '{action.label}'?")
             if confirm != QMessageBox.Yes:
                 return
+
         rec_id = record.get(self.config.id_field)
         path = f"{self.config.base_path}{self.config.list_path.rstrip('/')}/{rec_id}{action.path_suffix}"
+        self._set_write_buttons_enabled(False)
         run_task(
             api_client.request,
             on_success=lambda _r: self._after_write(f"Aksi '{action.label}' berhasil."),
             on_error=self._on_write_error,
             method=action.method,
             path=path,
+            params=params,
         )
 
     def _after_write(self, message: str) -> None:
+        self._set_write_buttons_enabled(True)
         self.status_label.setText(message)
         self.refresh()
 
     def _on_write_error(self, message: str) -> None:
+        self._set_write_buttons_enabled(True)
         QMessageBox.warning(self, "Gagal", message)
         self.status_label.setText("Gagal menyimpan.")
 
@@ -296,6 +341,7 @@ class GenericListPage(QWidget):
             return
         import_path = f"{self.config.base_path}/import"
         self.status_label.setText("Mengimpor data...")
+        self._set_write_buttons_enabled(False)
         run_task(
             api_client.upload_file,
             on_success=lambda r: self._after_write(self._import_result_message(r)),

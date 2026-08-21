@@ -188,9 +188,9 @@ class InMemoryBankStatementImport(BankStatementImportPort):
         return StatementFormat.CSV_GENERIC
 
     async def parse_mt940(self, file_content: str) -> list[StatementTransaction]:
-        transactions = []
+        transactions: list[StatementTransaction] = []
         lines = file_content.splitlines()
-        current_tx = {}
+        current_tx: dict[str, str] = {}
         for line in lines:
             if line.startswith(":61:"):
                 if current_tx:
@@ -245,7 +245,7 @@ class InMemoryBankStatementImport(BankStatementImportPort):
         )
 
     async def parse_camt(self, file_content: str) -> list[StatementTransaction]:
-        transactions = []
+        transactions: list[StatementTransaction] = []
         entries = re.findall(r"<Ntry>(.*?)</Ntry>", file_content, re.DOTALL)
         for entry in entries:
             amt_match = re.search(r"<Amt[^>]*>(\d+(?:\.\d{1,2})?)</Amt>", entry)
@@ -280,7 +280,7 @@ class InMemoryBankStatementImport(BankStatementImportPort):
         headers = next(reader, None)
         if not headers:
             return []
-        transactions = []
+        transactions: list[StatementTransaction] = []
         for row in reader:
             if not row or len(row) < 3:
                 continue

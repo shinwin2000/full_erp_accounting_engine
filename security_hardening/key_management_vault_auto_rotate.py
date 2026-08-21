@@ -227,7 +227,8 @@ class VaultKeyManager:
             logger.info(f"Key '{self._key_name}' already exists")
         except KeyManagementError:
             logger.info(f"Creating new key '{self._key_name}'")
-            self._request("POST", f"keys/{self._key_name}", json={"type": "aes256-gcm96"})
+            # FIX: gunakan json_data= parameter
+            self._request("POST", f"keys/{self._key_name}", json_data={"type": "aes256-gcm96"})
             self._record_audit("CREATE_KEY", "system", {"key_name": self._key_name})
 
     def get_latest_key_version(self) -> int:
@@ -245,10 +246,12 @@ class VaultKeyManager:
 
     def encrypt(self, plaintext: bytes, key_version: int | None = None) -> dict:
         b64_plain = base64.b64encode(plaintext).decode()
-        payload = {"plaintext": b64_plain}
+        # FIX: anotasi tipe payload
+        payload: dict[str, Any] = {"plaintext": b64_plain}
         if key_version is not None:
             payload["key_version"] = key_version
-        resp = self._request("POST", f"encrypt/{self._key_name}", json=payload)
+        # FIX: gunakan json_data= parameter
+        resp = self._request("POST", f"encrypt/{self._key_name}", json_data=payload)
         data = resp["data"]
         self._record_audit("ENCRYPT", "system", {"key_version": data["key_version"]})
         return {
@@ -258,7 +261,8 @@ class VaultKeyManager:
 
     def decrypt(self, ciphertext: str) -> bytes:
         payload = {"ciphertext": ciphertext}
-        resp = self._request("POST", f"decrypt/{self._key_name}", json=payload)
+        # FIX: gunakan json_data= parameter
+        resp = self._request("POST", f"decrypt/{self._key_name}", json_data=payload)
         b64_plain = resp["data"]["plaintext"]
         return base64.b64decode(b64_plain)
 
@@ -272,7 +276,8 @@ class VaultKeyManager:
 
     def rewrap(self, ciphertext: str) -> str:
         payload = {"ciphertext": ciphertext}
-        resp = self._request("POST", f"rewrap/{self._key_name}", json=payload)
+        # FIX: gunakan json_data= parameter
+        resp = self._request("POST", f"rewrap/{self._key_name}", json_data=payload)
         return resp["data"]["ciphertext"]
 
     def backup_key(self, version: int | None = None) -> dict:
@@ -283,7 +288,8 @@ class VaultKeyManager:
         return resp["data"]
 
     def restore_key(self, backup_data: dict) -> None:
-        self._request("POST", f"restore/{self._key_name}", json=backup_data)
+        # FIX: gunakan json_data= parameter
+        self._request("POST", f"restore/{self._key_name}", json_data=backup_data)
         self._record_audit("RESTORE_KEY", "system", {})
         logger.info(f"Key '{self._key_name}' restored from backup")
 
@@ -319,7 +325,8 @@ class VaultKeyManager:
         payload = {}
         if context:
             payload["context"] = base64.b64encode(context.encode()).decode()
-        resp = self._request("POST", f"datakey/{self._key_name}", json=payload)
+        # FIX: gunakan json_data= parameter
+        resp = self._request("POST", f"datakey/{self._key_name}", json_data=payload)
         return {
             "plaintext": base64.b64decode(resp["data"]["plaintext"]),
             "ciphertext": resp["data"]["ciphertext"],

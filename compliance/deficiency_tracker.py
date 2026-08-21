@@ -26,11 +26,12 @@ import json
 import logging
 from datetime import date, datetime, timedelta
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 # Optional integration with external ticketing
 try:
-    import requests
+    import requests  # type: ignore
 
     HAS_REQUESTS = True
 except ImportError:
@@ -379,7 +380,8 @@ class Deficiency:
         include_attachments: bool = False,
         include_comments: bool = False,
     ) -> dict:
-        result = {
+        # FIX: Tambahkan anotasi tipe agar mypy tidak error saat assign list
+        result: dict[str, Any] = {
             "id": str(self.id),
             "title": self.title,
             "description": self.description,

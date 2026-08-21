@@ -162,7 +162,7 @@ class EthicsCommitteeDecisionLog:
     Log keputusan komite etik.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:  # FIX: tambahkan anotasi tipe
         self._decisions: dict[UUID, EthicsCommitteeDecision] = {}
         self._case_index: dict[UUID, list[UUID]] = {}
         self._appeal_index: dict[UUID, UUID] = {}  # original_decision_id -> appeal_decision_id
@@ -293,7 +293,12 @@ if __name__ == "__main__":
     decision2.add_implementation_note("Whistleblower notified", "Ethics Officer")
     decision2.mark_implemented()
 
-    print(f"Latest decision for case: {log.get_latest_decision_by_case(case_id).decision.value}")
+    # FIX: cek None sebelum mengakses atribut
+    latest = log.get_latest_decision_by_case(case_id)
+    if latest:
+        print(f"Latest decision for case: {latest.decision.value}")
+    else:
+        print("No decision found for case")
     print(log.generate_summary())
     log.to_json("ethics_decisions.json")
     print("Exported to ethics_decisions.json")

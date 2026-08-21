@@ -236,7 +236,8 @@ class SagaOrchestratorBase(ABC, Generic[T]):
         if not data:
             raise SagaNotFoundError(f"Saga {saga_id} with type {self._saga_type} not found")
 
-        context = SagaContext.from_dict(data, self._deserialize_data)
+        # Deserialize synchronously and create context
+        context = SagaContext.from_dict(data, lambda d: self._deserialize_data(d))
 
         if context.status == SagaStatus.RUNNING:
             logger.info(f"Recovering running saga {saga_id} from step {context.current_step_index}")
@@ -257,17 +258,17 @@ class SagaOrchestratorBase(ABC, Generic[T]):
     async def _save(self, context: SagaContext[T]) -> None:
         """Simpan state saga ke store."""
         dict_payload = context.to_dict()
-        dict_payload["data"] = await self._serialize_data(context.data)
+        dict_payload["data"] = self._serialize_data(context.data)
         await self._state_store.save(self._saga_type, context.saga_id, dict_payload)
 
     @abstractmethod
-    async def _serialize_data(self, data: T) -> dict[str, Any]:
-        """Serialisasi data generic object menuju dict."""
+    def _serialize_data(self, data: T) -> dict[str, Any]:
+        """Serialisasi data generic object menuju dict (synchronous)."""
         pass
 
     @abstractmethod
-    async def _deserialize_data(self, data_dict: dict[str, Any]) -> T:
-        """Deserialisasi data dari dict kembali ke generic object T."""
+    def _deserialize_data(self, data_dict: dict[str, Any]) -> T:
+        """Deserialisasi data dari dict kembali ke generic object T (synchronous)."""
         pass
 
     def get_stats(self) -> dict[str, int]:

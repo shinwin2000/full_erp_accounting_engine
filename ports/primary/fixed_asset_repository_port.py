@@ -123,7 +123,7 @@ class FixedAsset:
     version: int = 1
 
     def to_dict(self, include_history: bool = False) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {  # Explicit typing to allow mixed types
             "id": str(self.id),
             "asset_code": self.asset_code,
             "asset_name": self.asset_name,

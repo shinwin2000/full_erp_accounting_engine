@@ -205,7 +205,8 @@ class PSAK48CashGeneratingUnit:
             gw_alloc = min(remaining, total_gw)
             # Alokasi ke masing-masing goodwill proporsional
             for aid, gw_amt in self.allocated_goodwill.items():
-                share = (gw_amt / total_gw) * gw_alloc if total_gw > 0 else 0
+                # FIX: pastikan share adalah Decimal
+                share = (gw_amt / total_gw) * gw_alloc if total_gw > 0 else Decimal(0)
                 allocation[aid] = share.quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
             remaining -= gw_alloc
         if remaining > 0:
@@ -246,7 +247,8 @@ class PSAK48ImpairmentTestResult:
     is_cgu: bool
     carrying_amount_before: Decimal
     recoverable_amount: Decimal
-    impairment_loss: Decimal
+    # FIX: tambahkan default agar tidak error saat konstruksi tanpa argumen
+    impairment_loss: Decimal = Decimal(0)
     indicators_present: list[PSAK48ImpairmentIndicator] = field(default_factory=list)
     fair_value_less_costs_to_sell: Decimal | None = None
     value_in_use: Decimal | None = None
@@ -557,6 +559,7 @@ class PSAK48Validator:
         indicators: list[PSAK48ImpairmentIndicator] | None = None,
     ) -> PSAK48ImpairmentTestResult:
         recoverable = self.determine_recoverable_amount(fvlcs, viu)
+        # FIX: impairment_loss will be computed in __post_init__, so pass Decimal(0)
         test_result = PSAK48ImpairmentTestResult(
             test_id=uuid4(),
             entity_id=entity_id,
@@ -567,6 +570,7 @@ class PSAK48Validator:
             is_cgu=is_cgu,
             carrying_amount_before=carrying_amount,
             recoverable_amount=recoverable.recoverable_amount,
+            impairment_loss=Decimal(0),  # akan dihitung ulang di __post_init__
             fair_value_less_costs_to_sell=fvlcs,
             value_in_use=viu,
             discount_rate_used=discount_rate,
@@ -651,6 +655,8 @@ def get_psak48_validator() -> PSAK48Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak48_validator()
     entity_id = uuid4()
 
@@ -705,6 +711,8 @@ if __name__ == "__main__":
     result = validator.validate_impairment_test(test_result)
     print("\nValidation Result:")
     print(json.dumps(result.to_dict(), indent=2))
+
+
 # ============================================================================
 # Compatibility aliases for aggregator orchestration
 # ============================================================================

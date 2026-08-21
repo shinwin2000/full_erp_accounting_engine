@@ -286,8 +286,9 @@ class JournalRepositoryPort(ABC):
         """Ambil jurnal yang menunggu approval."""
         pass
 
+    # FIX: renamed from `list` to `list_journals` to avoid shadowing built-in `list`
     @abstractmethod
-    async def list(
+    async def list_journals(
         self,
         legal_entity_id: UUID,
         status: str | None = None,

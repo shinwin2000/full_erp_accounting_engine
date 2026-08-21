@@ -167,7 +167,7 @@ class CoretaxSubmissionSaga(SagaOrchestratorBase[CoretaxSubmissionSagaState]):
         max_attempts = 30
         poll_interval = 2.0
 
-        for attempt in range(max_attempts):
+        for _attempt in range(max_attempts):
             if not hasattr(self._coretax, "check_submission_status"):
                 raise NotImplementedError("CoretaxService.check_submission_status not implemented")
 
@@ -238,7 +238,9 @@ class CoretaxSubmissionSaga(SagaOrchestratorBase[CoretaxSubmissionSagaState]):
     ) -> CoretaxSubmissionSagaState:
         return state
 
-    async def _serialize_data(self, data: CoretaxSubmissionSagaState) -> dict[str, Any]:
+    # ===================== FIX: synchronous serialization =====================
+
+    def _serialize_data(self, data: CoretaxSubmissionSagaState) -> dict[str, Any]:
         """Serialize state to dictionary for storage."""
         return {
             "saga_id": str(data.saga_id),
@@ -259,7 +261,7 @@ class CoretaxSubmissionSaga(SagaOrchestratorBase[CoretaxSubmissionSagaState]):
             "updated_at": data.updated_at.isoformat(),
         }
 
-    async def _deserialize_data(self, data_dict: dict[str, Any]) -> CoretaxSubmissionSagaState:
+    def _deserialize_data(self, data_dict: dict[str, Any]) -> CoretaxSubmissionSagaState:
         """Deserialize state from dictionary."""
         return CoretaxSubmissionSagaState(
             saga_id=UUID(data_dict["saga_id"]),

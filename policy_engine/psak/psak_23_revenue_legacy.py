@@ -247,7 +247,8 @@ class PSAK23RevenueSummary:
     passive_incomes: list[PSAK23PassiveIncome] = field(default_factory=list)
 
     def total_goods_revenue(self) -> Decimal:
-        return sum(s.revenue_amount for s in self.goods_sales if s.meets_criteria())
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((s.revenue_amount for s in self.goods_sales if s.meets_criteria()), Decimal(0))
 
     def total_service_revenue(self) -> Decimal:
         total = Decimal(0)
@@ -262,7 +263,7 @@ class PSAK23RevenueSummary:
         return total
 
     def total_passive_income(self) -> Decimal:
-        return sum(i.amount for i in self.passive_incomes if i.is_recognized)
+        return sum((i.amount for i in self.passive_incomes if i.is_recognized), Decimal(0))
 
     def total_revenue(self) -> Decimal:
         return (
@@ -705,6 +706,8 @@ RevenueTransaction = PSAK23GoodsSale
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak23_validator()
     entity_id = uuid4()
 

@@ -21,23 +21,22 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
 from application.dto_objects.fixed_asset_request import AssetCreateRequest, AssetUpdateRequest
 from domain.fixed_asset.aggregate_root import FixedAssetAggregate
-from domain.fixed_asset.asset_entity import AssetStatus, AssetType, DepreciationMethod, FixedAsset
+from domain.fixed_asset.asset_entity import AssetStatus, DepreciationMethod, FixedAsset
 from domain.fixed_asset.depreciation_schedule_engine import (
     DepreciationEntry,
     DepreciationScheduleEngine,
 )
 from domain.fixed_asset.disposal_entity import DisposalType
 from domain.fixed_asset.domain_events import (
-    AssetAcquiredEvent,
     AssetDepreciationPostedEvent,
     AssetDisposedEvent,
     AssetFullyDepreciatedEvent,
@@ -1426,8 +1425,8 @@ async def create_fixed_asset_service(
 
 __all__ = [
     "AssetAlreadyDisposedError",
-    "AssetNotFoundError",
     "AssetListResult",
+    "AssetNotFoundError",
     "AssetResponse",
     "AssetTransferRequest",
     "CreateAssetRequest",

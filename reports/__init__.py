@@ -5,4 +5,4 @@ Package: reports
 Report generation (PDF, Excel, XBRL), scheduling, distribution.
 """
 
-__all__ = []
+__all__: list[str] = []

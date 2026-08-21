@@ -39,6 +39,8 @@ class TemporalResolver:
     """
 
     _instance: TemporalResolver | None = None
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
+    _loader: Any  # FIX: tambahkan anotasi tipe
     _timeline_cache: dict[str, list[PolicySet]]
 
     def __new__(cls) -> TemporalResolver:
@@ -232,24 +234,29 @@ class TemporalResolver:
         policies: list of dicts with keys: id, effective_date (date or str), end_date (date or str or None)
         as_of: date to check
         """
-        from datetime import date
-
         applicable = []
         for policy in policies:
             eff = policy.get("effective_date")
+            # Convert to date if string
             if isinstance(eff, str):
                 eff = date.fromisoformat(eff)
+            # If eff is not a date, skip
+            if not isinstance(eff, date):
+                continue
+
             end = policy.get("end_date")
             if isinstance(end, str):
                 end = date.fromisoformat(end) if end else None
             elif isinstance(end, datetime):
                 end = end.date()
 
+            # Now eff is guaranteed date, end is date or None
             if eff <= as_of and (end is None or end >= as_of):
                 applicable.append(policy)
 
         if not applicable:
             return None
+        # Sort by effective_date descending to get the latest applicable
         applicable.sort(key=lambda p: p["effective_date"], reverse=True)
         return applicable[0]
 

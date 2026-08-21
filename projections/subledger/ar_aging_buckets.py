@@ -27,7 +27,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -65,7 +65,7 @@ DEFAULT_ALLOWANCE_RATES = {
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class ARAgingSnapshotTable(Base):
@@ -167,12 +167,12 @@ class ARAgingBuckets:
             invoices = invoice_result.scalars().all()
 
             # Initialize bucket totals
-            bucket_totals = {}
+            bucket_totals: dict[str, Decimal] = {}
             for bucket in self._buckets:
                 bucket_totals[bucket["name"]] = Decimal(0)
 
             # Initialize per-customer totals
-            customer_totals = {}
+            customer_totals: dict[str, dict[str, Any]] = {}
 
             for invoice in invoices:
                 outstanding = invoice.total_amount - invoice.paid_amount
@@ -193,10 +193,12 @@ class ARAgingBuckets:
                             "buckets": {},
                             "total_outstanding": Decimal(0),
                         }
-                    customer_totals[customer_id]["buckets"][bucket_name] = (
-                        customer_totals[customer_id]["buckets"].get(bucket_name, Decimal(0))
-                        + outstanding
-                    )
+                    # Ensure buckets dict exists
+                    cust_buckets = customer_totals[customer_id]["buckets"]
+                    if not isinstance(cust_buckets, dict):
+                        customer_totals[customer_id]["buckets"] = {}
+                        cust_buckets = customer_totals[customer_id]["buckets"]
+                    cust_buckets[bucket_name] = cust_buckets.get(bucket_name, Decimal(0)) + outstanding
                     customer_totals[customer_id]["total_outstanding"] += outstanding
 
             # Get customer names
@@ -224,6 +226,18 @@ class ARAgingBuckets:
 
             total_outstanding = sum(bucket_totals.values())
 
+            # Build customers list with proper types
+            customers_list = []
+            for cust in customer_totals.values():
+                customers_list.append(
+                    {
+                        "customer_id": cust["customer_id"],
+                        "customer_name": cust["customer_name"],
+                        "total_outstanding": float(cust["total_outstanding"]),
+                        "buckets": {k: float(v) for k, v in cust["buckets"].items()},
+                    }
+                )
+
             return {
                 "as_of_date": as_of_date.isoformat(),
                 "legal_entity_id": str(legal_entity_id),
@@ -240,15 +254,7 @@ class ARAgingBuckets:
                     }
                     for bucket in self._buckets
                 ],
-                "customers": [
-                    {
-                        "customer_id": cust["customer_id"],
-                        "customer_name": cust["customer_name"],
-                        "total_outstanding": float(cust["total_outstanding"]),
-                        "buckets": {k: float(v) for k, v in cust["buckets"].items()},
-                    }
-                    for cust in customer_totals.values()
-                ],
+                "customers": customers_list,
                 "allowance_for_doubtful_accounts": float(allowance),
                 "generated_at": datetime.now(UTC).isoformat(),
             }
@@ -307,7 +313,6 @@ class ARAgingBuckets:
         Menghasilkan snapshot untuk semua period end dates yang tersedia.
         """
         async with await self._get_session() as session:
-            # Get all period end dates where period is closed
             from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 
             stmt = (
@@ -342,9 +347,11 @@ class ARAgingBuckets:
         # Get snapshot or compute on the fly
         snapshot = await self.get_aging_snapshot(legal_entity_id, as_of_date)
         if snapshot:
-            for cust in snapshot.get("customers", []):
-                if cust["customer_id"] == str(customer_id):
-                    return cust
+            customers = snapshot.get("customers")
+            if customers and isinstance(customers, list):
+                for cust in customers:
+                    if cust.get("customer_id") == str(customer_id):
+                        return cust
 
         # Compute fresh if not in snapshot
         aging = await self.compute_aging(legal_entity_id, as_of_date)
@@ -403,9 +410,9 @@ class ArAgingProjection:
     """
 
     def __init__(self):
-        self._invoices = []
+        self._invoices: list[dict[str, Any]] = []
 
-    def handle(self, event: dict) -> None:
+    def handle(self, event: dict[str, Any]) -> None:
         """Handle an event (e.g., InvoiceIssued)."""
         if event.get("type") == "InvoiceIssued":
             self._invoices.append(event)
@@ -425,7 +432,8 @@ class ArAgingProjection:
         }
 
         for inv in self._invoices:
-            due_date = date.fromisoformat(inv.get("due_date")) if inv.get("due_date") else None
+            due_date_str = inv.get("due_date")
+            due_date = date.fromisoformat(due_date_str) if due_date_str else None
             amount = Decimal(str(inv.get("amount", 0)))
             if not due_date or due_date >= as_of_date:
                 # Not due yet - not included in aging (or could be current)

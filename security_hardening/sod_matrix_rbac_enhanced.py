@@ -163,7 +163,8 @@ class SoDRule:
     permission_b: str
     severity: SODConflictSeverity
     description: str
-    id: str | None = None
+    # FIX: id diubah menjadi str dengan default "", tidak nullable
+    id: str = ""
     enabled: bool = True
 
     # Fields untuk audit
@@ -172,7 +173,7 @@ class SoDRule:
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
-        if self.id is None:
+        if not self.id:
             self.id = hashlib.md5(f"{self.permission_a}:{self.permission_b}".encode()).hexdigest()[
                 :12
             ]
@@ -243,7 +244,7 @@ class SoDRule:
             permission_b=data["permission_b"],
             severity=SODConflictSeverity(data["severity"]),
             description=data["description"],
-            id=data.get("id"),
+            id=data.get("id", ""),
             enabled=data.get("enabled", True),
         )
         instance._version = data.get("version", 1)
@@ -417,6 +418,7 @@ class SODMatrix:
                     f"Rule {rule.permission_a} vs {rule.permission_b} already exists, skipping"
                 )
                 return
+        # rule.id is str guaranteed
         self._rules[rule.id] = rule
         self._record_audit(
             "ADD_RULE", "system", {"rule_id": rule.id, "severity": rule.severity.value}
@@ -481,7 +483,7 @@ class SODMatrix:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         for rule in self._rules.values():
             res = rule.validate()
             if not res["is_valid"]:
@@ -507,6 +509,7 @@ class SODMatrix:
 
     def clone(self) -> SODMatrix:
         new = SODMatrix()
+        # rule.id is str
         new._rules = {rid: rule.clone() for rid, rule in self._rules.items()}
         new._version = self._version + 1
         return new
@@ -662,7 +665,8 @@ class RBACEnforcer:
         return perms
 
     def get_role_hierarchy_tree(self, role_id: str, depth: int = 0) -> dict:
-        result = {
+        # FIX: tambahkan anotasi tipe eksplisit agar mypy mengenali children sebagai list
+        result: dict[str, Any] = {
             "role": role_id,
             "permissions": list(self.get_role_permissions(role_id)),
             "children": [],
@@ -799,7 +803,7 @@ class RBACEnforcer:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         for role, perms in self._role_permissions.items():
             for p in perms:
                 if not isinstance(p, str):

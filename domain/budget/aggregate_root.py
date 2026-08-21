@@ -287,17 +287,17 @@ class Budget:
                         "lines",
                         [
                             BudgetLineItem(
-                                id=l.id,
-                                account_id=l.account_id,
-                                account_code=l.account_code,
-                                amount=l.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN),
-                                note=l.note,
-                                created_at=l.created_at,
-                                updated_at=l.updated_at,
+                                id=line_item.id,
+                                account_id=line_item.account_id,
+                                account_code=line_item.account_code,
+                                amount=line_item.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN),
+                                note=line_item.note,
+                                created_at=line_item.created_at,
+                                updated_at=line_item.updated_at,
                             )
-                            if i == idx and l.amount != quantized
-                            else l
-                            for idx, l in enumerate(self.lines)
+                            if idx == i and line_item.amount != quantized
+                            else line_item
+                            for idx, line_item in enumerate(self.lines)
                         ]
                     )
                     break
@@ -953,9 +953,10 @@ class BudgetAggregate:
             updated_at=datetime.now(UTC),
         )
 
-        new_lines = list(self._budget.lines) + [new_line.to_line_item()]
+        new_lines = list(self._budget.lines)
+        new_lines.append(new_line.to_line_item())
         data = self._budget.to_dict()
-        data["lines"] = [l.to_dict() for l in new_lines]
+        data["lines"] = [line_item.to_dict() for line_item in new_lines]
         data["updated_at"] = datetime.now(UTC).isoformat()
         data["updated_by"] = str(user_id) if user_id else None
         data["version_number"] = self._version + 1
@@ -1015,7 +1016,7 @@ class BudgetAggregate:
             raise ValueError(f"Line {line_id} not found")
 
         data = self._budget.to_dict()
-        data["lines"] = [l.to_dict() for l in new_lines]
+        data["lines"] = [line_item.to_dict() for line_item in new_lines]
         data["updated_at"] = datetime.now(UTC).isoformat()
         data["updated_by"] = str(user_id) if user_id else None
         data["version_number"] = self._version + 1
@@ -1062,7 +1063,7 @@ class BudgetAggregate:
             raise ValueError(f"Line {line_id} not found")
 
         data = self._budget.to_dict()
-        data["lines"] = [l.to_dict() for l in new_lines]
+        data["lines"] = [line_item.to_dict() for line_item in new_lines]
         data["updated_at"] = datetime.now(UTC).isoformat()
         data["updated_by"] = str(user_id) if user_id else None
         data["version_number"] = self._version + 1
@@ -1099,7 +1100,7 @@ class BudgetAggregate:
 
         line_items = [line.to_line_item() for line in new_lines]
         data = self._budget.to_dict()
-        data["lines"] = [l.to_dict() for l in line_items]
+        data["lines"] = [line_item.to_dict() for line_item in line_items]
         data["status"] = BudgetStatus.APPROVED.value  # tetap approved setelah revisi
         data["updated_at"] = datetime.now(UTC).isoformat()
         data["updated_by"] = str(user_id) if user_id else None
@@ -1152,7 +1153,6 @@ class BudgetAggregate:
     # ==================== CLONE ====================
 
     def clone(self, new_name: str | None = None, new_year: int | None = None) -> Self:
-        new_id = uuid4()
         new_code = f"{self._budget.budget_code}-CLONE"
         new_name = new_name or f"{self._budget.budget_name} (COPY)"
         new_year = new_year or self._budget.fiscal_year

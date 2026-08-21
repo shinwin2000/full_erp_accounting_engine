@@ -326,7 +326,8 @@ class InMemoryNotification(NotificationPort):
         self._running = False
         self._audit_log: list[dict[str, Any]] = []
         self._lock = asyncio.Lock()
-        self._rate_limiters: dict[NotificationChannel, dict[str, list[datetime]]] = {}
+        # Fix: Use string keys for rate limiters (channel:recipient)
+        self._rate_limiters: dict[str, list[datetime]] = {}
         self._default_templates_loaded = False
         self._pending_tasks: list[asyncio.Task] = []
 
@@ -420,6 +421,7 @@ class InMemoryNotification(NotificationPort):
         window = timedelta(minutes=1)
         if key not in self._rate_limiters:
             self._rate_limiters[key] = []
+        # Filter out old timestamps
         self._rate_limiters[key] = [ts for ts in self._rate_limiters[key] if now - ts < window]
         if len(self._rate_limiters[key]) >= limit:
             logger.warning(f"Rate limit exceeded for {key}")

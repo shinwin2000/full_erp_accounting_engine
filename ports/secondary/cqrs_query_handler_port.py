@@ -418,7 +418,27 @@ class InMemoryCQRSQueryBus(CQRSQueryHandlerPort):
         tasks = []
         for i, q in enumerate(queries):
             tasks.append(self.execute(q, pagination_list[i], filters_list[i]))
-        return await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Convert any exceptions to QueryResult error
+        final_results: list[QueryResult] = []
+        for res in results:
+            if isinstance(res, QueryResult):
+                final_results.append(res)
+            else:
+                # Treat as error (Exception or other)
+                final_results.append(
+                    QueryResult(
+                        status=QueryStatus.ERROR,
+                        data=None,
+                        total_count=None,
+                        page=None,
+                        page_size=None,
+                        execution_time_ms=0,
+                        cached=False,
+                        error_message=str(res) if res is not None else "Unknown error",
+                    )
+                )
+        return final_results
 
     # ------------------- Cache Management -------------------
 
@@ -558,7 +578,12 @@ def apply_sorting(
     if not sort_by:
         return data
     reverse = sort_direction.lower() == "desc"
-    return sorted(data, key=lambda x: x.get(sort_by), reverse=reverse)
+    # Use a default empty string for missing keys to avoid None comparison issues
+    return sorted(
+        data,
+        key=lambda x: x.get(sort_by, ""),
+        reverse=reverse
+    )
 
 
 def apply_pagination(data: list[dict[str, Any]], page: int, page_size: int) -> list[dict[str, Any]]:

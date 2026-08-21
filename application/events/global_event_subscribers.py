@@ -25,7 +25,7 @@ async def handle_any_event(envelope: Any) -> None:
     Generic handler for any domain event.
     Logs the event to audit trail.
     """
-    event = getattr(envelope, "event", None)
+    # event variable removed as it was unused; we only need event_type
     event_type = getattr(envelope, "event_type", None)
     if not event_type:
         event_data = getattr(envelope, "payload", {})

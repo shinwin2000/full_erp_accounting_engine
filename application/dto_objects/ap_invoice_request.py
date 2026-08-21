@@ -287,19 +287,19 @@ class CreateAPInvoiceRequest:
 
     def calculate_subtotal(self) -> Decimal:
         """Menghitung subtotal dari semua baris."""
-        return sum(line.subtotal for line in self.lines)
+        return sum((line.subtotal for line in self.lines), Decimal(0))
 
     def calculate_discount_total(self) -> Decimal:
         """Menghitung total diskon."""
-        return sum(line.discount_amount for line in self.lines) + self.discount_amount
+        return sum((line.discount_amount for line in self.lines), Decimal(0)) + self.discount_amount
 
     def calculate_tax_total(self) -> Decimal:
         """Menghitung total PPN."""
-        return sum(line.tax_amount for line in self.lines) + self.tax_amount
+        return sum((line.tax_amount for line in self.lines), Decimal(0)) + self.tax_amount
 
     def calculate_items_total(self) -> Decimal:
         """Menghitung total item (setelah diskon + PPN)."""
-        return sum(line.total_amount for line in self.lines)
+        return sum((line.total_amount for line in self.lines), Decimal(0))
 
     def calculate_total_amount(self) -> Decimal:
         """Menghitung total faktur."""
@@ -657,6 +657,8 @@ class GetAPAgingRequest:
             object.__setattr__(self, "as_of_date", self.as_of_date.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
+        # as_of_date is guaranteed non-None after __post_init__
+        assert self.as_of_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
             "as_of_date": self.as_of_date.isoformat(),
@@ -965,44 +967,44 @@ APDebitNoteRequestDTO = CreateAPInvoiceRequest
 # === 18. EXPORTS ===
 
 __all__ = [
-    # Enums
-    "APInvoiceType",
-    "APInvoiceStatus",
-    "APPaymentMethod",
-    "APPaymentStatus",
-    "APCreditNoteReason",
-    "WithholdingArticle",
-    "APInvoiceStatusDTO",
-    # Core DTOs
-    "APInvoiceLineRequest",
-    "CreateAPInvoiceRequest",
-    "UpdateAPInvoiceRequest",
-    "VerifyAPInvoiceRequest",
-    "ApproveAPInvoiceRequest",
-    "RecordAPPaymentRequest",
-    "CreateAPCreditNoteRequest",
-    "GetAPInvoiceRequest",
-    "ListAPInvoicesRequest",
-    "GetAPAgingRequest",
-    "APPaymentRunRequestDTO",
-    "ThreeWayMatchRequestDTO",
-    "ApInvoiceRequest",
-    # Response DTOs
-    "APInvoiceResponseDTO",
-    "APPaymentResponseDTO",
-    # Factory
-    "APInvoiceRequestFactory",
-    # Aliases (important for router)
-    "APInvoiceCreateRequest",
-    "APInvoiceUpdateRequest",  # <--- ADDED to exports
-    "APPaymentCreateRequest",
     "APCreditNoteCreateRequest",
-    "APPaymentRunRequest",
-    "APInvoiceRequestDTO",
-    "APInvoiceCreateRequestDTO",
-    "APInvoiceUpdateRequestDTO",
-    "APPaymentRequestDTO",
-    "APPaymentRecordRequestDTO",
+    "APCreditNoteReason",
     "APCreditNoteRequestDTO",
     "APDebitNoteRequestDTO",
+    # Aliases (important for router)
+    "APInvoiceCreateRequest",
+    "APInvoiceCreateRequestDTO",
+    # Core DTOs
+    "APInvoiceLineRequest",
+    "APInvoiceRequestDTO",
+    # Factory
+    "APInvoiceRequestFactory",
+    # Response DTOs
+    "APInvoiceResponseDTO",
+    "APInvoiceStatus",
+    "APInvoiceStatusDTO",
+    # Enums
+    "APInvoiceType",
+    "APInvoiceUpdateRequest",
+    "APInvoiceUpdateRequestDTO",
+    "APPaymentCreateRequest",
+    "APPaymentMethod",
+    "APPaymentRecordRequestDTO",
+    "APPaymentRequestDTO",
+    "APPaymentResponseDTO",
+    "APPaymentRunRequest",
+    "APPaymentRunRequestDTO",
+    "APPaymentStatus",
+    "ApInvoiceRequest",
+    "ApproveAPInvoiceRequest",
+    "CreateAPCreditNoteRequest",
+    "CreateAPInvoiceRequest",
+    "GetAPAgingRequest",
+    "GetAPInvoiceRequest",
+    "ListAPInvoicesRequest",
+    "RecordAPPaymentRequest",
+    "ThreeWayMatchRequestDTO",
+    "UpdateAPInvoiceRequest",
+    "VerifyAPInvoiceRequest",
+    "WithholdingArticle",
 ]

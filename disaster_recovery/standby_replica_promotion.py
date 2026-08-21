@@ -620,10 +620,14 @@ class StandbyReplicaPromoter:
             )
             return result
 
+        # FIX: deklarasi tipe sebagai str | None
+        chosen_standby: str | None = None
         if specific_standby:
             chosen_standby = specific_standby
         else:
             chosen_standby = self.get_best_standby()
+
+        # FIX: handle None case
         if not chosen_standby:
             error_msg = "No healthy standby available"
             status = PromotionStatus.FAILED
@@ -841,9 +845,9 @@ class StandbyReplicaPromoter:
             errors.append("health_check_interval_seconds must be positive")
         if self.replication_lag_threshold <= 0:
             errors.append("replication_lag_threshold_seconds must be positive")
-        if self.max_promotion_attempts <= 0:
+        if self.max_attempts <= 0:
             errors.append("max_promotion_attempts must be positive")
-        if self.promotion_timeout_seconds <= 0:
+        if self.promotion_timeout <= 0:
             errors.append("promotion_timeout_seconds must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}
 
@@ -959,3 +963,4 @@ if __name__ == "__main__":
     result = promoter.failover(reason=FailoverReason.MANUAL, force=True)
     print(f"Failover result: {result.status.value} -> new primary {result.new_primary}")
     promoter.export_to_json("standby_promotion.json")
+    

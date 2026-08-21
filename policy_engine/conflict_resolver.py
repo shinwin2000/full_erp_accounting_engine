@@ -291,8 +291,7 @@ class ConflictResolver:
     """
 
     _instance: ConflictResolver | None = None
-    _conflicts: list[Conflict]
-    _custom_resolvers: dict[str, Callable]
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe untuk mypy
 
     def __new__(cls) -> ConflictResolver:
         if cls._instance is None:
@@ -304,8 +303,8 @@ class ConflictResolver:
         if self._initialized:
             return
         self._initialized = True
-        self._conflicts = []
-        self._custom_resolvers = {}
+        self._conflicts: list[Conflict] = []
+        self._custom_resolvers: dict[str, Callable[[Conflict], str]] = {}
         self._resolved_history: list[Conflict] = []
 
     # ------------------------------------------------------------------------

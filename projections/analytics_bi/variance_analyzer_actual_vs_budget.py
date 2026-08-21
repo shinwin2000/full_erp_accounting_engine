@@ -29,7 +29,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, DateTime, Index, Integer, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -76,7 +76,7 @@ class VarianceAnalyzerError(Exception):
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class VarianceAnalysisTable(Base):
@@ -232,7 +232,8 @@ class VarianceAnalyzerActualVsBudget:
                 return {"error": f"Period {period}/{fiscal_year} not found or not closed"}
 
             # Get actual data from income statement
-            income_stmt = await self._income_statement.get_income_statement(
+            income_stmt_projection = await self._get_income_statement()
+            income_stmt = await income_stmt_projection.get_income_statement(
                 legal_entity_id, period_obj.id
             )
             if not income_stmt:
@@ -311,7 +312,7 @@ class VarianceAnalyzerActualVsBudget:
             }
 
             # Trigger alert if significant variance
-            if abs(revenue_variance_pct) > ALERT_VARIANCE_THRESHOLD_PERCENT:
+            if abs(float(revenue_variance_pct)) > ALERT_VARIANCE_THRESHOLD_PERCENT:
                 await trigger_alert(
                     title="Significant Revenue Variance",
                     message=f"Revenue variance of {revenue_variance_pct:.1f}% ({revenue_favorability}) for period {period_obj.period_name}",

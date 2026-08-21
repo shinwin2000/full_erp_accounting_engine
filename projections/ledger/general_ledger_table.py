@@ -60,6 +60,7 @@ class GeneralLedgerTable:
         self._rebuild_lock = asyncio.Lock()
         self._last_event_id: UUID | None = None
         self._last_event_sequence: int = 0
+        self._account_cache: dict[str, UUID] = {}
 
     async def _get_event_store(self):
         if self._event_store is None:
@@ -196,8 +197,6 @@ class GeneralLedgerTable:
         await self._process_event_batch([event])
 
     async def _get_account_id(self, account_code: str) -> UUID | None:
-        if not hasattr(self, "_account_cache"):
-            self._account_cache = {}
         if account_code in self._account_cache:
             return self._account_cache[account_code]
         async with await self._get_session() as session:

@@ -41,7 +41,8 @@ try:
 except ImportError:
     HAS_PKCS11 = False
 
-    class PKCS11Error(Exception):
+    # FIX: tambahkan # type: ignore untuk menghindari error no-redef
+    class PKCS11Error(Exception):  # type: ignore
         pass
 
 
@@ -154,11 +155,13 @@ class HSM_PKCS11_Manager:
                 self._pkcs11_lib = lib(self._lib_path)
                 if self._slot_id is not None:
                     try:
-                        self._slot = self._pkcs11_lib.get_slot(self._slot_id)
+                        # self._pkcs11_lib not None after lib() call
+                        self._slot = self._pkcs11_lib.get_slot(self._slot_id)  # type: ignore
                     except PKCS11Error as e:
                         raise HSMError(f"Slot {self._slot_id} not found: {e}")
                 else:
-                    slots = self._pkcs11_lib.get_slots()
+                    # self._pkcs11_lib not None after lib() call
+                    slots = self._pkcs11_lib.get_slots()  # type: ignore
                     if self._token_label:
                         for s in slots:
                             token = s.get_token()
@@ -177,12 +180,14 @@ class HSM_PKCS11_Manager:
                         if not self._slot:
                             raise HSMError("No available slot with token found")
 
-                self._session = self._slot.open_session(read_only=self._read_only)
+                # self._slot is not None here
+                self._session = self._slot.open_session(read_only=self._read_only)  # type: ignore
                 if self._pin:
                     self._session.login(user_type=self._user_type, pin=self._pin)
-                self._record_audit("CONNECT", "system", {"slot_id": self._slot.slot_id})
+                # Access slot_id safely
+                self._record_audit("CONNECT", "system", {"slot_id": self._slot.slot_id})  # type: ignore
                 logger.info(
-                    f"HSM connected: slot={self._slot.slot_id}, token={self._token.label if self._token else 'Unknown'}"
+                    f"HSM connected: slot={self._slot.slot_id}, token={self._token.label if self._token else 'Unknown'}"  # type: ignore
                 )
             except Exception as e:
                 raise HSMError(f"Failed to connect to HSM: {e}")

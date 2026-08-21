@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,28 @@ class JudgmentRepository:
 
 
 # ============================================================================
+# ProfessionalJudgmentApprover
+# ============================================================================
+class ProfessionalJudgmentApprover:
+    """
+    Engine orchestrator untuk pemrosesan dan tata kelola
+    Professional Judgment (Pertimbangan Profesional) di layer Kepatuhan & Etika.
+    """
+
+    def __init__(self, repository: JudgmentRepository | None = None):
+        self.repository = repository or JudgmentRepository()
+
+    def execute_approval(self, judgment: ProfessionalJudgmentTemplate, approver_id: Any) -> None:
+        """Menyetujui pertimbangan profesional dan mengamankannya ke repository."""
+        judgment.approve(approver_id)
+        self.repository.save(judgment)
+
+    def get_judgment(self, judgment_id: Any) -> ProfessionalJudgmentTemplate | None:
+        """Mengambil data pertimbangan profesional berdasarkan ID."""
+        return self.repository.get(judgment_id)
+
+
+# ============================================================================
 # Demo
 # ============================================================================
 if __name__ == "__main__":
@@ -231,21 +254,8 @@ if __name__ == "__main__":
     repo.to_json("professional_judgments.json")
     print("Saved to professional_judgments.json")
 
-
-class ProfessionalJudgmentApprover:
-    """
-    Engine orchestrator untuk pemrosesan dan tata kelola
-    Professional Judgment (Pertimbangan Profesional) di layer Kepatuhan & Etika.
-    """
-
-    def __init__(self, repository: JudgmentRepository = None):
-        self.repository = repository or JudgmentRepository()
-
-    def execute_approval(self, judgment: ProfessionalJudgmentTemplate, approver_id: any) -> None:
-        """Menyetujui pertimbangan profesional dan mengamankannya ke repository."""
-        judgment.approve(approver_id)
-        self.repository.save(judgment)
-
-    def get_judgment(self, judgment_id: any) -> ProfessionalJudgmentTemplate | None:
-        """Mengambil data pertimbangan profesional berdasarkan ID."""
-        return self.repository.get(judgment_id)
+    # Test ProfessionalJudgmentApprover
+    approver = ProfessionalJudgmentApprover(repo)
+    approver.execute_approval(judgment, uuid4())
+    retrieved = approver.get_judgment(judgment.id)
+    print(f"Retrieved judgment approved: {retrieved.is_approved() if retrieved else False}")

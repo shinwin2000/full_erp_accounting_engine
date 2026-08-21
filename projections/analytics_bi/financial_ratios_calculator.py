@@ -34,7 +34,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, DateTime, Index, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -93,7 +93,7 @@ class FinancialRatiosError(Exception):
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 
 class FinancialRatiosTable(Base):
@@ -141,6 +141,7 @@ class FinancialRatiosCalculator:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def _get_balance_sheet(self) -> BalanceSheetSnapshot:
@@ -160,7 +161,8 @@ class FinancialRatiosCalculator:
 
     async def _get_balance_sheet_data(self, legal_entity_id: UUID, period_id: UUID) -> dict:
         """Mendapatkan data balance sheet untuk periode tertentu."""
-        bs = await self._balance_sheet.get_snapshot(legal_entity_id, period_id)
+        balance_sheet = await self._get_balance_sheet()
+        bs = await balance_sheet.get_snapshot(legal_entity_id, period_id)
         if not bs:
             return {}
         return {
@@ -177,7 +179,8 @@ class FinancialRatiosCalculator:
 
     async def _get_income_statement_data(self, legal_entity_id: UUID, period_id: UUID) -> dict:
         """Mendapatkan data income statement untuk periode tertentu."""
-        inc = await self._income_statement.get_income_statement(legal_entity_id, period_id)
+        income_stmt = await self._get_income_statement()
+        inc = await income_stmt.get_income_statement(legal_entity_id, period_id)
         if not inc:
             return {}
         return {

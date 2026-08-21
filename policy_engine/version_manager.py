@@ -68,6 +68,8 @@ class PolicyVersionManager:
     """
 
     _instance: PolicyVersionManager | None = None
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
+    _loader: Any  # FIX: tambahkan anotasi tipe
     _snapshots: dict[str, list[PolicyVersionSnapshot]]  # policy_id -> snapshots
     _current_versions: dict[str, str]  # policy_id -> snapshot_id
     _version_numbers: dict[str, int]  # policy_id -> current version number
@@ -249,7 +251,10 @@ class PolicyVersionManager:
         if not snap:
             return False
         latest = self.get_current_version(snap.policy_id)
-        return latest and latest.version_id == snapshot_id
+        # FIX: pastikan return bool, bukan None
+        if not latest:
+            return False
+        return latest.version_id == snapshot_id
 
     def get_requirements_summary(self) -> dict[str, Any]:
         """Mendapatkan ringkasan persyaratan manager."""

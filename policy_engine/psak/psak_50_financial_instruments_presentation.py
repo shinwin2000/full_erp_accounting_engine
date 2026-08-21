@@ -512,6 +512,8 @@ def get_psak50_validator() -> PSAK50Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak50_validator()
 
     # Contoh 1: Klasifikasi instrumen ekuitas (saham biasa)
@@ -561,25 +563,13 @@ if __name__ == "__main__":
     result = validator.validate_instrument(equity_instrument)
     print("\nValidation Result:")
     print(json.dumps(result.to_dict(), indent=2))
+
+
 # ============================================================================
-# Compatibility alias for EquityInstrument orchestration
+# Compatibility aliases for Orchestration & Aggregator (only one block)
 # ============================================================================
 EquityInstrument = PSAK50FinancialInstrument
-
-# ============================================================================
-# Compatibility aliases for Orchestration & Aggregator
-# ============================================================================
 FinancialAssetCategory = PSAK50FinancialAssetCategory
 FinancialLiabilityCategory = PSAK50FinancialLiabilityCategory
-
-# ============================================================================
-# Compatibility aliases for Orchestration & Aggregator
-# ============================================================================
-FinancialAssetCategory = PSAK50FinancialAssetCategory
-FinancialLiabilityCategory = PSAK50FinancialLiabilityCategory
-
-# ============================================================================
-# Compatibility aliases for Treasury Shares orchestration
-# ============================================================================
 TreasuryShare = PSAK50TreasuryShares
 TreasuryShares = PSAK50TreasuryShares

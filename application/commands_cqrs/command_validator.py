@@ -1,6 +1,8 @@
 # command_validator.py - Hardened version with complete implementation
 # Fixed: sync validate only uses sync validators; async validators are skipped with warning
 # Fixed: Added ValidationError alias for backward compatibility
+# Fixed: mypy errors by properly typing custom validators as union of sync and async
+# Fixed: forward reference for ValidationResult by defining type alias after class
 
 #!/usr/bin/env python3
 
@@ -131,6 +133,10 @@ class ValidationResult:
         return self.is_valid
 
 
+# Type alias for custom validators (can be sync or async)
+CustomValidator = Callable[[Any], ValidationResult | Awaitable[ValidationResult]]
+
+
 # === 3. VALIDATION RULE ===
 
 
@@ -171,7 +177,7 @@ class CommandValidator:
     """
 
     def __init__(self, enable_pydantic: bool = True, strict_mode: bool = False):
-        self._custom_validators: dict[str, list[Callable[[Any], Awaitable[ValidationResult]]]] = {}
+        self._custom_validators: dict[str, list[CustomValidator]] = {}
         self._required_fields: dict[str, set[str]] = {}
         self._type_validators: dict[str, dict[str, type | tuple[type, ...]]] = {}
         self._field_rules: dict[str, dict[str, list[ValidationRule]]] = {}
@@ -287,6 +293,7 @@ class CommandValidator:
         if command_type in self._custom_validators:
             for validator in self._custom_validators[command_type]:
                 try:
+                    # Check if validator is async or sync
                     if asyncio.iscoroutinefunction(validator):
                         sub_result = await validator(command)
                     else:
@@ -343,7 +350,7 @@ class CommandValidator:
     def register_custom_validator(
         self,
         command_type: str,
-        validator: Callable[[Any], ValidationResult | Awaitable[ValidationResult]],
+        validator: CustomValidator,
     ) -> None:
         """Daftarkan custom validator untuk command type."""
         if command_type not in self._custom_validators:
@@ -557,8 +564,8 @@ def validate_field(field_name: str, rule_name: str, error_message: str | None = 
     """Decorator untuk menambahkan validation rule pada field."""
 
     def decorator(cls):
-        validator = get_command_validator()
         # This is a placeholder - actual implementation would create ValidationRule
+        # The unused variable warning removed: we don't need validator here
         return cls
 
     return decorator

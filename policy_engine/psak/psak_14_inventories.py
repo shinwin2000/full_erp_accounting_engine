@@ -202,10 +202,11 @@ class PSAK14Inventory:
     fifo_layers: dict[UUID, list[PSAK14FIFOLayer]] = field(default_factory=dict)
 
     def total_inventory_value(self) -> Decimal:
-        return sum(i.carrying_amount for i in self.items)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((i.carrying_amount for i in self.items), Decimal(0))
 
     def total_write_down(self) -> Decimal:
-        return sum(i.write_down_allowance for i in self.items)
+        return sum((i.write_down_allowance for i in self.items), Decimal(0))
 
     def to_dict(self) -> dict:
         return {
@@ -575,7 +576,7 @@ class PSAK14Validator:
                     new_fifo_layers = inventory.fifo_layers.copy()
                     new_fifo_layers[item_id] = new_layers
                     new_quantity = item.quantity_on_hand - quantity
-                    new_total_cost = sum(layer.remaining_value for layer in new_layers)
+                    new_total_cost = sum((layer.remaining_value for layer in new_layers), Decimal(0))
                     updated_item = PSAK14InventoryItem(
                         item_id=item.item_id,
                         item_code=item.item_code,
@@ -801,6 +802,8 @@ InventoryValuation = PSAK14Inventory
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak14_validator()
     entity_id = uuid4()
 
@@ -816,11 +819,11 @@ if __name__ == "__main__":
     inventory = validator.add_item(inventory, item1)
     inventory = validator.add_item(inventory, item2)
 
-    # Purchases for item1 (FIFO)
+    # FIX: gunakan Decimal untuk quantity
     inventory = validator.record_purchase(
         inventory,
         item1.item_id,
-        100,
+        Decimal(100),
         Decimal("50000"),
         datetime(2026, 1, 15, tzinfo=UTC),
         "PO-001",
@@ -828,7 +831,7 @@ if __name__ == "__main__":
     inventory = validator.record_purchase(
         inventory,
         item1.item_id,
-        50,
+        Decimal(50),
         Decimal("52000"),
         datetime(2026, 6, 20, tzinfo=UTC),
         "PO-002",
@@ -836,7 +839,7 @@ if __name__ == "__main__":
 
     # Sales for item1 (FIFO)
     inventory, cogs1 = validator.record_sale(
-        inventory, item1.item_id, 80, datetime(2026, 12, 10, tzinfo=UTC), "SO-001"
+        inventory, item1.item_id, Decimal(80), datetime(2026, 12, 10, tzinfo=UTC), "SO-001"
     )
     print(f"COGS for item1 (FIFO): {cogs1}")
 
@@ -844,7 +847,7 @@ if __name__ == "__main__":
     inventory = validator.record_purchase(
         inventory,
         item2.item_id,
-        1000,
+        Decimal(1000),
         Decimal("10000"),
         datetime(2026, 2, 1, tzinfo=UTC),
         "PO-003",
@@ -852,7 +855,7 @@ if __name__ == "__main__":
     inventory = validator.record_purchase(
         inventory,
         item2.item_id,
-        500,
+        Decimal(500),
         Decimal("10500"),
         datetime(2026, 5, 1, tzinfo=UTC),
         "PO-004",

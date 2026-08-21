@@ -74,7 +74,7 @@ class GapDetector:
     - Gap report generation
     """
 
-    def __init__(self, config_path: str = "config_files/audit_config.yaml"):
+    def __init__(self, config_path: str = "config_files/audit_config.yaml") -> None:
         self.config = self._load_config(config_path)
         self._enabled = self.config.get("enabled", True)
         self._scan_interval = self.config.get("scan_interval_seconds", 3600)
@@ -121,7 +121,7 @@ class GapDetector:
         store = await self._get_event_store()
         events = await store.read_stream(stream_name, limit=1000000)
 
-        gaps = []
+        gaps: list[dict[str, Any]] = []  # FIX: tambahkan type annotation
         if not events:
             return gaps
 
@@ -165,7 +165,7 @@ class GapDetector:
         store = await self._get_event_store()
         events = await store.read_stream(stream_name, limit=1000000)
 
-        gaps = []
+        gaps: list[dict[str, Any]] = []  # FIX: tambahkan type annotation
         last_timestamp = None
 
         for i, event in enumerate(events):

@@ -128,11 +128,11 @@ class CoretaxLegalBasisCatalog:
     Katalog basis legal untuk Coretax DJP.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:  # FIX: tambahkan anotasi tipe
         self._catalog: dict[str, LegalBasis] = {}
         self._load_catalog()
 
-    def _load_catalog(self) -> None:
+    def _load_catalog(self) -> None:  # FIX: tambahkan anotasi tipe
         """Memuat basis legal dari data internal (bisa diperluas dengan file eksternal)."""
         # Undang-Undang
         self.add_basis(
@@ -318,7 +318,9 @@ class CoretaxLegalBasisCatalog:
         return [b for b in self._catalog.values() if b.status == LegalBasisStatus.ACTIVE]
 
     def search_by_year(self, year: int) -> list[LegalBasis]:
-        return [b for b in self._catalog.values() if year in b.issued_date]
+        # FIX: konversi year ke string agar operator 'in' berfungsi dengan benar
+        year_str = str(year)
+        return [b for b in self._catalog.values() if year_str in b.issued_date]
 
     def get_related_to_coretax(self) -> list[LegalBasis]:
         return [b for b in self._catalog.values() if b.related_to_coretax]

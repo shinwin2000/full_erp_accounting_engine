@@ -1,5 +1,6 @@
 # procurement_saga.py - Complete implementation with all fixes
 # FIX: idempotency_key, state, try-except with compensate()
+# FIX: _serialize_data and _deserialize_data are now synchronous
 
 #!/usr/bin/env python3
 """
@@ -235,7 +236,8 @@ class ProcurementSaga(SagaOrchestratorBase[ProcurementSagaState]):
     # CORE SERIALIZATION HOOKS (SagaOrchestratorBase Implementation)
     # =========================================================================
 
-    async def _serialize_data(self, data: ProcurementSagaState) -> dict[str, Any]:
+    # FIX: Changed from async def to def (synchronous) to match base class
+    def _serialize_data(self, data: ProcurementSagaState) -> dict[str, Any]:
         logger.debug("Serializing ProcurementSagaState for PO ID: %s", data.po_id)
         return {
             "po_id": str(data.po_id),
@@ -252,7 +254,8 @@ class ProcurementSaga(SagaOrchestratorBase[ProcurementSagaState]):
             "metadata": data.metadata,
         }
 
-    async def _deserialize_data(self, data_dict: dict[str, Any]) -> ProcurementSagaState:
+    # FIX: Changed from async def to def (synchronous) to match base class
+    def _deserialize_data(self, data_dict: dict[str, Any]) -> ProcurementSagaState:
         logger.debug("Deserializing dictionary into ProcurementSagaState.")
         return ProcurementSagaState(
             po_id=UUID(data_dict["po_id"]),
@@ -361,7 +364,15 @@ class ProcurementSagaOrchestrator:
                 is_running = False
 
             if is_running:
-                asyncio.ensure_future(self._initialize_saga_state(saga_id, state_data))
+                # FIX: simpan referensi task untuk mencegah warning RUF006
+                _task = asyncio.ensure_future(self._initialize_saga_state(saga_id, state_data))
+                # Tambahkan callback error handling agar exception tidak terlewat
+                def _handle_task_exception(task: asyncio.Task) -> None:
+                    try:
+                        task.result()
+                    except Exception as e:
+                        logger.error(f"Background saga initialization failed for {saga_id}: {e}")
+                _task.add_done_callback(_handle_task_exception)
             else:
                 with asyncio.Runner() as runner:
                     runner.run(self._initialize_saga_state(saga_id, state_data))
@@ -454,7 +465,16 @@ class ProcurementSagaOrchestrator:
         context.status = "COMPENSATED"
 
         if hasattr(self._state_store, "save"):
-            asyncio.create_task(self._state_store.save(context))
+            # FIX: simpan referensi task
+            _task = asyncio.create_task(self._state_store.save(context))
+            # Tambahkan callback untuk menangani error
+            def _handle_save_exception(task: asyncio.Task) -> None:
+                try:
+                    task.result()
+                except Exception as e:
+                    logger.error(f"Failed to save compensated state for saga {saga_id}: {e}")
+            _task.add_done_callback(_handle_save_exception)
+
         logger.info("Compensated procurement saga %s", saga_id)
 
 

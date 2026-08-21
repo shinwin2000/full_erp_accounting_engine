@@ -132,7 +132,8 @@ class ProcurementSagaState:
 
     def add_error(self, error_message: str) -> ProcurementSagaState:
         """Add an error message and optionally set status to FAILED."""
-        new_errors = self.errors + [error_message]
+        # FIX: use unpacking instead of concatenation (RUF005)
+        new_errors = [*self.errors, error_message]
         new_status = "FAILED" if self.status != "COMPLETED" else self.status
         return self._copy_and_update(errors=new_errors, status=new_status)
 
@@ -170,7 +171,8 @@ class ProcurementSagaState:
 
     def add_inventory_movement(self, movement_id: UUID) -> ProcurementSagaState:
         """Add an inventory movement ID."""
-        new_movements = self.inventory_movement_ids + [movement_id]
+        # FIX: use unpacking instead of concatenation (RUF005)
+        new_movements = [*self.inventory_movement_ids, movement_id]
         return self._copy_and_update(inventory_movement_ids=new_movements)
 
     # -------------------------------------------------------------------------

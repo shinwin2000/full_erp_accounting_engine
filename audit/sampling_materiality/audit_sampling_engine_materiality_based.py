@@ -87,7 +87,7 @@ class AuditSamplingEngineMaterialityBased:
     - Menghasilkan rekomendasi tindakan audit
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._materiality_calc: MaterialityThresholdCalculator | None = None
         self._sampling: AuditStatisticalSampling | None = None
         self._current_engagement: dict[str, Any] = {}
@@ -141,8 +141,9 @@ class AuditSamplingEngineMaterialityBased:
         use_mus = population_value is not None and population_value > 0
 
         if use_mus:
+            # population_value is guaranteed not None by the condition above
             sample_size = sampling.calculate_monetary_unit_sample_size(
-                population_value=population_value,
+                population_value=population_value,  # type: ignore
                 confidence_level=confidence_level,
                 expected_error_percent=expected_error_percent,
                 tolerable_error_percent=tolerable_error_percent,

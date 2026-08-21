@@ -32,13 +32,13 @@ METRIC_PREFIX = "audit"
 COLLECTION_INTERVAL_SECONDS = 60
 
 # Prometheus metrics - akan diinisialisasi secara lazy
-_audit_events_total = None
-_audit_write_latency = None
-_audit_chain_integrity = None
-_audit_gaps_detected = None
-_audit_event_count = None
-_audit_last_event_timestamp = None
-_audit_tamper_detected = None
+_audit_events_total: Any | None = None
+_audit_write_latency: Any | None = None
+_audit_chain_integrity: Any | None = None
+_audit_gaps_detected: Any | None = None
+_audit_event_count: Any | None = None
+_audit_last_event_timestamp: Any | None = None
+_audit_tamper_detected: Any | None = None
 
 _logger = None
 
@@ -133,7 +133,7 @@ class AuditMetricsCollector:
     - Ekspor ke Prometheus
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._collection_task: asyncio.Task | None = None
         self._running = False
         self._event_counts: dict[str, dict[str, int]] = {}
@@ -170,7 +170,7 @@ class AuditMetricsCollector:
                 if timestamp_str:
                     try:
                         ts = datetime.fromisoformat(timestamp_str)
-                        _audit_last_event_timestamp.labels(stream_name=stream_name).set(
+                        _audit_last_event_timestamp.labels(stream_name=stream_name).set(  # type: ignore
                             ts.timestamp()
                         )
                     except (ValueError, TypeError):
@@ -182,22 +182,22 @@ class AuditMetricsCollector:
             # For simplicity, we'll get the last sequence number
             if events:
                 last_seq = events[-1].get("sequence_number", 0)
-                _audit_event_count.labels(stream_name=stream_name).set(last_seq)
+                _audit_event_count.labels(stream_name=stream_name).set(last_seq)  # type: ignore
                 total_events += last_seq
 
             # Check hash chain integrity
             # This is expensive, so we'll use cached results from gap detector
             gaps = await gap_detector.get_gaps()
             stream_gaps = [g for g in gaps if g.get("stream_name") == stream_name]
-            _audit_gaps_detected.labels(stream_name=stream_name).set(len(stream_gaps))
+            _audit_gaps_detected.labels(stream_name=stream_name).set(len(stream_gaps))  # type: ignore
 
             # Integrity status from tamper alert
             # For simplicity, assume valid if no critical alerts
-            _audit_chain_integrity.labels(stream_name=stream_name).set(1)  # Placeholder
+            _audit_chain_integrity.labels(stream_name=stream_name).set(1)  # type: ignore
 
         # Get tamper detection status
         tamper_status = await tamper_alert.get_status()
-        _audit_tamper_detected.labels(stream_name="all").set(
+        _audit_tamper_detected.labels(stream_name="all").set(  # type: ignore
             0 if tamper_status.get("enabled", False) else 1
         )
 
@@ -218,8 +218,8 @@ class AuditMetricsCollector:
         Mencatat operasi penulisan audit event.
         """
         _get_prometheus_metrics()
-        _audit_events_total.labels(event_type=event_type, severity=severity).inc()
-        _audit_write_latency.observe(duration_seconds)
+        _audit_events_total.labels(event_type=event_type, severity=severity).inc()  # type: ignore
+        _audit_write_latency.observe(duration_seconds)  # type: ignore
 
     async def start_periodic_collection(
         self, interval_seconds: int = COLLECTION_INTERVAL_SECONDS

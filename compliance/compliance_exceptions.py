@@ -207,7 +207,7 @@ class GDPRViolationError(ComplianceError):
         super().__init__(
             message=message,
             code=code,
-            severity=ErrorSeverity.HIGH,
+            severity=ErrorSeverity.ERROR,  # FIX: changed from HIGH to ERROR
             category=ErrorCategory.GDPR,
             context=context,
             cause=cause,
@@ -298,7 +298,7 @@ class TaxComplianceError(ComplianceError):
         super().__init__(
             message=message,
             code=code,
-            severity=ErrorSeverity.HIGH,
+            severity=ErrorSeverity.ERROR,  # FIX: changed from HIGH to ERROR
             category=ErrorCategory.TAX,
             context=context,
             cause=cause,

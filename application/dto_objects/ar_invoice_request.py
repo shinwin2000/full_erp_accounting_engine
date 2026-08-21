@@ -246,19 +246,19 @@ class CreateARInvoiceRequest:
 
     def calculate_subtotal(self) -> Decimal:
         """Menghitung subtotal dari semua baris."""
-        return sum(line.subtotal for line in self.lines)
+        return sum((line.subtotal for line in self.lines), Decimal(0))
 
     def calculate_discount_total(self) -> Decimal:
         """Menghitung total diskon."""
-        return sum(line.discount_amount for line in self.lines) + self.discount_amount
+        return sum((line.discount_amount for line in self.lines), Decimal(0)) + self.discount_amount
 
     def calculate_tax_total(self) -> Decimal:
         """Menghitung total PPN."""
-        return sum(line.tax_amount for line in self.lines)
+        return sum((line.tax_amount for line in self.lines), Decimal(0))
 
     def calculate_items_total(self) -> Decimal:
         """Menghitung total item (setelah diskon + PPN)."""
-        return sum(line.total_amount for line in self.lines)
+        return sum((line.total_amount for line in self.lines), Decimal(0))
 
     def calculate_total_amount(self) -> Decimal:
         """Menghitung total faktur."""
@@ -587,6 +587,8 @@ class GetARAgingRequest:
             object.__setattr__(self, "as_of_date", self.as_of_date.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
+        # as_of_date is guaranteed non-None after __post_init__
+        assert self.as_of_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
             "as_of_date": self.as_of_date.isoformat(),
@@ -796,32 +798,32 @@ ARPaymentRequestDTO = RecordARPaymentRequest
 # === 14. EXPORTS ===
 
 __all__ = [
-    # Enums
-    "ARInvoiceType",
-    "ARInvoiceStatus",
-    "PaymentMethod",
-    "PaymentStatus",
-    "CreditNoteReason",
-    "ARInvoiceStatusDTO",
-    # DTOs
-    "CreateARInvoiceRequest",
-    "UpdateARInvoiceRequest",
-    "RecordARPaymentRequest",
-    "CreateARCreditNoteRequest",
-    "WriteOffARInvoiceRequest",
-    "GetARInvoiceRequest",
-    "ListARInvoicesRequest",
-    "GetARAgingRequest",
-    # Response DTOs
-    "ARInvoiceResponseDTO",
-    "ARPaymentResponseDTO",
-    # Factory
-    "ARInvoiceRequestFactory",
+    "ARCreditNoteCreateRequest",
     # Aliases
     "ARInvoiceCreateRequest",
+    "ARInvoiceRequestDTO",
+    # Factory
+    "ARInvoiceRequestFactory",
+    # Response DTOs
+    "ARInvoiceResponseDTO",
+    "ARInvoiceStatus",
+    "ARInvoiceStatusDTO",
+    # Enums
+    "ARInvoiceType",
     "ARInvoiceUpdateRequest",
     "ARPaymentCreateRequest",
-    "ARCreditNoteCreateRequest",
-    "ARInvoiceRequestDTO",
     "ARPaymentRequestDTO",
+    "ARPaymentResponseDTO",
+    "CreateARCreditNoteRequest",
+    # DTOs
+    "CreateARInvoiceRequest",
+    "CreditNoteReason",
+    "GetARAgingRequest",
+    "GetARInvoiceRequest",
+    "ListARInvoicesRequest",
+    "PaymentMethod",
+    "PaymentStatus",
+    "RecordARPaymentRequest",
+    "UpdateARInvoiceRequest",
+    "WriteOffARInvoiceRequest",
 ]

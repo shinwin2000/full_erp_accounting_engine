@@ -23,6 +23,9 @@ from infrastructure.caching.redis_manager import get_redis_client
 if TYPE_CHECKING:
     from event_gateway.event_envelope import EventEnvelope
 
+# FIX: Import EventPriority untuk digunakan di replay_event
+from event_gateway.event_envelope import EventPriority
+
 logger = logging.getLogger(__name__)
 
 REDIS_DLQ_PREFIX = "event:dlq:"
@@ -312,7 +315,8 @@ class DeadLetterQueueManager:
                 correlation_id=item.metadata.get("correlation_id", str(uuid4())),
                 causation_id=item.metadata.get("causation_id"),
                 previous_hash="",
-                priority="normal",
+                # FIX: gunakan EventPriority enum, bukan string "normal"
+                priority=EventPriority.NORMAL,
             )
             await event_gate.send(
                 event=envelope.payload,

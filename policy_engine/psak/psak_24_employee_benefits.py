@@ -285,16 +285,17 @@ class PSAK24EmployeeBenefitsSummary:
     termination_benefits: list[PSAK24TerminationBenefit] = field(default_factory=list)
 
     def total_short_term_liability(self) -> Decimal:
-        return sum(b.amount for b in self.short_term_benefits if b.is_accrued)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((b.amount for b in self.short_term_benefits if b.is_accrued), Decimal(0))
 
     def total_defined_contribution_payable(self) -> Decimal:
-        return sum(p.total_payable() for p in self.defined_contribution_plans)
+        return sum((p.total_payable() for p in self.defined_contribution_plans), Decimal(0))
 
     def total_defined_benefit_liability(self) -> Decimal:
-        return sum(o.net_defined_benefit_liability for o in self.defined_benefit_obligations)
+        return sum((o.net_defined_benefit_liability for o in self.defined_benefit_obligations), Decimal(0))
 
     def total_termination_liability(self) -> Decimal:
-        return sum(t.total_amount for t in self.termination_benefits if t.is_accrued)
+        return sum((t.total_amount for t in self.termination_benefits if t.is_accrued), Decimal(0))
 
     def total_employee_benefits_liability(self) -> Decimal:
         return (
@@ -727,7 +728,7 @@ class PSAK24Validator:
                 result, self._rules.validate_actuarial_assumptions(ob.actuarial_assumptions)
             )
         total_db_liability = summary.total_defined_benefit_liability()
-        total_assets = sum(o.fair_value_of_plan_assets for o in summary.defined_benefit_obligations)
+        total_assets = sum((o.fair_value_of_plan_assets for o in summary.defined_benefit_obligations), Decimal(0))
         result = self._merge_results(
             result, self._rules.validate_disclosure(total_db_liability, total_assets)
         )

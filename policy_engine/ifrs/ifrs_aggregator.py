@@ -28,6 +28,11 @@ from policy_engine.ifrs.ifrs_9_financial_instruments import get_ifrs9_validator
 from policy_engine.ifrs.ifrs_15_revenue import get_ifrs15_validator
 from policy_engine.ifrs.ifrs_16_leases import get_ifrs16_validator
 
+# Import compliance level enums from PSAK modules
+from policy_engine.psak.psak_71_financial_instruments_ifrs9 import PSAK71ComplianceLevel
+from policy_engine.psak.psak_72_revenue import PSAK72ComplianceLevel
+from policy_engine.psak.psak_73_leases import PSAK73ComplianceLevel
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,6 +100,7 @@ class IFRSAggregator:
     """
 
     _instance: IFRSAggregator | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> IFRSAggregator:
         if cls._instance is None:
@@ -212,10 +218,13 @@ class IFRSAggregator:
         hedge = kwargs.get("hedging_relationship")
         if hedge:
             return self._ifrs9.validate_hedge_effectiveness(hedge)
-        # Return a simple compliance result
+        # Return a simple compliance result with FULL compliance
         from policy_engine.psak.psak_71_financial_instruments_ifrs9 import PSAK71ValidationResult
 
-        return PSAK71ValidationResult(is_compliant=True)
+        return PSAK71ValidationResult(
+            is_compliant=True,
+            compliance_level=PSAK71ComplianceLevel.FULL,
+        )
 
     def _assess_ifrs15(self, kwargs: dict) -> Any:
         """Menilai kepatuhan IFRS 15."""
@@ -224,7 +233,10 @@ class IFRSAggregator:
             return self._ifrs15.validate_contract_compliance(contract)
         from policy_engine.psak.psak_72_revenue import PSAK72ValidationResult
 
-        return PSAK72ValidationResult(is_compliant=True)
+        return PSAK72ValidationResult(
+            is_compliant=True,
+            compliance_level=PSAK72ComplianceLevel.FULL,
+        )
 
     def _assess_ifrs16(self, kwargs: dict) -> Any:
         """Menilai kepatuhan IFRS 16."""
@@ -234,7 +246,10 @@ class IFRSAggregator:
             return self._ifrs16.validate_lease_compliance(lease, fair_value)
         from policy_engine.psak.psak_73_leases import PSAK73ValidationResult
 
-        return PSAK73ValidationResult(is_compliant=True)
+        return PSAK73ValidationResult(
+            is_compliant=True,
+            compliance_level=PSAK73ComplianceLevel.FULL,
+        )
 
     def get_supported_standards(self) -> list[str]:
         """Mendapatkan daftar standar IFRS yang didukung."""

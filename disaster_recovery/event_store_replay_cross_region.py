@@ -22,7 +22,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 @dataclass(kw_only=True)
 class ReplayCheckpoint:
     stream_name: str
-    last_event_id: UUID
+    last_event_id: UUID | None  # allow None for initial state
     replayed_at: datetime
     region_source: str
     region_target: str
@@ -90,7 +90,7 @@ class ReplayCheckpoint:
             "pk": f"CHECKPOINT#{self.stream_name}",
             "sk": "LATEST",
             "last_sequence": self.last_event_sequence,
-            "last_event_id": str(self.last_event_id),
+            "last_event_id": str(self.last_event_id) if self.last_event_id else "",
             "replayed_at": self.replayed_at.isoformat(),
             "region_source": self.region_source,
             "region_target": self.region_target,
@@ -104,8 +104,7 @@ class ReplayCheckpoint:
         errors = []
         if not self.stream_name:
             errors.append("stream_name is required")
-        if not self.last_event_id:
-            errors.append("last_event_id is required")
+        # last_event_id can be None, skip check
         if self.last_event_sequence < 0:
             errors.append("last_event_sequence cannot be negative")
         if not self.region_source:
@@ -117,7 +116,7 @@ class ReplayCheckpoint:
     def to_dict(self) -> dict[str, Any]:
         return {
             "stream_name": self.stream_name,
-            "last_event_id": str(self.last_event_id),
+            "last_event_id": str(self.last_event_id) if self.last_event_id else None,
             "replayed_at": self.replayed_at.isoformat(),
             "region_source": self.region_source,
             "region_target": self.region_target,
@@ -131,7 +130,7 @@ class ReplayCheckpoint:
     def from_dict(cls, data: dict[str, Any]) -> ReplayCheckpoint:
         instance = cls(
             stream_name=data["stream_name"],
-            last_event_id=UUID(data["last_event_id"]),
+            last_event_id=UUID(data["last_event_id"]) if data.get("last_event_id") else None,
             replayed_at=datetime.fromisoformat(data["replayed_at"]),
             region_source=data["region_source"],
             region_target=data["region_target"],
@@ -144,10 +143,11 @@ class ReplayCheckpoint:
 
     @classmethod
     def from_dynamodb_item(cls, item: dict) -> ReplayCheckpoint:
+        last_event_id_str = item.get("last_event_id")
         instance = cls(
             stream_name=item["pk"].replace("CHECKPOINT#", ""),
             last_event_sequence=int(item["last_sequence"]),
-            last_event_id=UUID(item["last_event_id"]),
+            last_event_id=UUID(last_event_id_str) if last_event_id_str else None,
             replayed_at=datetime.fromisoformat(item["replayed_at"]),
             region_source=item["region_source"],
             region_target=item["region_target"],
@@ -409,7 +409,7 @@ class CrossRegionEventStoreReplayer:
     # Checkpoint Management
     # ------------------------------------------------------------------------
     def get_last_checkpoint(self, stream_name: str) -> ReplayCheckpoint | None:
-        if not self.use_dynamodb:
+        if not self.use_dynamodb or self.table_target is None:
             return None
         try:
             response = self.table_target.get_item(
@@ -427,7 +427,7 @@ class CrossRegionEventStoreReplayer:
         return None
 
     def save_checkpoint(self, checkpoint: ReplayCheckpoint) -> bool:
-        if not self.use_dynamodb:
+        if not self.use_dynamodb or self.table_target is None:
             return False
         try:
             item = checkpoint.to_dynamodb_item()
@@ -451,6 +451,8 @@ class CrossRegionEventStoreReplayer:
     def _query_events_from_dynamodb(
         self, stream_name: str, start_sequence: int = 0, limit: int = 100
     ) -> list[dict]:
+        if self.table_source is None:
+            return []
         try:
             response = self.table_source.query(
                 IndexName="stream_sequence_index",
@@ -472,7 +474,7 @@ class CrossRegionEventStoreReplayer:
     def _query_events_from_s3(
         self, stream_name: str, start_sequence: int = 0, limit: int = 100
     ) -> list[dict]:
-        if not self.s3_client:
+        if not self.s3_client or not self.s3_bucket:
             return []
         events = []
         prefix = f"{self.s3_prefix}{stream_name}/"
@@ -511,7 +513,7 @@ class CrossRegionEventStoreReplayer:
     # Write to Target
     # ------------------------------------------------------------------------
     def _write_batch_to_target(self, stream_name: str, events: list[dict]) -> tuple[int, int]:
-        if not self.table_target:
+        if self.table_target is None:
             return 0, len(events)
         written = 0
         failed = 0
@@ -553,7 +555,7 @@ class CrossRegionEventStoreReplayer:
         total_failed = 0
         checkpoint_updates = 0
         last_checkpoint_seq = start_seq - 1 if start_seq > 0 else 0
-        last_event_id = checkpoint.last_event_id if checkpoint else None
+        last_event_id: UUID | None = checkpoint.last_event_id if checkpoint else None
 
         logger.info(f"Starting replay for stream {stream_name} from sequence {start_seq}")
         self._record_audit(
@@ -631,7 +633,7 @@ class CrossRegionEventStoreReplayer:
     def replay_all_streams(
         self, stream_names: list[str], limit_per_stream: int | None = None, dry_run: bool = False
     ) -> dict[str, ReplayMetrics | None]:
-        results = {}
+        results: dict[str, ReplayMetrics | None] = {}
         for stream in stream_names:
             try:
                 metrics = self.replay_stream(stream, limit=limit_per_stream, dry_run=dry_run)
@@ -644,7 +646,7 @@ class CrossRegionEventStoreReplayer:
 
     def verify_cross_region_consistency(self, stream_name: str) -> tuple[bool, dict]:
         source_events = self._query_events_from_source(stream_name, 0, 10000)
-        if not self.table_target:
+        if self.table_target is None:
             return False, {"error": "Target DynamoDB not available"}
         target_items = []
         try:
@@ -676,7 +678,7 @@ class CrossRegionEventStoreReplayer:
         }
 
     def list_streams_in_source(self) -> list[str]:
-        if not self.table_source:
+        if self.table_source is None:
             return []
         streams = set()
         try:
@@ -803,3 +805,4 @@ if __name__ == "__main__":
         print(f"Dry run metrics: {metrics.total_events_written} events would be replayed")
         consistent, details = replayer.verify_cross_region_consistency(streams[0])
         print(f"Consistent: {consistent}, details: {details}")
+        

@@ -307,15 +307,15 @@ class ImpairmentTestRequest:
 # ============================================================================
 
 __all__ = [
+    "AmortizationRunRequest",
+    "AmortizeRequest",
+    # Legacy/backward compatibility
+    "CreateIntangibleAssetRequest",
+    "DisposalRequest",
+    "DisposeAssetRequest",
+    "ImpairmentTestRequest",
     # New names used by router
     "IntangibleAssetCreateRequest",
     "IntangibleAssetUpdateRequest",
-    "AmortizationRunRequest",
     "RevaluationRequest",
-    "DisposalRequest",
-    # Legacy/backward compatibility
-    "CreateIntangibleAssetRequest",
-    "AmortizeRequest",
-    "DisposeAssetRequest",
-    "ImpairmentTestRequest",
 ]

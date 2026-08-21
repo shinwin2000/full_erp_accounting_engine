@@ -32,9 +32,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import Column, DateTime, Index, Numeric, String, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
+from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from projections.analytics_bi.financial_ratios_calculator import (
@@ -221,6 +222,7 @@ class KPIThresholdAlerter:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def _get_income_statement(self) -> IncomeStatementPeriod:
@@ -288,7 +290,19 @@ class KPIThresholdAlerter:
         """
         Mengumpulkan nilai KPI terkini untuk legal entity dan periode.
         """
-        ratios_data = await self._get_ratios_calc().calculate_ratios(legal_entity_id, period_id)
+        # Fetch period to get end_date
+        async with await self._get_session() as session:
+            period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
+            period_result = await session.execute(period_stmt)
+            period = period_result.scalar_one_or_none()
+            if not period:
+                raise KPIThresholdError(f"Period {period_id} not found")
+            end_date = period.end_date
+            start_date = period.start_date
+
+        # Get ratios
+        ratios_calc = await self._get_ratios_calc()
+        ratios_data = await ratios_calc.calculate_ratios(legal_entity_id, period_id)
         ratios = ratios_data.get("ratios", {})
 
         # Get period close days (from period close SLA monitor) - placeholder
@@ -306,8 +320,9 @@ class KPIThresholdAlerter:
             elif kpi_name == "bank_reconciliation_days":
                 kpi_values[kpi_name] = bank_reconciliation_days
             elif kpi_name == "operating_cash_flow":
-                # Get from cash flow projection
-                cf = await self._get_cash_flow().compute_full_cash_flow(legal_entity_id, period_id)
+                # Get from cash flow projection - pass start_date and end_date
+                cash_flow = await self._get_cash_flow()
+                cf = await cash_flow.compute_full_cash_flow(legal_entity_id, start_date, end_date)
                 kpi_values[kpi_name] = Decimal(str(cf.get("operating_cash_flow", 0)))
 
         return kpi_values
@@ -501,7 +516,8 @@ class KPIThresholdAlerter:
 # ORM MODEL (tambahan)
 # ============================================================================
 
-Base = declarative_base()
+# Explicitly type Base as DeclarativeMeta to avoid mypy errors
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 
 class KPIAlertHistoryTable(Base):

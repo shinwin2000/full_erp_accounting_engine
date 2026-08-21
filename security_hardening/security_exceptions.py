@@ -21,7 +21,7 @@ import logging
 import traceback
 from collections import Counter
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class SecurityError(Exception):
         error_code: str = SecurityErrorCode.EC_BASE_GENERIC,
         context: dict[str, Any] | None = None,
         cause: Exception | None = None,
-    ):
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.error_code = error_code
@@ -105,7 +105,7 @@ class SecurityError(Exception):
         self._take_snapshot()
         logger.error(f"[{error_code}] {message} (id={self.exception_id})")
 
-    def _take_snapshot(self):
+    def _take_snapshot(self) -> None:
         self._snapshots.append(
             {
                 "version": self._version,
@@ -118,7 +118,7 @@ class SecurityError(Exception):
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         self._audit_trail.append(
             {
                 "action": action,
@@ -156,7 +156,7 @@ class SecurityError(Exception):
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not self.message:
             errors.append("Message is required")
         if not self.error_code:
@@ -337,8 +337,6 @@ class SecurityExceptionRegistry:
     """Registry untuk mencatat semua exception yang terjadi di modul keamanan."""
 
     _instance = None
-    _exceptions: ClassVar[list[dict]] = []
-    _max_size: int = 10000
 
     def __new__(cls):
         if cls._instance is None:
@@ -346,16 +344,18 @@ class SecurityExceptionRegistry:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
-        if self._initialized:
+    def __init__(self) -> None:
+        if getattr(self, "_initialized", False):
             return
         self._initialized = True
-        self._version = 1
+        self._max_size: int = 10000
+        self._exceptions: list[dict[str, Any]] = []
+        self._version: int = 1
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
         self._take_snapshot()
 
-    def _take_snapshot(self):
+    def _take_snapshot(self) -> None:
         self._snapshots.append(
             {
                 "version": self._version,
@@ -366,7 +366,7 @@ class SecurityExceptionRegistry:
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         self._audit_trail.append(
             {
                 "action": action,
@@ -408,7 +408,7 @@ class SecurityExceptionRegistry:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if self._max_size <= 0:
             errors.append("max_size must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}

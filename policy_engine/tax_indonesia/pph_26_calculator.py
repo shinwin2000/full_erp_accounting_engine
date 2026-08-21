@@ -147,13 +147,10 @@ class PPh26TreatyRegistry:
     @classmethod
     def get_rate(cls, country_code: str, income_type: PPh26IncomeType, as_of: datetime) -> Decimal | None:
         registry = cls._get_registry()
-        rate = registry.get_pph26_treaty_rate(country_code, income_type.value)
-        # Di sini bisa ditambahkan logika efektif_from/to jika diperlukan
-        return rate
+        return registry.get_pph26_treaty_rate(country_code, income_type.value)
 
     @classmethod
     def get_treaty_article(cls, country_code: str, income_type: PPh26IncomeType) -> str | None:
-        # Default artikel berdasarkan jenis
         articles = {
             PPh26IncomeType.DIVIDEND: "Article 10",
             PPh26IncomeType.INTEREST: "Article 11",
@@ -164,7 +161,6 @@ class PPh26TreatyRegistry:
     @classmethod
     def add_treaty_rate(cls, rate: TreatyRate) -> None:
         registry = cls._get_registry()
-        # Simpan ke registry internal (bisa diperluas)
         key = f"treaty_{rate.country_code}_{rate.income_type.value}"
         registry.set(key, rate.rate)
 
@@ -176,6 +172,7 @@ class PPh26Calculator:
     """Kalkulator PPh 26 dengan tarif dari RateRegistry."""
 
     _instance: PPh26Calculator | None = None
+    _initialized: bool = False  # type annotation untuk mypy
 
     def __new__(cls) -> PPh26Calculator:
         if cls._instance is None:
@@ -194,28 +191,62 @@ class PPh26Calculator:
         """Mengambil tarif default dari registry."""
         return self._registry.get_pph26_default_rate()
 
-    # ---- Method calculate (instance) untuk kepatuhan checker ----
+    # ---- Method calculate utama yang mengembalikan PPh26CalculationResult ----
     def calculate(
         self,
-        gross_income: Decimal,
-        country_code: str,
-        has_treaty: bool,
-        treaty_rate: Decimal | None = None,
-    ) -> Decimal:
-        """Metode utama untuk perhitungan PPh 26 sederhana."""
-        default_rate = self._get_default_rate()
-        if has_treaty and treaty_rate is not None:
-            rate = treaty_rate
-        elif has_treaty:
-            # Coba ambil dari registry
-            rate = self._registry.get_pph26_treaty_rate(country_code, "dividen")
-            if rate is None:
-                rate = default_rate
-        else:
-            rate = default_rate
+        gross_amount: Decimal,
+        income_type: PPh26IncomeType,
+        country_code: str | None = None,
+        has_treaty: bool = False,
+        treaty_rate_override: Decimal | None = None,
+        effective_date: datetime | None = None,
+        is_exempt: bool = False,
+        exemption_reason: str = "",
+    ) -> PPh26CalculationResult:
+        """
+        Metode utama untuk perhitungan PPh 26 (digunakan oleh withholding_engine).
+        Mengembalikan PPh26CalculationResult.
+        """
+        dummy_transaction_id = uuid4()
+        return self._calculate_full(
+            transaction_id=dummy_transaction_id,
+            gross_amount=gross_amount,
+            income_type=income_type,
+            country_code=country_code,
+            has_treaty=has_treaty,
+            treaty_rate_override=treaty_rate_override,
+            effective_date=effective_date,
+            is_exempt=is_exempt,
+            exemption_reason=exemption_reason,
+        )
 
-        tax = gross_income * (rate / Decimal(100))
-        return Decimal(tax.quantize(Decimal("0"), rounding=ROUND_HALF_EVEN))
+    # ---- Method untuk checker/structural integrity (mengembalikan Decimal) ----
+    def calculate_tax_amount(
+        self,
+        gross_amount: Decimal,
+        income_type: PPh26IncomeType,
+        country_code: str | None = None,
+        has_treaty: bool = False,
+        treaty_rate_override: Decimal | None = None,
+        effective_date: datetime | None = None,
+        is_exempt: bool = False,
+        exemption_reason: str = "",
+    ) -> Decimal:
+        """
+        Menghitung PPh 26 dan mengembalikan Decimal (jumlah pajak).
+        Digunakan oleh structural integrity auditor (P35).
+        """
+        result = self.calculate(
+            gross_amount=gross_amount,
+            income_type=income_type,
+            country_code=country_code,
+            has_treaty=has_treaty,
+            treaty_rate_override=treaty_rate_override,
+            effective_date=effective_date,
+            is_exempt=is_exempt,
+            exemption_reason=exemption_reason,
+        )
+        return result.tax_amount
 
     def _calculate_full(
         self,
@@ -332,7 +363,9 @@ class PPh26Calculator:
         if has_treaty and treaty_rate is not None:
             rate = Decimal(treaty_rate)
         elif has_treaty:
-            rate = registry.get_pph26_treaty_rate(country_code, "dividen") or default_rate
+            # FIX: handle None dari get_pph26_treaty_rate
+            treaty_rate_val = registry.get_pph26_treaty_rate(country_code, "dividen")
+            rate = treaty_rate_val if treaty_rate_val is not None else default_rate
         else:
             rate = default_rate
         tax = gross_income * (rate / Decimal(100))
@@ -398,7 +431,6 @@ if __name__ == "__main__":
     )
     print(json.dumps(result.to_dict(), indent=2))
 
-    # Tampilkan requirements summary
     print("\nRequirements:", calc.get_requirements_summary())
 
 

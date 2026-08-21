@@ -482,7 +482,12 @@ if __name__ == "__main__":
         approver_level=ReversalApprovalLevel.MANAGER,
         notes="Looks reasonable",
     )
-    print(f"After manager: {policy.get_request(req2.id).status.value}")
+    # FIX: ambil request setelah approve, cek None
+    req2_after_manager = policy.get_request(req2.id)
+    if req2_after_manager:
+        print(f"After manager: {req2_after_manager.status.value}")
+    else:
+        print("Request not found after manager approval")
 
     # Approve at controller level (sufficient)
     policy.approve(
@@ -492,11 +497,19 @@ if __name__ == "__main__":
         approver_level=ReversalApprovalLevel.CONTROLLER,
         notes="Approved",
     )
-    print(f"After controller: {policy.get_request(req2.id).status.value}")
+    req2_after_controller = policy.get_request(req2.id)
+    if req2_after_controller:
+        print(f"After controller: {req2_after_controller.status.value}")
+    else:
+        print("Request not found after controller approval")
 
     # Implement reversal
     policy.implement_reversal(req2.id, implemented_by=uuid4(), reversal_journal_id=uuid4())
-    print(f"Implemented: {policy.get_request(req2.id).status.value}")
+    req2_implemented = policy.get_request(req2.id)
+    if req2_implemented:
+        print(f"Implemented: {req2_implemented.status.value}")
+    else:
+        print("Request not found after implementation")
 
     # Report
     print(policy.generate_report())

@@ -85,9 +85,14 @@ class IAS37Provision:
 
     @property
     def discounted_amount(self) -> Money:
-        if self.discount_rate and self.expected_outflow_date:
-            years = max(1, (self.expected_outflow_date - self.recognition_date).days / 365.25)
-            factor = (1 + self.discount_rate / 100) ** years
+        if self.discount_rate is not None and self.expected_outflow_date is not None:
+            days = (self.expected_outflow_date - self.recognition_date).days
+            if days <= 0:
+                # If outflow date is in the past, no discount
+                return self.best_estimate
+            # FIX: gunakan Decimal untuk menghindari operasi Decimal ** float
+            years = Decimal(days) / Decimal(365.25)
+            factor = (Decimal(1) + self.discount_rate / Decimal(100)) ** years
             amount = self.best_estimate.amount / factor
             return Money(amount, self.best_estimate.currency)
         return self.best_estimate

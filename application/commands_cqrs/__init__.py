@@ -12,7 +12,7 @@ Ekspor komponen inti untuk command-query separation:
 - Validator
 - Envelope hasil (result envelope)
 
-Tidak ada ketergantungan pada event_gateway – semua event handling dilakukan
+Tidak ada ketergantungan pada event_gateway - semua event handling dilakukan
 melalui dependency injection dan port abstraksi.
 """
 
@@ -50,7 +50,7 @@ from application.commands_cqrs.command_validator import (
 )
 from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
 
-# Query Executor (read‑only)
+# Query Executor (read-only)
 from application.commands_cqrs.query_executor_readonly import (
     QueryExecutionError,
     QueryExecutionResult,
@@ -79,32 +79,32 @@ QueryBusUnified = UnifiedQueryBus
 
 __all__ = [
     # Buses
-    "UnifiedCommandBus",
-    "UnifiedQueryBus",
     "CommandBusUnified",
-    "QueryBusUnified",
-    # Registries
-    "CommandHandlerRegistry",
-    "command_handler_registry",
-    "get_command_handler",
-    "register_command_handler",
-    "unregister_command_handler",
-    "QueryHandlerRegistry",
-    "query_handler_registry",
-    "get_query_handler",
-    "register_query_handler",
-    "unregister_query_handler",
     # Executors
-    "CommandExecutorWithAudit",
     "CommandExecutionError",
     "CommandExecutionResult",
-    "QueryExecutorReadOnly",
-    "QueryExecutionError",
-    "QueryExecutionResult",
-    # Validator
-    "CommandValidator",
-    "ValidationError",
+    "CommandExecutorWithAudit",
+    # Registries
+    "CommandHandlerRegistry",
     # Result Envelope
     "CommandResultEnvelope",
     "CommandStatus",
+    # Validator
+    "CommandValidator",
+    "QueryBusUnified",
+    "QueryExecutionError",
+    "QueryExecutionResult",
+    "QueryExecutorReadOnly",
+    "QueryHandlerRegistry",
+    "UnifiedCommandBus",
+    "UnifiedQueryBus",
+    "ValidationError",
+    "command_handler_registry",
+    "get_command_handler",
+    "get_query_handler",
+    "query_handler_registry",
+    "register_command_handler",
+    "register_query_handler",
+    "unregister_command_handler",
+    "unregister_query_handler",
 ]

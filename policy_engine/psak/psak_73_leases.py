@@ -132,7 +132,8 @@ class PSAK73LeaseContract:
     modification_history: list[dict] = field(default_factory=list)
 
     def total_payments_undiscounted(self) -> Decimal:
-        return sum(p.amount for p in self.payments)
+        # FIX: use Decimal(0) as initial value to avoid Literal[0] type
+        return sum((p.amount for p in self.payments), Decimal(0))
 
     def present_value_of_lease_payments(self) -> Decimal:
         rate = self.discount_rate / 100
@@ -345,12 +346,16 @@ class PSAK73LeaseService:
         discount_rate: Decimal,
         payment_timing: PSAK73PaymentTiming,
     ) -> tuple[Decimal, Decimal]:
+        # FIX: use Decimal(0) as initial value for sum to avoid Literal[0] type
         old_pv = sum(
-            p.amount / ((1 + discount_rate / 100) ** (i + 1))
-            for i, p in enumerate(original_remaining_payments)
+            (p.amount / ((1 + discount_rate / 100) ** (i + 1))
+             for i, p in enumerate(original_remaining_payments)),
+            Decimal(0)
         )
         new_pv = sum(
-            p.amount / ((1 + discount_rate / 100) ** (i + 1)) for i, p in enumerate(new_payments)
+            (p.amount / ((1 + discount_rate / 100) ** (i + 1))
+             for i, p in enumerate(new_payments)),
+            Decimal(0)
         )
         return old_pv, new_pv
 
@@ -614,6 +619,109 @@ class PSAK73Validator:
             ],
         }
 
+    # ========================================================================
+    # COMPATIBILITY METHODS (untuk orkestrasi dan test)
+    # ========================================================================
+
+    def create_lease(
+        self,
+        lease_number: str,
+        asset_id: str,  # unused, but kept for signature compatibility
+        asset_name: str,
+        lessor_name: str,
+        commencement_date: datetime,
+        lease_term_years: int,
+        annual_payment: Decimal,
+        discount_rate: Decimal,
+        currency: str = "IDR",
+        payment_timing: PSAK73PaymentTiming = PSAK73PaymentTiming.IN_ARREARS,
+    ) -> PSAK73LeaseContract:
+        """Metode kompatibilitas untuk test dan aggregator."""
+        return self.create_lease_contract(
+            contract_number=lease_number,
+            asset_name=asset_name,
+            lessor_name=lessor_name,
+            commencement_date=commencement_date,
+            lease_term_years=lease_term_years,
+            annual_payment=annual_payment,
+            discount_rate=discount_rate,
+            payment_timing=payment_timing,
+        )
+
+    def calculate_right_of_use_asset(
+        self,
+        lease: PSAK73LeaseContract,
+        initial_direct_costs: Decimal = Decimal(0),
+        lease_incentives: Decimal = Decimal(0),
+    ) -> PSAK73RightOfUseAsset:
+        """Metode kompatibilitas untuk aggregator."""
+        # Set additional costs for computation
+        lease.initial_direct_costs = initial_direct_costs
+        lease.lease_incentives_received = lease_incentives
+        return self.compute_right_of_use_asset(lease)
+
+    def calculate_lease_liability(self, lease: PSAK73LeaseContract) -> PSAK73LeaseLiability:
+        """Metode kompatibilitas untuk aggregator."""
+        return self.compute_lease_liability(lease)
+
+    def record_lease_payment(
+        self,
+        liability: PSAK73LeaseLiability,
+        *args,
+        **kwargs,
+    ) -> tuple[PSAK73LeaseLiability, Decimal, Decimal]:
+        """
+        Metode kompatibilitas untuk mencatat pembayaran sewa.
+        Mendukung dua mode:
+        1. (liability, contract, payment_date)
+        2. (liability, payment_amount, discount_rate)  # fallback
+        """
+        # Mode 1: (liability, contract, payment_date)
+        if args and isinstance(args[0], PSAK73LeaseContract):
+            contract = args[0]
+            payment_date = args[1] if len(args) > 1 else datetime.now(UTC)
+            return self.record_annual_payment(liability, contract, payment_date)
+
+        # Mode 2: fallback sederhana
+        payment_amount = args[0] if args else kwargs.get("payment_amount", Decimal(0))
+        discount_rate = kwargs.get("discount_rate", Decimal("8"))
+        # Simple allocation for test compatibility
+        interest = (liability.outstanding_balance * (discount_rate / 100)).quantize(
+            Decimal("0"), rounding=ROUND_HALF_EVEN
+        )
+        principal = min(payment_amount - interest, liability.outstanding_balance)
+        new_balance = liability.outstanding_balance - principal
+        new_liability = PSAK73LeaseLiability(
+            liability_id=liability.liability_id,
+            contract_id=liability.contract_id,
+            initial_measurement=liability.initial_measurement,
+            outstanding_balance=new_balance,
+            interest_expense_ytd=liability.interest_expense_ytd + interest,
+            principal_paid_ytd=liability.principal_paid_ytd + principal,
+            last_payment_date=datetime.now(UTC),
+        )
+        return new_liability, interest, principal
+
+    def record_amortization(
+        self,
+        asset: PSAK73RightOfUseAsset,
+        *args,
+        **kwargs,
+    ) -> PSAK73RightOfUseAsset:
+        """Metode kompatibilitas untuk mencatat amortisasi (depresiasi)."""
+        lease_term_years = (
+            args[0] if args else kwargs.get("lease_term_years", asset.useful_life_years or 5)
+        )
+        return self.record_depreciation(asset, lease_term_years)
+
+    def validate_lease_compliance(
+        self,
+        lease: PSAK73LeaseContract,
+        fair_value: Decimal | None = None,
+    ) -> PSAK73ValidationResult:
+        """Metode kompatibilitas untuk validasi kepatuhan."""
+        return self.validate_contract(lease)
+
 
 # ============================================================================
 # Compatibility Aliases & Orchestration Bridge (IFRS 16 / Aggregator Alignment)
@@ -626,95 +734,9 @@ LeaseClassification = PSAK73LeaseType
 RightOfUseAsset = PSAK73RightOfUseAsset
 
 
-def _create_lease_compat(
-    self,
-    lease_number,
-    asset_id,
-    asset_name,
-    lessor_name,
-    commencement_date,
-    lease_term_years,
-    annual_payment,
-    discount_rate,
-    currency="IDR",
-    payment_timing=PSAK73PaymentTiming.IN_ARREARS,
-):
-    return self.create_lease_contract(
-        contract_number=lease_number,
-        asset_name=asset_name,
-        lessor_name=lessor_name,
-        commencement_date=commencement_date,
-        lease_term_years=lease_term_years,
-        annual_payment=annual_payment,
-        discount_rate=discount_rate,
-        payment_timing=payment_timing,
-    )
-
-
-def _calculate_right_of_use_asset_compat(
-    self, lease, initial_direct_costs=Decimal(0), lease_incentives=Decimal(0)
-):
-    lease.initial_direct_costs = initial_direct_costs
-    lease.lease_incentives_received = lease_incentives
-    return self.compute_right_of_use_asset(lease)
-
-
-def _calculate_lease_liability_compat(self, lease):
-    return self.compute_lease_liability(lease)
-
-
-def _record_lease_payment_compat(self, liability, *args, **kwargs):
-    if args and isinstance(args[0], PSAK73LeaseContract):
-        return self.record_annual_payment(
-            liability, args[0], args[1] if len(args) > 1 else datetime.now(UTC)
-        )
-    payment_amount = args[0] if args else kwargs.get("payment_amount", Decimal(0))
-    discount_rate = Decimal("8")
-    interest = (liability.outstanding_balance * (discount_rate / 100)).quantize(
-        Decimal("0"), rounding=ROUND_HALF_EVEN
-    )
-    principal = min(payment_amount - interest, liability.outstanding_balance)
-    new_balance = liability.outstanding_balance - principal
-    return (
-        PSAK73LeaseLiability(
-            liability_id=liability.liability_id,
-            contract_id=liability.contract_id,
-            initial_measurement=liability.initial_measurement,
-            outstanding_balance=new_balance,
-            interest_expense_ytd=liability.interest_expense_ytd + interest,
-            principal_paid_ytd=liability.principal_paid_ytd + principal,
-            last_payment_date=datetime.now(UTC),
-        ),
-        interest,
-        principal,
-    )
-
-
-def _record_amortization_compat(self, asset, *args, **kwargs):
-    lease_term_years = (
-        args[0] if args else kwargs.get("lease_term_years", asset.useful_life_years or 5)
-    )
-    return self.record_depreciation(asset, lease_term_years)
-
-
-def _validate_lease_compliance_compat(self, lease, fair_value=None):
-    return self.validate_contract(lease)
-
-
-# Suntikkan metode jembatan orkestrasi ke dalam Validator utama
-PSAK73Validator.create_lease = _create_lease_compat
-PSAK73Validator.calculate_right_of_use_asset = _calculate_right_of_use_asset_compat
-PSAK73Validator.calculate_lease_liability = _calculate_lease_liability_compat
-PSAK73Validator.record_lease_payment = _record_lease_payment_compat
-PSAK73Validator.record_amortization = _record_amortization_compat
-PSAK73Validator.validate_lease_compliance = _validate_lease_compliance_compat
-
-
 # ============================================================================
 # Class PSAK73 for test compatibility
 # ============================================================================
-
-
 class PSAK73:
     """
     Convenience class for test that exposes static method recognize_lease.
@@ -726,9 +748,7 @@ class PSAK73:
         Compute right-of-use asset and lease liability for a simple lease with constant annual payments.
         Returns a simple object with attributes right_of_use_asset and lease_liability.
         """
-        # Create a validator instance to reuse existing logic
         validator = get_psak73_validator()
-        # Create a simple contract with annual payments in arrears
         contract = validator.create_lease_contract(
             contract_number="TEST-LEASE",
             asset_name="Test Asset",
@@ -739,10 +759,8 @@ class PSAK73:
             discount_rate=discount_rate * 100,  # convert from decimal to percentage
             payment_timing=PSAK73PaymentTiming.IN_ARREARS,
         )
-        # Compute liability and ROU asset
         liability = validator.compute_lease_liability(contract)
         rou_asset = validator.compute_right_of_use_asset(contract)
-        # For test, we need only initial values
         result = type("Lease", (), {})()
         result.right_of_use_asset = rou_asset.initial_measurement
         result.lease_liability = liability.initial_measurement
@@ -766,6 +784,8 @@ def get_psak73_validator() -> PSAK73Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak73_validator()
 
     # Create lease contract
@@ -810,7 +830,7 @@ if __name__ == "__main__":
 
 
 # ============================================================================
-# Exports (ensure PSAK73 is exported)
+# Exports
 # ============================================================================
 __all__ = [
     "PSAK73",

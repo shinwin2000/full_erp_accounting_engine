@@ -231,7 +231,7 @@ class FinancialStatementGenerationUseCase:
                 if not command.entity_ids:
                     entities = await self._coa_service.get_child_entities(command.legal_entity_id)
                     command.entity_ids = [e.id for e in entities]
-                consolidation_result = await self._consolidation_service.consolidate(
+                await self._consolidation_service.consolidate(
                     group_entity_id=command.legal_entity_id,
                     period_end_date=command.as_of_date or command.period_end,
                     include_entities=command.entity_ids,
@@ -239,7 +239,6 @@ class FinancialStatementGenerationUseCase:
                 )
                 legal_entity_id = None
             else:
-                consolidation_result = None
                 legal_entity_id = command.legal_entity_id
 
             data = None

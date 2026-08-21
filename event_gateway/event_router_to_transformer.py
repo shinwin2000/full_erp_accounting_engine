@@ -236,9 +236,11 @@ class TransformerRegistry:
         return transformers
 
     def has_transformer(self, event_type: str) -> bool:
-        return (
-            event_type in self._transformers and self._transformers[event_type]
-        ) or "*" in self._transformers
+        # FIX: explicit boolean conversion to avoid mypy error
+        return bool(
+            (self._transformers.get(event_type))
+            or "*" in self._transformers
+        )
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
@@ -293,11 +295,12 @@ class EventRouter:
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
-        self._metrics = {
+        # FIX: explicit type annotation for metrics with int/str values
+        self._metrics: dict[str, int | str] = {
             "processed_total": 0,
             "failed_total": 0,
             "retried_total": 0,
-            "last_processed_at": None,
+            "last_processed_at": "",
         }
         # ===== SEMUA TASK DISIMPAN DI SINI =====
         self._pending_tasks: list[asyncio.Task] = []
@@ -459,7 +462,8 @@ class EventRouter:
                 ) from e
 
         latency = time.time() - start_time
-        self._metrics["processed_total"] += 1
+        # FIX: ensure metrics are ints (they are initialized as ints)
+        self._metrics["processed_total"] = int(self._metrics["processed_total"]) + 1
         self._metrics["last_processed_at"] = datetime.now(UTC).isoformat()
         logger.debug(f"Event {envelope.id} routed successfully in {latency:.3f}s")
 
@@ -478,10 +482,10 @@ class EventRouter:
             )
             task = asyncio.create_task(self._requeue_with_delay(queued, delay))
             self._add_pending_task(task)
-            self._metrics["retried_total"] += 1
+            self._metrics["retried_total"] = int(self._metrics["retried_total"]) + 1
         else:
             logger.error(f"Event {envelope.id} failed after {DEFAULT_MAX_RETRIES} retries: {error}")
-            self._metrics["failed_total"] += 1
+            self._metrics["failed_total"] = int(self._metrics["failed_total"]) + 1
 
     async def _requeue_with_delay(self, queued: QueuedEvent, delay: float) -> None:
         await asyncio.sleep(delay)
@@ -555,7 +559,7 @@ class EventRouter:
             "processed_total": 0,
             "failed_total": 0,
             "retried_total": 0,
-            "last_processed_at": None,
+            "last_processed_at": "",
         }
         self._record_audit("RESET", "system", {})
 

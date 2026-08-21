@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -47,7 +47,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "output_dir": "/var/reports/xbrl",
     "taxonomy_url": "https://xbrl.ifrs.org/taxonomy/2024/ifrs-full",
     "company_identifier_scheme": "http://www.oecd.org/documentation/lei",
@@ -135,10 +135,11 @@ class XBRLIFRSExporter:
 
     def _prepare_config(self, config: dict | None) -> dict:
         if config is not None:
-            result = DEFAULT_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_CONFIG.copy()
             for key, value in config.items():
-                if key in result and isinstance(value, dict):
-                    result[key].update(value)
+                # Only update if key exists and both are dicts
+                if key in result and isinstance(value, dict) and isinstance(result[key], dict):
+                    cast(dict, result[key]).update(value)
                 else:
                     result[key] = value
             return result
@@ -166,15 +167,18 @@ class XBRLIFRSExporter:
         Mengumpulkan data keuangan untuk ekspor XBRL.
         """
         # Get balance sheet snapshot
-        bs = await self._get_balance_sheet().get_snapshot(legal_entity_id, period_id)
+        balance_sheet = await self._get_balance_sheet()
+        bs = await balance_sheet.get_snapshot(legal_entity_id, period_id)
         if not bs:
             raise XBRLExportError(f"Balance sheet not available for period {period_id}")
 
         # Get income statement
-        inc = await self._get_income_statement().get_income_statement(legal_entity_id, period_id)
+        income_stmt = await self._get_income_statement()
+        inc = await income_stmt.get_income_statement(legal_entity_id, period_id)
 
         # Get cash flow
-        cf = await self._get_cash_flow().compute_full_cash_flow(
+        cash_flow = await self._get_cash_flow()
+        cf = await cash_flow.compute_full_cash_flow(
             legal_entity_id,
             date.fromisoformat(bs["as_of_date"]),
             date.fromisoformat(bs["as_of_date"]),

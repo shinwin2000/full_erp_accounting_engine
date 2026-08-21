@@ -325,8 +325,8 @@ class CommandHandlerRegistry:
             async def chained_handler(cmd: Any) -> Any:
                 start_time = time.perf_counter()
 
-                # Execute wildcards in priority order
-                for priority, idx, wc_handler, wc_meta in wildcards:
+                # Execute wildcards in priority order (use _ for unused vars)
+                for _priority, _idx, wc_handler, wc_meta in wildcards:
                     try:
                         result = await wc_handler(cmd)
                         if result is not None:
@@ -661,28 +661,26 @@ def register_default_wildcards() -> None:
 # === 7. EXPORTS ===
 
 __all__ = [
+    # Type alias
+    "CommandHandler",
     # Exceptions
     "CommandHandlerAlreadyRegisteredError",
     "CommandHandlerExecutionError",
     "CommandHandlerNotFoundError",
-    "CommandHandlerRegistryError",
-    "InvalidCommandHandlerSignatureError",
     # Class
     "CommandHandlerRegistry",
+    "CommandHandlerRegistryError",
     "HandlerMetadata",
-    # Type alias
-    "CommandHandler",
-    # Singleton and convenience
-    "command_handler_registry",
-    "get_command_handler_registry",
-    "reset_command_handler_registry",
+    "InvalidCommandHandlerSignatureError",
     # Convenience functions
-    "get_command_handler",
-    "register_command_handler",
-    "has_command_handler",
     "clear_command_handlers",
-    "unregister_command_handler",
+    "command_handler_registry",
     "get_all_command_types",
-    # Wildcards
+    "get_command_handler",
+    "get_command_handler_registry",
+    "has_command_handler",
+    "register_command_handler",
     "register_default_wildcards",
+    "reset_command_handler_registry",
+    "unregister_command_handler",
 ]

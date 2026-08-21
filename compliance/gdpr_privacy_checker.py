@@ -278,9 +278,10 @@ class GDPRChecker:
         self._pseudonymization_key: bytes | None = None
         if HAS_CRYPTO:
             self._pseudonymization_key = Fernet.generate_key()
-        self._erased_users = set()
-        self._anonymized_logs = set()
-        self._test_consent = {}
+        # Tambahkan type annotation untuk menghilangkan error mypy
+        self._erased_users: set[UUID | str] = set()
+        self._anonymized_logs: set[UUID | str] = set()
+        self._test_consent: dict[str, Any] = {}
 
     # -------------------- Consent Management (Art. 7, 9) --------------------
     def give_consent(
@@ -327,6 +328,8 @@ class GDPRChecker:
         self._test_consent[str(user_id)] = False
         self._test_consent["__test_global_consent__"] = False
 
+        # Deklarasikan tipe uid secara eksplisit
+        uid: UUID | str
         try:
             uid = UUID(user_id) if isinstance(user_id, str) else user_id
         except ValueError:
@@ -461,6 +464,8 @@ class GDPRChecker:
         if ignore_legal_hold is not None and not ignore_legal_hold and not force:
             raise PermissionError("Tax retention period still active")
 
+        # Deklarasikan tipe uid secara eksplisit
+        uid: UUID | str
         try:
             uid = UUID(user_id) if isinstance(user_id, str) else user_id
         except ValueError:

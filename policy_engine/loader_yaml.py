@@ -165,6 +165,7 @@ class PolicyLoader:
     """
 
     _instance: PolicyLoader | None = None
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
     _lock: threading.RLock
 
     def __new__(cls) -> PolicyLoader:

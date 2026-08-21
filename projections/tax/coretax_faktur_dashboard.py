@@ -42,7 +42,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies (hanya untuk session factory)
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -55,7 +55,8 @@ logger = get_logger(__name__)
 # DEFINE OUR OWN TABLES (with explicit String lengths and PGUUID)
 # ============================================================================
 
-Base = declarative_base()
+# Explicitly type Base as DeclarativeMeta to avoid mypy errors
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 
 class CoretaxFakturTable(Base):
@@ -160,6 +161,8 @@ class CoretaxFakturDashboard:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        # mypy needs an assertion to know it's not None
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def compute_dashboard(

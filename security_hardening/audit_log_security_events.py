@@ -22,7 +22,7 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,7 @@ class FileAuditStorage(BaseAuditStorage):
             f.write(json.dumps(event, default=str) + "\n")
 
     def query(self, filters: dict, limit: int) -> list[dict]:
-        events = []
+        events: list[dict] = []  # FIX: tambahkan type annotation
         try:
             with open(self.file_path) as f:
                 for line in f:
@@ -424,7 +424,8 @@ class SecurityAuditLogger:
             with self._lock:
                 event["hash"] = self._compute_hash(event, self._last_hash)
                 event["previous_hash"] = self._last_hash
-                self._last_hash = event["hash"]
+                # FIX: pastikan tipe sesuai, gunakan cast untuk meyakinkan mypy
+                self._last_hash = cast(str, event["hash"])
 
         # Write to all storage backends
         for backend in self._storage_backends:
@@ -455,7 +456,7 @@ class SecurityAuditLogger:
         severity: AuditLogSeverity | None = None,
         limit: int = 100,
     ) -> list[dict]:
-        filters = {}
+        filters: dict[str, Any] = {}
         if event_type:
             filters["event_type"] = event_type.value
         if user_id:
@@ -467,7 +468,7 @@ class SecurityAuditLogger:
         if end_time:
             filters["timestamp_end"] = end_time.isoformat()
 
-        all_results = []
+        all_results: list[dict] = []
         for backend in self._storage_backends:
             try:
                 results = backend.query(filters, limit)
@@ -508,7 +509,7 @@ class SecurityAuditLogger:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         if self._enable_hash_chain and not self._last_hash:
             # Genesis hash is acceptable
             pass
@@ -578,11 +579,12 @@ class SecurityAuditLogger:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
-    logger = SecurityAuditLogger(enable_hash_chain=True)
+    # FIX: gunakan nama variabel yang tidak bertabrakan dengan logging.Logger
+    audit_logger = SecurityAuditLogger(enable_hash_chain=True)
     file_backend = FileAuditStorage("/var/log/security_audit.log")
-    logger.add_storage_backend(file_backend)
+    audit_logger.add_storage_backend(file_backend)
 
-    event_id = logger.log(
+    event_id = audit_logger.log(
         event_type=SecurityEventType.LOGIN_SUCCESS,
         user_id=uuid4(),
         details={"ip": "192.168.1.1", "method": "password"},
@@ -591,8 +593,8 @@ if __name__ == "__main__":
     )
     print(f"Logged event: {event_id}")
 
-    valid, msg = logger.verify_hash_chain()
+    valid, msg = audit_logger.verify_hash_chain()
     print(f"Hash chain verification: {valid} - {msg}")
 
-    logs = logger.query_logs(limit=10)
+    logs = audit_logger.query_logs(limit=10)
     print(f"Retrieved {len(logs)} logs")

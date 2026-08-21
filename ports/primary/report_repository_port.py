@@ -237,6 +237,57 @@ class ReportRepositoryPort(ABC):
     async def get_report_data(self, report_id: UUID) -> dict[str, Any]:
         pass
 
+    # ==================== GENERATED REPORT (metadata laporan tersimpan) ====
+    # Catatan: sengaja TIDAK @abstractmethod (default NotImplementedError)
+    # supaya implementasi port lain (kalau ada di masa depan) tidak wajib
+    # mengimplementasikan semuanya - pola yang sama dipakai di
+    # UMKMRepositoryPort untuk method jurnal.
+
+    async def create_generated_report(self, report: Any) -> Any:
+        raise NotImplementedError
+
+    async def get_generated_report_by_id(self, report_id: UUID, legal_entity_id: UUID) -> Any:
+        raise NotImplementedError
+
+    async def list_generated_reports(
+        self,
+        legal_entity_id: UUID,
+        report_type: str | None = None,
+        status: str | None = None,
+        start_date: Any = None,
+        end_date: Any = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Any], int]:
+        raise NotImplementedError
+
+    async def soft_delete_generated_report(
+        self, report_id: UUID, legal_entity_id: UUID, deleted_by: UUID
+    ) -> Any:
+        raise NotImplementedError
+
+    async def update_generated_report(self, report_id: UUID, legal_entity_id: UUID, **fields) -> Any:
+        raise NotImplementedError
+
+    # ==================== SCHEDULED REPORT (jadwal laporan otomatis) =======
+
+    async def create_scheduled_report(self, entry: Any) -> Any:
+        raise NotImplementedError
+
+    async def get_scheduled_report_by_id(self, schedule_id: UUID, legal_entity_id: UUID) -> Any:
+        raise NotImplementedError
+
+    async def list_scheduled_reports(
+        self, legal_entity_id: UUID, is_active: bool | None = None, report_type: str | None = None
+    ) -> list[Any]:
+        raise NotImplementedError
+
+    async def update_scheduled_report(self, schedule_id: UUID, legal_entity_id: UUID, **fields) -> Any:
+        raise NotImplementedError
+
+    async def delete_scheduled_report(self, schedule_id: UUID, legal_entity_id: UUID) -> Any:
+        raise NotImplementedError
+
 
 # ============================================================================
 # ALIAS FOR COMPATIBILITY (fix ImportError for `import report_repository_port`)

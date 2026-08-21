@@ -116,6 +116,7 @@ class TreatyResolver:
     """
 
     _instance: TreatyResolver | None = None
+    _initialized: bool = False  # FIX: deklarasi tipe untuk mypy
     _lock: threading.RLock
 
     def __new__(cls) -> TreatyResolver:
@@ -465,7 +466,8 @@ class TreatyResolver:
         """
         key = self._make_key(country_code, income_type)
         check_date = as_of or datetime.now(UTC)
-        cache_key = (country_code, income_type, check_date.date())
+        # FIX: gunakan datetime sebagai key, bukan date
+        cache_key = (country_code, income_type, check_date)
 
         with self._lock:
             if cache_key in self._cache:

@@ -301,7 +301,8 @@ class QuantitativeMateriality:
                 Decimal("0.01"),
                 Decimal("0.02"),
             ]
-        results = {}
+        # FIX: tambahkan anotasi tipe untuk menghindari error mypy
+        results: dict[str, float | None] = {}
         for pct in percentage_variations:
             temp_percentages = self._percentages.copy()
             for bm in [

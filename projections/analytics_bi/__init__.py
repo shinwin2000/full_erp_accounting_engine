@@ -5,4 +5,4 @@ Package: projections.analytics_bi
 Analytics dashboards, KPI, trend analysis.
 """
 
-__all__ = []
+__all__: list[str] = []

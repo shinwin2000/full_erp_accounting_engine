@@ -18,6 +18,7 @@ Responsibility:
 from __future__ import annotations
 
 import csv
+import io
 import json
 import logging
 from datetime import UTC, date, datetime
@@ -393,7 +394,8 @@ class ConsolidationGroupReportUseCase:
             return str(file_path)
         elif command.export_format == "csv":
             file_path = base_path.with_suffix(".csv")
-            output = csv.StringIO()
+            # FIX: use io.StringIO instead of csv.StringIO
+            output = io.StringIO()
             writer = csv.writer(output)
             for key, value in report_data.items():
                 writer.writerow([key, str(value)])

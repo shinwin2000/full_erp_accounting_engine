@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Module: distributor_email_whatsapp.py
 Layer: Reports
@@ -28,7 +27,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore[import-untyped]
 
 # Email sending
 try:
@@ -58,7 +57,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "email": {
         "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
@@ -137,11 +136,10 @@ class ReportDistributor:
     def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
-            # Merge dengan default untuk memastikan semua key ada
-            result = DEFAULT_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_CONFIG.copy()
             for key, value in config.items():
-                if key in result and isinstance(value, dict):
-                    result[key].update(value)
+                if key in result and isinstance(value, dict) and isinstance(result[key], dict):
+                    result[key].update(value)  # type: ignore[attr-defined]
                 else:
                     result[key] = value
             return result
@@ -159,7 +157,7 @@ class ReportDistributor:
             await self._session.close()
 
     # ========================================================================
-    # EMAIL DISTRIBUTION — DIPERBAIKI (aiofiles untuk membaca attachment)
+    # EMAIL DISTRIBUTION â€” DIPERBAIKI (aiofiles untuk membaca attachment)
     # ========================================================================
 
     async def send_email(
@@ -306,7 +304,7 @@ class ReportDistributor:
         for attempt in range(max_attempts):
             try:
                 for number in to_numbers:
-                    payload = {"to": number, "text": message, "type": "text"}
+                    payload: dict[str, Any] = {"to": number, "text": message, "type": "text"}
                     if attachment_url:
                         payload["type"] = "document"
                         payload["document"] = {"url": attachment_url}
@@ -396,7 +394,7 @@ class ReportDistributor:
         return False
 
     # ========================================================================
-    # GENERIC DISTRIBUTE METHOD — DIPERBAIKI (aiofiles untuk membaca file)
+    # GENERIC DISTRIBUTE METHOD â€” DIPERBAIKI (aiofiles untuk membaca file)
     # ========================================================================
 
     async def distribute(

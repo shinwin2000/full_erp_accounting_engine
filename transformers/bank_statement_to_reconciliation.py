@@ -369,7 +369,7 @@ class BankTransactionMatcher(BaseTransformer):
         for stmt_tx in statement_transactions:
             matched_book = None
             best_match_idx = -1
-            best_score = 0
+            best_score: float = 0.0  # FIX: explicit float type
             for idx, book_tx in enumerate(available_book):
                 score = await self._calculate_match_score(stmt_tx, book_tx)
                 if score > 0.8 and score > best_score:
@@ -700,7 +700,7 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
         logger.info("BankStatementToReconciliationTransformer reset")
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         if self._parser is None:
             errors.append("Parser not initialized")
         if self._matcher is None:

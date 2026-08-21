@@ -18,6 +18,7 @@ Responsibility:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -154,10 +155,8 @@ class CachePort:
                 return
 
         if self._redis:
-            try:
+            with contextlib.suppress(Exception):
                 await self._redis.delete(key)
-            except Exception:
-                pass
         if self._fallback_memory:
             self._memory_cache.pop(key, None)
 
@@ -168,10 +167,8 @@ class CachePort:
 
     async def clear(self) -> None:
         if self._redis:
-            try:
+            with contextlib.suppress(Exception):
                 await self._redis.flushdb()
-            except Exception:
-                pass
         if self._fallback_memory:
             self._memory_cache.clear()
 
@@ -453,7 +450,7 @@ class LoggingMiddleware(Middleware):
         handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
-        log_data = {
+        log_data: dict[str, Any] = {
             "command_id": str(command.command_id),
             "command_type": command.command_type,
             "correlation_id": command.correlation_id,
@@ -738,8 +735,8 @@ class UnifiedCommandBus:
         self._middlewares: list[Middleware] = []
         self._build_middleware_pipeline(middlewares)
 
-        # Stats
-        self._stats = {
+        # Stats - use dict[str, Any] for mixed types
+        self._stats: dict[str, Any] = {
             "total_dispatched": 0,
             "total_succeeded": 0,
             "total_failed": 0,
@@ -764,7 +761,7 @@ class UnifiedCommandBus:
 
     def _build_middleware_pipeline(self, custom_middlewares: list[Middleware] | None) -> None:
         """Build the middleware pipeline with proper ordering."""
-        middlewares = []
+        middlewares: list[Middleware] = []
 
         # Rate limit middleware (earliest)
         if self._enable_rate_limit:
@@ -796,7 +793,7 @@ class UnifiedCommandBus:
             # Custom middlewares go before transaction but after other middleware
             # Insert at position before transaction
             insert_pos = len(middlewares) - 1
-            for i, mw in enumerate(reversed(custom_middlewares)):
+            for _i, mw in enumerate(reversed(custom_middlewares)):
                 middlewares.insert(insert_pos, mw)
 
         self._middlewares = middlewares
@@ -811,7 +808,7 @@ class UnifiedCommandBus:
 
         start_time = time.perf_counter()
         self._metrics.inc_commands_dispatched(command.command_type)
-        self._stats["total_dispatched"] += 1
+        self._stats["total_dispatched"] = self._stats.get("total_dispatched", 0) + 1
 
         # Set context
         ContextHolder.set("command_id", str(command.command_id))
@@ -828,7 +825,7 @@ class UnifiedCommandBus:
             # Validasi command
             validation_result = await self._validator.validate_async(command)
             if not validation_result.is_valid:
-                self._stats["total_failed"] += 1
+                self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
                 self._metrics.inc_commands_failed(command.command_type, "validation")
                 span.set_status("ERROR", "validation_failed")
                 return CommandResult.failure(
@@ -841,7 +838,7 @@ class UnifiedCommandBus:
             # Dapatkan handler
             handler = self._registry.get_handler(command.command_type)
             if not handler:
-                self._stats["total_failed"] += 1
+                self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
                 self._metrics.inc_commands_failed(command.command_type, "not_found")
                 span.set_status("ERROR", "handler_not_found")
                 raise CommandNotFoundError(
@@ -880,12 +877,12 @@ class UnifiedCommandBus:
             self._metrics.observe_command_latency(latency_ms / 1000)
 
             if result.is_success():
-                self._stats["total_succeeded"] += 1
+                self._stats["total_succeeded"] = self._stats.get("total_succeeded", 0) + 1
             elif result.is_duplicate():
-                self._stats["total_duplicate"] += 1
-                self._stats["total_succeeded"] += 1
+                self._stats["total_duplicate"] = self._stats.get("total_duplicate", 0) + 1
+                self._stats["total_succeeded"] = self._stats.get("total_succeeded", 0) + 1
             else:
-                self._stats["total_failed"] += 1
+                self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
                 self._stats["last_error"] = result.error
                 self._metrics.inc_commands_failed(
                     command.command_type, result.error_code or "unknown"
@@ -899,33 +896,33 @@ class UnifiedCommandBus:
             return result
 
         except CommandValidationError as e:
-            self._stats["total_failed"] += 1
+            self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
             self._metrics.inc_commands_failed(command.command_type, "validation")
             span.set_status("ERROR", str(e))
             return CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="VALIDATION_ERROR"
             )
         except CommandNotFoundError as e:
-            self._stats["total_failed"] += 1
+            self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
             self._metrics.inc_commands_failed(command.command_type, "not_found")
             span.set_status("ERROR", str(e))
             return CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="COMMAND_NOT_FOUND"
             )
         except DuplicateCommandError as e:
-            self._stats["total_duplicate"] += 1
-            self._stats["total_succeeded"] += 1
+            self._stats["total_duplicate"] = self._stats.get("total_duplicate", 0) + 1
+            self._stats["total_succeeded"] = self._stats.get("total_succeeded", 0) + 1
             span.set_status("OK", "duplicate")
             return CommandResult.duplicate(command_id=command.command_id, message=str(e))
         except CommandTimeoutError as e:
-            self._stats["total_failed"] += 1
+            self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
             self._metrics.inc_commands_failed(command.command_type, "timeout")
             span.set_status("ERROR", "timeout")
             return CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="TIMEOUT_ERROR"
             )
         except Exception as e:
-            self._stats["total_failed"] += 1
+            self._stats["total_failed"] = self._stats.get("total_failed", 0) + 1
             self._stats["last_error"] = str(e)
             self._metrics.inc_commands_failed(command.command_type, "unhandled")
             span.set_status("ERROR", str(e))
@@ -985,9 +982,12 @@ class UnifiedCommandBus:
 
     def get_stats(self) -> dict[str, Any]:
         """Dapatkan statistik command bus."""
-        uptime_seconds = (
-            datetime.now(UTC) - datetime.fromisoformat(self._stats["started_at"])
-        ).total_seconds()
+        started_at_str = self._stats.get("started_at", datetime.now(UTC).isoformat())
+        try:
+            started_at = datetime.fromisoformat(str(started_at_str))
+        except (ValueError, TypeError):
+            started_at = datetime.now(UTC)
+        uptime_seconds = (datetime.now(UTC) - started_at).total_seconds()
 
         return {
             **self._stats,
@@ -1001,16 +1001,18 @@ class UnifiedCommandBus:
 
     def health_check(self) -> dict[str, Any]:
         """Perform health check."""
+        total_dispatched = self._stats.get("total_dispatched", 0)
+        total_succeeded = self._stats.get("total_succeeded", 0)
+        total_failed = self._stats.get("total_failed", 0)
+        success_rate = (
+            (total_succeeded / total_dispatched * 100) if total_dispatched > 0 else 100
+        )
         return {
             "status": "healthy" if not self._is_closed else "closed",
             "is_closed": self._is_closed,
-            "total_dispatched": self._stats["total_dispatched"],
-            "total_failed": self._stats["total_failed"],
-            "success_rate": (
-                (self._stats["total_succeeded"] / self._stats["total_dispatched"] * 100)
-                if self._stats["total_dispatched"] > 0
-                else 100
-            ),
+            "total_dispatched": total_dispatched,
+            "total_failed": total_failed,
+            "success_rate": success_rate,
         }
 
 
@@ -1041,12 +1043,20 @@ class CommandBus:
         """Add middleware to the pipeline."""
         self._middlewares.append(middleware)
 
+    def _get_command_id(self, command: Any) -> UUID:
+        """Extract command_id from command object, generate if missing."""
+        cmd_id = getattr(command, "command_id", None)
+        if isinstance(cmd_id, UUID):
+            return cmd_id
+        return uuid4()
+
     def dispatch(self, command: Any) -> CommandResult:
         """
         Dispatch a command to its handler synchronously.
         Returns a CommandResult.
         """
         self._stats["dispatched"] += 1
+        cmd_id = self._get_command_id(command)
 
         # Validation
         if self._validator:
@@ -1054,7 +1064,7 @@ class CommandBus:
             if not is_valid:
                 self._stats["failed"] += 1
                 return CommandResult.failure(
-                    command_id=getattr(command, "command_id", None),
+                    command_id=cmd_id,
                     error="Validation failed",
                     error_code="VALIDATION_ERROR",
                 )
@@ -1063,7 +1073,7 @@ class CommandBus:
         if not handler:
             self._stats["failed"] += 1
             return CommandResult.failure(
-                command_id=getattr(command, "command_id", None),
+                command_id=cmd_id,
                 error=f"No handler registered for {type(command).__name__}",
                 error_code="HANDLER_NOT_FOUND",
             )
@@ -1091,11 +1101,14 @@ class CommandBus:
                 result = current_handler.handle(command)
 
             self._stats["succeeded"] += 1
+            if result is None:
+                # If handler returns None, treat as success with no data
+                result = CommandResult.success(command_id=cmd_id, data=None)
             return result
         except Exception as e:
             self._stats["failed"] += 1
             return CommandResult.failure(
-                command_id=getattr(command, "command_id", None),
+                command_id=cmd_id,
                 error=str(e),
                 error_code="HANDLER_ERROR",
             )

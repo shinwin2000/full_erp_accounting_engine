@@ -134,7 +134,8 @@ class PSAK30LeaseContract:
             return True
         if self.lease_term_years >= 0.75 * 20:  # Example: economic life assumed 20 years
             return True
-        return pv_payments >= 0.9 * self.fair_value_asset
+        # FIX: gunakan Decimal untuk menghindari operasi float * Decimal
+        return pv_payments >= Decimal("0.9") * self.fair_value_asset
 
     def to_dict(self) -> dict:
         return {
@@ -477,7 +478,7 @@ class PSAK30Validator:
 
     def get_requirements_summary(self) -> dict:
         return {
-            "classification": "Lessee mengklasifikasikan sewa sebagai pembiayaan jika memenuhi kriteria (transfer kepemilikan, opsi beli murah, masa sewa substansial, nilai kini pembayaran â‰¥ 90% nilai wajar, aset khusus)",
+            "classification": "Lessee mengklasifikasikan sewa sebagai pembiayaan jika memenuhi kriteria (transfer kepemilikan, opsi beli murah, masa sewa substansial, nilai kini pembayaran ≥ 90% nilai wajar, aset khusus)",
             "finance_lease_lessee": "Mengakui aset dan liabilitas sebesar nilai kini pembayaran sewa minimum",
             "operating_lease_lessee": "Mengakui beban sewa secara garis lurus",
             "finance_lease_lessor": "Mengakui piutang sewa dan pendapatan bunga",
@@ -508,6 +509,8 @@ def get_psak30_validator() -> PSAK30Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak30_validator()
 
     # Contoh kontrak sewa pembiayaan
@@ -545,6 +548,8 @@ if __name__ == "__main__":
     result = validator.validate_contract(finance_lease)
     print("\nValidation Result:")
     print(json.dumps(result.to_dict(), indent=2))
+
+
 # ============================================================================
 # Compatibility alias for package-level aggregator
 # ============================================================================

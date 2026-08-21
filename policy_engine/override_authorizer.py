@@ -70,6 +70,7 @@ class OverrideRequest:
     status: OverrideStatus = OverrideStatus.PENDING
     approved_by: str | None = None
     approved_at: datetime | None = None
+    notes: str = ""  # FIX: tambahkan field notes
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +87,7 @@ class OverrideRequest:
             "status": self.status.value,
             "approved_by": self.approved_by,
             "approved_at": self.approved_at.isoformat() if self.approved_at else None,
+            "notes": self.notes,
         }
 
 
@@ -101,6 +103,7 @@ class OverrideAuthorizer:
     """
 
     _instance: OverrideAuthorizer | None = None
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
     _requests: list[OverrideRequest]
     _authorized_users: dict[str, set[str]]  # role -> set of user_ids
 

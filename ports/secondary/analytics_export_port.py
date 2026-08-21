@@ -26,7 +26,8 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-import aiofiles
+# Use standard library for file I/O via thread pool
+# (aiofiles would need stub; avoid external dependency)
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC as PBKDF2
@@ -230,7 +231,7 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
 
     # ------------------- Helpers -------------------
 
-    async def _log_audit(self, action: str, job_id: UUID, details: dict[str, Any]):
+    async def _log_audit(self, action: str, job_id: UUID, details: dict[str, Any]) -> None:
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
@@ -456,8 +457,11 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
             return f"s3://{bucket}/{key}"
         elif method == DeliveryMethod.LOCAL_PATH:
             path = config.get("path")
-            async with aiofiles.open(path, "wb") as f:
-                await f.write(data)
+            if not path:
+                raise ValueError("LOCAL_PATH delivery requires 'path' in config")
+            # Write using synchronous open in thread to avoid aiofiles dependency
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._write_file_sync, path, data)
             return f"file://{path}"
         elif method == DeliveryMethod.WEBHOOK:
             url = config.get("url")
@@ -465,6 +469,12 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
             return f"webhook://{url}"
         else:
             raise ValueError(f"Unknown delivery method: {method}")
+
+    @staticmethod
+    def _write_file_sync(path: str, data: bytes) -> None:
+        """Synchronous file write helper for LOCAL_PATH delivery."""
+        with open(path, "wb") as f:
+            f.write(data)
 
     async def cancel_job(self, job_id: UUID) -> bool:
         job = self._jobs.get(job_id)
@@ -494,7 +504,7 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
 
     # ------------------- Scheduler -------------------
 
-    async def start_scheduler(self, poll_interval_seconds: int = 60):
+    async def start_scheduler(self, poll_interval_seconds: int = 60) -> None:
         if self._running:
             return
         self._running = True
@@ -502,12 +512,12 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
         self._add_pending_task(self._scheduler_task)
         logger.info("Export scheduler started")
 
-    async def _scheduler_loop(self, interval: int):
+    async def _scheduler_loop(self, interval: int) -> None:
         while self._running:
             await asyncio.sleep(interval)
             await self._process_scheduled_jobs()
 
-    async def _process_scheduled_jobs(self):
+    async def _process_scheduled_jobs(self) -> None:
         now = datetime.now(UTC)
         jobs_to_run = []
         async with self._lock:
@@ -521,7 +531,7 @@ class InMemoryAnalyticsExport(AnalyticsExportPort):
         for job_id in jobs_to_run:
             await self.execute_job(job_id)
 
-    async def stop_scheduler(self):
+    async def stop_scheduler(self) -> None:
         self._running = False
         if self._pending_tasks:
             for task in self._pending_tasks:

@@ -778,7 +778,7 @@ class InMemorySystemSettingRepository(SystemSettingRepositoryPort):
         settings = await self.get_all(legal_entity_id)
         total = len(settings)
         editable = sum(1 for s in settings if s.is_editable)
-        by_category = {}
+        by_category: dict[str, int] = {}  # FIX: added type annotation
         for s in settings:
             cat = s.category.value
             by_category[cat] = by_category.get(cat, 0) + 1

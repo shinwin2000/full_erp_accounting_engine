@@ -365,7 +365,7 @@ class SPTMasaPpnRequest:
             "totalPPNMasukan": float(self.total_ppn_masukan),
             "kompensasiDariMasaSebelumnya": float(self.kompensasi_dari_masa_sebelumnya),
             "restitusiDiminta": float(self.restitusi_diminta),
-            "lampiran": [l.value for l in self.lampiran],
+            "lampiran": [lamp.value for lamp in self.lampiran],  # E741 fix
             "tandaTanganDigital": self.tanda_tangan_digital,
             "idempotencyKey": self.idempotency_key,
         }
@@ -381,7 +381,7 @@ class SPTMasaPpnRequest:
             "total_ppn_masukan": str(self.total_ppn_masukan),
             "kompensasi_dari_masa_sebelumnya": str(self.kompensasi_dari_masa_sebelumnya),
             "restitusi_diminta": str(self.restitusi_diminta),
-            "lampiran": [l.value for l in self.lampiran],
+            "lampiran": [lamp.value for lamp in self.lampiran],  # E741 fix
             "tanda_tangan_digital": self.tanda_tangan_digital,
             "idempotency_key": self.idempotency_key,
         }
@@ -400,7 +400,7 @@ class SPTMasaPpnRequest:
                 data.get("kompensasi_dari_masa_sebelumnya", "0")
             ),
             restitusi_diminta=Decimal(data.get("restitusi_diminta", "0")),
-            lampiran=[LampiranSPTPPN(l) for l in data.get("lampiran", [])],
+            lampiran=[LampiranSPTPPN(lamp) for lamp in data.get("lampiran", [])],  # E741 fix
             tanda_tangan_digital=data.get("tanda_tangan_digital", ""),
             idempotency_key=data.get("idempotency_key", str(uuid4())),
         )

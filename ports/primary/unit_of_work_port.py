@@ -212,9 +212,10 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
         if self._status != TransactionStatus.ACTIVE:
             raise ValueError(f"Cannot commit in status {self._status.value}")
 
-        for hook in self._before_commit_hooks:
+        # Use different variable names to avoid type inference conflicts
+        for before_hook in self._before_commit_hooks:
             try:
-                should_continue = await hook()
+                should_continue = await before_hook()
                 if not should_continue:
                     await self.rollback()
                     raise RuntimeError("Before-commit hook aborted transaction")
@@ -242,9 +243,9 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
             await self._log_audit("COMMIT_FAILED", {"error": str(e)})
             raise
 
-        for hook in self._after_commit_hooks:
+        for after_hook in self._after_commit_hooks:
             try:
-                await hook()
+                await after_hook()
             except Exception as e:
                 logger.error(f"After-commit hook failed: {e}")
 
@@ -265,9 +266,9 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
                 else 0,
             },
         )
-        for hook in self._after_rollback_hooks:
+        for after_rollback_hook in self._after_rollback_hooks:
             try:
-                await hook()
+                await after_rollback_hook()
             except Exception as e:
                 logger.error(f"After-rollback hook failed: {e}")
 
@@ -275,7 +276,7 @@ class InMemoryUnitOfWork(UnitOfWorkPort):
         if self._status != TransactionStatus.ACTIVE:
             raise ValueError("Cannot create savepoint in non-active transaction")
         savepoint_id = name or f"sp_{len(self._savepoints)}"
-        snapshot = {
+        snapshot: dict[str, Any] = {
             "name": savepoint_id,
             "change_set_snapshot": {k: list(v) for k, v in self._change_set.items()},
             "repositories_snapshot": {},
@@ -508,10 +509,11 @@ class RepositoryProvider:
         return self._tax_transactions
 
 
-_uow_instance: UnitOfWorkPort | None = None
+_uow_instance: InMemoryUnitOfWork | None = None
 
 
-def get_uow() -> UnitOfWorkPort:
+def get_uow() -> InMemoryUnitOfWork:
+    """Get the global Unit of Work instance (singleton)."""
     global _uow_instance
     if _uow_instance is None:
         _uow_instance = InMemoryUnitOfWork()
@@ -557,6 +559,7 @@ async def create_uow_with_provider(provider: RepositoryProvider) -> UnitOfWorkPo
 
 async def get_uow_statistics() -> dict[str, Any]:
     uow = get_uow()
+    # Since uow is an InMemoryUnitOfWork, we can access its attributes directly
     return {
         "status": uow._status.value if uow else "not_initialized",
         "repositories_registered": len(uow._repositories) if uow else 0,

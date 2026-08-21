@@ -1403,6 +1403,7 @@ class SovereigntyDeclaration:
 
 class SovereigntyGuardian:
     _instance: SovereigntyGuardian | None = None
+    _initialized: bool  # FIX: deklarasi
     _lock = threading.Lock()
 
     def __new__(cls) -> SovereigntyGuardian:

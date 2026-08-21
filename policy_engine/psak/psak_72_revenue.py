@@ -215,11 +215,12 @@ class PSAK72ContractWithCustomer:
 
     def __post_init__(self):
         # Hitung harga transaksi = total kontrak + estimasi imbalan variabel
-        total_variable = sum(v.estimated_amount for v in self.variable_considerations)
+        total_variable = sum((v.estimated_amount for v in self.variable_considerations), Decimal(0))
         self.transaction_price = self.total_contract_price + total_variable
 
     def total_standalone_prices(self) -> Decimal:
-        return sum(po.stand_alone_selling_price for po in self.performance_obligations)
+        # FIX: gunakan Decimal(0) sebagai nilai awal untuk sum
+        return sum((po.stand_alone_selling_price for po in self.performance_obligations), Decimal(0))
 
     def allocate_transaction_price(self) -> dict[UUID, Decimal]:
         """Alokasi harga transaksi berdasarkan harga jual berdiri sendiri."""
@@ -260,7 +261,7 @@ class PSAK72RevenueRecognitionResult:
     revenue_recognized: Decimal = Decimal(0)
     contract_asset_change: Decimal = Decimal(0)
     contract_liability_change: Decimal = Decimal(0)
-    details: dict[UUID, Decimal] = field(default_factory=dict)  # per obligation
+    details: dict[UUID, Decimal] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -357,7 +358,8 @@ class PSAK72RevenueService:
         method: PSAK72VariableConsiderationMethod,
     ) -> Decimal:
         if method == PSAK72VariableConsiderationMethod.EXPECTED_VALUE:
-            total = sum(amt * (prob / 100) for amt, prob in possible_amounts)
+            # FIX: gunakan Decimal(0) sebagai nilai awal sum
+            total = sum((amt * (prob / 100) for amt, prob in possible_amounts), Decimal(0))
             return total.quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
         else:
             # Most likely amount: pilih dengan probabilitas tertinggi
@@ -424,7 +426,7 @@ class PSAK72Rules:
         result = PSAK72ValidationResult(
             is_compliant=True, compliance_level=PSAK72ComplianceLevel.FULL
         )
-        total_allocated = sum(allocation.values())
+        total_allocated = sum(allocation.values(), Decimal(0))
         if total_allocated != contract.transaction_price:
             result.add_error(
                 f"Total alokasi {total_allocated} tidak sama dengan harga transaksi {contract.transaction_price}"
@@ -722,7 +724,7 @@ class PSAK72:
         Create a transaction dictionary with contract price and performance obligations.
         Returns a dict that can be passed to allocate_transaction_price.
         """
-        total_ssp = sum(po["standalone_price"] for po in performance_obligations)
+        total_ssp = sum((po["standalone_price"] for po in performance_obligations), Decimal(0))
         transaction = {
             "contract_price": contract_price,
             "performance_obligations": performance_obligations,

@@ -348,7 +348,7 @@ class ImpairmentTestingUseCase:
         journal_date: date,
         user_id: UUID,
         correlation_id: str | None,
-    ) -> UUID:
+    ) -> UUID | None:
         impairment_loss_account = "5-7500"
         accumulated_impairment_account = "1-1999"
         reversal_account = "4-9500" if any(r.impairment_loss < 0 for r in results) else None

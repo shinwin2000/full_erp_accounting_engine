@@ -66,7 +66,8 @@ class EventGate:
         self._subscribers: dict[str, list] = {}
         self._is_running = True
         self._event_counter = 0
-        self._last_hash: str | None = None
+        # FIX: Inisialisasi _last_hash sebagai str, bukan None
+        self._last_hash: str = hashlib.sha256(b"EVENT_GATE_GENESIS_2025").hexdigest()
         self._router_started = False
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
@@ -103,8 +104,9 @@ class EventGate:
             self._router_started = True
 
     async def _get_last_hash(self) -> str:
-        if self._last_hash:
-            return self._last_hash
+        """
+        Get last hash from event store or return genesis hash.
+        """
         try:
             # PERBAIKAN: Import lokal untuk menghindari circular import
             from infrastructure.event_store.append_only_store import get_audit_store
@@ -117,7 +119,7 @@ class EventGate:
                     return self._last_hash
         except Exception as e:
             logger.warning(f"Failed to get last hash from audit store: {e}")
-        self._last_hash = hashlib.sha256(b"EVENT_GATE_GENESIS_2025").hexdigest()
+        # Kembalikan nilai saat ini (sudah genesis atau hash sebelumnya)
         return self._last_hash
 
     async def _update_last_hash(self, new_hash: str) -> None:

@@ -160,9 +160,25 @@ class CoretaxBulkSubmissionUseCase:
 
             async def process_item(item: dict[str, Any], idx: int) -> BulkSubmissionItem:
                 async with semaphore:
+                    # FIX: extract and validate values with proper type checking
                     tax_type = item.get("tax_type")
+                    if not isinstance(tax_type, str):
+                        raise ValueError(f"Invalid tax_type: {tax_type} (must be string)")
+
                     period_year = item.get("period_year")
+                    if not isinstance(period_year, int):
+                        try:
+                            period_year = int(period_year)  # type: ignore[arg-type]
+                        except (TypeError, ValueError):
+                            raise ValueError(f"Invalid period_year: {period_year} (must be integer)")
+
                     period_month = item.get("period_month")
+                    if not isinstance(period_month, int):
+                        try:
+                            period_month = int(period_month)  # type: ignore[arg-type]
+                        except (TypeError, ValueError):
+                            raise ValueError(f"Invalid period_month: {period_month} (must be integer)")
+
                     spt_data = item.get("spt_data", {})
 
                     submission_id = uuid4()

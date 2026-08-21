@@ -214,6 +214,17 @@ class ServiceRegistrar:
             container.register_singleton(PayrollService, PayrollService)
             container.register_singleton(ManufacturingService, ManufacturingService)
             container.register_singleton(ReportService, ReportService)
+
+            # ReportScheduler (Tier 2, fix 2026-08-20): sebelumnya sama
+            # sekali tidak terdaftar di container, menyebabkan endpoint
+            # POST/GET/PUT/DELETE /api/v1/reports/schedule selalu gagal
+            # dengan DependencyNotFoundError. Auto-wire menyuntikkan
+            # ReportRepositoryPort lewat parameter opsional `report_repo`
+            # (lihat fix di ioc_container.py soal unwrap `X | None`).
+            from reports.scheduler_cron import ReportScheduler
+
+            container.register_singleton(ReportScheduler, ReportScheduler)
+            logger.info("ReportScheduler registered")
             container.register_singleton(CustomerService, CustomerService)
             container.register_singleton(PaymentService, PaymentService)
             container.register_singleton(LegalEntityService, LegalEntityService)
@@ -356,6 +367,29 @@ class ServiceRegistrar:
 
             container.register_singleton(CapitalService, factory=_create_capital_service)
             logger.info("CapitalService registered")
+
+            # ----- Registrasi SystemSettingsService (FIX: sebelumnya TIDAK
+            # PERNAH terdaftar sama sekali, padahal
+            # fastapi_system_settings_router.py memanggil
+            # container.resolve_async(SystemSettingsService) di setiap
+            # endpoint (get_settings_svc). Akibatnya modul "Pengaturan
+            # Sistem" selalu gagal dengan DependencyNotFoundError, yang
+            # lewat auth middleware muncul sebagai 401 Unauthorized di
+            # semua endpoint /api/v1/settings/*. Constructor-nya hanya
+            # butuh EventPublisherPort opsional, jadi factory kecil ini
+            # meniru pola CapitalService/MaintenanceService di atas. -----
+            from application.service_layer.service_system_settings import SystemSettingsService
+
+            async def _create_system_settings_service():
+                try:
+                    from ports.primary.event_publisher_port import EventPublisherPort
+                    event_publisher = await container.resolve_async(EventPublisherPort)
+                except Exception:
+                    event_publisher = None
+                return SystemSettingsService(event_publisher=event_publisher)
+
+            container.register_singleton(SystemSettingsService, factory=_create_system_settings_service)
+            logger.info("SystemSettingsService registered")
 
             # ----- Registrasi FiscalPeriodService dengan dependensi lengkap -----
             # Daftarkan repository dan port-nya terlebih dahulu

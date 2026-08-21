@@ -5,4 +5,4 @@ Package: audit.sampling_materiality
 Materiality threshold dan statistical sampling.
 """
 
-__all__ = []
+__all__: list[str] = []

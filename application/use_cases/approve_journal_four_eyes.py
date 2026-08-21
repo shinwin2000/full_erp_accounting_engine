@@ -16,6 +16,7 @@ Responsibility:
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -136,13 +137,13 @@ class ApproveJournalUseCase:
                 return result
 
             if self._sealed_gate:
-                result = await self._sealed_gate.execute(
+                await self._sealed_gate.execute(
                     command_type=command.command_type,
                     command_id=command.command_id,
                     handler=_execute,
                 )
             else:
-                result = await _execute()
+                await _execute()
 
             self._stats["succeeded"] += 1
             self._record_audit("approve_journal_execute", {

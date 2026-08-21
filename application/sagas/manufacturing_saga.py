@@ -22,6 +22,7 @@ from ports.primary.saga_state_store_port import SagaStateStorePort
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass(kw_only=True)
 class ManufacturingSagaState:
     """State untuk manufacturing saga."""
@@ -45,6 +46,7 @@ class ManufacturingSagaState:
         self.errors.append(error)
         self.updated_at = datetime.utcnow()
 
+
 @dataclass(kw_only=True)
 class ManufacturingSagaContext:
     """Context untuk manufacturing saga."""
@@ -61,6 +63,7 @@ class ManufacturingSagaContext:
     production_completed: bool = False
     journal_posted: bool = False
     created_at: datetime = field(default_factory=datetime.utcnow)
+
 
 class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]):
     """Orchestrator untuk manufacturing cost flow saga."""
@@ -248,7 +251,8 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             correlation_id=correlation_id,
         )
 
-        context = await self.start(initial_state)
+        # Memulai saga tanpa menyimpan hasil karena tidak digunakan
+        await self.start(initial_state)
 
         return ManufacturingSagaContext(
             saga_id=saga_id,
@@ -260,7 +264,9 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             correlation_id=correlation_id,
         )
 
-    async def _serialize_data(self, data: ManufacturingSagaState) -> dict[str, Any]:
+    # ===================== PERBAIKAN: synchronous methods =====================
+
+    def _serialize_data(self, data: ManufacturingSagaState) -> dict[str, Any]:
         return {
             "saga_id": str(data.saga_id),
             "legal_entity_id": str(data.legal_entity_id),
@@ -279,7 +285,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             "updated_at": data.updated_at.isoformat(),
         }
 
-    async def _deserialize_data(self, data_dict: dict[str, Any]) -> ManufacturingSagaState:
+    def _deserialize_data(self, data_dict: dict[str, Any]) -> ManufacturingSagaState:
         return ManufacturingSagaState(
             saga_id=UUID(data_dict["saga_id"]),
             legal_entity_id=UUID(data_dict["legal_entity_id"]),

@@ -170,7 +170,7 @@ class UpdateBankAccountRequest:
             raise ValueError(f"Overdraft limit cannot be negative: {self.overdraft_limit}")
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"account_id": str(self.account_id)}
+        result: dict[str, Any] = {"account_id": str(self.account_id)}
         if self.account_name is not None:
             result["account_name"] = self.account_name
         if self.status is not None:
@@ -731,45 +731,45 @@ PettyCashRequest = PettyCashReplenishRequest
 # ============================================================================
 
 __all__ = [
-    # Bank Account
-    "CreateBankAccountRequest",
-    "UpdateBankAccountRequest",
-    "GetBankAccountRequest",
-    "ListBankAccountsRequest",
-    "BankAccountRequest",
-    "BankAccountUpdateRequest",
-    # Transactions
-    "DepositRequest",
-    "WithdrawalRequest",
-    "TransferRequest",
-    "BankChargeRequest",
-    "InterestRequest",
-    "BankDepositRequest",
-    "BankWithdrawalRequest",
-    "BankTransferRequest",
-    # Reconciliation
-    "StartReconciliationRequest",
-    "CompleteReconciliationRequest",
-    "GetReconciliationStatusRequest",
-    "BankReconciliationStartRequest",
-    "BankReconciliationCompleteRequest",
-    "BankReconciliationRequestDTO",
-    # Cash Book
-    "CreateCashBookRequest",
-    "CashTransactionRequest",
-    "PettyCashReplenishRequest",
-    "PettyCashRequest",
-    "GetCashBalanceRequest",
-    # Query
-    "GetBankAccountBalanceRequest",
-    "ListBankTransactionsRequest",
-    # Factory
-    "BankCashRequestFactory",
     # Constants
     "VALID_BANK_ACCOUNT_TYPES",
+    "VALID_CASH_TYPE",
     "VALID_CURRENCIES",
-    "VALID_TRANSACTION_TYPES",
     "VALID_PAYMENT_METHODS",
     "VALID_RECONCILIATION_STATUS",
-    "VALID_CASH_TYPE",
+    "VALID_TRANSACTION_TYPES",
+    "BankAccountRequest",
+    "BankAccountUpdateRequest",
+    # Factory
+    "BankCashRequestFactory",
+    "BankChargeRequest",
+    "BankDepositRequest",
+    "BankReconciliationCompleteRequest",
+    "BankReconciliationRequestDTO",
+    "BankReconciliationStartRequest",
+    "BankTransferRequest",
+    "BankWithdrawalRequest",
+    "CashTransactionRequest",
+    "CompleteReconciliationRequest",
+    # Bank Account
+    "CreateBankAccountRequest",
+    # Cash Book
+    "CreateCashBookRequest",
+    # Transactions
+    "DepositRequest",
+    # Query
+    "GetBankAccountBalanceRequest",
+    "GetBankAccountRequest",
+    "GetCashBalanceRequest",
+    "GetReconciliationStatusRequest",
+    "InterestRequest",
+    "ListBankAccountsRequest",
+    "ListBankTransactionsRequest",
+    "PettyCashReplenishRequest",
+    "PettyCashRequest",
+    # Reconciliation
+    "StartReconciliationRequest",
+    "TransferRequest",
+    "UpdateBankAccountRequest",
+    "WithdrawalRequest",
 ]

@@ -67,8 +67,9 @@ class JurisdictionHierarchy:
     """
 
     _instance: JurisdictionHierarchy | None = None
-    _nodes: dict[str, JurisdictionNode]
-    _children: dict[str, set[str]]
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
+    _nodes: dict[str, JurisdictionNode]  # FIX: tambahkan anotasi tipe
+    _children: dict[str, set[str]]  # FIX: tambahkan anotasi tipe
 
     def __new__(cls) -> JurisdictionHierarchy:
         if cls._instance is None:
@@ -256,6 +257,11 @@ class JurisdictionResolver:
     """
 
     _instance: JurisdictionResolver | None = None
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe
+    _loader: Any  # FIX: tambahkan anotasi tipe (gunakan Any atau import)
+    _hierarchy: JurisdictionHierarchy  # FIX: tambahkan anotasi tipe
+    _resolution_cache: dict[str, list[PolicySet]]  # FIX: tambahkan anotasi tipe
+    _history: list[dict]  # FIX: tambahkan anotasi tipe
 
     def __new__(cls) -> JurisdictionResolver:
         if cls._instance is None:
@@ -269,8 +275,8 @@ class JurisdictionResolver:
         self._initialized = True
         self._loader = get_policy_loader()
         self._hierarchy = JurisdictionHierarchy()
-        self._resolution_cache: dict[str, list[PolicySet]] = {}
-        self._history: list[dict] = []
+        self._resolution_cache = {}
+        self._history = []
 
     # ------------------------------------------------------------------------
     # Core Resolution
@@ -456,10 +462,11 @@ class JurisdictionResolver:
     # ------------------------------------------------------------------------
     def generate_report(self) -> dict:
         all_jurisdictions = self._hierarchy.get_all_codes()
+        root_node = self._hierarchy.get_root()
         return {
             "total_jurisdictions": len(all_jurisdictions),
             "hierarchy": {
-                "root": self._hierarchy.get_root().code if self._hierarchy.get_root() else None,
+                "root": root_node.code if root_node else None,
                 "levels": {
                     level: [
                         node.code for node in self._hierarchy._nodes.values() if node.level == level
@@ -539,10 +546,11 @@ def get_jurisdiction_resolver() -> JurisdictionResolver:
 # ============================================================================
 if __name__ == "__main__":
     resolver = get_jurisdiction_resolver()
-    print(f"Total jurisdictions: {len(resolver._hierarchy.get_all_codes())}")
+    hierarchy = resolver._hierarchy  # type: ignore[attr-defined]
+    print(f"Total jurisdictions: {len(hierarchy.get_all_codes())}")
 
     # Test get ancestors
-    ancestors = resolver._hierarchy.get_ancestors("ID-JKT-PST")
+    ancestors = hierarchy.get_ancestors("ID-JKT-PST")
     print(f"Ancestors of ID-JKT-PST: {[a.code for a in ancestors]}")
 
     # Test resolve policies (assuming some policies loaded)

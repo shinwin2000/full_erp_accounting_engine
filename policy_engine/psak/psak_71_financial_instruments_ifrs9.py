@@ -86,6 +86,14 @@ class PSAK71ComplianceLevel(Enum):
 
 
 # ============================================================================
+# Financial Liability Classification (PSAK 71) - moved up before aliases
+# ============================================================================
+class PSAK71FinancialLiabilityCategory(Enum):
+    AMORTIZED_COST = "biaya_perolehan_diamortisasi"
+    FVTPL = "nilai_wajar_laba_rugi"
+
+
+# ============================================================================
 # Exceptions
 # ============================================================================
 class PSAK71Error(Exception):
@@ -185,7 +193,7 @@ class PSAK71ExpectedCreditLoss:
     exposure_at_default: Decimal
     probability_default: Decimal
     loss_given_default: Decimal
-    ecl_amount: Decimal
+    ecl_amount: Decimal = Decimal(0)
 
     def __post_init__(self):
         self.ecl_amount = (
@@ -449,6 +457,7 @@ class PSAK71Validator:
             exposure_at_default=ead or asset.amortized_cost,
             probability_default=pd_12m if new_stage == PSAK71ECLStage.STAGE_1 else pd_lifetime,
             loss_given_default=lgd,
+            ecl_amount=Decimal(0),  # placeholder, will be computed in __post_init__
         )
         new_asset = PSAK71FinancialAsset(
             asset_id=asset.asset_id,
@@ -539,6 +548,8 @@ def get_psak71_validator() -> PSAK71Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak71_validator()
 
     # Buat aset pinjaman (amortized cost)
@@ -586,22 +597,7 @@ if __name__ == "__main__":
 # ============================================================================
 # Compatibility Aliases for Orchestration / Aggregator Core (PSAK 71)
 # ============================================================================
-FinancialAssetClassification = PSAK71FinancialAssetCategory
-ImpairmentStage = PSAK71ECLStage
-HedgeType = PSAK71HedgeType
-FinancialAsset = PSAK71FinancialAsset
-ExpectedCreditLoss = PSAK71ExpectedCreditLoss
-HedgingRelationship = PSAK71HedgeRelationship
-
-
-# ============================================================================
-# Financial Liability Classification & Orchestration Aliases (PSAK 71)
-# ============================================================================
-class PSAK71FinancialLiabilityCategory(Enum):
-    AMORTIZED_COST = "biaya_perolehan_diamortisasi"
-    FVTPL = "nilai_wajar_laba_rugi"
-
-
+# Only define once, after all classes are defined.
 FinancialAssetClassification = PSAK71FinancialAssetCategory
 FinancialLiabilityClassification = PSAK71FinancialLiabilityCategory
 ImpairmentStage = PSAK71ECLStage

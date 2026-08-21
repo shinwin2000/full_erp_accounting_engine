@@ -126,11 +126,11 @@ class JurisdictionDefinition:
     Mendefinisikan dan mengelola yurisdiksi hukum untuk kepatuhan global.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:  # FIX: tambahkan anotasi tipe untuk menghilangkan note
         self._jurisdictions: dict[str, Jurisdiction] = {}
         self._init_jurisdictions()
 
-    def _init_jurisdictions(self) -> None:
+    def _init_jurisdictions(self) -> None:  # FIX: tambahkan anotasi tipe
         """Inisialisasi data yurisdiksi default (bisa diperluas dari file eksternal)."""
         jurisdictions = [
             Jurisdiction(
@@ -295,7 +295,11 @@ class JurisdictionDefinition:
 if __name__ == "__main__":
     jur_def = JurisdictionDefinition()
     indo = jur_def.get_jurisdiction("ID")
-    print(f"Indonesia: {indo.name}, currency: {indo.currency.value}")
+    # FIX: cek None sebelum mengakses atribut
+    if indo:
+        print(f"Indonesia: {indo.name}, currency: {indo.currency.value}")
+    else:
+        print("Indonesia not found")
     allowed, warns = jur_def.validate_cross_border("ID", "US", "personal_data")
     print(f"Cross-border allowed: {allowed}, warnings: {warns}")
     jur_def.export_to_json("jurisdictions.json")

@@ -141,10 +141,10 @@ class HierarchyNode:
         if account_id not in accounts_map:
             raise ValueError(f"Account {account_id} not found in accounts_map")
         account = accounts_map[account_id]
-        level = data["level"] if "level" in data else 0
-        path = data["path"] if "path" in data else [account.account_code]
+        level = data.get("level", 0)
+        path = data.get("path", [account.account_code])
         node = cls(account=account, level=level, path=path)
-        children_data = data["children"] if "children" in data else []
+        children_data = data.get("children", [])
         for child_data in children_data:
             child_node = cls.from_dict(child_data, accounts_map)
             node.children.append(child_node)
@@ -154,11 +154,6 @@ class HierarchyNode:
 
     def clone(self, new_account_id_map: dict[UUID, UUID] | None = None) -> HierarchyNode:
         """Create a deep copy of this node and all descendants."""
-        new_id = (
-            new_account_id_map.get(self.account.account_id, self.account.account_id)
-            if new_account_id_map
-            else self.account.account_id
-        )
         cloned_account = self.account.clone() if hasattr(self.account, "clone") else self.account
         # If account has clone method, use it; otherwise, we assume immutable
         cloned_node = HierarchyNode(
@@ -354,9 +349,9 @@ class AccountHierarchyTree:
         def build_node(acc_id: UUID, level: int, path: list[str]) -> HierarchyNode:
             node = nodes[acc_id]
             node.level = level
-            node.path = path + [node.account.account_code]
+            node.path = [*path, node.account.account_code]
             node.children = []
-            child_list = children_map[acc_id] if acc_id in children_map else []
+            child_list = children_map.get(acc_id, [])
             for child_id in child_list:
                 child_node = build_node(child_id, level + 1, node.path)
                 node.children.append(child_node)
@@ -411,7 +406,7 @@ class AccountHierarchyTree:
         def has_cycle(node_id: UUID) -> bool:
             visited.add(node_id)
             rec_stack.add(node_id)
-            child_list = children_map[node_id] if node_id in children_map else []
+            child_list = children_map.get(node_id, [])
             for child_id in child_list:
                 if child_id not in visited:
                     if has_cycle(child_id):
@@ -422,11 +417,10 @@ class AccountHierarchyTree:
             return False
 
         for node_id in nodes:
-            if node_id not in visited:
-                if has_cycle(node_id):
-                    raise CycleDetectedError(
-                        f"Cycle detected in account hierarchy starting at {node_id}"
-                    )
+            if node_id not in visited and has_cycle(node_id):
+                raise CycleDetectedError(
+                    f"Cycle detected in account hierarchy starting at {node_id}"
+                )
 
     @staticmethod
     def _find_path_from_root(node: HierarchyNode, target_id: UUID) -> list[UUID] | None:
@@ -436,7 +430,7 @@ class AccountHierarchyTree:
         for child in node.children:
             path = AccountHierarchyTree._find_path_from_root(child, target_id)
             if path:
-                return [node.account.account_id] + path
+                return [node.account.account_id, *path]
         return None
 
     # ------------------------------------------------------------------------
@@ -755,7 +749,7 @@ class AccountHierarchyTree:
         self, node: HierarchyNode, level: int, parent_path: list[str]
     ) -> None:
         node.level = level
-        node.path = parent_path + [node.account.account_code]
+        node.path = [*parent_path, node.account.account_code]
         for child in node.children:
             self._update_levels_and_paths(child, level + 1, node.path)
 
@@ -811,7 +805,7 @@ class AccountHierarchyTree:
 
     def _recalculate_levels(self, node: HierarchyNode, level: int, parent_path: list[str]) -> None:
         node.level = level
-        node.path = parent_path + [node.account.account_code]
+        node.path = [*parent_path, node.account.account_code]
         for child in node.children:
             self._recalculate_levels(child, level + 1, node.path)
 
@@ -894,12 +888,12 @@ class AccountHierarchyTree:
         roots = []
         nodes = {}
         orphans = []
-        roots_data = data["roots"] if "roots" in data else []
+        roots_data = data.get("roots", [])
         for root_data in roots_data:
             root_node = HierarchyNode.from_dict(root_data, accounts_map)
             nodes[root_node.account.account_id] = root_node
             roots.append(root_node.account.account_id)
-        orphan_codes = data["orphan_accounts"] if "orphan_accounts" in data else []
+        orphan_codes = data.get("orphan_accounts", [])
         for orphan_code in orphan_codes:
             # Find account by code
             for acc_id, acc in accounts_map.items():

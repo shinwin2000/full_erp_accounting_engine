@@ -15,7 +15,7 @@ Changelog:
 from __future__ import annotations
 
 import abc
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
@@ -88,8 +88,8 @@ class BudgetEntity:
         period: str,
         version: str,
         status: str,
-        effective_date: datetime.date,
-        expiry_date: datetime.date | None,
+        effective_date: date,
+        expiry_date: date | None,
         currency: str,
         total_amount: Decimal,
         notes: str | None = None,
@@ -185,8 +185,8 @@ class BudgetEntity:
             period=data["period"],
             version=data["version"],
             status=data["status"],
-            effective_date=datetime.date.fromisoformat(data["effective_date"]),
-            expiry_date=datetime.date.fromisoformat(data["expiry_date"]) if data.get("expiry_date") else None,
+            effective_date=date.fromisoformat(data["effective_date"]),
+            expiry_date=date.fromisoformat(data["expiry_date"]) if data.get("expiry_date") else None,
             currency=data["currency"],
             total_amount=Decimal(data["total_amount"]),
             notes=data.get("notes"),

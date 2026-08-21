@@ -242,7 +242,7 @@ class AdapterRegistry:
                             else:
                                 self._logger.debug(f"Skipping non-abstract class {name} (concrete implementation)")
                 except Exception as e:
-                    self._logger.debug(f"Could not scan {py_file}: {e}")
+                    self._logger.warning(f"Could not scan {py_file}: {e}")
         return ports
 
     def _discover_implementations(self) -> list[type]:
@@ -281,7 +281,7 @@ class AdapterRegistry:
                         # Ambil semua kelas konkret yang memiliki pola implementasi
                         implementations.append(obj)
                 except Exception as e:
-                    self._logger.debug(f"Could not scan {py_file}: {e}")
+                    self._logger.warning(f"Could not scan {py_file}: {e}")
         return implementations
 
     def _find_implementation_by_name(self, implementations: list[type], name: str) -> type | None:

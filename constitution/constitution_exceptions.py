@@ -150,7 +150,7 @@ class ConstitutionException(Exception):
             "exception_id": str(self.exception_id),
             "severity": self.severity.name,
             "category": self.category.name,
-            "message": self.original_message[:500],
+            "message": self.original_message()[:500],  # FIX: panggil method
             "module": self.module,
             "user_id": self.user_id,
             "timestamp": self.timestamp.isoformat(),
@@ -382,6 +382,18 @@ class ForbiddenStateException(ConstitutionException):
         self.current_state = current_state
         self.attempted_action = attempted_action
 
+    def _truncate_dict(self, d: dict[str, Any], max_length: int = 500) -> dict[str, Any]:
+        """Memotong nilai dictionary yang terlalu panjang."""
+        result: dict[str, Any] = {}  # FIX: anotasi tipe agar mypy tidak bingung
+        for k, v in d.items():
+            if isinstance(v, str) and len(v) > max_length:
+                result[k] = v[:max_length] + "..."
+            elif isinstance(v, dict):
+                result[k] = self._truncate_dict(v, max_length)
+            else:
+                result[k] = v
+        return result
+
     def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
         result["state_category"] = self.state_category
@@ -393,18 +405,6 @@ class ForbiddenStateException(ConstitutionException):
         result["attempted_action"] = (
             self._truncate_dict(self.attempted_action) if self.attempted_action else None
         )
-        return result
-
-    def _truncate_dict(self, d: dict[str, Any], max_length: int = 500) -> dict[str, Any]:
-        """Memotong nilai dictionary yang terlalu panjang."""
-        result = {}
-        for k, v in d.items():
-            if isinstance(v, str) and len(v) > max_length:
-                result[k] = v[:max_length] + "..."
-            elif isinstance(v, dict):
-                result[k] = self._truncate_dict(v, max_length)
-            else:
-                result[k] = v
         return result
 
 

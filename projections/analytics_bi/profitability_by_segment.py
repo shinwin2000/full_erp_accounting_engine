@@ -24,13 +24,13 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, Column, Date, DateTime, Index, delete, func, insert, or_, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -68,19 +68,46 @@ OPEX_ACCOUNT_PREFIXES = ("5-2", "5-3", "5-4", "5-5", "5-6")
 # EXCEPTIONS
 # ============================================================================
 
-
 class ProfitabilityError(Exception):
     """Base exception untuk profitability analysis."""
-
     pass
 
+# ============================================================================
+# TYPED DICTS
+# ============================================================================
+
+class ProductStats(TypedDict):
+    product_id: str | None
+    product_name: str
+    revenue: float
+    cogs: float
+    gross_profit: float
+    gross_margin_percent: float
+    revenue_share: float
+
+class CustomerStats(TypedDict):
+    customer_id: str | None
+    customer_name: str | None
+    revenue: float
+    orders_count: int
+    revenue_share: float
+
+class RegionStats(TypedDict):
+    region: str | None
+    revenue: float
+    revenue_share: float
+    customer_count: int
+
+class BranchStats(TypedDict):
+    branch: str | None
+    revenue: float
+    revenue_share: float
 
 # ============================================================================
 # ORM MODEL (tambahan)
 # ============================================================================
 
-Base = declarative_base()
-
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 class ProfitabilitySnapshotTable(Base):
     __tablename__ = "profitability_snapshot"
@@ -97,11 +124,9 @@ class ProfitabilitySnapshotTable(Base):
     data = Column(JSON, nullable=False)
     generated_at = Column(DateTime(timezone=True), nullable=False)
 
-
 # ============================================================================
 # PROFITABILITY ANALYZER
 # ============================================================================
-
 
 class ProfitabilityBySegment:
     """
@@ -116,13 +141,14 @@ class ProfitabilityBySegment:
     - Segment contribution to total profit
     """
 
-    def __init__(self):
-        self._session_factory = None
-        self._account_cache: dict[str, dict] = {}
+    def __init__(self) -> None:
+        self._session_factory: Any = None
+        self._account_cache: dict[str, dict[str, Any]] = {}
 
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def _get_cogs_accounts(self, legal_entity_id: UUID) -> list[UUID]:
@@ -159,13 +185,11 @@ class ProfitabilityBySegment:
 
     async def analyze_by_product(
         self, legal_entity_id: UUID, start_date: date, end_date: date
-    ) -> list[dict]:
+    ) -> list[ProductStats]:
         """
         Menganalisis profitabilitas per produk (berdasarkan sales order lines).
         """
         async with await self._get_session() as session:
-            # Query sales order lines with product revenue and COGS
-            # Simplified: aggregate from sales order table
             stmt = (
                 select(
                     SalesOrderTable.product_id,
@@ -186,7 +210,7 @@ class ProfitabilityBySegment:
             result = await session.execute(stmt)
             rows = result.all()
 
-            products = []
+            products: list[ProductStats] = []
             total_revenue = Decimal(0)
             for row in rows:
                 revenue = Decimal(str(row.revenue or 0))
@@ -202,21 +226,22 @@ class ProfitabilityBySegment:
                         "cogs": float(cogs),
                         "gross_profit": float(gross_profit),
                         "gross_margin_percent": float(gross_margin),
-                        "revenue_share": 0,  # akan dihitung setelah total revenue diketahui
+                        "revenue_share": 0.0,
                     }
                 )
 
-            # Calculate revenue share
+            total_revenue_float = float(total_revenue)
             for p in products:
-                p["revenue_share"] = (
-                    (p["revenue"] / float(total_revenue) * 100) if total_revenue > 0 else 0
-                )
+                if total_revenue_float > 0:
+                    p["revenue_share"] = p["revenue"] / total_revenue_float * 100
+                else:
+                    p["revenue_share"] = 0.0
 
             return products
 
     async def analyze_by_customer(
         self, legal_entity_id: UUID, start_date: date, end_date: date
-    ) -> list[dict]:
+    ) -> list[CustomerStats]:
         """
         Menganalisis profitabilitas per pelanggan.
         """
@@ -241,36 +266,37 @@ class ProfitabilityBySegment:
             result = await session.execute(stmt)
             rows = result.all()
 
-            customers = []
+            customers: list[CustomerStats] = []
             total_revenue = Decimal(0)
             for row in rows:
                 revenue = Decimal(str(row.revenue or 0))
                 total_revenue += revenue
                 customers.append(
                     {
-                        "customer_id": str(row.id),
+                        "customer_id": str(row.id) if row.id else None,
                         "customer_name": row.customer_name,
                         "revenue": float(revenue),
-                        "orders_count": 0,  # would need separate query
-                        "revenue_share": 0,
+                        "orders_count": 0,
+                        "revenue_share": 0.0,
                     }
                 )
 
+            total_revenue_float = float(total_revenue)
             for c in customers:
-                c["revenue_share"] = (
-                    (c["revenue"] / float(total_revenue) * 100) if total_revenue > 0 else 0
-                )
+                if total_revenue_float > 0:
+                    c["revenue_share"] = c["revenue"] / total_revenue_float * 100
+                else:
+                    c["revenue_share"] = 0.0
 
             return customers
 
     async def analyze_by_region(
         self, legal_entity_id: UUID, start_date: date, end_date: date
-    ) -> list[dict]:
+    ) -> list[RegionStats]:
         """
         Menganalisis profitabilitas per wilayah (berdasarkan alamat pelanggan).
         """
         async with await self._get_session() as session:
-            # Simplified: group by city
             stmt = (
                 select(CustomerTable.city, func.sum(SalesOrderTable.total_amount).label("revenue"))
                 .join(SalesOrderTable, CustomerTable.id == SalesOrderTable.customer_id)
@@ -287,7 +313,7 @@ class ProfitabilityBySegment:
             result = await session.execute(stmt)
             rows = result.all()
 
-            regions = []
+            regions: list[RegionStats] = []
             total_revenue = Decimal(0)
             for row in rows:
                 revenue = Decimal(str(row.revenue or 0))
@@ -296,27 +322,27 @@ class ProfitabilityBySegment:
                     {
                         "region": row.city,
                         "revenue": float(revenue),
-                        "revenue_share": 0,
+                        "revenue_share": 0.0,
                         "customer_count": 0,
                     }
                 )
 
+            total_revenue_float = float(total_revenue)
             for r in regions:
-                r["revenue_share"] = (
-                    (r["revenue"] / float(total_revenue) * 100) if total_revenue > 0 else 0
-                )
+                if total_revenue_float > 0:
+                    r["revenue_share"] = r["revenue"] / total_revenue_float * 100
+                else:
+                    r["revenue_share"] = 0.0
 
             return regions
 
     async def analyze_by_branch(
         self, legal_entity_id: UUID, start_date: date, end_date: date
-    ) -> list[dict]:
+    ) -> list[BranchStats]:
         """
         Menganalisis profitabilitas per cabang.
         """
-        # Assuming branch is identified by cost_center or department field in transactions
         async with await self._get_session() as session:
-            # Get revenue by branch from ledger entries (if branch field exists)
             stmt = (
                 select(
                     LedgerEntryTable.cost_center.label("branch"),
@@ -338,7 +364,7 @@ class ProfitabilityBySegment:
             result = await session.execute(stmt)
             rows = result.all()
 
-            branches = []
+            branches: list[BranchStats] = []
             total_revenue = Decimal(0)
             for row in rows:
                 revenue = Decimal(str(row.revenue or 0))
@@ -346,19 +372,21 @@ class ProfitabilityBySegment:
                     continue
                 total_revenue += revenue
                 branches.append(
-                    {"branch": row.branch, "revenue": float(revenue), "revenue_share": 0}
+                    {"branch": row.branch, "revenue": float(revenue), "revenue_share": 0.0}
                 )
 
+            total_revenue_float = float(total_revenue)
             for b in branches:
-                b["revenue_share"] = (
-                    (b["revenue"] / float(total_revenue) * 100) if total_revenue > 0 else 0
-                )
+                if total_revenue_float > 0:
+                    b["revenue_share"] = b["revenue"] / total_revenue_float * 100
+                else:
+                    b["revenue_share"] = 0.0
 
             return branches
 
     async def get_profitability_summary(
         self, legal_entity_id: UUID, start_date: date, end_date: date
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Mendapatkan ringkasan profitabilitas untuk semua segmen.
         """
@@ -367,12 +395,10 @@ class ProfitabilityBySegment:
         regions = await self.analyze_by_region(legal_entity_id, start_date, end_date)
         branches = await self.analyze_by_branch(legal_entity_id, start_date, end_date)
 
-        # Calculate top products by revenue
         top_products = products[:10] if products else []
         top_customers = customers[:10] if customers else []
 
-        # Calculate revenue concentration
-        revenue_concentration = 0
+        revenue_concentration = 0.0
         if customers:
             top5_share = sum(c["revenue_share"] for c in customers[:5])
             revenue_concentration = top5_share
@@ -420,7 +446,7 @@ class ProfitabilityBySegment:
 
     async def get_profitability_snapshot(
         self, legal_entity_id: UUID, start_date: date, end_date: date
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """
         Mendapatkan snapshot profitabilitas yang sudah tersimpan.
         """
@@ -434,9 +460,9 @@ class ProfitabilityBySegment:
             row = result.scalar_one_or_none()
             if not row:
                 return None
-            return row.data
+            return dict(row.data)
 
-    async def refresh_all_snapshots(self, legal_entity_id: UUID) -> list[dict]:
+    async def refresh_all_snapshots(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
         """
         Menghasilkan snapshot profitabilitas untuk semua periode tertutup.
         """
@@ -454,7 +480,7 @@ class ProfitabilityBySegment:
             result = await session.execute(stmt)
             periods = result.scalars().all()
 
-        snapshots = []
+        snapshots: list[dict[str, Any]] = []
         for period in periods:
             data = await self.get_profitability_summary(
                 legal_entity_id, period.start_date, period.end_date
@@ -467,13 +493,11 @@ class ProfitabilityBySegment:
 
         return snapshots
 
-
 # ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================
 
 _profitability_analyzer: ProfitabilityBySegment | None = None
-
 
 async def get_profitability_analyzer() -> ProfitabilityBySegment:
     """Get singleton instance of ProfitabilityBySegment."""
@@ -481,7 +505,6 @@ async def get_profitability_analyzer() -> ProfitabilityBySegment:
     if _profitability_analyzer is None:
         _profitability_analyzer = ProfitabilityBySegment()
     return _profitability_analyzer
-
 
 # ============================================================================
 # EXPORTS

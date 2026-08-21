@@ -136,7 +136,7 @@ class UpdateItemRequestDTO:
             raise ValueError(f"Safety stock cannot be negative: {self.safety_stock}")
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"item_id": str(self.item_id)}
+        result: dict[str, Any] = {"item_id": str(self.item_id)}
         if self.name is not None:
             result["name"] = self.name
         if self.description is not None:
@@ -198,6 +198,8 @@ class StockMovementRequestDTO:
             object.__setattr__(self, "movement_date", date.today())
 
     def to_dict(self) -> dict[str, Any]:
+        # movement_date is guaranteed non-None after __post_init__
+        assert self.movement_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
             "item_id": str(self.item_id),
@@ -232,6 +234,8 @@ class StockOpnameRequestDTO:
             object.__setattr__(self, "opname_date", date.today())
 
     def to_dict(self) -> dict[str, Any]:
+        # opname_date is guaranteed non-None after __post_init__
+        assert self.opname_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
             "item_id": str(self.item_id),
@@ -266,6 +270,8 @@ class TransferRequestDTO:
             object.__setattr__(self, "transfer_date", date.today())
 
     def to_dict(self) -> dict[str, Any]:
+        # transfer_date is guaranteed non-None after __post_init__
+        assert self.transfer_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
             "item_id": str(self.item_id),

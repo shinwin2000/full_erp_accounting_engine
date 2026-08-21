@@ -103,7 +103,7 @@ class UpdateAccountRequest:
             raise ValueError("Account name must be at least 2 characters")
 
     def to_dict(self) -> dict[str, Any]:
-        result = {"account_id": str(self.account_id)}
+        result: dict[str, Any] = {"account_id": str(self.account_id)}
         if self.account_name is not None:
             result["account_name"] = self.account_name
         if self.description is not None:

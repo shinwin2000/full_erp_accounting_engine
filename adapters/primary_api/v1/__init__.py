@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-"""
-Package: adapters.primary_api.v1
-Router API version 1.
-"""
-
+# Package: adapters.primary_api.v1
+# Router API version 1.
 # Import semua router dari file-file yang ada
 from adapters.primary_api.v1.fastapi_ap_router import router as ap_router
 from adapters.primary_api.v1.fastapi_approval_router import router as approval_router
@@ -15,9 +12,6 @@ from adapters.primary_api.v1.fastapi_budget_router import router as budget_route
 from adapters.primary_api.v1.fastapi_capital_router import router as capital_router
 from adapters.primary_api.v1.fastapi_coa_router import router as coa_router
 from adapters.primary_api.v1.fastapi_consolidation_router import router as consolidation_router
-from adapters.primary_api.v1.fastapi_currency_exchange_router import (
-    router as currency_exchange_router,
-)
 from adapters.primary_api.v1.fastapi_customer_router import router as customer_router
 from adapters.primary_api.v1.fastapi_document_router import router as document_router
 from adapters.primary_api.v1.fastapi_employee_router import router as employee_router
@@ -56,7 +50,6 @@ __all__ = [
     "capital_router",
     "coa_router",
     "consolidation_router",
-    "currency_exchange_router",
     "customer_router",
     "document_router",
     "employee_router",

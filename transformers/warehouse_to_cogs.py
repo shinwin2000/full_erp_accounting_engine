@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: warehouse_to_cogs.py
@@ -195,7 +194,7 @@ class COGSCalculator(BaseTransformer):
             raise ValuationError(f"Unsupported valuation method: {self.valuation_method}")
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not isinstance(self.valuation_method, ValuationMethodType):
             errors.append("Invalid valuation method")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -400,7 +399,8 @@ class WarehouseToCOGSTransformer(BaseTransformer):
     async def _extract_shipment_data(
         self, payload: dict[str, Any], event_type: str
     ) -> dict[str, Any]:
-        base_data = {
+        # FIX: tambahkan type annotation untuk base_data
+        base_data: dict[str, Any] = {
             "movement_date": datetime.now(UTC).date(),
             "legal_entity_id": UUID(payload.get("legal_entity_id"))
             if payload.get("legal_entity_id")
@@ -475,7 +475,12 @@ class WarehouseToCOGSTransformer(BaseTransformer):
                     ],
                 }
             )
-        base_data["items"] = [item for item in base_data["items"] if item["item_id"]]
+        # FIX: pastikan base_data["items"] adalah list sebelum difilter
+        items_list = base_data.get("items", [])
+        if isinstance(items_list, list):
+            base_data["items"] = [item for item in items_list if item.get("item_id")]
+        else:
+            base_data["items"] = []
         return base_data
 
     def _parse_date(self, date_value: Any) -> date | None:
@@ -505,7 +510,7 @@ class WarehouseToCOGSTransformer(BaseTransformer):
         logger.info("WarehouseToCOGSTransformer reset")
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not self._cogs_calculators:
             errors.append("No COGS calculators initialized")
         return {"is_valid": len(errors) == 0, "errors": errors}

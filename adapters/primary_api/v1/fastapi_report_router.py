@@ -269,7 +269,10 @@ class ReportScheduleCreateSchema(BaseModel):
     schedule_day_of_week: int | None = Field(None, ge=0, le=6, description="Day of week (0=Monday)")
     schedule_day_of_month: int | None = Field(None, ge=1, le=31, description="Day of month")
     report_format: ReportFormat = Field(ReportFormat.PDF, description="Format laporan")
-    parameters: dict[str, Any] = Field(..., description="Parameter laporan")
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parameter laporan (opsional - default dict kosong kalau tidak diisi)",
+    )
     recipient_emails: list[str] = Field(default_factory=list, description="Email recipients")
     recipient_whatsapps: list[str] = Field(default_factory=list, description="WhatsApp recipients")
     delivery_methods: list[DeliveryMethod] = Field(

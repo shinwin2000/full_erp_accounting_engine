@@ -84,7 +84,7 @@ class AuditExceptionAggregator:
     - Memberikan rekomendasi tindak lanjut
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._exceptions: list[dict[str, Any]] = []
         self._materiality_calc = get_materiality_calculator()
 
@@ -175,7 +175,7 @@ class AuditExceptionAggregator:
         patterns = []
 
         # Pattern 1: Isolated vs Clustered (by location/entity)
-        locations = {}
+        locations: dict[str, int] = {}
         for exc in self._exceptions:
             loc = exc.get("location", "unknown")
             locations[loc] = locations.get(loc, 0) + 1
@@ -184,10 +184,12 @@ class AuditExceptionAggregator:
         if total > 0:
             max_cluster = max(locations.values())
             if max_cluster / total > 0.7:
+                # Find the location with the max count
+                max_location = max(locations, key=lambda x: locations.get(x, 0))
                 patterns.append(
                     {
                         "pattern": ExceptionPattern.CLUSTERED.value,
-                        "description": f"{max_cluster} out of {total} exceptions clustered in {max(locations, key=locations.get)}",
+                        "description": f"{max_cluster} out of {total} exceptions clustered in {max_location}",
                         "severity": "warning",
                     }
                 )
@@ -201,17 +203,18 @@ class AuditExceptionAggregator:
                 )
 
         # Pattern 2: Systematic (same type and similar description)
-        type_counts = {}
+        type_counts: dict[ExceptionType | str, int] = {}
         for exc in self._exceptions:
             typ = exc.get("exception_type", "unknown")
             type_counts[typ] = type_counts.get(typ, 0) + 1
 
         for typ, count in type_counts.items():
             if count / total > 0.5 and total >= 3:
+                typ_name = typ.value if hasattr(typ, "value") else typ
                 patterns.append(
                     {
                         "pattern": ExceptionPattern.SYSTEMATIC.value,
-                        "description": f"{count} exceptions of type {typ.value if hasattr(typ, 'value') else typ} ({count / total * 100:.0f}% of total)",
+                        "description": f"{count} exceptions of type {typ_name} ({count / total * 100:.0f}% of total)",
                         "severity": "warning",
                     }
                 )
@@ -230,7 +233,7 @@ class AuditExceptionAggregator:
             )
 
         # Check for multiple exceptions from same user
-        users = {}
+        users: dict[str, int] = {}
         for exc in self._exceptions:
             user = exc.get("user_id", "unknown")
             if user != "unknown":

@@ -44,14 +44,14 @@ class AccountTypeDTO(str, Enum):
     def get_normal_balance(cls, account_type: str) -> str:
         """Get normal balance for account type."""
         normal_balances = {
-            cls.ASSET: "debit",
-            cls.CONTRA_ASSET: "credit",
-            cls.LIABILITY: "credit",
-            cls.CONTRA_LIABILITY: "debit",
-            cls.EQUITY: "credit",
-            cls.CONTRA_EQUITY: "debit",
-            cls.REVENUE: "credit",
-            cls.EXPENSE: "debit",
+            "ASSET": "debit",
+            "CONTRA_ASSET": "credit",
+            "LIABILITY": "credit",
+            "CONTRA_LIABILITY": "debit",
+            "EQUITY": "credit",
+            "CONTRA_EQUITY": "debit",
+            "REVENUE": "credit",
+            "EXPENSE": "debit",
         }
         return normal_balances.get(account_type, "debit")
 
@@ -220,7 +220,7 @@ class UpdateAccountRequest:
             raise ValueError(f"Opening balance cannot be negative: {self.opening_balance}")
 
     def to_dict(self) -> dict[str, Any]:
-        result = {}
+        result: dict[str, Any] = {}
         if self.name is not None:
             result["name"] = self.name
         if self.description is not None:
@@ -694,29 +694,29 @@ AccountBalanceDTO = AccountBalanceResponse
 # === 6. EXPORTS ===
 
 __all__ = [
-    # Enums
-    "AccountTypeDTO",
-    "AccountStatusDTO",
-    "AccountNormalBalance",
-    # Request DTOs
-    "CreateAccountRequest",
-    "UpdateAccountRequest",
-    "GetAccountRequest",
-    "GetAccountByCodeRequest",
-    "GetAccountsQuery",
-    # Response DTOs
-    "AccountResponse",
-    "AccountHierarchyNodeDTO",
+    "AccountBalanceDTO",
     "AccountBalanceResponse",
-    "BulkImportResultDTO",
-    "AccountValidationResult",
-    # Factory
-    "AccountDTOFactory",
     # Aliases
     "AccountCreateRequest",
-    "AccountUpdateRequest",
+    # Factory
+    "AccountDTOFactory",
     "AccountGetRequest",
-    "AccountListQuery",
     "AccountHierarchyDTO",
-    "AccountBalanceDTO",
+    "AccountHierarchyNodeDTO",
+    "AccountListQuery",
+    "AccountNormalBalance",
+    # Response DTOs
+    "AccountResponse",
+    "AccountStatusDTO",
+    # Enums
+    "AccountTypeDTO",
+    "AccountUpdateRequest",
+    "AccountValidationResult",
+    "BulkImportResultDTO",
+    # Request DTOs
+    "CreateAccountRequest",
+    "GetAccountByCodeRequest",
+    "GetAccountRequest",
+    "GetAccountsQuery",
+    "UpdateAccountRequest",
 ]

@@ -77,7 +77,7 @@ def get_all_adapter_classes() -> dict[str, tuple[str, Path, set[str]]]:
                             continue
                         methods = set()
                         for item in node.body:
-                            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                                 methods.add(item.name)
                         adapters[name] = (module_path, file_path, methods)
             except Exception:

@@ -159,7 +159,7 @@ class EnrichmentContext:
 
 
 class EventContextEnricher:
-    def __init__(self):
+    def __init__(self) -> None:
         self._enrichers: list[Callable[[dict[str, Any], EnrichmentContext], EnrichmentContext]] = []
         self._default_service_name = os.getenv("SERVICE_NAME", "accounting-engine")
         self._hostname = socket.gethostname()
@@ -169,7 +169,7 @@ class EventContextEnricher:
         self._enrichment_count = 0
         self._take_snapshot()
 
-    def _take_snapshot(self):
+    def _take_snapshot(self) -> None:
         self._snapshots.append(
             {
                 "version": self._version,
@@ -181,7 +181,7 @@ class EventContextEnricher:
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         self._audit_trail.append(
             {
                 "action": action,
@@ -255,10 +255,16 @@ class EventContextEnricher:
             or event.get("metadata", {}).get("legal_entity_id")
         )
         source_system = event.get("source") or event.get("metadata", {}).get("source_system")
-        source_ip = (headers and headers.get("X-Forwarded-For")) or (
-            headers and headers.get("X-Real-IP")
-        )
-        user_agent = headers and headers.get("User-Agent")
+
+        # FIX: perbaiki tipe source_ip dan user_agent agar hanya str | None
+        source_ip: str | None = None
+        if headers:
+            source_ip = headers.get("X-Forwarded-For") or headers.get("X-Real-IP")
+
+        user_agent: str | None = None
+        if headers:
+            user_agent = headers.get("User-Agent")
+
         return EnrichmentContext(
             correlation_id=correlation_id,
             causation_id=causation_id,

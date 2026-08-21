@@ -27,7 +27,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, DateTime, Index, delete, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -67,7 +67,8 @@ TREND_METRICS = [
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+# Explicitly type Base as DeclarativeMeta to avoid mypy errors
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 
 class TrendAnalysisTable(Base):
@@ -121,6 +122,8 @@ class TrendAnalyzer12Month:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        # mypy needs an assertion to know it's not None
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def _get_balance_sheet(self) -> BalanceSheetSnapshot:
@@ -138,7 +141,7 @@ class TrendAnalyzer12Month:
             self._cash_flow = await get_cash_flow_projection()
         return self._cash_flow
 
-    async def _get_last_n_periods(self, legal_entity_id: UUID, n: int = 12) -> list[dict]:
+    async def _get_last_n_periods(self, legal_entity_id: UUID, n: int = 12) -> list[FiscalPeriodTable]:
         """
         Mendapatkan n periode terakhir yang sudah ditutup.
         """
@@ -178,21 +181,21 @@ class TrendAnalyzer12Month:
         for period in periods:
             # Balance sheet snapshot at period end
             bs = await balance_sheet.get_snapshot(legal_entity_id, period.id)
-            total_assets = bs["total_assets"] if bs else 0
-            total_liabilities = bs["total_liabilities"] if bs else 0
-            total_equity = bs["total_equity"] if bs else 0
+            total_assets = bs.get("total_assets", 0) if bs else 0
+            total_liabilities = bs.get("total_liabilities", 0) if bs else 0
+            total_equity = bs.get("total_equity", 0) if bs else 0
 
             # Income statement for period
             inc = await income_stmt.get_income_statement(legal_entity_id, period.id)
-            revenue = inc["total_revenue"] if inc else 0
-            expense = inc["total_expense"] if inc else 0
-            net_income = inc["net_income"] if inc else 0
+            revenue = inc.get("total_revenue", 0) if inc else 0
+            expense = inc.get("total_expense", 0) if inc else 0
+            net_income = inc.get("net_income", 0) if inc else 0
 
             # Cash flow for period
             cf = await cash_flow.get_cash_flow_statement(
                 legal_entity_id, period.start_date, period.end_date
             )
-            operating_cf = cf["operating_cash_flow"] if cf else 0
+            operating_cf = cf.get("operating_cash_flow", 0) if cf else 0
 
             # Calculate margins
             gross_profit_margin = (revenue - expense) / revenue * 100 if revenue > 0 else 0
@@ -247,18 +250,22 @@ class TrendAnalyzer12Month:
         """
         Menghitung Year-over-Year changes (membandingkan dengan bulan yang sama tahun lalu).
         """
+        if not data:
+            return data
+
         result = []
         # Group by month number
-        by_month = {}
+        by_month: dict[int, list[dict]] = {}
         for item in data:
-            month = item["month"]
-            if month not in by_month:
-                by_month[month] = []
-            by_month[month].append(item)
+            month = item.get("month")
+            if month is not None:
+                if month not in by_month:
+                    by_month[month] = []
+                by_month[month].append(item)
 
         for _month, items in by_month.items():
             # Sort by year ascending
-            items_sorted = sorted(items, key=lambda x: x["year"])
+            items_sorted = sorted(items, key=lambda x: x.get("year", 0))
             for i, current in enumerate(items_sorted):
                 item = current.copy()
                 if i > 0:
@@ -275,7 +282,7 @@ class TrendAnalyzer12Month:
                 result.append(item)
 
         # Sort by end_date
-        result.sort(key=lambda x: x["end_date"])
+        result.sort(key=lambda x: x.get("end_date", ""))
         return result
 
     def calculate_moving_averages(self, data: list[dict], window: int = 3) -> list[dict]:
@@ -291,7 +298,7 @@ class TrendAnalyzer12Month:
             if i >= window - 1:
                 window_data = data[i - window + 1 : i + 1]
                 for metric in TREND_METRICS:
-                    values = [d[metric] for d in window_data if metric in d]
+                    values = [d.get(metric, 0) for d in window_data if metric in d]
                     if values:
                         avg = sum(values) / len(values)
                         item[f"{metric}_ma_{window}"] = avg
@@ -312,7 +319,7 @@ class TrendAnalyzer12Month:
 
         # Prepare x values (month index from 0)
         x = list(range(len(data)))
-        y = [d[metric] for d in data if metric in d]
+        y = [d.get(metric, 0) for d in data if metric in d]
         if len(y) < 3:
             return []
 
@@ -369,10 +376,10 @@ class TrendAnalyzer12Month:
                 forecasts[metric] = forecast
 
         # Identify trends (increasing/decreasing)
+        trends = {}
         if len(raw_data) >= 2:
             first = raw_data[0]
             last = raw_data[-1]
-            trends = {}
             for metric in TREND_METRICS:
                 if metric in first and metric in last:
                     first_val = first[metric]
@@ -389,8 +396,6 @@ class TrendAnalyzer12Month:
                         if overall_change < 0
                         else "stable",
                     }
-        else:
-            trends = {}
 
         return {
             "legal_entity_id": str(legal_entity_id),

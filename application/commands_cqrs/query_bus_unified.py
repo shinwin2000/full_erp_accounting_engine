@@ -262,7 +262,7 @@ class LoggingQueryMiddleware(QueryMiddleware):
         handler: Callable[[BaseQuery], Any],
         context: dict[str, Any],
     ) -> Any:
-        log_data = {
+        log_data: dict[str, Any] = {
             "query_id": str(query.query_id),
             "query_type": query.query_type,
             "correlation_id": query.correlation_id,
@@ -430,8 +430,8 @@ class UnifiedQueryBus:
         if enable_cache:
             self._middlewares.append(CacheQueryMiddleware(cache_client, default_cache_ttl_seconds))
 
-        # Metrics
-        self._metrics = {
+        # Metrics - explicitly typed as dict[str, Any] to support mixed types
+        self._metrics: dict[str, Any] = {
             "total_dispatched": 0,
             "total_succeeded": 0,
             "total_failed": 0,
@@ -511,11 +511,11 @@ class UnifiedQueryBus:
 
         start_time = time.perf_counter()
         query_type = query.query_type
-        self._metrics["total_dispatched"] += 1
+        self._metrics["total_dispatched"] = self._metrics.get("total_dispatched", 0) + 1
 
         # Check circuit breaker
         if self._is_circuit_open(query_type):
-            self._metrics["total_failed"] += 1
+            self._metrics["total_failed"] = self._metrics.get("total_failed", 0) + 1
             return QueryResult.failure(
                 query.query_id,
                 f"Circuit breaker open for query type: {query_type}",
@@ -533,7 +533,7 @@ class UnifiedQueryBus:
             handler = self._registry.get_handler(query_type)
             if not handler:
                 self._record_failure(query_type)
-                self._metrics["total_failed"] += 1
+                self._metrics["total_failed"] = self._metrics.get("total_failed", 0) + 1
                 raise QueryNotFoundError(f"No handler for query type: {query_type}")
 
             # Build middleware chain
@@ -559,36 +559,45 @@ class UnifiedQueryBus:
             self._record_success(query_type)
 
             execution_time_ms = (time.perf_counter() - start_time) * 1000
-            self._metrics["total_succeeded"] += 1
-            self._metrics["latencies"].append(execution_time_ms)
+            self._metrics["total_succeeded"] = self._metrics.get("total_succeeded", 0) + 1
+
+            # Update latencies list - cast to list to help mypy
+            latencies = self._metrics.get("latencies", [])
+            if not isinstance(latencies, list):
+                latencies = []
+            latencies.append(execution_time_ms)
+            self._metrics["latencies"] = latencies
 
             # Trim latency list
-            if len(self._metrics["latencies"]) > 10000:
-                self._metrics["latencies"] = self._metrics["latencies"][-5000:]
+            if len(latencies) > 10000:
+                self._metrics["latencies"] = latencies[-5000:]
 
             if context.get("from_cache"):
-                self._metrics["total_cache_hits"] += 1
+                self._metrics["total_cache_hits"] = self._metrics.get("total_cache_hits", 0) + 1
+
+            # Fix: cast from_cache to bool to satisfy mypy
+            from_cache = bool(context.get("from_cache", False))
 
             return QueryResult.success(
                 query_id=query.query_id,
                 data=data,
                 execution_time_ms=execution_time_ms,
-                from_cache=context.get("from_cache", False),
+                from_cache=from_cache,
             )
 
         except QueryNotFoundError as e:
-            self._metrics["total_failed"] += 1
+            self._metrics["total_failed"] = self._metrics.get("total_failed", 0) + 1
             return QueryResult.failure(query.query_id, str(e), execution_time_ms=0)
 
         except QueryTimeoutError as e:
             self._record_failure(query_type)
-            self._metrics["total_failed"] += 1
-            self._metrics["total_timeouts"] += 1
+            self._metrics["total_failed"] = self._metrics.get("total_failed", 0) + 1
+            self._metrics["total_timeouts"] = self._metrics.get("total_timeouts", 0) + 1
             return QueryResult.failure(query.query_id, str(e), execution_time_ms=0)
 
         except Exception as e:
             self._record_failure(query_type)
-            self._metrics["total_failed"] += 1
+            self._metrics["total_failed"] = self._metrics.get("total_failed", 0) + 1
             logger.exception(f"Query {query_type} failed: {e}")
             return QueryResult.failure(query.query_id, str(e), execution_time_ms=0)
 
@@ -619,29 +628,28 @@ class UnifiedQueryBus:
 
     def get_stats(self) -> dict[str, Any]:
         """Get query bus statistics."""
-        avg_latency = (
-            sum(self._metrics["latencies"]) / len(self._metrics["latencies"])
-            if self._metrics["latencies"]
-            else 0
-        )
-        p95_latency = self._calculate_percentile(95)
+        # Extract values with explicit types
+        total_dispatched = self._metrics.get("total_dispatched", 0)
+        total_succeeded = self._metrics.get("total_succeeded", 0)
+        total_failed = self._metrics.get("total_failed", 0)
+        total_cache_hits = self._metrics.get("total_cache_hits", 0)
+        total_timeouts = self._metrics.get("total_timeouts", 0)
+
+        latencies = self._metrics.get("latencies", [])
+        if not isinstance(latencies, list):
+            latencies = []
+
+        avg_latency = sum(latencies) / len(latencies) if latencies else 0.0
+        p95_latency = self._calculate_percentile(95, latencies)
 
         return {
-            "total_dispatched": self._metrics["total_dispatched"],
-            "total_succeeded": self._metrics["total_succeeded"],
-            "total_failed": self._metrics["total_failed"],
-            "total_cache_hits": self._metrics["total_cache_hits"],
-            "total_timeouts": self._metrics["total_timeouts"],
-            "success_rate": (
-                (self._metrics["total_succeeded"] / self._metrics["total_dispatched"] * 100)
-                if self._metrics["total_dispatched"] > 0
-                else 100
-            ),
-            "cache_hit_rate": (
-                (self._metrics["total_cache_hits"] / self._metrics["total_succeeded"] * 100)
-                if self._metrics["total_succeeded"] > 0
-                else 0
-            ),
+            "total_dispatched": total_dispatched,
+            "total_succeeded": total_succeeded,
+            "total_failed": total_failed,
+            "total_cache_hits": total_cache_hits,
+            "total_timeouts": total_timeouts,
+            "success_rate": (total_succeeded / total_dispatched * 100) if total_dispatched > 0 else 100.0,
+            "cache_hit_rate": (total_cache_hits / total_succeeded * 100) if total_succeeded > 0 else 0.0,
             "avg_latency_ms": avg_latency,
             "p95_latency_ms": p95_latency,
             "cache_enabled": self._enable_cache,
@@ -657,25 +665,23 @@ class UnifiedQueryBus:
             },
         }
 
-    def _calculate_percentile(self, percentile: int) -> float:
+    def _calculate_percentile(self, percentile: int, latencies: list[float]) -> float:
         """Calculate percentile for latencies."""
-        if not self._metrics["latencies"]:
+        if not latencies:
             return 0.0
-        sorted_latencies = sorted(self._metrics["latencies"])
+        sorted_latencies = sorted(latencies)
         index = int(len(sorted_latencies) * percentile / 100)
         return sorted_latencies[min(index, len(sorted_latencies) - 1)]
 
     def health_check(self) -> dict[str, Any]:
         """Perform health check."""
+        total_dispatched = self._metrics.get("total_dispatched", 0)
+        total_succeeded = self._metrics.get("total_succeeded", 0)
         return {
             "status": "healthy" if not self._is_closed else "closed",
             "is_closed": self._is_closed,
             "total_handlers": len(self._registry.list_query_types()),
-            "success_rate": (
-                (self._metrics["total_succeeded"] / self._metrics["total_dispatched"] * 100)
-                if self._metrics["total_dispatched"] > 0
-                else 100
-            ),
+            "success_rate": (total_succeeded / total_dispatched * 100) if total_dispatched > 0 else 100.0,
         }
 
 

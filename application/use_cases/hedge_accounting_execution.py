@@ -142,6 +142,7 @@ class HedgeRelationship:
         hedging_instrument_id: UUID,
         designation_date: date,
         status: HedgeStatus,
+        legal_entity_id: UUID,
         effectiveness_ratio: Decimal | None = None,
         ineffectiveness_amount: Decimal = Decimal("0"),
     ):
@@ -151,6 +152,7 @@ class HedgeRelationship:
         self.hedging_instrument_id = hedging_instrument_id
         self.designation_date = designation_date
         self.status = status
+        self.legal_entity_id = legal_entity_id
         self.effectiveness_ratio = effectiveness_ratio
         self.ineffectiveness_amount = ineffectiveness_amount
 
@@ -366,20 +368,25 @@ class HedgeAccountingUseCase:
         journal_id = None
         if hedge.hedge_type == HedgeType.FAIR_VALUE_HEDGE:
             journal_id = await self._record_fair_value_hedge_journal(
-                hedge,
-                command.fair_value_change_instrument,
-                command.fair_value_change_hedged_item or Decimal("0"),
-                command.valuation_date or date.today(),
-                command.user_id,
-                command.correlation_id,
+                hedge_id=command.hedge_id,
+                legal_entity_id=command.legal_entity_id,
+                hedged_item_id=hedge.hedged_item_id,
+                hedging_instrument_id=hedge.hedging_instrument_id,
+                change_instrument=command.fair_value_change_instrument,
+                change_hedged_item=command.fair_value_change_hedged_item or Decimal("0"),
+                journal_date=command.valuation_date or date.today(),
+                user_id=command.user_id,
+                correlation_id=command.correlation_id,
             )
         elif hedge.hedge_type == HedgeType.CASH_FLOW_HEDGE:
             journal_id = await self._record_cash_flow_hedge_journal(
-                hedge,
-                command.fair_value_change_instrument,
-                command.valuation_date or date.today(),
-                command.user_id,
-                command.correlation_id,
+                hedge_id=command.hedge_id,
+                legal_entity_id=command.legal_entity_id,
+                hedging_instrument_id=hedge.hedging_instrument_id,
+                change_instrument=command.fair_value_change_instrument,
+                journal_date=command.valuation_date or date.today(),
+                user_id=command.user_id,
+                correlation_id=command.correlation_id,
             )
 
         return HedgeAccountingResult(
@@ -413,18 +420,21 @@ class HedgeAccountingUseCase:
 
     async def _record_fair_value_hedge_journal(
         self,
-        hedge: HedgeRelationship,
+        hedge_id: UUID,
+        legal_entity_id: UUID,
+        hedged_item_id: UUID,
+        hedging_instrument_id: UUID,
         change_instrument: Decimal,
         change_hedged_item: Decimal,
         journal_date: date,
         user_id: UUID,
         correlation_id: str | None,
-    ) -> UUID:
+    ) -> UUID | None:
         lines = []
         if change_hedged_item != 0:
             lines.append(
                 {
-                    "account_code": f"hedged_{hedge.hedged_item_id}",
+                    "account_code": f"hedged_{hedged_item_id}",
                     "debit": change_hedged_item if change_hedged_item > 0 else Decimal("0"),
                     "credit": -change_hedged_item if change_hedged_item < 0 else Decimal("0"),
                     "description": "Adjustment to hedged item fair value",
@@ -433,7 +443,7 @@ class HedgeAccountingUseCase:
         if change_instrument != 0:
             lines.append(
                 {
-                    "account_code": f"derivative_{hedge.hedging_instrument_id}",
+                    "account_code": f"derivative_{hedging_instrument_id}",
                     "debit": change_instrument if change_instrument > 0 else Decimal("0"),
                     "credit": -change_instrument if change_instrument < 0 else Decimal("0"),
                     "description": "Change in fair value of hedging instrument",
@@ -453,10 +463,10 @@ class HedgeAccountingUseCase:
         if not lines:
             return None
         journal_id = await self._journal_service.post_journal(
-            legal_entity_id=hedge.legal_entity_id,
+            legal_entity_id=legal_entity_id,
             journal_date=journal_date,
             period=f"{journal_date.year}-{journal_date.month:02d}",
-            description=f"Fair value hedge adjustment for {hedge.hedge_id}",
+            description=f"Fair value hedge adjustment for {hedge_id}",
             lines=lines,
             source_system="hedge_accounting",
             user_id=user_id,
@@ -466,16 +476,18 @@ class HedgeAccountingUseCase:
 
     async def _record_cash_flow_hedge_journal(
         self,
-        hedge: HedgeRelationship,
+        hedge_id: UUID,
+        legal_entity_id: UUID,
+        hedging_instrument_id: UUID,
         change_instrument: Decimal,
         journal_date: date,
         user_id: UUID,
         correlation_id: str | None,
-    ) -> UUID:
+    ) -> UUID | None:
         oci_account = "3-5000"
         lines = [
             {
-                "account_code": f"derivative_{hedge.hedging_instrument_id}",
+                "account_code": f"derivative_{hedging_instrument_id}",
                 "debit": change_instrument if change_instrument > 0 else Decimal("0"),
                 "credit": -change_instrument if change_instrument < 0 else Decimal("0"),
                 "description": "Change in fair value of hedging instrument",
@@ -487,11 +499,13 @@ class HedgeAccountingUseCase:
                 "description": "Cash flow hedge reserve (OCI)",
             },
         ]
+        if not lines:
+            return None
         journal_id = await self._journal_service.post_journal(
-            legal_entity_id=hedge.legal_entity_id,
+            legal_entity_id=legal_entity_id,
             journal_date=journal_date,
             period=f"{journal_date.year}-{journal_date.month:02d}",
-            description=f"Cash flow hedge adjustment for {hedge.hedge_id}",
+            description=f"Cash flow hedge adjustment for {hedge_id}",
             lines=lines,
             source_system="hedge_accounting",
             user_id=user_id,

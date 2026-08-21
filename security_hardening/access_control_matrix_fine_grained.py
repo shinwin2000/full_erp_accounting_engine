@@ -111,6 +111,7 @@ class Permission:
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
+        self._take_snapshot()
 
     def _take_snapshot(self):
         self._snapshots.append(
@@ -137,7 +138,7 @@ class Permission:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         if not isinstance(self.resource_type, ResourceType):
             errors.append("Invalid resource_type")
         if not isinstance(self.permission, PermissionType):
@@ -826,7 +827,8 @@ class AccessControlMatrix:
 
     def _get_role_path(self, role_id: UUID) -> list[UUID]:
         path = []
-        current = role_id
+        # FIX: deklarasikan current sebagai UUID | None
+        current: UUID | None = role_id
         while current:
             path.append(current)
             role = self._roles.get(current)

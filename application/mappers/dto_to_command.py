@@ -65,6 +65,13 @@ def _safe_str(value: Any, default: str = "") -> str:
     return str(value)
 
 
+def _safe_correlation_id(correlation_id: str | None) -> str:
+    """Safely convert correlation_id to string, generating a new one if None."""
+    if correlation_id:
+        return correlation_id
+    return str(uuid4())
+
+
 # === 1. COMMAND BASE CLASS ===
 
 
@@ -73,7 +80,7 @@ class Command:
     """Base class untuk semua command."""
 
     command_id: UUID = field(default_factory=uuid4)
-    command_type: str
+    command_type: str = ""  # Akan di-override di __post_init__ subclass
     correlation_id: str = field(default_factory=lambda: str(uuid4()))
     occurred_at: datetime = field(default_factory=datetime.utcnow)
     user_id: UUID | None = None
@@ -270,7 +277,7 @@ def dto_to_post_journal_command(
         source_system=dto.source_system or "api",
         attachment_ids=dto.attachment_ids or [],
         user_id=user_id,
-        correlation_id=correlation_id or dto.idempotency_key,
+        correlation_id=_safe_correlation_id(correlation_id or dto.idempotency_key),
         idempotency_key=dto.idempotency_key,
     )
 
@@ -294,7 +301,7 @@ def dto_to_create_ar_invoice_command(
         tax_code=dto.tax_code,
         sales_order_id=dto.sales_order_id,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=dto.idempotency_key,
     )
 
@@ -316,7 +323,7 @@ def dto_to_record_ar_payment_command(
         reference_number=dto.reference_number or "",
         bank_account_id=dto.bank_account_id,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=dto.idempotency_key,
     )
 
@@ -341,7 +348,7 @@ def dto_to_create_ap_invoice_command(
         po_reference=dto.po_reference,
         grn_reference=dto.grn_reference,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=dto.idempotency_key,
     )
 
@@ -363,7 +370,7 @@ def dto_to_record_ap_payment_command(
         reference_number=dto.reference_number or "",
         bank_account_id=dto.bank_account_id,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=dto.idempotency_key,
     )
 
@@ -380,7 +387,7 @@ def dto_to_execute_payment_run_command(
         payment_method=dto.payment_method,
         bank_account_id=dto.bank_account_id,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=getattr(dto, "idempotency_key", None),
     )
 
@@ -396,7 +403,7 @@ def dto_to_execute_period_close_command(
         period_month=dto.period_month,
         dry_run=getattr(dto, "dry_run", False),
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=getattr(dto, "idempotency_key", None),
     )
 
@@ -414,7 +421,7 @@ def dto_to_generate_financial_statement_command(
         period_end=dto.period_end,
         currency_code=dto.currency_code,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
     )
 
 
@@ -456,7 +463,8 @@ def dto_to_submit_coretax_command(
             if not key.startswith("_"):
                 if hasattr(value, "value"):
                     payload[key] = value.value
-                elif isinstance(value, (UUID, datetime, date)):
+                # Perbaikan UP038: gunakan X | Y bukan tuple
+                elif isinstance(value, UUID | datetime | date):
                     payload[key] = str(value)
                 elif isinstance(value, Decimal):
                     # Gunakan string untuk presisi, bukan float
@@ -468,7 +476,7 @@ def dto_to_submit_coretax_command(
         submission_type=submission_type,
         payload=payload,
         user_id=user_id,
-        correlation_id=correlation_id,
+        correlation_id=_safe_correlation_id(correlation_id),
         idempotency_key=getattr(dto, "idempotency_key", None),
     )
 

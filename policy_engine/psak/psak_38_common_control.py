@@ -145,7 +145,8 @@ class PSAK38CommonControlRegister:
     transactions: list[PSAK38Transaction] = field(default_factory=list)
 
     def total_effect_on_equity(self) -> Decimal:
-        return sum(t.difference_to_equity for t in self.transactions)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((t.difference_to_equity for t in self.transactions), Decimal(0))
 
     def to_dict(self) -> dict:
         return {
@@ -412,6 +413,8 @@ def get_psak38_validator() -> PSAK38Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak38_validator()
     parent_id = uuid4()
     parent_name = "PT Induk Sejahtera"
@@ -453,6 +456,8 @@ if __name__ == "__main__":
     print("\nTransaction Details:")
     print(json.dumps(transaction.to_dict(), indent=2, default=str))
     print(f"Selisih yang diakui di ekuitas: {transaction.difference_to_equity}")
+
+
 # ============================================================================
 # Compatibility alias for package-level aggregator (__init__.py)
 # ============================================================================

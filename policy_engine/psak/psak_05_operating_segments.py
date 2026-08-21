@@ -133,7 +133,8 @@ class PSAK5SegmentDisclosure:
     entity_wide_disclosures: dict[str, Any] = field(default_factory=dict)
 
     def total_external_revenue(self) -> Decimal:
-        return sum(s.revenue_external for s in self.segments if s.is_reportable)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((s.revenue_external for s in self.segments if s.is_reportable), Decimal(0))
 
     def total_reportable_segments(self) -> list[PSAK5Segment]:
         return [s for s in self.segments if s.is_reportable]
@@ -207,19 +208,19 @@ class PSAK5SegmentService:
     @staticmethod
     def identify_reportable_segments(segments: list[PSAK5Segment]) -> list[PSAK5Segment]:
         """Mengidentifikasi segmen yang wajib dilaporkan berdasarkan threshold 10%."""
-        total_external = sum(s.revenue_external for s in segments)
-        total_profit = sum(max(s.profit_loss, Decimal(0)) for s in segments)
-        total_assets = sum(s.assets for s in segments)
+        total_external = sum((s.revenue_external for s in segments), Decimal(0))
+        total_profit = sum((max(s.profit_loss, Decimal(0)) for s in segments), Decimal(0))
+        total_assets = sum((s.assets for s in segments), Decimal(0))
 
         reportable = []
         for seg in segments:
             revenue_test = (
-                (seg.revenue_external / total_external * 100) if total_external > 0 else 0
+                (seg.revenue_external / total_external * 100) if total_external > 0 else Decimal(0)
             )
             profit_test = (
-                (max(seg.profit_loss, Decimal(0)) / total_profit * 100) if total_profit > 0 else 0
+                (max(seg.profit_loss, Decimal(0)) / total_profit * 100) if total_profit > 0 else Decimal(0)
             )
-            asset_test = (seg.assets / total_assets * 100) if total_assets > 0 else 0
+            asset_test = (seg.assets / total_assets * 100) if total_assets > 0 else Decimal(0)
             if revenue_test >= 10 or profit_test >= 10 or asset_test >= 10:
                 seg.is_reportable = True
                 reportable.append(seg)
@@ -246,9 +247,9 @@ class PSAK5SegmentService:
         total_entity_assets: Decimal,
     ) -> dict[str, str]:
         """Menyusun rekonsiliasi total segmen ke entitas."""
-        total_segment_revenue = sum(s.total_revenue for s in segments if s.is_reportable)
-        total_segment_profit = sum(s.profit_loss for s in segments if s.is_reportable)
-        total_segment_assets = sum(s.assets for s in segments if s.is_reportable)
+        total_segment_revenue = sum((s.total_revenue for s in segments if s.is_reportable), Decimal(0))
+        total_segment_profit = sum((s.profit_loss for s in segments if s.is_reportable), Decimal(0))
+        total_segment_assets = sum((s.assets for s in segments if s.is_reportable), Decimal(0))
         return {
             "revenue": f"Total segmen {total_segment_revenue}, entitas {total_entity_revenue}, selisih {total_entity_revenue - total_segment_revenue}",
             "profit_loss": f"Total segmen {total_segment_profit}, entitas {total_entity_profit}, selisih {total_entity_profit - total_segment_profit}",
@@ -268,8 +269,8 @@ class PSAK5Rules:
             is_compliant=True, compliance_level=PSAK5ComplianceLevel.FULL
         )
         reportable = [s for s in segments if s.is_reportable]
-        total_external = sum(s.revenue_external for s in reportable)
-        total_entity_revenue = max(total_external, sum(s.total_revenue for s in segments))
+        total_external = sum((s.revenue_external for s in reportable), Decimal(0))
+        total_entity_revenue = max(total_external, sum((s.total_revenue for s in segments), Decimal(0)))
         if len(reportable) == 0:
             result.add_error("Tidak ada segmen yang memenuhi threshold 10%")
         elif (
@@ -481,6 +482,8 @@ class SegmentReportableStatus(Enum):
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak5_validator()
     entity_id = uuid4()
     # Create segments

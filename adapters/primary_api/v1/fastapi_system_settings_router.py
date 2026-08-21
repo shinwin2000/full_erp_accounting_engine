@@ -646,6 +646,138 @@ async def create_setting(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# ---------------------------------------------------------------------
+# STATIC ROUTES (must be registered BEFORE "/{key}" to avoid shadowing)
+# FIX: /export, /schema, /categories, /audit were previously declared
+# AFTER the generic GET "/{key}" route below. FastAPI/Starlette matches
+# routes in registration order, so requests like GET /settings/categories
+# were being captured by get_setting(key="categories") instead of
+# get_setting_categories(), causing a 404 "Setting 'categories' not
+# found" (and similarly for /export, /schema, /audit). Moving these
+# static-path routes above "/{key}" fixes the shadowing.
+# ---------------------------------------------------------------------
+
+@router.get(
+    "/export",
+    response_model=dict[str, Any],
+    summary="Export settings",
+    operation_id="export_settings",
+)
+async def export_settings(
+    format: str = Query("json", pattern="^(json|csv)$"),
+    category: SettingCategory | None = None,
+    _permission: None = Depends(require_permission("settings:export")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    settings_svc: Any = Depends(get_settings_svc),
+) -> dict[str, Any]:
+    try:
+        data = await settings_svc.export_settings(
+            legal_entity_id, format, category.value if category else None
+        )
+        return data
+    except Exception as e:
+        logger.exception("Failed to export settings: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get(
+    "/schema",
+    response_model=list[SettingSchemaSchema],
+    summary="Get setting schema",
+    operation_id="get_setting_schema",
+)
+async def get_setting_schema(
+    category: SettingCategory | None = None,
+    _permission: None = Depends(require_permission("settings:read")),
+    settings_svc: Any = Depends(get_settings_svc),
+) -> list[SettingSchemaSchema]:
+    try:
+        schemas = await settings_svc.get_setting_schemas(category.value if category else None)
+        return [
+            SettingSchemaSchema(
+                key=s.key,
+                data_type=SettingDataType(s.data_type),
+                description=s.description,
+                category=SettingCategory(s.category),
+                scope=SettingScope(s.scope),
+                validation_regex=s.validation_regex,
+                min_value=s.min_value,
+                max_value=s.max_value,
+                allowed_values=s.allowed_values,
+                default_value=s.default_value,
+                is_readonly=s.is_readonly,
+                is_encrypted=s.is_encrypted,
+                tags=s.tags,
+            )
+            for s in schemas
+        ]
+    except Exception as e:
+        logger.exception("Failed to get setting schema: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get(
+    "/categories",
+    response_model=list[dict[str, Any]],
+    summary="Get setting categories",
+    operation_id="get_setting_categories",
+)
+async def get_setting_categories(
+    _permission: None = Depends(require_permission("settings:read")),
+    settings_svc: Any = Depends(get_settings_svc),
+) -> list[dict[str, Any]]:
+    try:
+        categories = await settings_svc.get_setting_categories()
+        return [
+            {
+                "name": c.name,
+                "label": c.label,
+                "description": c.description,
+                "setting_count": c.setting_count,
+                "active_count": c.active_count,
+            }
+            for c in categories
+        ]
+    except Exception as e:
+        logger.exception("Failed to get setting categories: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get(
+    "/audit",
+    response_model=list[SettingHistorySchema],
+    summary="Get audit trail for all settings",
+    operation_id="get_settings_audit_trail",
+)
+async def get_settings_audit_trail(
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    user_id: UUID | None = None,
+    limit: int = Query(100, ge=1, le=1000),
+    _permission: None = Depends(require_permission("settings:audit")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    settings_svc: Any = Depends(get_settings_svc),
+) -> list[SettingHistorySchema]:
+    try:
+        history = await settings_svc.get_settings_audit_trail(
+            legal_entity_id, start_time, end_time, user_id, limit
+        )
+        return [
+            SettingHistorySchema(
+                id=h.id,
+                setting_id=h.setting_id,
+                setting_key=h.setting_key,
+                old_value=h.old_value,
+                new_value=h.new_value,
+                changed_by=h.changed_by,
+                changed_by_name=h.changed_by_name,
+                changed_at=h.changed_at,
+                reason=h.reason,
+                ip_address=h.ip_address,
+            )
+            for h in history
+        ]
+    except Exception as e:
+        logger.exception("Failed to get settings audit trail: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @router.get(
     "/{key}",
     response_model=SettingResponseSchema,
@@ -1155,27 +1287,6 @@ async def bulk_reset_settings(
 # ----------------------------------------------------------------------------
 
 
-@router.get(
-    "/export",
-    response_model=dict[str, Any],
-    summary="Export settings",
-    operation_id="export_settings",
-)
-async def export_settings(
-    format: str = Query("json", pattern="^(json|csv)$"),
-    category: SettingCategory | None = None,
-    _permission: None = Depends(require_permission("settings:export")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    settings_svc: Any = Depends(get_settings_svc),
-) -> dict[str, Any]:
-    try:
-        data = await settings_svc.export_settings(
-            legal_entity_id, format, category.value if category else None
-        )
-        return data
-    except Exception as e:
-        logger.exception("Failed to export settings: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
@@ -1257,67 +1368,8 @@ async def validate_setting(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get(
-    "/schema",
-    response_model=list[SettingSchemaSchema],
-    summary="Get setting schema",
-    operation_id="get_setting_schema",
-)
-async def get_setting_schema(
-    category: SettingCategory | None = None,
-    _permission: None = Depends(require_permission("settings:read")),
-    settings_svc: Any = Depends(get_settings_svc),
-) -> list[SettingSchemaSchema]:
-    try:
-        schemas = await settings_svc.get_setting_schemas(category.value if category else None)
-        return [
-            SettingSchemaSchema(
-                key=s.key,
-                data_type=SettingDataType(s.data_type),
-                description=s.description,
-                category=SettingCategory(s.category),
-                scope=SettingScope(s.scope),
-                validation_regex=s.validation_regex,
-                min_value=s.min_value,
-                max_value=s.max_value,
-                allowed_values=s.allowed_values,
-                default_value=s.default_value,
-                is_readonly=s.is_readonly,
-                is_encrypted=s.is_encrypted,
-                tags=s.tags,
-            )
-            for s in schemas
-        ]
-    except Exception as e:
-        logger.exception("Failed to get setting schema: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get(
-    "/categories",
-    response_model=list[dict[str, Any]],
-    summary="Get setting categories",
-    operation_id="get_setting_categories",
-)
-async def get_setting_categories(
-    _permission: None = Depends(require_permission("settings:read")),
-    settings_svc: Any = Depends(get_settings_svc),
-) -> list[dict[str, Any]]:
-    try:
-        categories = await settings_svc.get_setting_categories()
-        return [
-            {
-                "name": c.name,
-                "label": c.label,
-                "description": c.description,
-                "setting_count": c.setting_count,
-                "active_count": c.active_count,
-            }
-            for c in categories
-        ]
-    except Exception as e:
-        logger.exception("Failed to get setting categories: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------
@@ -1360,43 +1412,6 @@ async def get_setting_history(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get(
-    "/audit",
-    response_model=list[SettingHistorySchema],
-    summary="Get audit trail for all settings",
-    operation_id="get_settings_audit_trail",
-)
-async def get_settings_audit_trail(
-    start_time: datetime | None = None,
-    end_time: datetime | None = None,
-    user_id: UUID | None = None,
-    limit: int = Query(100, ge=1, le=1000),
-    _permission: None = Depends(require_permission("settings:audit")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    settings_svc: Any = Depends(get_settings_svc),
-) -> list[SettingHistorySchema]:
-    try:
-        history = await settings_svc.get_settings_audit_trail(
-            legal_entity_id, start_time, end_time, user_id, limit
-        )
-        return [
-            SettingHistorySchema(
-                id=h.id,
-                setting_id=h.setting_id,
-                setting_key=h.setting_key,
-                old_value=h.old_value,
-                new_value=h.new_value,
-                changed_by=h.changed_by,
-                changed_by_name=h.changed_by_name,
-                changed_at=h.changed_at,
-                reason=h.reason,
-                ip_address=h.ip_address,
-            )
-            for h in history
-        ]
-    except Exception as e:
-        logger.exception("Failed to get settings audit trail: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------

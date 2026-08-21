@@ -53,17 +53,16 @@ from application.outbox.outbox_exceptions import OutboxPollerStoppedError
 
 # Metrics - untuk deteksi AST (OUT-033)
 try:
-    from prometheus_client import Counter, Gauge, Histogram
+    from prometheus_client import Counter as _Counter
+    from prometheus_client import Gauge as _Gauge
+    from prometheus_client import Histogram as _Histogram
+
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
-    # Dummy classes agar tidak error
-    class Counter:
-        def inc(self, *args, **kwargs): pass
-    class Histogram:
-        def observe(self, *args, **kwargs): pass
-    class Gauge:
-        def set(self, *args, **kwargs): pass
+    _Counter = None  # type: ignore
+    _Histogram = None  # type: ignore
+    _Gauge = None  # type: ignore
 
 if TYPE_CHECKING:
     from application.outbox.outbox_relay_service import OutboxRelayService
@@ -295,20 +294,29 @@ class OutboxPoller:
             timeout_seconds=self._config.circuit_breaker_timeout_seconds,
         )
         self._rate_limit_per_second = self._config.rate_limit_per_second
-        self._tokens = self._rate_limit_per_second
+        self._tokens = float(self._rate_limit_per_second)  # ubah ke float
         self._last_refill = time.monotonic()
         self._rate_lock = asyncio.Lock()
         self._reconnect_attempts = 0
 
-        # Metrics (OUT-033)
-        self._processed_counter = Counter("outbox_poller_processed_total", "Total processed events")
-        self._sent_counter = Counter("outbox_poller_sent_total", "Total sent events")
-        self._failed_counter = Counter("outbox_poller_failed_total", "Total failed events")
-        self._dead_letter_counter = Counter("outbox_poller_dead_letter_total", "Total dead letter events")
-        self._processing_duration = Histogram("outbox_poller_processing_seconds", "Processing duration")
-        self._lock_gauge = Gauge("outbox_poller_lock_acquired", "Lock acquired status")
+        # Metrics (OUT-033) - inisialisasi hanya jika tersedia
+        if _METRICS_AVAILABLE and _Counter is not None and _Histogram is not None and _Gauge is not None:
+            self._processed_counter = _Counter("outbox_poller_processed_total", "Total processed events")
+            self._sent_counter = _Counter("outbox_poller_sent_total", "Total sent events")
+            self._failed_counter = _Counter("outbox_poller_failed_total", "Total failed events")
+            self._dead_letter_counter = _Counter("outbox_poller_dead_letter_total", "Total dead letter events")
+            self._processing_duration = _Histogram("outbox_poller_processing_seconds", "Processing duration")
+            self._lock_gauge = _Gauge("outbox_poller_lock_acquired", "Lock acquired status")
+        else:
+            self._processed_counter = None
+            self._sent_counter = None
+            self._failed_counter = None
+            self._dead_letter_counter = None
+            self._processing_duration = None
+            self._lock_gauge = None
 
-        self._stats = {
+        # Stats dengan nilai default yang benar
+        self._stats: dict[str, Any] = {
             "poll_count": 0,
             "lock_acquisitions": 0,
             "lock_failures": 0,
@@ -365,10 +373,11 @@ class OutboxPoller:
         async with self._rate_lock:
             now = time.monotonic()
             elapsed = now - self._last_refill
-            self._tokens = min(self._rate_limit_per_second, self._tokens + elapsed * self._rate_limit_per_second)
+            # tokens adalah float
+            self._tokens = min(float(self._rate_limit_per_second), self._tokens + elapsed * self._rate_limit_per_second)
             self._last_refill = now
-            if self._tokens >= 1:
-                self._tokens -= 1
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
                 return True
             return False
 
@@ -397,7 +406,8 @@ class OutboxPoller:
                 self._lock_acquired = True
                 self._stats["lock_acquisitions"] += 1
                 self._stats["last_lock_acquired_at"] = datetime.now().isoformat()
-                self._lock_gauge.set(1)
+                if self._lock_gauge is not None:
+                    self._lock_gauge.set(1)
                 logger.debug(f"Lock acquired: {self._config.lock_name}")
             else:
                 self._stats["lock_failures"] += 1
@@ -413,7 +423,8 @@ class OutboxPoller:
         try:
             await self._db_lock.unlock(self._config.lock_name)
             self._lock_acquired = False
-            self._lock_gauge.set(0)
+            if self._lock_gauge is not None:
+                self._lock_gauge.set(0)
             logger.debug(f"Lock released: {self._config.lock_name}")
         except Exception as e:
             logger.error(f"Error releasing lock: {e}")
@@ -472,7 +483,8 @@ class OutboxPoller:
         )
         await session.execute(stmt)
         self._stats["sent_total"] += 1
-        self._sent_counter.inc()
+        if self._sent_counter is not None:
+            self._sent_counter.inc()
 
     async def _mark_as_failed(
         self, session: AsyncSession, event_id, error: str, retry_count: int, max_retries: int
@@ -492,7 +504,8 @@ class OutboxPoller:
             )
             await session.execute(stmt)
             self._stats["dead_letter_total"] += 1
-            self._dead_letter_counter.inc()
+            if self._dead_letter_counter is not None:
+                self._dead_letter_counter.inc()
             logger.warning(f"Event {event_id} moved to DLQ after {max_retries} retries")
         else:
             # Exponential backoff
@@ -512,7 +525,8 @@ class OutboxPoller:
             )
             await session.execute(stmt)
             self._stats["failed_total"] += 1
-            self._failed_counter.inc()
+            if self._failed_counter is not None:
+                self._failed_counter.inc()
 
     # ========================================================================
     # ERROR CLASSIFICATION (OUT-040)
@@ -523,7 +537,8 @@ class OutboxPoller:
             return "permanent"
         if isinstance(exception, TemporaryError):
             return "temporary"
-        if isinstance(exception, (asyncio.TimeoutError, ConnectionError, OSError)):
+        # UP038: gunakan X | Y
+        if isinstance(exception, asyncio.TimeoutError | ConnectionError | OSError):
             return "temporary"
         if isinstance(exception, ValidationError):
             return "permanent"
@@ -646,7 +661,8 @@ class OutboxPoller:
 
             self._stats["processed_total"] += 1
             self._stats["last_poll_at"] = datetime.now().isoformat()
-            self._processed_counter.inc()
+            if self._processed_counter is not None:
+                self._processed_counter.inc()
 
     # ========================================================================
     # POLL ONCE (TRANSACTION)
@@ -669,7 +685,10 @@ class OutboxPoller:
 
             # Process outside transaction to avoid long locks
             async with get_async_session() as session2, session2.begin():
-                with self._processing_duration.time():
+                if self._processing_duration is not None:
+                    with self._processing_duration.time():
+                        await self._process_batch(session2, events)
+                else:
                     await self._process_batch(session2, events)
                 await session2.commit()
 
@@ -700,11 +719,10 @@ class OutboxPoller:
                     await self._health_check()
                     last_health_check = now
 
-                # Acquire lock (OUT-030)
-                if self._config.use_advisory_lock:
-                    if not await self._acquire_lock():
-                        logger.debug("Another poller has lock, skipping")
-                        continue
+                # Acquire lock (OUT-030) - SIM102: gabungkan if
+                if self._config.use_advisory_lock and not await self._acquire_lock():
+                    logger.debug("Another poller has lock, skipping")
+                    continue
 
                 self._stats["poll_count"] += 1
 

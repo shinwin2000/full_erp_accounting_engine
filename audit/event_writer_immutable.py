@@ -249,7 +249,12 @@ class ImmutableEventWriter:
             "DELETE": AuditEventType.DATA_DELETE,
         }
         event_type = event_type_map.get(action.upper(), AuditEventType.DATA_CHANGE)
-        data = {"target_type": target_type, "target_id": target_id, "action": action.upper()}
+        # Explicit type annotation to allow both str and dict values
+        data: dict[str, Any] = {
+            "target_type": target_type,
+            "target_id": target_id,
+            "action": action.upper(),
+        }
         if old_value:
             data["old_value"] = old_value
         if new_value:

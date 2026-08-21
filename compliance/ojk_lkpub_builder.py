@@ -123,9 +123,9 @@ class LKPBUBalanceSheet:
     total_equity: Decimal = Decimal("0")
 
     def compute_totals(self) -> None:
-        self.total_assets = sum(self.assets.values())
-        self.total_liabilities = sum(self.liabilities.values())
-        self.total_equity = sum(self.equity.values())
+        self.total_assets = sum(self.assets.values(), Decimal("0"))
+        self.total_liabilities = sum(self.liabilities.values(), Decimal("0"))
+        self.total_equity = sum(self.equity.values(), Decimal("0"))
 
     def is_balanced(self) -> bool:
         return self.total_assets == self.total_liabilities + self.total_equity
@@ -148,14 +148,14 @@ class LKPBUIncomeStatement:
     net_profit: Decimal = Decimal("0")
 
     def compute(self) -> None:
-        total_revenue = sum(self.revenue.values())
-        total_cogs = sum(self.cost_of_goods_sold.values())
+        total_revenue = sum(self.revenue.values(), Decimal("0"))
+        total_cogs = sum(self.cost_of_goods_sold.values(), Decimal("0"))
         self.gross_profit = total_revenue - total_cogs
-        total_opex = sum(self.operating_expenses.values())
+        total_opex = sum(self.operating_expenses.values(), Decimal("0"))
         self.operating_profit = self.gross_profit - total_opex
-        total_other_income = sum(self.other_income.values())
-        total_other_expenses = sum(self.other_expenses.values())
-        total_finance_cost = sum(self.finance_cost.values())
+        total_other_income = sum(self.other_income.values(), Decimal("0"))
+        total_other_expenses = sum(self.other_expenses.values(), Decimal("0"))
+        total_finance_cost = sum(self.finance_cost.values(), Decimal("0"))
         self.profit_before_tax = (
             self.operating_profit + total_other_income - total_other_expenses - total_finance_cost
         )
@@ -177,9 +177,9 @@ class LKPBUCashFlow:
     ending_cash: Decimal = Decimal("0")
 
     def compute(self) -> None:
-        self.net_cash_operating = sum(self.operating_activities.values())
-        self.net_cash_investing = sum(self.investing_activities.values())
-        self.net_cash_financing = sum(self.financing_activities.values())
+        self.net_cash_operating = sum(self.operating_activities.values(), Decimal("0"))
+        self.net_cash_investing = sum(self.investing_activities.values(), Decimal("0"))
+        self.net_cash_financing = sum(self.financing_activities.values(), Decimal("0"))
         self.net_increase_decrease = (
             self.net_cash_operating + self.net_cash_investing + self.net_cash_financing
         )
@@ -216,10 +216,10 @@ class LKPubReport:
     hash_sha256: str = ""
     # Tambahan untuk kompatibilitas test
     neraca: dict[str, dict[str, Decimal]] | None = None
-    total_aset: Decimal | None = None
-    total_liabilitas_dan_ekuitas: Decimal | None = None
-    aset_bersih: Decimal | None = None
-    rasio_ckpn: Decimal | None = None
+    total_aset: Decimal = Decimal("0")
+    total_liabilitas_dan_ekuitas: Decimal = Decimal("0")
+    aset_bersih: Decimal = Decimal("0")
+    rasio_ckpn: Decimal = Decimal("0.02")
     pendapatan_intercompany: Decimal = Decimal("0")
     beban_intercompany: Decimal = Decimal("0")
     digital_signature: Any = None  # bisa str atau objek
@@ -248,7 +248,7 @@ class LKPubReport:
             self.balance_sheet.total_liabilities + self.balance_sheet.total_equity
         )
         self.aset_bersih = self.balance_sheet.total_assets - self.balance_sheet.total_liabilities
-        if self.rasio_ckpn is None:
+        if self.rasio_ckpn == Decimal("0"):
             self.rasio_ckpn = Decimal("0.02")
         if isinstance(self.digital_signature, str):
             self.digital_signature = SimpleNamespace(
@@ -463,7 +463,7 @@ class OJKLKPubBuilder:
         return self
 
     def add_schedule(self, name: str, items: dict[str, Decimal]) -> OJKLKPubBuilder:
-        total = sum(items.values())
+        total = sum(items.values(), Decimal("0"))
         schedule = LKPUBSchedule(name=name, items=items, total=total)
         self._schedules.append(schedule)
         return self
@@ -490,7 +490,7 @@ class OJKLKPubBuilder:
         total_liabilities = self._balance_sheet.total_liabilities
         total_equity = self._balance_sheet.total_equity
         net_profit = self._income_statement.net_profit
-        revenue = sum(self._income_statement.revenue.values())
+        revenue = sum(self._income_statement.revenue.values(), Decimal("0"))
 
         if total_assets > 0:
             ratios["debt_to_assets"] = (total_liabilities / total_assets).quantize(
@@ -508,16 +508,16 @@ class OJKLKPubBuilder:
         if total_equity > 0:
             ratios["roe"] = (net_profit / total_equity * 100).quantize(Decimal("0.01"))
 
-        # Likuiditas (sederhana)
+        # Likuiditas (sederhana) - gunakan tanda kurung pada generator expression
         current_assets = sum(
-            v
-            for k, v in self._balance_sheet.assets.items()
-            if k.startswith(("101", "102", "110", "120"))
+            (v for k, v in self._balance_sheet.assets.items()
+             if k.startswith(("101", "102", "110", "120"))),
+            Decimal("0"),
         )
         current_liabilities = sum(
-            v
-            for k, v in self._balance_sheet.liabilities.items()
-            if k.startswith(("201", "210", "220"))
+            (v for k, v in self._balance_sheet.liabilities.items()
+             if k.startswith(("201", "210", "220"))),
+            Decimal("0"),
         )
         if current_liabilities > 0:
             ratios["current_ratio"] = (current_assets / current_liabilities).quantize(
@@ -597,7 +597,11 @@ class OJKLKPubBuilder:
 
         # Eliminasi intercompany jika diminta
         if consolidated:
-            _total_ic = sum(tx.amount for tx in self.intercompany_transactions)
+            # Perbaiki: tambahkan tanda kurung pada generator expression
+            _total_ic = sum(
+                (tx.amount for tx in self.intercompany_transactions),
+                Decimal("0")
+            )
             report.pendapatan_intercompany = Decimal("0")
             report.beban_intercompany = Decimal("0")
 

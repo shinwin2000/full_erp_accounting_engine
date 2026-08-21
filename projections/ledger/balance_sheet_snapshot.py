@@ -27,7 +27,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -59,7 +59,7 @@ class BalanceSheetSnapshotError(Exception):
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class BalanceSheetSnapshotTable(Base):

@@ -151,9 +151,9 @@ class BindingPrecedenceResolver:
         if source_b.status != LegalSourceStatus.ACTIVE or source_b.is_superseded:
             raise LegalError(f"Source {source_b.citation} is not active")
 
-        winner = None
-        reason = None
-        applied_rules = []
+        winner: LegalSource | None = None
+        reason: ResolutionReason | None = None
+        applied_rules: list[PrecedenceRule] = []
 
         for rule in self._rule_order:
             if rule == PrecedenceRule.HIERARCHY:
@@ -215,7 +215,13 @@ class BindingPrecedenceResolver:
         if winner is None:
             winner = source_a if str(source_a.id) > str(source_b.id) else source_b
             reason = ResolutionReason.TIE_BREAKER
-            applied_rules = [*self._rule_order, PrecedenceRule.TEMPORAL]  # fallback
+            # Fallback: gunakan rule order + temporal sebagai applied_rules
+            # Perbaikan RUF005: gunakan unpacking list
+            applied_rules = [*self._rule_order, PrecedenceRule.TEMPORAL]
+
+        # Pastikan reason tidak None (seharusnya sudah terisi)
+        if reason is None:
+            reason = ResolutionReason.TIE_BREAKER
 
         resolution = PrecedenceResolution(
             resolution_id=uuid4(),

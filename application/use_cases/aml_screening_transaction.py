@@ -365,9 +365,8 @@ class AMLScreeningUseCase:
         if not inbound:
             return False
         total_inbound = sum(t.amount for t in inbound)
-        if command.amount >= total_inbound * Decimal("0.8"):
-            return True
-        return False
+        # FIX: SIM103 - return the condition directly
+        return command.amount >= total_inbound * Decimal("0.8")
 
     async def _check_pep(self, command: AMLScreeningCommand) -> bool:
         pep_check_from = await self._iam_service.is_pep(command.from_party_id)

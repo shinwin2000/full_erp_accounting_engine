@@ -207,26 +207,32 @@ class ForexService:
 
         logger.info("ForexService initialized")
 
-    def set_context(self, legal_entity_id: UUID | None) -> None:
+    def set_context(self, legal_entity_id: UUID | None, session: AsyncSession | None = None) -> None:
         """
-        Ikat legal_entity_id per-request ke repo.
+        Ikat legal_entity_id & session per-request ke repo.
 
         CATATAN: ForexService & self.forex_repo didaftarkan sebagai
         singleton di IoC container (satu instance untuk seumur hidup
-        aplikasi), sedangkan legal_entity_id itu per-request/per-tenant.
-        Tanpa ini, beberapa method repo (get_rate/set_rate/
-        get_last_revaluation_rate, dll) akan selalu ValueError
-        "legal_entity_id not set in repository" begitu dipanggil, karena
-        legal_entity_id sebelumnya cuma bisa diisi lewat konstruktor sekali
-        di awal proses. HARUS dipanggil router di awal setiap endpoint
-        (sebelum method service manapun dipanggil), memakai
-        legal_entity_id yang dikirim frontend lewat query/path param.
+        aplikasi), sedangkan legal_entity_id DAN session itu per-request/
+        per-tenant. Tanpa legal_entity_id di-set, beberapa method repo
+        (get_rate/set_rate/get_last_revaluation_rate, dll) akan selalu
+        ValueError "legal_entity_id not set in repository". Tanpa session
+        di-set FRESH tiap request (bukan session lama yang dipegang terus
+        oleh singleton), AsyncSession SQLAlchemy bisa kena race condition
+        antar request bersamaan ("This session is provisioning a new
+        connection; concurrent operations are not permitted"). HARUS
+        dipanggil router di awal setiap endpoint (sebelum method service
+        manapun dipanggil), dengan legal_entity_id dari query/path param
+        dan session dari Depends(get_db_session).
 
         legal_entity_id boleh None untuk endpoint yang genuinely tidak
         scoped per entitas (mis. currency master - mata uang berlaku
-        global, bukan per legal entity) - dalam hal ini repo dibiarkan
-        seperti kondisi terakhir, tidak ditimpa.
+        global, bukan per legal entity) - dalam hal ini legal_entity_id
+        di repo dibiarkan seperti kondisi terakhir, tidak ditimpa. session
+        tetap harus di-set kalau diberikan, terlepas dari legal_entity_id.
         """
+        if session is not None and hasattr(type(self.forex_repo), "session"):
+            self.forex_repo.session = session
         if legal_entity_id is None:
             return
         if hasattr(type(self.forex_repo), "legal_entity_id"):

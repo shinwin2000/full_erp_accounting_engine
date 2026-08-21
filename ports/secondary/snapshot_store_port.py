@@ -467,7 +467,7 @@ class InMemorySnapshotStore(SnapshotStorePort):
         total_snapshots = len(self._snapshots)
         active = sum(1 for s in self._snapshots.values() if s.metadata.status == SnapshotStatus.ACTIVE)
         total_size = sum(s.metadata.compressed_size_bytes for s in self._snapshots.values())
-        by_aggregate_type = {}
+        by_aggregate_type: dict[str, int] = {}
         for s in self._snapshots.values():
             if s.metadata.status != SnapshotStatus.ACTIVE:
                 continue

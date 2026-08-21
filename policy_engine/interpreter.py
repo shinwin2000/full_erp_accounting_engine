@@ -68,7 +68,7 @@ class ConditionEvaluator:
         "<=": operator.le,
         "in": lambda x, y: x in y,
         "not_in": lambda x, y: x not in y,
-        "contains": lambda x, y: y in x if isinstance(x, (str, list, tuple, dict)) else False,
+        "contains": lambda x, y: y in x if isinstance(x, str | list | tuple | dict) else False,
         "matches": lambda x, y: bool(re.match(y, str(x))) if isinstance(y, str) else False,
         "is": operator.is_,
         "is_not": operator.is_not,
@@ -236,27 +236,29 @@ class ConditionEvaluator:
         # Nested attribute (e.g., user.name, data['key'])
         if "." in expr:
             parts = expr.split(".")
-            val = context
+            current: Any = context
             for part in parts:
-                if val is None:
+                if current is None:
                     break
-                if isinstance(val, dict):
-                    val = val.get(part)
+                if isinstance(current, dict):
+                    current = current.get(part)
                 else:
-                    val = getattr(val, part, None)
-            if val is not None:
-                return val
+                    current = getattr(current, part, None)
+            if current is not None:
+                return current
 
         # Dictionary access with bracket
         bracket_match = re.match(r"^(\w+)\[([^\]]+)\]$", expr)
         if bracket_match:
             var_name = bracket_match.group(1)
             key = cls._resolve_value(bracket_match.group(2).strip(), context)
-            val = context.get(var_name)
-            if isinstance(val, dict):
-                return val.get(key)
-            if isinstance(val, list) and isinstance(key, int):
-                return val[key] if 0 <= key < len(val) else None
+            current = context.get(var_name)
+            if isinstance(current, dict):
+                return current.get(key)
+            if isinstance(current, list) and isinstance(key, int):
+                if 0 <= key < len(current):
+                    return current[key]
+                return None
 
         # Jika tidak ditemukan, kembalikan expr sebagai string (warning)
         logger.warning(f"Could not resolve expression '{expr}', treating as string")
@@ -611,6 +613,7 @@ class PolicyInterpreter:
     """
 
     _instance: PolicyInterpreter | None = None
+    _initialized: bool = False  # FIX: tambahkan anotasi tipe untuk mypy
     _cache_enabled: bool = True
     _cache_ttl: int = 300
     _evaluation_cache: ClassVar[dict[str, tuple[bool, float]]] = {}  # condition hash -> (result, timestamp)
@@ -651,7 +654,7 @@ class PolicyInterpreter:
                 rate = Decimal(parts[1])
                 return {"rate": rate}
         # Use the full executor
-        results = []
+        results: list[Any] = []  # FIX: tambahkan anotasi tipe
         self._action_executor.execute(action, context, results)
         if results:
             return results[0]
@@ -677,7 +680,7 @@ class PolicyInterpreter:
         Returns:
             List hasil aksi yang dieksekusi
         """
-        results = []
+        results: list[dict[str, Any]] = []  # FIX: tambahkan anotasi tipe
         context["_policy_id"] = policy.id
         context["_policy_version"] = policy.version
         context["_evaluation_time"] = datetime.now(UTC)
@@ -746,7 +749,7 @@ class PolicyInterpreter:
         Mengevaluasi kebijakan untuk multiple domain.
         Returns dictionary mapping domain ke hasil aksi.
         """
-        results = {}
+        results: dict[str, list[dict[str, Any]]] = {}
         for domain in domains:
             results[domain] = self.evaluate_by_domain(domain, context, as_of, jurisdiction)
         return results

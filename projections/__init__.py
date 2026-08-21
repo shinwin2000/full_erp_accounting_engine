@@ -5,4 +5,4 @@ Package: projections
 Read models (projections) untuk CQRS.
 """
 
-__all__ = []
+__all__: list[str] = []

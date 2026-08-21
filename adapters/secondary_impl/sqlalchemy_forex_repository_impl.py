@@ -118,18 +118,38 @@ class SQLAlchemyForexRepository(ForexRepositoryPort):
         """
         self._legal_entity_id = value
 
+    @property
+    def session(self) -> AsyncSession | None:
+        return self._session
+
+    @session.setter
+    def session(self, value: AsyncSession) -> None:
+        """
+        Ikat session FRESH per-request ke repo ini.
+
+        CATATAN BUG BESAR yang diperbaiki: repo ini singleton, dan
+        sebelumnya "self-heal" - bikin SATU AsyncSession sekali lalu
+        dipakai ULANG terus untuk semua request berikutnya. AsyncSession
+        SQLAlchemy TIDAK aman dipakai dari lebih dari satu coroutine
+        secara bersamaan - begitu 2+ request forex nyaris bersamaan,
+        muncul "InvalidRequestError: This session is provisioning a new
+        connection; concurrent operations are not permitted". Fix: router
+        sekarang WAJIB menyuntik session baru per-request lewat
+        Depends(get_db_session) dan set lewat forex_svc.set_context(),
+        yang meneruskan ke sini.
+        """
+        self._session = value
+
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            # FIX: get_async_session() itu AsyncGenerator (dipakai via
-            # `async with`/`async for`, mis. sebagai FastAPI dependency),
-            # BUKAN sesuatu yang bisa langsung di-`await` untuk dapat
-            # AsyncSession - itu penyebab "TypeError: object async_generator
-            # can't be used in 'await' expression". get_async_session_direct()
-            # memang didesain untuk kasus repo yang mengelola session sendiri
-            # seperti di sini.
+            # Fallback untuk pemanggilan internal/lama yang belum
+            # menyuntik session eksplisit lewat set_context() - sebaiknya
+            # tidak terjadi lagi di jalur HTTP normal, tapi tetap
+            # menyediakan session yang valid daripada crash.
             from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
             self._session = await get_async_session_direct()
         return self._session
+
 
     async def commit(self) -> None:
         """

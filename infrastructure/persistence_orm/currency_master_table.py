@@ -29,7 +29,14 @@ class CurrencyMasterTable(Base):
     __tablename__ = "currency_master"
     __table_args__ = ({"extend_existing": True},)
 
-    code: Mapped[str] = mapped_column(String(3), primary_key=True)
+    # CATATAN: id (UUID primary key) diwarisi otomatis dari Base
+    # (infrastructure.persistence_orm.base_model.Base mendeklarasikan
+    # `id` di semua turunannya) - jangan dideklarasikan ulang di sini.
+    # Migrasi awal (b2c3d4e5f6a7) sempat membuat tabel dengan `code`
+    # sebagai primary key TANPA kolom id, tidak sinkron dengan konvensi
+    # Base ini - sudah diperbaiki migrasi d0e1f2a3b4c5 (tambah id sebagai
+    # PK, code jadi unique biasa).
+    code: Mapped[str] = mapped_column(String(3), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     symbol: Mapped[str | None] = mapped_column(String(10), nullable=True)
     decimal_places: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
@@ -42,6 +49,7 @@ class CurrencyMasterTable(Base):
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": str(self.id),
             "code": self.code,
             "name": self.name,
             "symbol": self.symbol,

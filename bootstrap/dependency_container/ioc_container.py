@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import types
 from collections.abc import Callable
 from enum import Enum
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -288,8 +289,22 @@ class IoCContainer:
             # tetap fallback ke default lewat except di bawah seperti biasa
             # (mis. `session: AsyncSession | None = None` tetap jatuh ke
             # default None, bukan salah resolve).
+            #
+            # FIX (2026-08-20): sebelumnya cek ini cuma `origin is Union`,
+            # yang HANYA cocok untuk sintaks lama `typing.Optional[X]` /
+            # `typing.Union[X, None]`. Sintaks modern `X | None` (PEP 604,
+            # dipakai hampir di seluruh codebase ini) menghasilkan
+            # `types.UnionType`, BUKAN `typing.Union` - beda objek sama
+            # sekali. Akibatnya, SEMUA constructor param opsional bergaya
+            # `X | None = None` gagal ter-unwrap, `resolve_async(X | None)`
+            # dipanggil dengan tipe union mentah (yang jelas tidak pernah
+            # terdaftar), langsung jatuh ke `except DependencyNotFoundError`
+            # dan pakai default (`None`) - WALAUPUN `X` sendiri sudah
+            # terdaftar di container. Bug ini senyap karena tidak pernah
+            # error, cuma diam-diam selalu inject `None` untuk setiap
+            # dependency opsional gaya baru di seluruh aplikasi.
             origin = get_origin(param_type)
-            if origin is Union:
+            if origin is Union or origin is types.UnionType:
                 non_none_args = [a for a in get_args(param_type) if a is not type(None)]
                 if len(non_none_args) == 1:
                     param_type = non_none_args[0]

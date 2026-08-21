@@ -237,16 +237,17 @@ class PSAK19IntangibleRegister:
     development_cost_capitalized_ytd: Decimal = Decimal(0)
 
     def total_cost(self) -> Decimal:
-        return sum(a.cost for a in self.assets if a.is_active)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((a.cost for a in self.assets if a.is_active), Decimal(0))
 
     def total_accumulated_amortization(self) -> Decimal:
-        return sum(a.accumulated_amortization for a in self.assets if a.is_active)
+        return sum((a.accumulated_amortization for a in self.assets if a.is_active), Decimal(0))
 
     def total_carrying_amount(self) -> Decimal:
-        return sum(a.carrying_amount for a in self.assets if a.is_active)
+        return sum((a.carrying_amount for a in self.assets if a.is_active), Decimal(0))
 
     def total_revaluation_surplus(self) -> Decimal:
-        return sum(a.current_revaluation_surplus for a in self.assets if a.is_active)
+        return sum((a.current_revaluation_surplus for a in self.assets if a.is_active), Decimal(0))
 
     def to_dict(self) -> dict:
         return {

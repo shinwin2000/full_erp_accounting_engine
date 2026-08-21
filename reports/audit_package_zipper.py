@@ -29,10 +29,10 @@ import tempfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-import aiofiles  # <-- Tambahan untuk async file I/O
-from sqlalchemy import select  # <-- Tambahan import yang hilang
+import aiofiles  # type: ignore[import-untyped]
+from sqlalchemy import select
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -226,7 +226,7 @@ class AuditPackageZipper:
                 await f.write(csv_content)
 
             # 6. Create manifest
-            manifest = {
+            manifest: dict[str, Any] = {
                 "version": MANIFEST_VERSION,
                 "package_name": package_name,
                 "legal_entity_id": str(legal_entity_id),

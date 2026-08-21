@@ -26,7 +26,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore[import-untyped]
 
 # PDF generation (reportlab)
 try:
@@ -85,7 +85,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "templates_dir": "templates/reports",
     "fonts_dir": "fonts",
     "output_dir": "/tmp/reports",
@@ -159,11 +159,11 @@ class ReportGenerator:
     def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
-            # Merge dengan default untuk memastikan semua key ada
-            result = DEFAULT_CONFIG.copy()
+            result: dict[str, Any] = DEFAULT_CONFIG.copy()
             for key, value in config.items():
-                if key in result and isinstance(value, dict):
-                    result[key].update(value)
+                # Only merge if both are dicts; otherwise simply assign
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key].update(value)  # type: ignore[attr-defined]
                 else:
                     result[key] = value
             return result
@@ -374,12 +374,12 @@ class ReportGenerator:
                 for row_idx, row in enumerate(rows, 2):
                     for col_idx, value in enumerate(row, 1):
                         cell = ws.cell(row=row_idx, column=col_idx)
-                        if isinstance(value, (Decimal, int, float)):
+                        if isinstance(value, Decimal | int | float):
                             cell.value = value
                         else:
                             cell.value = str(value) if value is not None else ""
 
-                        if isinstance(value, (int, float, Decimal)):
+                        if isinstance(value, int | float | Decimal):
                             cell.number_format = "#,##0.00"
 
                 # Auto-adjust column widths

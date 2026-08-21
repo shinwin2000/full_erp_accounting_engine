@@ -320,8 +320,9 @@ async def post_journal_entry_handler(
                 error_code=cached.get("error_code"),
             )
 
-    total_debit = sum(Decimal(str(line.get("debit", 0))) for line in command.lines)
-    total_credit = sum(Decimal(str(line.get("credit", 0))) for line in command.lines)
+    # FIX: gunakan Decimal(0) sebagai nilai awal sum untuk menghindari Literal[0] / Decimal union
+    total_debit = sum((Decimal(str(line.get("debit", 0))) for line in command.lines), Decimal(0))
+    total_credit = sum((Decimal(str(line.get("credit", 0))) for line in command.lines), Decimal(0))
     BalanceGuard().validate(total_debit, total_credit)
     PeriodGuard().validate(command.period, command.journal_date)
 

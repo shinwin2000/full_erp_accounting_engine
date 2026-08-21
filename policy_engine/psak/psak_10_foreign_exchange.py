@@ -551,15 +551,18 @@ class PSAK10Validator:
         self, disclosure: ForeignExchangeDisclosure, transaction: ForeignCurrencyTransaction
     ) -> ForeignExchangeDisclosure:
         new_txns = [*disclosure.transactions, transaction]
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
         total_pl = sum(
-            t.exchange_difference
-            for t in new_txns
-            if t.recognized_in == ExchangeDifferenceTreatment.RECOGNIZED_IN_PL
+            (t.exchange_difference
+             for t in new_txns
+             if t.recognized_in == ExchangeDifferenceTreatment.RECOGNIZED_IN_PL),
+            Decimal(0)
         )
         total_oci = sum(
-            t.exchange_difference
-            for t in new_txns
-            if t.recognized_in == ExchangeDifferenceTreatment.RECOGNIZED_IN_OCI
+            (t.exchange_difference
+             for t in new_txns
+             if t.recognized_in == ExchangeDifferenceTreatment.RECOGNIZED_IN_OCI),
+            Decimal(0)
         )
         return ForeignExchangeDisclosure(
             disclosure_id=disclosure.disclosure_id,

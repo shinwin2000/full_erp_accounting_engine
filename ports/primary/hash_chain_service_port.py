@@ -14,6 +14,7 @@ import json
 import logging
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -190,7 +191,7 @@ class HashChainServicePort(abc.ABC):
 
     @abc.abstractmethod
     async def start_monitoring(
-        self, interval_seconds: int = 3600, alert_callback: callable | None = None
+        self, interval_seconds: int = 3600, alert_callback: Callable[[IntegrityCheckResult], Awaitable[None]] | None = None
     ):
         """Mulai background monitoring untuk verifikasi periodik."""
         ...
@@ -474,7 +475,7 @@ class InMemoryHashChainService(HashChainServicePort):
     async def verify_all_chains(
         self, check_signatures: bool = True
     ) -> dict[ChainType, dict[UUID, IntegrityCheckResult]]:
-        results = {}
+        results: dict[ChainType, dict[UUID, IntegrityCheckResult]] = {}
         for chain_type, chains in self._chains.items():
             results[chain_type] = {}
             for chain_id in chains:
@@ -579,7 +580,7 @@ class InMemoryHashChainService(HashChainServicePort):
         return new_entry
 
     async def start_monitoring(
-        self, interval_seconds: int = 3600, alert_callback: callable | None = None
+        self, interval_seconds: int = 3600, alert_callback: Callable[[IntegrityCheckResult], Awaitable[None]] | None = None
     ):
         if self._monitoring:
             logger.warning("Monitoring already running")

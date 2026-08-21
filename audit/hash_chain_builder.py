@@ -84,7 +84,7 @@ class AuditHashChainBuilder:
     - Mendukung multiple streams (untuk audit per entity)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict[str, str] = {}  # stream_name -> last_hash
 
     @staticmethod
@@ -189,20 +189,31 @@ class AuditHashChainBuilder:
 
             # Check if previous_hash matches the computed last_hash
             if previous_hash != last_hash:
-                error_msg = f"Hash chain broken at index {i}: expected previous_hash {last_hash[:16]}..., got {previous_hash[:16]}..."
+                # Convert to string to ensure safe slicing
+                prev_str = str(previous_hash) if previous_hash is not None else "<None>"
+                last_str = str(last_hash)
+                error_msg = (
+                    f"Hash chain broken at index {i}: expected previous_hash {last_str[:16]}..., "
+                    f"got {prev_str[:16]}..."
+                )
                 logger = _get_logger()
                 logger.error(error_msg)
                 return False, i, error_msg
 
             # Verify record hash is correct (recompute)
-            recomputed = self.compute_record_hash(record, previous_hash)
+            recomputed = self.compute_record_hash(record, previous_hash)  # type: ignore
             if record_hash != recomputed:
-                error_msg = f"Hash mismatch at index {i}: stored {record_hash[:16]}..., computed {recomputed[:16]}..."
+                rec_str = str(record_hash) if record_hash is not None else "<None>"
+                rec_computed = str(recomputed)
+                error_msg = (
+                    f"Hash mismatch at index {i}: stored {rec_str[:16]}..., "
+                    f"computed {rec_computed[:16]}..."
+                )
                 logger = _get_logger()
                 logger.error(error_msg)
                 return False, i, error_msg
 
-            last_hash = record_hash
+            last_hash = record_hash  # type: ignore
 
         # Update cache if valid
         if stream_name:
@@ -231,11 +242,11 @@ class AuditHashChainBuilder:
             if previous_hash != last_hash:
                 return i
 
-            recomputed = self.compute_record_hash(record, previous_hash)
+            recomputed = self.compute_record_hash(record, previous_hash)  # type: ignore
             if record_hash != recomputed:
                 return i
 
-            last_hash = record_hash
+            last_hash = record_hash  # type: ignore
 
         return None
 
@@ -302,10 +313,13 @@ class AuditHashChainBuilder:
 
         is_valid, broken_at, _ = await self.verify_chain(records)
 
+        first_hash = records[0].get("hash", GENESIS_HASH)
+        last_hash = records[-1].get("hash", GENESIS_HASH)
+
         return {
             "record_count": len(records),
-            "first_hash": records[0].get("hash", GENESIS_HASH)[:16] + "...",
-            "last_hash": records[-1].get("hash", GENESIS_HASH)[:16] + "...",
+            "first_hash": str(first_hash)[:16] + "...",
+            "last_hash": str(last_hash)[:16] + "...",
             "is_valid": is_valid,
             "broken_at_index": broken_at if not is_valid else None,
         }

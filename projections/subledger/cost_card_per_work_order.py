@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Column, DateTime, Index, Numeric, String, delete, insert, select, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
 from infrastructure.persistence_orm.work_order_table import WorkOrderTable
@@ -47,7 +47,7 @@ class CostCardError(Exception):
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class CostCardTable(Base):
@@ -97,7 +97,7 @@ class CostCardPerWorkOrder:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
-        return await self._session_factory.get_session()
+        return self._session_factory.get_session()
 
     async def compute_cost_card(self, work_order_id: UUID, legal_entity_id: UUID) -> dict[str, Any]:
         async with await self._get_session() as session:

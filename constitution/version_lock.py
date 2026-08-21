@@ -262,7 +262,8 @@ class VersionMetadata:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    # FIX: rename method untuk menghindari konflik dengan atribut 'version'
+    def get_version_number(self) -> int:
         return self.version_number
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -422,7 +423,7 @@ class VersionLockRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version_number(self) -> int:
         return self.version_number
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -596,7 +597,7 @@ class VersionChangeAttempt:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version_number(self) -> int:
         return self.version_number
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -766,7 +767,7 @@ class IntegrityReport:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version_number(self) -> int:
         return self.version_number
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -1089,8 +1090,11 @@ class VersionLock:
             )
             result = IntegrityCheckResult.MODIFIED
         if expected_hash and actual_hash != expected_hash:
+            # FIX: hindari slicing None
+            expected_prefix = (expected_hash or "")[:16]
+            actual_prefix = (actual_hash or "")[:16]
             discrepancies.append(
-                f"Hash mismatch: expected {expected_hash[:16]}..., actual {actual_hash[:16]}..."
+                f"Hash mismatch: expected {expected_prefix}..., actual {actual_prefix}..."
             )
             result = (
                 IntegrityCheckResult.TAMPERED if expected_hash else IntegrityCheckResult.CORRUPTED
@@ -1161,7 +1165,6 @@ class VersionLock:
             return False
         if self.current_state == VersionLockState.LOCKED and not is_amendment:
             return False
-        # Perbaikan SIM103: kembalikan kondisi secara langsung
         return self.current_state != VersionLockState.CORRUPTED
 
     def get_version_timeline(self) -> list[dict[str, Any]]:
@@ -1216,7 +1219,8 @@ class VersionLock:
 
 class VersionLockService:
     _instance: VersionLockService | None = None
-    _version_lock: VersionLock | None = None
+    _version_lock: VersionLock  # selalu tidak None
+    _initialized: bool  # tambahkan deklarasi
     _scheduler_thread: threading.Thread | None = None
     _stop_scheduler: bool = False
 

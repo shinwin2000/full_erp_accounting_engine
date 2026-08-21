@@ -23,10 +23,6 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 
-from infrastructure.persistence_orm.consolidation_group_table import ConsolidationGroupTable
-from infrastructure.persistence_orm.legal_entity_branch_table import LegalEntityBranchTable
-from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
-
 # Import domain events
 from application.events import (
     CompanyAddressUpdatedEvent,
@@ -39,6 +35,9 @@ from application.events import (
     LegalEntityDeactivatedEvent,
     LegalEntityUpdatedEvent,
 )
+from infrastructure.persistence_orm.consolidation_group_table import ConsolidationGroupTable
+from infrastructure.persistence_orm.legal_entity_branch_table import LegalEntityBranchTable
+from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
@@ -1914,18 +1913,18 @@ async def create_legal_entity_service(
 
 
 __all__ = [
-    "LegalEntity",
+    "BranchNotFoundError",
     "ConsolidationGroup",
+    "ConsolidationGroupNotFoundError",
+    "EntityStatus",
+    "EntityType",
+    "LegalEntity",
     "LegalEntityBranch",
     "LegalEntityHistoryEntry",
-    "LegalEntityStatusInfo",
-    "TaxProfileInfo",
+    "LegalEntityNotFoundError",
     "LegalEntityService",
     "LegalEntityServiceError",
-    "LegalEntityNotFoundError",
-    "ConsolidationGroupNotFoundError",
-    "BranchNotFoundError",
-    "EntityType",
-    "EntityStatus",
+    "LegalEntityStatusInfo",
+    "TaxProfileInfo",
     "create_legal_entity_service",
 ]

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore  # missing stubs
 
 # Import dari layer audit (diizinkan)
 from audit.hash_chain_builder import AuditHashChainBuilder, get_audit_hash_builder
@@ -241,7 +241,7 @@ class RegulatoryAttestationSigner:
     - Export attestation ke file (JSON + signature)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._signer = None
         self._hash_builder: AuditHashChainBuilder | None = None
         self._event_store = None
@@ -417,10 +417,16 @@ class RegulatoryAttestationSigner:
         if not attestation:
             raise AttestationNotFoundError(f"Attestation {attestation_id} not found")
 
-        result = {"attestation_id": str(attestation_id), "is_valid": False, "checks": []}
+        # Explicit type annotation to avoid mypy errors on .append
+        result: dict[str, Any] = {
+            "attestation_id": str(attestation_id),
+            "is_valid": False,
+            "checks": [],
+        }
+        checks: list[dict[str, Any]] = result["checks"]  # type: ignore
 
         # 1. Check status
-        result["checks"].append(
+        checks.append(
             {
                 "check": "status",
                 "passed": attestation.status == AttestationStatus.SIGNED,
@@ -430,7 +436,7 @@ class RegulatoryAttestationSigner:
 
         # 2. Check expiry
         is_expired = attestation.is_expired()
-        result["checks"].append(
+        checks.append(
             {
                 "check": "expiry",
                 "passed": not is_expired,
@@ -454,11 +460,13 @@ class RegulatoryAttestationSigner:
         content_json = json.dumps(content, sort_keys=True, default=str)
         computed_hash = hashlib.sha256(content_json.encode()).hexdigest()
         hash_valid = computed_hash == attestation.content_hash
-        result["checks"].append(
+        # Guard against None for slicing
+        stored_hash = attestation.content_hash or ""
+        checks.append(
             {
                 "check": "content_hash",
                 "passed": hash_valid,
-                "details": f"Computed: {computed_hash[:16]}..., Stored: {attestation.content_hash[:16]}...",
+                "details": f"Computed: {computed_hash[:16]}..., Stored: {stored_hash[:16]}...",
             }
         )
 
@@ -467,7 +475,7 @@ class RegulatoryAttestationSigner:
         if attestation.signature:
             signer = await self._get_signer()
             signature_valid = signer.verify(content_json, attestation.signature)
-        result["checks"].append(
+        checks.append(
             {
                 "check": "signature",
                 "passed": signature_valid,
@@ -480,15 +488,16 @@ class RegulatoryAttestationSigner:
             attestation.legal_entity_id, attestation.period_start, attestation.period_end
         )
         audit_root_valid = current_audit_root == attestation.audit_root_hash
-        result["checks"].append(
+        stored_root = attestation.audit_root_hash or ""
+        checks.append(
             {
                 "check": "audit_root_hash",
                 "passed": audit_root_valid,
-                "details": f"Current root: {current_audit_root[:16]}..., Stored: {attestation.audit_root_hash[:16]}...",
+                "details": f"Current root: {current_audit_root[:16]}..., Stored: {stored_root[:16]}...",
             }
         )
 
-        result["is_valid"] = all(c["passed"] for c in result["checks"])
+        result["is_valid"] = all(c["passed"] for c in checks)
 
         return result
 
@@ -613,7 +622,7 @@ class RegulatoryAttestationSigner:
     async def get_stats(self) -> dict[str, Any]:
         """Mendapatkan statistik attestations."""
         all_attestations = await self.list_attestations(limit=1000)
-        by_status = {}
+        by_status: dict[str, int] = {}  # FIX: tambahkan type annotation
         for att in all_attestations:
             by_status[att.status] = by_status.get(att.status, 0) + 1
 

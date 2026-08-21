@@ -174,8 +174,9 @@ class PSAK22BusinessCombination:
 
     @property
     def net_identifiable_assets(self) -> Decimal:
-        total_assets = sum(a.fair_value for a in self.identifiable_assets)
-        total_liabilities = sum(liab.fair_value for liab in self.identifiable_liabilities)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        total_assets = sum((a.fair_value for a in self.identifiable_assets), Decimal(0))
+        total_liabilities = sum((liab.fair_value for liab in self.identifiable_liabilities), Decimal(0))
         return total_assets - total_liabilities
 
     @property
@@ -283,8 +284,9 @@ class PSAK22BusinessCombinationService:
     def calculate_acquired_net_assets(
         assets: list[PSAK22IdentifiableAsset], liabilities: list[PSAK22IdentifiableLiability]
     ) -> Decimal:
-        total_assets = sum(a.fair_value for a in assets)
-        total_liabilities = sum(liab.fair_value for liab in liabilities)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        total_assets = sum((a.fair_value for a in assets), Decimal(0))
+        total_liabilities = sum((liab.fair_value for liab in liabilities), Decimal(0))
         return total_assets - total_liabilities
 
     @staticmethod
@@ -677,6 +679,8 @@ GoodwillCalculation = PSAK22GoodwillCalculation
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak22_validator()
     acquirer_id = uuid4()
     acquiree_id = uuid4()

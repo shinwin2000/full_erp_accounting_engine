@@ -336,12 +336,15 @@ class PeriodCloseUseCase:
                 )
                 if not period_check:
                     raise ValueError(f"Period {period_str} not found")
-                if period_check.status not in (PeriodStatus.OPEN.value, PeriodStatus.LOCKED.value):
-                    if not command.force_close:
-                        raise ValueError(
-                            f"Cannot close period {period_str}: status is {period_check.status}. "
-                            "Must be OPEN or LOCKED."
-                        )
+                # FIX: Combine nested if statements (SIM102)
+                if (
+                    period_check.status not in (PeriodStatus.OPEN.value, PeriodStatus.LOCKED.value)
+                    and not command.force_close
+                ):
+                    raise ValueError(
+                        f"Cannot close period {period_str}: status is {period_check.status}. "
+                        "Must be OPEN or LOCKED."
+                    )
                 updated = await self._period_service.close_period(
                     legal_entity_id=command.legal_entity_id,
                     year=command.period_year,

@@ -20,19 +20,24 @@ import logging
 from dataclasses import dataclass, field
 from decimal import ROUND_DOWN, Decimal
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# Import optional, fallback jika tidak ada
-try:
+# ====== Conditional import untuk menghindari mypy no-redef ======
+if TYPE_CHECKING:
+    # Saat type checking, import dari domain
     from domain.customer_supplier_employee.employee_ptkp_status_vo import EmployeePTKPStatusVO
-except ImportError:
-    # Dummy class for test compatibility
-    class EmployeePTKPStatusVO:
-        def __init__(self, status_code: str = "TK/0"):
-            self._status_code = status_code
+else:
+    # Saat runtime, coba import, fallback ke dummy
+    try:
+        from domain.customer_supplier_employee.employee_ptkp_status_vo import EmployeePTKPStatusVO
+    except ImportError:
+        # Dummy class untuk test compatibility
+        class EmployeePTKPStatusVO:
+            def __init__(self, status_code: str = "TK/0"):
+                self._status_code = status_code
 
-        def get_status_code(self) -> str:
-            return self._status_code
+            def get_status_code(self) -> str:
+                return self._status_code
 
 
 logger = logging.getLogger(__name__)

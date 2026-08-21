@@ -198,7 +198,7 @@ class CoretaxWebhookSignatureVerifier(BaseTransformer):
         return hmac.compare_digest(expected, signature)
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not self.webhook_secret or self.webhook_secret == "change-me-in-production":
             errors.append("Webhook secret is using default value, please configure in production")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -501,17 +501,26 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         taxpayer_id = validated.get("taxpayer_id")
         tax_type = validated.get("tax_type")
         period = validated.get("period")
+
+        # FIX: ensure taxpayer_id is a string or None
+        taxpayer_id_str = str(taxpayer_id) if taxpayer_id is not None else None
+
         await self._tax_service.record_ntpn_validation(
             ntpn=ntpn,
             amount=Decimal(str(amount)) if amount else None,
             payment_date=self._parse_date(payment_date) if payment_date else None,
-            npwp=taxpayer_id,
+            npwp=taxpayer_id_str,
             is_valid=is_valid,
             result=validated,
         )
         logger.info(f"NTPN {ntpn} validation result: {is_valid}")
-        if is_valid and tax_type and period:
-            await self._update_spt_payment_status(tax_type, period, ntpn, taxpayer_id)
+        if is_valid and tax_type and period and taxpayer_id_str:
+            await self._update_spt_payment_status(
+                tax_type=tax_type,
+                period=period,
+                ntpn=ntpn,
+                npwp=taxpayer_id_str,
+            )
 
     async def _handle_health_webhook(
         self, payload: dict[str, Any], envelope: EventEnvelope
@@ -587,7 +596,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         logger.info("CoretaxWebhookToTaxCommandTransformer reset")
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         if self._signature_verifier is None:
             errors.append("Signature verifier not initialized")
         if self._payload_validator is None:

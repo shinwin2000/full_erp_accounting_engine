@@ -29,8 +29,8 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from typing import Any
 
-import requests
-from requests.adapters import HTTPAdapter
+import requests  # type: ignore
+from requests.adapters import HTTPAdapter  # type: ignore
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
@@ -287,8 +287,8 @@ class CoreTaxValidator:
         Validasi faktur pajak (versi lengkap, mengembalikan FakturValidationResult).
         Digunakan oleh method lama.
         """
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if not self.validate_faktur_number(faktur_number):
             errors.append("Invalid faktur number format. Expected: 010.123-22.12345678")
@@ -357,7 +357,7 @@ class CoreTaxValidator:
         Validasi NTPN (Nomor Tanda Penerimaan Negara).
         Cek format 16 digit, checksum sederhana, dan opsional pencocokan amount.
         """
-        errors = []
+        errors: list[str] = []
         if not ntpn or len(ntpn) != 16:
             errors.append("NTPN must be exactly 16 characters")
         if not ntpn.isdigit():
@@ -406,7 +406,7 @@ class CoreTaxValidator:
 
     def validate_nsfp_range(self, start_nsfp: str, end_nsfp: str) -> tuple[bool, list[str]]:
         """Validasi range NSFP: start <= end, format sama, jumlah tidak melebihi 1000."""
-        errors = []
+        errors: list[str] = []
         if not self.validate_nsfp(start_nsfp):
             errors.append(f"Invalid start NSFP: {start_nsfp}")
         if not self.validate_nsfp(end_nsfp):
@@ -436,8 +436,8 @@ class CoreTaxValidator:
         masa_pajak: int,
         tahun_pajak: int,
     ) -> BupotValidationResult:
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if not self.BUPOT_21_PATTERN.match(bupot_number):
             errors.append("Invalid bupot 21 number format")
@@ -481,8 +481,8 @@ class CoreTaxValidator:
         rate: Decimal,  # dalam persen, misal 2
         has_npwp: bool = True,
     ) -> BupotValidationResult:
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if not self.BUPOT_23_PATTERN.match(bupot_number):
             errors.append("Invalid bupot 23 number format")
@@ -503,7 +503,9 @@ class CoreTaxValidator:
         tax_amount: Decimal,
         rate: Decimal,
     ) -> BupotValidationResult:
-        errors = []
+        errors: list[str] = []
+        warnings: list[str] = []  # FIX: tambahkan type annotation
+
         if not self.BUPOT_42_PATTERN.match(bupot_number):
             errors.append("Invalid bupot 4(2) number format")
         expected_tax = (gross_amount * rate / Decimal("100")).quantize(
@@ -511,7 +513,7 @@ class CoreTaxValidator:
         )
         if tax_amount != expected_tax:
             errors.append(f"Tax amount mismatch: expected {expected_tax}, got {tax_amount}")
-        return BupotValidationResult(bupot_number, len(errors) == 0, errors, [])
+        return BupotValidationResult(bupot_number, len(errors) == 0, errors, warnings)
 
     # ========================================================================
     # SPT Validation
@@ -525,8 +527,8 @@ class CoreTaxValidator:
         ppn_kurang_bayar: Decimal,
         ntpn: str | None = None,
     ) -> SPTValidationResult:
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if masa < 1 or masa > 12:
             errors.append("Invalid masa (1-12)")
@@ -563,8 +565,8 @@ class CoreTaxValidator:
         tax_credit: Decimal,
         underpayment: Decimal,
     ) -> SPTValidationResult:
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if tahun < 2000 or tahun > 2100:
             errors.append("Invalid year")
@@ -596,7 +598,7 @@ class CoreTaxValidator:
         self, meterai_code: str, document_value: Decimal
     ) -> tuple[bool, list[str]]:
         """Validasi e-meterai: format, nilai nominal sesuai."""
-        errors = []
+        errors: list[str] = []
         if not meterai_code or len(meterai_code) != 23:
             errors.append("e-Meterai code must be 23 characters")
         expected_nominal = (
@@ -648,8 +650,8 @@ class CoreTaxValidator:
 if __name__ == "__main__":
     validator = CoreTaxValidator(enable_api_check=False)
 
-    # Contoh validasi faktur
-    res = validator.validate_faktur(
+    # Contoh validasi faktur - gunakan _validate_faktur_full untuk mendapatkan objek result
+    res = validator._validate_faktur_full(
         faktur_number="010.123-26.12345678",
         dpp=Decimal("10000000"),
         ppn=Decimal("1100000"),

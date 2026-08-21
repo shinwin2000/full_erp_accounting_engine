@@ -38,7 +38,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies (hanya untuk session factory, karena kita sudah buat tabel sendiri)
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -50,7 +50,7 @@ logger = get_logger(__name__)
 # DEFINE OUR OWN TABLES (with explicit String lengths and PGUUID)
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class TaxTransactionTable(Base):

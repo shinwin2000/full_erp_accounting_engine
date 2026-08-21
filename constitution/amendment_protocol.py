@@ -340,10 +340,6 @@ class AmendmentProposal:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
-    # def version(self) -> int:
-    #     return self._version
-
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
@@ -524,10 +520,6 @@ class AmendmentVoteRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
-    # def version(self) -> int:
-    #     return self.version
-
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
@@ -696,10 +688,6 @@ class AmendmentExecutionRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
-    # def version(self) -> int:
-    #     return self.version
-
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
@@ -836,10 +824,6 @@ class AmendmentReviewComment:
             "is_required_change": self.is_required_change,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-
-    # FIX: F811 - method version() dihapus karena bentrok dengan atribut version
-    # def version(self) -> int:
-    #     return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -1270,7 +1254,11 @@ class AmendmentProtocol:
             if proposal.new_rule and proposal.new_rule.rule_id in constitution.rules:
                 del constitution.rules[proposal.new_rule.rule_id]
         elif proposal.amendment_type == AmendmentType.MODIFY_RULE:
-            if len(constitution.snapshots) >= 2:
+            # FIX: Periksa proposal.new_rule sebelum mengakses principle
+            if (
+                len(constitution.snapshots) >= 2
+                and proposal.new_rule is not None
+            ):
                 prev_snapshot = constitution.snapshots[-2]
                 for rule in prev_snapshot.active_rules:
                     if rule.principle == proposal.new_rule.principle:
@@ -1287,7 +1275,9 @@ class AmendmentProtocol:
             from constitution.version_lock import get_version_lock_service
 
             version_service = get_version_lock_service()
-            version_service._version_lock._version_lock.current_version = "1.0.0"
+            # FIX: Cek _version_lock tidak None, dan akses current_version langsung
+            if version_service._version_lock is not None:
+                version_service._version_lock.current_version = "1.0.0"
         constitution._create_snapshot()
 
     def get_proposal_details(self, proposal_id: UUID) -> dict[str, Any]:
@@ -1367,11 +1357,12 @@ class AmendmentProtocol:
 
 class AmendmentProtocolService:
     _instance: AmendmentProtocolService | None = None
+    _initialized: bool  # FIX: tambahkan anotasi tipe
 
     def __new__(cls) -> AmendmentProtocolService:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            cls._instance._initialized = False  # FIX: set _initialized
         return cls._instance
 
     def __init__(self) -> None:

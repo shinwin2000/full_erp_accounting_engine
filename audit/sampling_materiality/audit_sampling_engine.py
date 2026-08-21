@@ -42,8 +42,13 @@ class AuditSamplingEngine:
         total = sum(monetary_values)
         if total == 0:
             return []
-        sampling_interval = total / (math.ceil(total / materiality) if total > materiality else 1)
-        if sampling_interval <= 0:
+        # sampling_interval is Decimal
+        if total > materiality:
+            denominator = math.ceil(total / materiality)
+        else:
+            denominator = 1
+        sampling_interval: Decimal = total / Decimal(denominator)
+        if sampling_interval <= Decimal("0"):
             return []
         selected = []
         cumulative = Decimal("0")

@@ -175,8 +175,8 @@ def map_journal_entry_to_response_dto(
             period=period_str,
             description=getattr(journal_entry, "description", ""),
             lines=lines,
-            total_debit=sum(l.debit for l in lines),
-            total_credit=sum(l.credit for l in lines),
+            total_debit=sum(line.debit for line in lines),     # E741 fix
+            total_credit=sum(line.credit for line in lines),   # E741 fix
             status=JournalEntryStatusDTO(status.upper()),
             created_at=created_at,
             created_by=str(created_by) if created_by else None,
@@ -219,32 +219,26 @@ def map_ar_invoice_to_response_dto(
 ) -> ARInvoiceResponseDTO:
     """Mapping domain ARInvoice ke ARInvoiceResponseDTO."""
     try:
-        # Extract customer
+        # Extract customer safely using getattr
         customer = getattr(invoice, "customer", None)
-        customer_id = _safe_uuid(customer.id if hasattr(customer, "id") else customer)
-        customer_name = getattr(customer, "name", "") if customer else ""
+        customer_id = _safe_uuid(getattr(customer, "id", None))
+        customer_name = _safe_str(getattr(customer, "name", None))
 
         # Extract invoice number
         inv_number = getattr(invoice, "invoice_number", None)
         invoice_number_str = _safe_str(inv_number, "INV-001")
 
-        # Extract currency
+        # Extract currency safely using getattr
         currency = getattr(invoice, "currency", None)
-        currency_code = (
-            currency.code if hasattr(currency, "code") else str(currency) if currency else "IDR"
-        )
+        currency_code = _safe_str(getattr(currency, "code", None), "IDR")
 
-        # Extract status
+        # Extract status safely using getattr
         status = getattr(invoice, "status", None)
-        status_value = (
-            status.value if hasattr(status, "value") else str(status) if status else "ISSUED"
-        )
+        status_value = _safe_str(getattr(status, "value", None), "ISSUED")
 
-        # Extract tax code
+        # Extract tax code safely using getattr
         tax_code = getattr(invoice, "tax_code", None)
-        tax_code_str = (
-            tax_code.code if hasattr(tax_code, "code") else str(tax_code) if tax_code else None
-        )
+        tax_code_str = getattr(tax_code, "code", None) if tax_code is not None else None
 
         return ARInvoiceResponseDTO(
             id=aggregate_id or _safe_uuid(getattr(invoice, "id", None)) or UUID(int=0),
@@ -304,27 +298,26 @@ def map_ap_invoice_to_response_dto(
 ) -> APInvoiceResponseDTO:
     """Mapping domain APInvoice ke APInvoiceResponseDTO."""
     try:
+        # Extract vendor safely using getattr
         vendor = getattr(invoice, "vendor", None)
-        vendor_id = _safe_uuid(vendor.id if hasattr(vendor, "id") else vendor)
-        vendor_name = getattr(vendor, "name", "") if vendor else ""
+        vendor_id = _safe_uuid(getattr(vendor, "id", None))
+        vendor_name = _safe_str(getattr(vendor, "name", None))
 
+        # Extract invoice number
         inv_number = getattr(invoice, "invoice_number", None)
         invoice_number_str = _safe_str(inv_number, "AP-001")
 
+        # Extract currency safely using getattr
         currency = getattr(invoice, "currency", None)
-        currency_code = (
-            currency.code if hasattr(currency, "code") else str(currency) if currency else "IDR"
-        )
+        currency_code = _safe_str(getattr(currency, "code", None), "IDR")
 
+        # Extract status safely using getattr
         status = getattr(invoice, "status", None)
-        status_value = (
-            status.value if hasattr(status, "value") else str(status) if status else "RECEIVED"
-        )
+        status_value = _safe_str(getattr(status, "value", None), "RECEIVED")
 
+        # Extract tax code safely using getattr
         tax_code = getattr(invoice, "tax_code", None)
-        tax_code_str = (
-            tax_code.code if hasattr(tax_code, "code") else str(tax_code) if tax_code else None
-        )
+        tax_code_str = getattr(tax_code, "code", None) if tax_code is not None else None
 
         return APInvoiceResponseDTO(
             id=aggregate_id or _safe_uuid(getattr(invoice, "id", None)) or UUID(int=0),
@@ -567,7 +560,8 @@ def dto_to_dict(dto: Any) -> dict[str, Any]:
     """
     if hasattr(dto, "__dataclass_fields__"):
         result = {}
-        for field_name in dto.__dataclass_fields__.keys():
+        # SIM118 fix: iterate over dict directly, not keys()
+        for field_name in dto.__dataclass_fields__:
             value = getattr(dto, field_name)
             result[field_name] = _serialize_value(value)
         return result
@@ -583,7 +577,8 @@ def _serialize_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         # Gunakan string untuk menjaga presisi
         return str(value)
-    if isinstance(value, (date, datetime)):
+    # UP038 fix: gunakan X | Y
+    if isinstance(value, date | datetime):
         return value.isoformat()
     if isinstance(value, list):
         return [_serialize_value(v) for v in value]

@@ -40,7 +40,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -291,16 +291,24 @@ class AccountStateMachine:
             return False, "Cannot close account that has transaction history. Use archive instead."
 
         # Business rule: cannot activate draft if it has invalid parent
-        if new_status == AccountStatus.ACTIVE and current_status == AccountStatus.DRAFT:
-            if hasattr(account, "parent_account_id") and account.parent_account_id:
-                # Parent should be active (check would require service call)
-                pass  # In real validation, we'd need to check parent status
+        if (
+            new_status == AccountStatus.ACTIVE
+            and current_status == AccountStatus.DRAFT
+            and hasattr(account, "parent_account_id")
+            and account.parent_account_id
+        ):
+            # Parent should be active (check would require service call)
+            # In real validation, we'd need to check parent status
+            pass
 
         # Business rule: locking requires audit trail
-        if new_status == AccountStatus.LOCKED and not override_reason:
-            if not hasattr(account, "audit_trail_id"):
-                # We'll still allow but log warning
-                logger.warning(f"Locking account {account} without explicit override reason")
+        if (
+            new_status == AccountStatus.LOCKED
+            and not override_reason
+            and not hasattr(account, "audit_trail_id")
+        ):
+            # We'll still allow but log warning
+            logger.warning(f"Locking account {account} without explicit override reason")
 
         # Override bypass for admin
         if override_reason and user_role in ("admin", "super_admin"):
@@ -336,12 +344,6 @@ class AccountStateMachine:
         )
         if not is_valid:
             raise ValueError(f"Invalid state transition: {error}")
-
-        # Determine current status
-        if hasattr(account, "status"):
-            current_status = account.status
-        else:
-            current_status = AccountStatus.ACTIVE if account.is_active else AccountStatus.DRAFT
 
         # Create updated account (immutable copy)
         if hasattr(account, "__dataclass_fields__"):
@@ -538,7 +540,7 @@ class COAStatus(Enum):
 class COAStateMachine:
     """State machine for Chart of Accounts aggregate."""
 
-    _allowed_transitions = {
+    _allowed_transitions: ClassVar[dict[tuple[COAStatus, COAStatus], set[str]]] = {
         (COAStatus.ACTIVE, COAStatus.LOCKED): {"admin", "auditor"},
         (COAStatus.ACTIVE, COAStatus.ARCHIVED): {"admin"},
         (COAStatus.LOCKED, COAStatus.ACTIVE): {"admin"},

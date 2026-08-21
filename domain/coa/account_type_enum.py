@@ -30,6 +30,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
+# Import NormalBalance from the value object module
+from domain.coa.account_normal_balance_vo import NormalBalance
+
 # ============================================================================
 # Account Type Enum
 # ============================================================================
@@ -87,8 +90,6 @@ class AccountType(Enum):
     @property
     def normal_balance_enum(self) -> NormalBalance:
         """Return NormalBalance enum."""
-        from domain.coa.account_normal_balance_vo import NormalBalance
-
         return NormalBalance.DEBIT if self.normal_balance == "debit" else NormalBalance.CREDIT
 
     @property

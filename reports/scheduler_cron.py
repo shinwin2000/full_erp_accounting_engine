@@ -19,10 +19,11 @@ Audit: Setiap job laporan yang dijalankan dicatat. Laporan yang dihasilkan
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.jobstores.memory import MemoryJobStore
@@ -31,6 +32,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
+from ports.primary.report_repository_port import ReportRepositoryPort
 from reports.distributor_email_whatsapp import ReportDistributor, get_report_distributor
 
 # Internal dependencies
@@ -172,13 +174,19 @@ class ReportScheduler:
     - Monitoring job execution
     """
 
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(self, config: dict[str, Any] | None = None, report_repo: ReportRepositoryPort | None = None):
         self.config = self._prepare_config(config)
         self._scheduler: AsyncIOScheduler | None = None
         self._report_generator: ReportGenerator | None = None
         self._distributor: ReportDistributor | None = None
         self._jobs: dict[str, ReportJob] = {}
         self._running = False
+        # `report_repo` dipakai oleh method CRUD jadwal (create_schedule/
+        # list_schedules/dst di bagian bawah class ini) - lihat `_get_repo()`.
+        # Opsional & lazy supaya konstruksi `ReportScheduler()` sederhana
+        # (tanpa argumen) tetap jalan seperti sebelumnya (dipakai juga oleh
+        # singleton module-level `get_report_scheduler()` di bawah).
+        self._report_repo = report_repo
 
     def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
@@ -422,6 +430,197 @@ class ReportScheduler:
         # Placeholder: would load from a JobStore table in PostgreSQL
         # For now, skip
         pass
+
+    # ========================================================================
+    # CRUD JADWAL LAPORAN (baru, 2026-08-20)
+    # ------------------------------------------------------------------------
+    # Method di bawah ini TIDAK terkait dengan mesin eksekusi cron APScheduler
+    # di atas (add_job/remove_job/start/stop) - itu tetap dipakai untuk
+    # keperluannya sendiri. Method ini khusus melayani
+    # POST/GET/PUT/DELETE /api/v1/reports/schedule di fastapi_report_router.py,
+    # yaitu CRUD murni terhadap konfigurasi jadwal (tabel `scheduled_report`).
+    # Sebelum fix ini, method-method ini SAMA SEKALI TIDAK ADA di class ini,
+    # menyebabkan setiap panggilan endpoint /schedule berujung
+    # `AttributeError` (setelah lolos dari DependencyNotFoundError begitu
+    # ReportScheduler didaftarkan ke IoC container).
+    # ========================================================================
+
+    def _get_repo(self):
+        if self._report_repo is not None:
+            return self._report_repo
+        from adapters.secondary_impl.sqlalchemy_report_repository_impl import (
+            SQLAlchemyReportRepository,
+        )
+
+        self._report_repo = SQLAlchemyReportRepository()
+        return self._report_repo
+
+    @staticmethod
+    def _compute_next_run_at(
+        frequency: str,
+        schedule_time: str | None,
+        day_of_week: int | None,
+        day_of_month: int | None,
+        from_dt: datetime | None = None,
+    ) -> datetime | None:
+        """Hitung perkiraan kapan jadwal berikutnya jalan. Perhitungan
+        sederhana (bukan cron engine penuh) - cukup untuk ditampilkan di UI
+        sebagai referensi, BUKAN dipakai sebagai sumber kebenaran eksekusi
+        aktual (itu tanggung jawab add_job/APScheduler kalau/ketika
+        dihubungkan ke sistem ini)."""
+        now = from_dt or datetime.utcnow()
+        hour, minute = 0, 0
+        if schedule_time:
+            try:
+                hour, minute = (int(p) for p in schedule_time.split(":", 1))
+            except (ValueError, TypeError):
+                hour, minute = 0, 0
+
+        candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        if frequency == "daily":
+            if candidate <= now:
+                candidate += timedelta(days=1)
+            return candidate
+        if frequency == "weekly":
+            target_dow = day_of_week if day_of_week is not None else 0
+            days_ahead = (target_dow - candidate.weekday()) % 7
+            candidate += timedelta(days=days_ahead)
+            if candidate <= now:
+                candidate += timedelta(days=7)
+            return candidate
+        if frequency == "monthly":
+            target_day = day_of_month or 1
+            year, month = candidate.year, candidate.month
+            try:
+                candidate = candidate.replace(day=min(target_day, 28), month=month, year=year)
+            except ValueError:
+                candidate = candidate.replace(day=1)
+            if candidate <= now:
+                month += 1
+                if month > 12:
+                    month = 1
+                    year += 1
+                candidate = candidate.replace(year=year, month=month)
+            return candidate
+        if frequency in ("quarterly", "semi_annually", "yearly"):
+            months_map = {"quarterly": 3, "semi_annually": 6, "yearly": 12}
+            step = months_map[frequency]
+            candidate = candidate.replace(day=1)
+            while candidate <= now:
+                new_month = candidate.month + step
+                new_year = candidate.year + (new_month - 1) // 12
+                new_month = ((new_month - 1) % 12) + 1
+                candidate = candidate.replace(year=new_year, month=new_month)
+            return candidate
+        # "custom" atau frekuensi tidak dikenal - tidak ada perkiraan otomatis
+        return None
+
+    async def create_schedule(
+        self,
+        *,
+        legal_entity_id: UUID,
+        report_type: str,
+        schedule_name: str,
+        schedule_frequency: str,
+        schedule_time: str | None,
+        schedule_day_of_week: int | None,
+        schedule_day_of_month: int | None,
+        report_format: str,
+        parameters: dict[str, Any],
+        recipient_emails: list[str],
+        recipient_whatsapps: list[str],
+        delivery_methods: list[str],
+        is_active: bool,
+        notes: str | None,
+        created_by: UUID,
+    ):
+        from infrastructure.persistence_orm.scheduled_report_table import ScheduledReportTable
+
+        now = datetime.utcnow()
+        entry = ScheduledReportTable(
+            id=uuid4(),
+            legal_entity_id=legal_entity_id,
+            schedule_name=schedule_name,
+            report_type=report_type,
+            schedule_frequency=schedule_frequency,
+            schedule_time=schedule_time,
+            schedule_day_of_week=schedule_day_of_week,
+            schedule_day_of_month=schedule_day_of_month,
+            report_format=report_format,
+            parameters=parameters or {},
+            recipient_emails=recipient_emails or [],
+            recipient_whatsapps=recipient_whatsapps or [],
+            delivery_methods=delivery_methods or [],
+            is_active=is_active,
+            notes=notes,
+            next_run_at=self._compute_next_run_at(
+                schedule_frequency, schedule_time, schedule_day_of_week, schedule_day_of_month, now
+            ),
+            created_at=now,
+            updated_at=now,
+            created_by=created_by,
+            version=1,
+        )
+        return await self._get_repo().create_scheduled_report(entry)
+
+    async def list_schedules(
+        self,
+        *,
+        legal_entity_id: UUID,
+        is_active: bool | None = None,
+        report_type: str | None = None,
+    ):
+        return await self._get_repo().list_scheduled_reports(
+            legal_entity_id=legal_entity_id, is_active=is_active, report_type=report_type
+        )
+
+    async def get_schedule_by_id(self, schedule_id: UUID, legal_entity_id: UUID):
+        return await self._get_repo().get_scheduled_report_by_id(schedule_id, legal_entity_id)
+
+    async def update_schedule(
+        self,
+        *,
+        schedule_id: UUID,
+        legal_entity_id: UUID,
+        schedule_name: str,
+        schedule_frequency: str,
+        schedule_time: str | None,
+        schedule_day_of_week: int | None,
+        schedule_day_of_month: int | None,
+        report_format: str,
+        parameters: dict[str, Any],
+        recipient_emails: list[str],
+        recipient_whatsapps: list[str],
+        delivery_methods: list[str],
+        is_active: bool,
+        notes: str | None,
+        updated_by: UUID,
+    ):
+        next_run_at = self._compute_next_run_at(
+            schedule_frequency, schedule_time, schedule_day_of_week, schedule_day_of_month
+        )
+        return await self._get_repo().update_scheduled_report(
+            schedule_id,
+            legal_entity_id,
+            schedule_name=schedule_name,
+            schedule_frequency=schedule_frequency,
+            schedule_time=schedule_time,
+            schedule_day_of_week=schedule_day_of_week,
+            schedule_day_of_month=schedule_day_of_month,
+            report_format=report_format,
+            parameters=parameters or {},
+            recipient_emails=recipient_emails or [],
+            recipient_whatsapps=recipient_whatsapps or [],
+            delivery_methods=delivery_methods or [],
+            is_active=is_active,
+            notes=notes,
+            next_run_at=next_run_at,
+            updated_by=updated_by,
+        )
+
+    async def delete_schedule(self, schedule_id: UUID, legal_entity_id: UUID, deleted_by: UUID):
+        return await self._get_repo().delete_scheduled_report(schedule_id, legal_entity_id)
 
 
 # ============================================================================

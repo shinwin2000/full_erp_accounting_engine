@@ -203,7 +203,7 @@ class SagaStateStore(SagaStateStorePort):
         await self._ensure_table()
 
         conditions = []
-        params = []
+        params: list[Any] = []  # Explicitly typed to accept ints for limit/offset
 
         if saga_type:
             conditions.append("saga_type = $1")

@@ -24,6 +24,7 @@ import logging
 import re
 from datetime import date, datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,7 @@ class EthicsViolationDetector:
     Detektor pelanggaran kode etik.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:  # FIX: tambahkan anotasi tipe
         self._violations: dict[UUID, EthicsViolation] = {}
         self._red_flags = self._init_red_flags()
         self._suspicious_patterns = self._init_patterns()
@@ -232,7 +233,7 @@ class EthicsViolationDetector:
             {
                 "pattern": r"restate|material misstatement|accounting error",
                 "category": ViolationCategory.FINANCIAL_MISSTATEMENT,
-                "severity": ViolationSeverity.HIGH,
+                "severity": ViolationSeverity.MAJOR,  # FIX: ganti HIGH -> MAJOR
             },
             {
                 "pattern": r"retaliation|whistleblower",
@@ -252,7 +253,7 @@ class EthicsViolationDetector:
             {"type": "after_hours_access", "severity": ViolationSeverity.MODERATE},
         ]
 
-    def scan_transaction(self, transaction: dict) -> EthicsViolation | None:
+    def scan_transaction(self, transaction: dict[str, Any]) -> EthicsViolation | None:
         """Scan transaksi tunggal berdasarkan aturan."""
         # Rule: Large transaction self-approved
         amount = transaction.get("amount", 0)
@@ -261,14 +262,18 @@ class EthicsViolationDetector:
             amount > self._red_flags[0].get("threshold_amount", 1_000_000_000)
             and approval == "self"
         ):
+            # FIX: konversi user_id ke UUID dengan fallback
+            user_id = transaction.get("user_id")
+            if not isinstance(user_id, UUID):
+                user_id = UUID(int=0)
             return EthicsViolation(
                 violation_id=uuid4(),
                 description=f"Large transaction {amount} self-approved without justification",
                 category=ViolationCategory.UNAUTHORIZED_ACCESS,
                 severity=ViolationSeverity.MAJOR,
-                reported_by=transaction.get("user_id", UUID(int=0)),
+                reported_by=user_id,
                 reported_date=datetime.utcnow(),
-                involved_parties=[transaction.get("user_id")],
+                involved_parties=[user_id],
                 evidence=[
                     ViolationEvidence(uuid4(), f"Transaction ID: {transaction.get('id')}", "system")
                 ],
@@ -277,14 +282,18 @@ class EthicsViolationDetector:
         description = transaction.get("description", "")
         for flag in self._red_flags:
             if re.search(flag["pattern"], description, re.IGNORECASE):
+                # FIX: konversi user_id ke UUID dengan fallback
+                user_id = transaction.get("user_id")
+                if not isinstance(user_id, UUID):
+                    user_id = UUID(int=0)
                 return EthicsViolation(
                     violation_id=uuid4(),
                     description=f"Suspicious transaction: {description[:100]}",
                     category=flag["category"],
                     severity=flag["severity"],
-                    reported_by=transaction.get("user_id", UUID(int=0)),
+                    reported_by=user_id,
                     reported_date=datetime.utcnow(),
-                    involved_parties=[transaction.get("user_id")],
+                    involved_parties=[user_id],
                     evidence=[
                         ViolationEvidence(
                             uuid4(), f"Transaction ID: {transaction.get('id')}", "system"
@@ -395,15 +404,18 @@ class EthicsViolationDetector:
             st.value: len([v for v in self._violations.values() if v.status == st])
             for st in ViolationStatus
         }
+        # FIX: cek apakah ada violations sebelum mengambil max
+        most_recent = None
+        if self._violations:
+            latest_id = max(self._violations.keys())
+            most_recent = self._violations[latest_id].to_dict()
         return {
             "total_violations": total,
             "open_violations": open_count,
             "by_category": by_category,
             "by_severity": by_severity,
             "by_status": by_status,
-            "most_recent": self._violations[max(self._violations.keys(), default=None)].to_dict()
-            if self._violations
-            else None,
+            "most_recent": most_recent,
         }
 
     def to_json(self, file_path: str) -> None:

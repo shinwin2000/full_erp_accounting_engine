@@ -113,7 +113,7 @@ class DeterministicKeyManager:
     def get_current_key(self) -> tuple[int, bytes]:
         return self._current_version, self._keys[self._current_version]
 
-    def get_key_by_version(self, version: int = 1) -> bytes | None:
+    def get_key_by_version(self, version: int) -> bytes | None:
         return self._keys.get(version)
 
     def rotate_key(self) -> int:
@@ -237,9 +237,11 @@ class DeterministicEncryption:
         try:
             version, key = self._key_manager.get_current_key()
             if key_version is not None:
-                key = self._key_manager.get_key_by_version(key_version)
-                if not key:
+                # FIX: gunakan temporary variable untuk menghindari mypy error
+                temp_key = self._key_manager.get_key_by_version(key_version)
+                if temp_key is None:
                     raise KeyManagementError(f"Key version {key_version} not found")
+                key = temp_key
                 version = key_version
 
             plain_bytes = plaintext.encode("utf-8")
@@ -278,7 +280,7 @@ class DeterministicEncryption:
                 version = int(version_str[1:])
                 b64_data = parts[2]
                 key = self._key_manager.get_key_by_version(version)
-                if not key:
+                if key is None:
                     raise KeyManagementError(f"Key version {version} not found")
                 ciphertext = base64.b64decode(b64_data)
                 cipher = Cipher(algorithms.AES(key), mode=SIV(), backend=self._backend)
@@ -293,7 +295,7 @@ class DeterministicEncryption:
                 version = int(version_str[1:])
                 b64_data = parts[1]
                 key = self._key_manager.get_key_by_version(version)
-                if not key:
+                if key is None:
                     raise KeyManagementError(f"Key version {version} not found")
                 data = base64.b64decode(b64_data)
                 iv = data[:16]

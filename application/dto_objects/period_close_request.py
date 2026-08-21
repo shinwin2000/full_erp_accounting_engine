@@ -383,6 +383,8 @@ class GetCurrentPeriodRequest:
             object.__setattr__(self, "as_of_date", self.as_of_date.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
+        # as_of_date is guaranteed non-None after __post_init__
+        assert self.as_of_date is not None
         return {
             "legal_entity_id": str(self.legal_entity_id),
             "as_of_date": self.as_of_date.isoformat(),
@@ -657,31 +659,33 @@ PeriodArchiveRequestDTO = ArchivePeriodRequest
 # === 17. EXPORTS ===
 
 __all__ = [
-    # Enums
-    "PeriodStatus",
-    "PeriodType",
-    "CloseAction",
-    "ReopenReason",
-    "PeriodCloseStatusDTO",
     # DTOs
-    "PeriodInfo",
-    "ClosePeriodRequest",
-    "LockPeriodRequest",
-    "ReopenPeriodRequest",
     "ArchivePeriodRequest",
-    "GetPeriodRequest",
-    "GetPeriodByDateRequest",
-    "ListPeriodsRequest",
+    # Enums
+    "CloseAction",
+    "ClosePeriodRequest",
     "GetCurrentPeriodRequest",
-    "VerifyPeriodReadinessRequest",
-    "PeriodReadinessReport",
-    "PeriodCloseSummary",
-    "PeriodCloseResponseDTO",
+    "GetPeriodByDateRequest",
+    "GetPeriodRequest",
+    "ListPeriodsRequest",
+    "LockPeriodRequest",
+    # Aliases
+    "PeriodArchiveRequestDTO",
+    "PeriodCloseRequestDTO",
     # Factory
     "PeriodCloseRequestFactory",
-    # Aliases
-    "PeriodCloseRequestDTO",
+    "PeriodCloseResponseDTO",
+    "PeriodCloseStatusDTO",
+    "PeriodCloseSummary",
+    "PeriodInfo",
     "PeriodLockRequestDTO",
+    "PeriodReadinessReport",
     "PeriodReopenRequestDTO",
-    "PeriodArchiveRequestDTO",
+    "PeriodStatus",
+    "PeriodType",
+    "ReopenPeriodRequest",
+    "ReopenReason",
+    "VerifyPeriodReadinessRequest",
 ]
+
+

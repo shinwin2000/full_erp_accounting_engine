@@ -380,7 +380,7 @@ class PolicyCacheEngine:
     # ------------------------------------------------------------------------
     # Statistics & Monitoring
     # ------------------------------------------------------------------------
-    def get_stats(self) -> dict[str, int | float]:
+    def get_stats(self) -> dict[str, Any]:
         """Mendapatkan statistik cache."""
         with self._lock:
             total_requests = self._stats["hits"] + self._stats["misses"]

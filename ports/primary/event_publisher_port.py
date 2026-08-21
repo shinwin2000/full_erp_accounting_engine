@@ -277,11 +277,24 @@ class InMemoryEventPublisher(EventPublisherPort):
     async def publish_batch(self, events: list[dict[str, Any]]) -> list[UUID]:
         ids = []
         for ev in events:
+            # Extract required fields with validation
+            event_type = ev.get("event_type")
+            if not event_type:
+                raise ValueError("event_type is required for batch publish")
+            aggregate_id = ev.get("aggregate_id")
+            if not aggregate_id:
+                raise ValueError("aggregate_id is required for batch publish")
+            if not isinstance(aggregate_id, UUID):
+                raise ValueError(f"aggregate_id must be UUID, got {type(aggregate_id)}")
+            aggregate_type = ev.get("aggregate_type")
+            if not aggregate_type:
+                raise ValueError("aggregate_type is required for batch publish")
+
             eid = await self.publish(
-                event=ev.get("event"),
-                event_type=ev.get("event_type"),
-                aggregate_id=ev.get("aggregate_id"),
-                aggregate_type=ev.get("aggregate_type"),
+                event=ev.get("event"),  # may be None
+                event_type=event_type,
+                aggregate_id=aggregate_id,
+                aggregate_type=aggregate_type,
                 metadata=ev.get("metadata"),
                 priority=ev.get("priority", EventPriority.NORMAL),
                 scheduled_at=ev.get("scheduled_at"),

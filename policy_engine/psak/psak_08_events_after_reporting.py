@@ -135,10 +135,11 @@ class AfterReportingPeriodDisclosure:
         ]
 
     def total_adjustment_impact(self) -> Decimal:
-        return sum(e.financial_impact for e in self.adjustment_events)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((e.financial_impact for e in self.adjustment_events), Decimal(0))
 
     def total_non_adjustment_impact(self) -> Decimal:
-        return sum(e.financial_impact for e in self.non_adjustment_events)
+        return sum((e.financial_impact for e in self.non_adjustment_events), Decimal(0))
 
     def to_dict(self) -> dict:
         return {

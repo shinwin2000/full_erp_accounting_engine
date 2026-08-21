@@ -333,7 +333,8 @@ class ForbiddenStateDefinition:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    # FIX: rename method to avoid conflict with attribute 'version'
+    def get_version_number(self) -> int:
         return self.version_number
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -557,7 +558,8 @@ class ForbiddenStateDetection:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    # FIX: rename method to avoid conflict with attribute 'version'
+    def get_version_number(self) -> int:
         return self.version_number
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -803,7 +805,7 @@ class ForbiddenStateDetector:
                     "missing_count": len(missing),
                     "missing_sequences": missing[:10],
                 },
-                ForbiddenStateAction.CRITICAL,
+                ForbiddenStateAction.REJECT,  # FIX: Ganti CRITICAL dengan REJECT
             )
         return False, {}, None
 
@@ -1201,7 +1203,6 @@ class ForbiddenStatesRegistry:
     ) -> None:
         try:
             supreme_law = get_supreme_law()
-            # severity_map dihapus karena tidak digunakan (F841)
             supreme_law.check_violation(
                 ConstitutionalPrinciple.IMMUTABILITY,
                 detection.source_module,
@@ -1272,7 +1273,8 @@ class ForbiddenStatesRegistry:
 
 class ForbiddenStatesService:
     _instance: ForbiddenStatesService | None = None
-    _registry: ForbiddenStatesRegistry | None = None
+    _initialized: bool  # FIX: deklarasikan
+    _registry: ForbiddenStatesRegistry  # FIX: ganti dari optional ke non-optional
 
     def __new__(cls) -> ForbiddenStatesService:
         if cls._instance is None:

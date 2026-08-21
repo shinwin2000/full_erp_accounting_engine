@@ -322,7 +322,8 @@ class RegulatoryFilingTracker:
     def generate_report(self) -> dict:
         total = len(self._filings)
         by_status = {s.value: len(self.get_filings_by_status(s)) for s in FilingStatus}
-        by_jurisdiction = {}
+        # FIX: tambahkan type annotation untuk menghilangkan error mypy
+        by_jurisdiction: dict[str, int] = {}
         for f in self._filings.values():
             by_jurisdiction[f.jurisdiction] = by_jurisdiction.get(f.jurisdiction, 0) + 1
         return {

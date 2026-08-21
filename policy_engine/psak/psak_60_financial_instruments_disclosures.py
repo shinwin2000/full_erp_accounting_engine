@@ -135,11 +135,11 @@ class PSAK60CreditRiskDisclosure:
     portfolio_segment: str
     gross_carrying_amount: Decimal
     loss_allowance: Decimal
-    net_carrying_amount: Decimal
     stage: PSAK60CreditRiskStage
     past_due_days: int = 0
     individually_impaired: bool = False
     collateral_description: str = ""
+    net_carrying_amount: Decimal = Decimal(0)  # FIX: diberi default, akan dihitung di __post_init__
 
     def __post_init__(self):
         self.net_carrying_amount = self.gross_carrying_amount - self.loss_allowance
@@ -220,10 +220,11 @@ class PSAK60FinancialInstrumentsDisclosure:
     default_breaches: list[str] = field(default_factory=list)
 
     def total_credit_exposure(self) -> Decimal:
-        return sum(c.gross_carrying_amount for c in self.credit_risk_disclosures)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((c.gross_carrying_amount for c in self.credit_risk_disclosures), Decimal(0))
 
     def total_loss_allowance(self) -> Decimal:
-        return sum(c.loss_allowance for c in self.credit_risk_disclosures)
+        return sum((c.loss_allowance for c in self.credit_risk_disclosures), Decimal(0))
 
     def to_dict(self) -> dict:
         return {
@@ -433,6 +434,7 @@ class PSAK60Validator:
         stage = self._service.calculate_credit_risk_stage(
             days_past_due, significant_increase_in_credit_risk, credit_impaired
         )
+        # FIX: net_carrying_amount akan dihitung otomatis di __post_init__
         return PSAK60CreditRiskDisclosure(
             disclosure_id=uuid4(),
             portfolio_segment=portfolio_segment,
@@ -669,6 +671,8 @@ def get_psak60_validator() -> PSAK60Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak60_validator()
     entity_id = uuid4()
 
@@ -742,6 +746,7 @@ if __name__ == "__main__":
     print(json.dumps(result.to_dict(), indent=2))
     print("\nDisclosure:")
     print(json.dumps(disclosure.to_dict(), indent=2, default=str))
+
 
 # ============================================================================
 # Compatibility aliases for Orchestration / Aggregator Core (PSAK 60)

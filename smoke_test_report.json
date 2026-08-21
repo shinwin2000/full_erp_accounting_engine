@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-08-07T01:45:31.134685+00:00",
+  "timestamp": "2026-08-21T03:16:44.726244+00:00",
   "version": "7.6.1",
   "summary": {
-    "total_duration_seconds": 80.14,
+    "total_duration_seconds": 28.766,
     "passed": 16,
     "failed": 1,
     "warnings": 1,
@@ -39,7 +39,7 @@
       "name": "DI Container Integrity",
       "category": "ARCHITECTURE",
       "passed": true,
-      "duration_seconds": 3.01,
+      "duration_seconds": 0.877,
       "severity": "WARNING",
       "details": {
         "container_type": "factory",
@@ -61,19 +61,19 @@
       "name": "FastAPI App Structure",
       "category": "WEB",
       "passed": true,
-      "duration_seconds": 19.261,
+      "duration_seconds": 13.429,
       "severity": "WARNING",
       "details": {
         "app_source": "from helper get_app_instance()",
-        "route_count": 784,
-        "unique_routes": 648,
-        "duplicate_routes": 102,
+        "route_count": 806,
+        "unique_routes": 665,
+        "duplicate_routes": 107,
         "middleware_count": 4,
         "has_cors_middleware": true,
         "title": "Sovereign ERP Accounting Engine",
         "version": "1.0.0"
       },
-      "error": "Ditemukan 102 duplikasi path route (dari include_router)",
+      "error": "Ditemukan 107 duplikasi path route (dari include_router)",
       "suggested_fix": "Tinjau registrasi route untuk menghindari tumpang tindih",
       "evidence": [],
       "rca_analysis": null,
@@ -83,7 +83,7 @@
       "name": "Database Connectivity & Transaction",
       "category": "INFRASTRUCTURE",
       "passed": true,
-      "duration_seconds": 0.518,
+      "duration_seconds": 0.585,
       "severity": "INFO",
       "details": {
         "connection": "success",
@@ -105,7 +105,7 @@
       "name": "Security Configuration Audit",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 0.011,
+      "duration_seconds": 0.005,
       "severity": "WARNING",
       "details": {
         "issues_count": 0,
@@ -116,7 +116,7 @@
           "HTTPS tidak diaktifkan di environment (risiko MITM)",
           "Tidak ada middleware security headers"
         ],
-        "secrets_checked": 23,
+        "secrets_checked": 24,
         "https_enabled": false,
         "allowed_hosts_set": true,
         "rate_limit_found": true,
@@ -153,11 +153,11 @@
       "name": "Resource Leak Detection",
       "category": "PERFORMANCE",
       "passed": true,
-      "duration_seconds": 0.712,
+      "duration_seconds": 0.626,
       "severity": "INFO",
       "details": {
-        "start_memory_mb": 362.33,
-        "end_memory_mb": 362.33,
+        "start_memory_mb": 369.01,
+        "end_memory_mb": 369.01,
         "memory_diff_mb": 0.0,
         "start_threads": 1,
         "end_threads": 1,
@@ -174,7 +174,7 @@
       "name": "API Health Check (Real Call)",
       "category": "API",
       "passed": false,
-      "duration_seconds": 0.6,
+      "duration_seconds": 0.536,
       "severity": "WARNING",
       "details": {
         "endpoints_tested": [
@@ -230,23 +230,23 @@
       "name": "Domain Models",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 0.219,
+      "duration_seconds": 0.339,
       "severity": "INFO",
       "details": {
         "domain_folder_exists": true,
         "model_files_count": 251,
         "total_class_definitions": 1385,
         "sample_classes": [
-          "ChainDirection",
-          "AssetTransferredEvent",
-          "WorkType",
-          "AssetDisposedEvent",
-          "UnitOfMeasure",
-          "WithholdingCategoryError",
-          "TraversalTooDeepError",
-          "CreditLimitError",
-          "StandardCostRepository",
-          "BankAccountInfo"
+          "AccountLockedError",
+          "ForexTransactionExecutedEvent",
+          "EventPublishTimeoutError",
+          "InvalidBPJSMembershipNumberError",
+          "SessionInvariants",
+          "AccountAlreadyExistsError",
+          "DuplicateTransactionError",
+          "BOMType",
+          "VarianceResult",
+          "InvalidCostCenterCodeError"
         ]
       },
       "error": null,
@@ -259,7 +259,7 @@
       "name": "Repository Pattern",
       "category": "DATA",
       "passed": true,
-      "duration_seconds": 37.724,
+      "duration_seconds": 4.304,
       "severity": "INFO",
       "details": {
         "repository_modules_found": [],
@@ -267,15 +267,15 @@
           "adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl.FiscalPeriodRepositoryPort",
           "adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl.SQLAlchemyFiscalPeriodRepository",
           "adapters.secondary_impl.sqlalchemy_fiscal_period_repository_impl.SQLAlchemyFiscalPeriodRepositoryImpl",
-          "adapters.secondary_impl.sqlalchemy_forex_repository_impl.ForexRepositoryPort",
-          "adapters.secondary_impl.sqlalchemy_forex_repository_impl.SQLAlchemyForexRepository",
-          "adapters.secondary_impl.sqlalchemy_forex_repository_impl.SQLAlchemyForexRepositoryImpl",
+          "adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl.FixedAssetRepositoryError",
+          "adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl.FixedAssetRepositoryPort",
+          "adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl.SQLAlchemyFixedAssetRepository",
+          "adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl.SQLAlchemyFixedAssetRepositoryImpl",
           "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.GoodsReceiptRepositoryPort",
           "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.SQLAlchemyGoodsReceiptRepository",
-          "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.SQLAlchemyGoodsReceiptRepositoryImpl",
-          "adapters.secondary_impl.sqlalchemy_goodwill_repository_impl.GoodwillRepositoryPort"
+          "adapters.secondary_impl.sqlalchemy_goods_receipt_repository_impl.SQLAlchemyGoodsReceiptRepositoryImpl"
         ],
-        "total_repositories": 483
+        "total_repositories": 487
       },
       "error": null,
       "suggested_fix": null,
@@ -306,7 +306,7 @@
       "name": "Authentication / Authorization",
       "category": "SECURITY",
       "passed": true,
-      "duration_seconds": 0.949,
+      "duration_seconds": 1.484,
       "severity": "INFO",
       "details": {
         "auth_indicators": [
@@ -326,7 +326,7 @@
       "name": "Master Data Models (ERP)",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 7.434,
+      "duration_seconds": 0.163,
       "severity": "INFO",
       "details": {
         "core_models_defined": [
@@ -372,13 +372,13 @@
       "name": "OpenAPI Documentation & Duplicate Operation ID",
       "category": "API",
       "passed": true,
-      "duration_seconds": 2.416,
+      "duration_seconds": 1.296,
       "severity": "INFO",
       "details": {
         "openapi_json": "ok",
         "title": "Sovereign ERP Accounting Engine",
         "version": "1.0.0",
-        "paths_count": 643,
+        "paths_count": 660,
         "duplicate_operation_ids": [],
         "duplicate_count": 0
       },
@@ -392,7 +392,7 @@
       "name": "Message Broker (Publish/Consume/Ack)",
       "category": "INTEGRATION",
       "passed": true,
-      "duration_seconds": 0.032,
+      "duration_seconds": 0.077,
       "severity": "INFO",
       "details": {
         "type": "redis",
@@ -412,7 +412,7 @@
       "name": "Scheduler (Job Execution)",
       "category": "INTEGRATION",
       "passed": true,
-      "duration_seconds": 1.703,
+      "duration_seconds": 4.959,
       "severity": "INFO",
       "details": {
         "scheduler_indicators": [
@@ -434,7 +434,7 @@
       "name": "End-to-End Accounting Transaction",
       "category": "DOMAIN",
       "passed": true,
-      "duration_seconds": 5.539,
+      "duration_seconds": 0.079,
       "severity": "INFO",
       "details": {
         "accounting_files_found": 141,
@@ -453,7 +453,7 @@
     }
   ],
   "baseline": {
-    "start_memory_mb": 64.56,
+    "start_memory_mb": 65.07,
     "start_thread_count": 1
   }
 }

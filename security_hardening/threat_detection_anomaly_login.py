@@ -491,7 +491,9 @@ class AnomalyLoginDetector:
                     t for t in self._user_failures[user_id] if t > cutoff
                 ]
             for user_id in list(self._user_success.keys()):
-                self._user_success[user_id] = [t for t in self._user_success[user_id] if t > cutoff]
+                self._user_success[user_id] = [
+                    t for t in self._user_success[user_id] if t > cutoff
+                ]
             for user_id in list(self._user_locations.keys()):
                 self._user_locations[user_id] = [
                     loc for loc in self._user_locations[user_id] if loc[0] > cutoff
@@ -522,7 +524,7 @@ class AnomalyLoginDetector:
             self._attempts.append(attempt)
             if success:
                 self._user_success[user_id].append(attempt.timestamp)
-                if lat and lon:
+                if lat is not None and lon is not None:
                     self._user_locations[user_id].append((attempt.timestamp, source_ip, lat, lon))
             else:
                 self._user_failures[user_id].append(attempt.timestamp)
@@ -686,7 +688,7 @@ class AnomalyLoginDetector:
         return None
 
     def _detect_impossible_travel(self, attempt: LoginAttempt) -> AnomalyAlert | None:
-        if not self.enable_impossible_travel or attempt.lat is None:
+        if not self.enable_impossible_travel or attempt.lat is None or attempt.lon is None:
             return None
         with self._lock:
             previous = self._user_locations.get(attempt.user_id, [])
@@ -701,6 +703,7 @@ class AnomalyLoginDetector:
             from math import atan2, cos, radians, sin, sqrt
 
             R = 6371
+            # FIX: attempt.lat and attempt.lon are not None here due to check above
             lat1, lon1 = radians(last_lat), radians(last_lon)
             lat2, lon2 = radians(attempt.lat), radians(attempt.lon)
             dlat = lat2 - lat1
@@ -739,7 +742,7 @@ class AnomalyLoginDetector:
                 attempt.success,
                 attempt.device_fingerprint,
             )
-        alerts = []
+        alerts: list[AnomalyAlert] = []  # FIX: tambahkan type annotation
         if attempt.user_id in self.whitelisted_users:
             return alerts
         if not attempt.success:
@@ -819,10 +822,10 @@ class AnomalyLoginDetector:
         with self._lock:
             total_alerts = len(self._alerts)
             unacknowledged = len(self.get_unacknowledged_alerts())
-            by_type = defaultdict(int)
+            by_type: dict[str, int] = defaultdict(int)  # FIX: tambahkan type annotation
             for a in self._alerts:
                 by_type[a.anomaly_type.value] += 1
-            by_user = defaultdict(int)
+            by_user: dict[str, int] = defaultdict(int)  # FIX: tambahkan type annotation
             for a in self._alerts:
                 by_user[a.user_id] += 1
             return {
@@ -964,10 +967,11 @@ class AnomalyLoginDetector:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    # FIX: gunakan parameter yang benar yaitu max_login_attempts_per_window
     detector = AnomalyLoginDetector(
         max_failures_per_minute=3,
         max_failures_per_hour=10,
-        max_attempts_per_window=5,
+        max_login_attempts_per_window=5,  # FIX: parameter yang benar
         velocity_window_seconds=30,
         allowed_countries=["ID", "SG"],
         blacklisted_ips=["1.2.3.4"],

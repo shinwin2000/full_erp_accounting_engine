@@ -64,7 +64,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy.ext.asyncio import AsyncSession 
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     TokenPayload,
@@ -72,10 +72,31 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
-
-from app.main import get_db_session  
+from infrastructure.persistence_orm.database import async_session_maker
 
 logger = logging.getLogger(__name__)
+
+
+async def get_db_session():
+    """
+    Dependency yang menyediakan session database FRESH per-request.
+
+    CATATAN BUG BESAR yang diperbaiki: ForexService/SQLAlchemyForexRepository
+    didaftarkan sebagai SINGLETON di IoC container (satu instance untuk
+    seumur hidup proses backend). Sebelumnya repo "self-heal" - bikin SATU
+    AsyncSession sekali lalu dipakai ULANG terus-menerus untuk semua
+    request berikutnya. Itu bekerja untuk request berurutan, TAPI
+    AsyncSession SQLAlchemy TIDAK aman dipakai dari lebih dari satu
+    coroutine secara bersamaan - begitu ada 2+ request forex yang nyaris
+    bersamaan (mis. frontend load beberapa tab sekaligus: dashboard +
+    posisi + currencies), muncul "InvalidRequestError: This session is
+    provisioning a new connection; concurrent operations are not
+    permitted". Fix: session sekarang selalu fresh per-request lewat
+    dependency ini, di-set ke repo lewat forex_svc.set_context() di awal
+    setiap endpoint (bukan dipegang selamanya oleh singleton).
+    """
+    async with async_session_maker() as session:
+        yield session
 
 
 
@@ -705,7 +726,7 @@ class ForexRevaluationRequestSchema(BaseModel):
 
     @model_validator(mode="after")
 
-    def _apply_account_code_defaults(self) -> "ForexRevaluationRequestSchema":
+    def _apply_account_code_defaults(self) -> ForexRevaluationRequestSchema:
 
         """
 
@@ -989,6 +1010,8 @@ async def create_exchange_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ExchangeRateResponseSchema:
 
     """
@@ -1013,7 +1036,7 @@ async def create_exchange_rate(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1133,11 +1156,13 @@ async def get_exchange_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ExchangeRateResponseSchema:
 
     """Get exchange rate by ID."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1235,11 +1260,13 @@ async def get_current_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ExchangeRateResponseSchema:
 
     """Get current exchange rate for currency pair."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1361,11 +1388,13 @@ async def list_exchange_rates(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> list[ExchangeRateResponseSchema]:
 
     """List exchange rates with filters."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1477,6 +1506,8 @@ async def update_exchange_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ExchangeRateResponseSchema:
 
     """
@@ -1501,7 +1532,7 @@ async def update_exchange_rate(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1629,6 +1660,8 @@ async def deactivate_exchange_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> dict[str, Any]:
 
     """
@@ -1653,7 +1686,7 @@ async def deactivate_exchange_rate(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1745,6 +1778,8 @@ async def lock_exchange_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ExchangeRateResponseSchema:
 
     """
@@ -1769,7 +1804,7 @@ async def lock_exchange_rate(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -1887,6 +1922,8 @@ async def unlock_exchange_rate(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ExchangeRateResponseSchema:
 
     """
@@ -1911,7 +1948,7 @@ async def unlock_exchange_rate(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2033,11 +2070,13 @@ async def convert_currency(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> CurrencyConversionResponseSchema:
 
     """Convert amount from one currency to another."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2119,11 +2158,13 @@ async def batch_convert_currency(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> BatchConversionResponseSchema:
 
     """Convert multiple amounts in batch."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2257,11 +2298,13 @@ async def get_historical_rates(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> HistoricalRateResponseSchema:
 
     """Get historical exchange rates for a period."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2505,11 +2548,13 @@ async def list_forex_revaluations(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> list[ForexRevaluationResponseSchema]:
 
     """List forex revaluation runs."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2605,11 +2650,13 @@ async def get_forex_revaluation(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ForexRevaluationResponseSchema:
 
     """Get forex revaluation by ID."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2703,6 +2750,8 @@ async def reverse_forex_revaluation(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ForexRevaluationResponseSchema:
 
     """
@@ -2727,7 +2776,7 @@ async def reverse_forex_revaluation(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2861,11 +2910,13 @@ async def get_forex_position(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ForexPositionResponseSchema:
 
     """Get foreign currency position (open positions, unrealized gain/loss)."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -2945,11 +2996,13 @@ async def get_forex_dashboard(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ForexDashboardResponseSchema:
 
     """Get forex dashboard with latest rates and summary."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -3044,7 +3097,7 @@ async def list_currencies(
 
     """List semua mata uang di currency_master."""
 
-    forex_svc.set_context(None)
+    forex_svc.set_context(None, session)
 
     try:
 
@@ -3089,7 +3142,7 @@ async def create_currency(
 
     """Tambah mata uang baru ke currency_master."""
 
-    forex_svc.set_context(None)
+    forex_svc.set_context(None, session)
 
     try:
 
@@ -3148,7 +3201,7 @@ async def deactivate_currency(
 
     """Nonaktifkan mata uang (soft-deactivate, bukan hapus permanen)."""
 
-    forex_svc.set_context(None)
+    forex_svc.set_context(None, session)
 
     try:
 
@@ -3209,6 +3262,8 @@ async def sync_rates_from_provider(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> dict[str, Any]:
 
     """
@@ -3233,7 +3288,7 @@ async def sync_rates_from_provider(
 
 
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -3327,11 +3382,13 @@ async def get_rate_history(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> list[dict[str, Any]]:
 
     """Get exchange rate change history (audit trail)."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -3397,11 +3454,13 @@ async def get_rate_status(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> dict[str, Any]:
 
     """Get detailed exchange rate status."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -3505,11 +3564,13 @@ async def export_exchange_rates(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> Response:
 
     """Export exchange rates to CSV or Excel."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 
@@ -3587,11 +3648,13 @@ async def export_revaluation_history(
 
     forex_svc: Any = Depends(get_forex_svc),
 
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> Response:
 
     """Export revaluation history to CSV or Excel."""
 
-    forex_svc.set_context(legal_entity_id)
+    forex_svc.set_context(legal_entity_id, session)
 
     try:
 

@@ -37,7 +37,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any

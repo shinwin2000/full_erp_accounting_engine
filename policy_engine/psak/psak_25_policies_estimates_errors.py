@@ -119,6 +119,7 @@ class PSAK25ChangeDetail:
     approved_by: UUID | None = None
     approved_date: datetime | None = None
     notes: str = ""
+    is_mandatory: bool = False  # FIX: tambahkan field untuk menandai perubahan wajib
 
     def net_impact(self) -> Decimal:
         return self.corrected_amount - self.previous_amount
@@ -143,6 +144,7 @@ class PSAK25ChangeDetail:
             "approved_by": str(self.approved_by) if self.approved_by else None,
             "approved_date": self.approved_date.isoformat() if self.approved_date else None,
             "notes": self.notes,
+            "is_mandatory": self.is_mandatory,
         }
 
 
@@ -157,7 +159,8 @@ class PSAK25ChangeRegister:
     changes: list[PSAK25ChangeDetail] = field(default_factory=list)
 
     def total_impact_on_retained_earnings(self) -> Decimal:
-        return sum(c.impact_on_retained_earnings for c in self.changes)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((c.impact_on_retained_earnings for c in self.changes), Decimal(0))
 
     def changes_by_type(self, change_type: PSAK25ChangeType) -> list[PSAK25ChangeDetail]:
         return [c for c in self.changes if c.change_type == change_type]
@@ -281,7 +284,7 @@ class PSAK25Rules:
         if (
             change.change_type == PSAK25ChangeType.CHANGE_IN_ACCOUNTING_POLICY
             and not change.justification
-            and not change.is_mandatory
+            and not change.is_mandatory  # FIX: sekarang ada field is_mandatory
         ):
             result.add_error(
                 "Perubahan kebijakan akuntansi sukarela harus memiliki justifikasi"
@@ -374,6 +377,7 @@ class PSAK25Validator:
             application_method=application_method,
             is_impracticable=is_impracticable,
             impracticable_reason=impracticable_reason,
+            is_mandatory=is_mandatory_change,  # FIX: simpan status mandatory
         )
 
     def create_register(
@@ -420,6 +424,7 @@ class PSAK25Validator:
             approved_by=approver_id,
             approved_date=datetime.now(UTC),
             notes=change.notes,
+            is_mandatory=change.is_mandatory,
         )
 
     def validate_register(self, register: PSAK25ChangeRegister) -> PSAK25ValidationResult:
@@ -513,6 +518,8 @@ __all__ = [
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak25_validator()
     entity_id = uuid4()
 

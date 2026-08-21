@@ -277,9 +277,10 @@ class SovereigntyBoundaryGuard:
 
     def generate_report(self) -> dict:
         total_transfers = len(self._transfers)
-        by_source = {}
-        by_target = {}
-        by_type = {}
+        # FIX: tambahkan type annotation untuk menghilangkan error mypy
+        by_source: dict[str, int] = {}
+        by_target: dict[str, int] = {}
+        by_type: dict[str, int] = {}
         for t in self._transfers:
             by_source[t.source_jurisdiction] = by_source.get(t.source_jurisdiction, 0) + 1
             by_target[t.target_jurisdiction] = by_target.get(t.target_jurisdiction, 0) + 1

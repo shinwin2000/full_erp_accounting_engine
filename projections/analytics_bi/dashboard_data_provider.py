@@ -30,6 +30,7 @@ from sqlalchemy import JSON, Column, DateTime, Index, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeMeta
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -84,7 +85,8 @@ class DashboardDataError(Exception):
 # ORM MODEL (untuk menyimpan dashboard snapshots opsional)
 # ============================================================================
 
-Base = declarative_base()
+# Explicitly type Base as DeclarativeMeta to avoid mypy errors
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 
 class DashboardSnapshotTable(Base):
@@ -136,6 +138,8 @@ class DashboardDataProvider:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        # mypy cannot infer that _session_factory is not None after assignment
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def _get_trend_analyzer(self) -> TrendAnalyzer12Month:
@@ -206,8 +210,12 @@ class DashboardDataProvider:
                     raise DashboardDataError(f"Period {period_id} not found")
 
             # 2. Key metrics (revenue, net income, etc) from income statement
-            inc = await self._get_income_stmt().get_income_statement(legal_entity_id, period_id)
-            bs = await self._get_balance_sheet().get_snapshot(legal_entity_id, period_id)
+            # FIX: await _get_income_stmt() first, then call method
+            income_stmt = await self._get_income_stmt()
+            inc = await income_stmt.get_income_statement(legal_entity_id, period_id)
+
+            balance_sheet = await self._get_balance_sheet()
+            bs = await balance_sheet.get_snapshot(legal_entity_id, period_id)
 
             key_metrics = {
                 "revenue": inc.get("total_revenue", 0) if inc else 0,
@@ -220,28 +228,33 @@ class DashboardDataProvider:
             }
 
             # 3. Trend data (last 12 months)
-            trend_data = await self._get_trend_analyzer().get_trend_analysis(legal_entity_id, 12)
+            trend_analyzer = await self._get_trend_analyzer()
+            trend_data = await trend_analyzer.get_trend_analysis(legal_entity_id, 12)
 
             # 4. Variance analysis (actual vs budget)
-            variance = await self._get_variance_analyzer().analyze_period_variance(
+            variance_analyzer = await self._get_variance_analyzer()
+            variance = await variance_analyzer.analyze_period_variance(
                 legal_entity_id, period.fiscal_year, period.period_number
             )
 
             # 5. Profitability by segment
-            profitability = await self._get_profitability_analyzer().get_profitability_summary(
+            profitability_analyzer = await self._get_profitability_analyzer()
+            profitability = await profitability_analyzer.get_profitability_summary(
                 legal_entity_id, period.start_date, period.end_date
             )
 
             # 6. Financial ratios
-            ratios_data = await self._get_ratios_calc().calculate_ratios(legal_entity_id, period_id)
+            ratios_calc = await self._get_ratios_calc()
+            ratios_data = await ratios_calc.calculate_ratios(legal_entity_id, period_id)
 
             # 7. KPI alerts
-            kpi_alerts = await self._get_kpi_alerter().get_alert_history(legal_entity_id, limit=20)
+            kpi_alerter = await self._get_kpi_alerter()
+            kpi_alerts = await kpi_alerter.get_alert_history(legal_entity_id, limit=20)
 
             # 8. YTD summary (if period not first)
             ytd_summary = {}
             if period.period_number > 1:
-                ytd_inc = await self._get_income_stmt().get_ytd_income(
+                ytd_inc = await income_stmt.get_ytd_income(
                     legal_entity_id, period.fiscal_year
                 )
                 ytd_summary = {

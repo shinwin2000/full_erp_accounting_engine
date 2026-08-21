@@ -155,7 +155,11 @@ BUILTIN_SCHEMAS = {
 
 
 class SchemaValidationError(Exception):
-    pass
+    """Raised when schema validation fails."""
+
+    def __init__(self, message: str, errors: list[str] | None = None) -> None:
+        self.errors = errors or []
+        super().__init__(message)
 
 
 class SchemaNotFoundError(SchemaValidationError):
@@ -167,7 +171,7 @@ class SchemaLoadError(Exception):
 
 
 class EventSchemaValidator:
-    def __init__(self):
+    def __init__(self) -> None:
         self._schema_cache: dict[str, dict[str, Any]] = {}
         self._redis = None
         self._load_builtin_schemas()
@@ -176,7 +180,7 @@ class EventSchemaValidator:
         self._snapshots: list[dict[str, Any]] = []
         self._take_snapshot()
 
-    def _take_snapshot(self):
+    def _take_snapshot(self) -> None:
         self._snapshots.append(
             {
                 "version": self._version,
@@ -187,7 +191,7 @@ class EventSchemaValidator:
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
-    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         self._audit_trail.append(
             {
                 "action": action,
@@ -312,7 +316,8 @@ class EventSchemaValidator:
                 enum_values = prop_schema.get("enum")
                 if enum_values and prop_value not in enum_values:
                     errors.append(f"{prop_path} value {prop_value} not in enum {enum_values}")
-                if isinstance(prop_value, (int, float)):
+                # FIX: UP038 - gunakan int | float
+                if isinstance(prop_value, int | float):
                     minimum = prop_schema.get("minimum")
                     if minimum is not None and prop_value < minimum:
                         errors.append(f"{prop_path} value {prop_value} is below minimum {minimum}")
@@ -394,7 +399,7 @@ class EventSchemaValidator:
     def from_dict(cls, data: dict[str, Any]) -> EventSchemaValidator:
         instance = cls()
         instance._version = data.get("version", 1)
-        # Note: cache tidak dapat dipulihkan dari dict
+        # Note: cache cannot be restored from dict
         return instance
 
     def clone(self) -> EventSchemaValidator:

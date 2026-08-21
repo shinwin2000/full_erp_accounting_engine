@@ -39,7 +39,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -64,7 +64,7 @@ DEPRECIATION_METHOD_UNITS_OF_PRODUCTION = "units_of_production"
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class FixedAssetNBVScheduleTable(Base):
@@ -437,7 +437,7 @@ class FixedAssetNBVSchedule:
 
         for month_offset in range(months_ahead):
             forecast_date = today + timedelta(days=30 * month_offset)
-            total_depreciation = Decimal(0)
+            total_depreciation: Decimal = Decimal(0)
 
             async with await self._get_session() as session:
                 stmt = select(FixedAssetNBVScheduleTable.depreciation_amount).where(
@@ -451,7 +451,7 @@ class FixedAssetNBVSchedule:
                 )
                 result = await session.execute(stmt)
                 amounts = result.scalars().all()
-                total_depreciation = sum(Decimal(str(a)) for a in amounts)
+                total_depreciation = sum((Decimal(str(a)) for a in amounts), Decimal(0))
 
             forecast.append(
                 {

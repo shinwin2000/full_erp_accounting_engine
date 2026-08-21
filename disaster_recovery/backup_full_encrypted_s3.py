@@ -42,8 +42,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 try:
     from .dr_exceptions import BackupError
 except ImportError:
-
-    class BackupError(Exception):
+    # FIX: tambahkan # type: ignore untuk menghindari error mypy no-redef
+    class BackupError(Exception):  # type: ignore
         pass
 
 
@@ -442,6 +442,8 @@ class S3EncryptedBackup:
             shutil.copy2(input_path, output_path)
             return "none"
         if self.encryption_method == EncryptionMethod.AWS_KMS and self.kms_key_id:
+            if self.kms_client is None:
+                raise BackupError("KMS client not initialized (missing kms_key_id?)")
             with open(input_path, "rb") as f:
                 plaintext = f.read()
             try:
@@ -489,7 +491,7 @@ class S3EncryptedBackup:
             return "none"
 
     def _upload_to_s3(self, file_path: str, s3_key: str, metadata: dict) -> None:
-        extra_args = {"Metadata": metadata}
+        extra_args: dict[str, Any] = {"Metadata": metadata}
         if self.use_sse and self.kms_key_id:
             extra_args["ServerSideEncryption"] = "aws:kms"
             extra_args["SSEKMSKeyId"] = self.kms_key_id
@@ -522,9 +524,9 @@ class S3EncryptedBackup:
         backup_id = backup_id or f"backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
         status = BackupStatus.RUNNING
         error_msg = None
-        db_dump_path = None
-        compressed_path = None
-        encrypted_path = None
+        db_dump_path: str | None = None
+        compressed_path: str | None = None
+        encrypted_path: str | None = None
 
         try:
             with tempfile.NamedTemporaryFile(
@@ -588,8 +590,9 @@ class S3EncryptedBackup:
             status = BackupStatus.SUCCESS
             logger.info(f"Backup {backup_id} completed in {duration:.2f}s")
 
-            for path in [db_dump_path, compressed_path, encrypted_path]:
-                if path and os.path.exists(path):
+            paths_to_clean = [p for p in (db_dump_path, compressed_path, encrypted_path) if p is not None]
+            for path in paths_to_clean:
+                if os.path.exists(path):
                     os.unlink(path)
 
             deleted = self._delete_old_backups()
@@ -608,8 +611,9 @@ class S3EncryptedBackup:
             self._record_audit("CREATE_BACKUP_FAILED", "system", {"error": error_msg})
             raise BackupError(f"Backup failed: {error_msg}") from e
         finally:
-            for path in [db_dump_path, compressed_path, encrypted_path]:
-                if path and os.path.exists(path):
+            paths_to_clean = [p for p in (db_dump_path, compressed_path, encrypted_path) if p is not None]
+            for path in paths_to_clean:
+                if os.path.exists(path):
                     try:
                         os.unlink(path)
                     except Exception as cleanup_err:
@@ -627,6 +631,8 @@ class S3EncryptedBackup:
                 backup_metadata.s3_bucket, backup_metadata.s3_key, encrypted_local
             )
             if backup_metadata.encryption_method == EncryptionMethod.AWS_KMS and self.kms_key_id:
+                if self.kms_client is None:
+                    raise BackupError("KMS client not initialized for decryption")
                 with open(encrypted_local, "rb") as f:
                     ciphertext = f.read()
                 response = self.kms_client.decrypt(
@@ -827,3 +833,4 @@ if __name__ == "__main__":
             print("Error: --backup-id required for restore")
             exit(1)
         print("Restore not fully implemented in CLI demo")
+        

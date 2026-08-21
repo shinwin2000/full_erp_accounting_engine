@@ -122,7 +122,7 @@ class EventEnvelope:
 
     event: Any
     event_id: UUID = field(default_factory=uuid4)
-    event_type: str = field(init=False)
+    event_type: str = ""  # Now a regular field, can be passed in init
     correlation_id: str = field(default_factory=lambda: str(uuid4()))
     causation_id: str | None = None
     user_id: UUID | None = None
@@ -134,8 +134,10 @@ class EventEnvelope:
     payload: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
+        # If event is provided, infer event_type from it
         if hasattr(self, "event") and self.event is not None:
             object.__setattr__(self, "event_type", self.event.__class__.__name__)
+        # If event_type is empty and event is None, we keep it empty; but from_json will set it explicitly.
 
     def to_json(self) -> str:
         event_dict = self._event_to_dict(self.event) if self.event else self.payload
@@ -189,7 +191,7 @@ class EventEnvelope:
         return cls(
             event=None,
             event_id=UUID(data["event_id"]),
-            event_type=data["event_type"],
+            event_type=data["event_type"],  # now allowed
             correlation_id=data.get("correlation_id", str(uuid4())),
             causation_id=data.get("causation_id"),
             user_id=UUID(data["user_id"]) if data.get("user_id") else None,
@@ -232,9 +234,9 @@ class SimpleCircuitBreaker:
 
     @property
     def state(self) -> str:
-        if self._state == "open" and self._last_failure_time:
-            if time.time() - self._last_failure_time >= self.recovery_timeout:
-                self._state = "half-open"
+        # SIM102: combine nested if using `and`
+        if self._state == "open" and self._last_failure_time and time.time() - self._last_failure_time >= self.recovery_timeout:
+            self._state = "half-open"
         return self._state
 
     def record_success(self) -> None:
@@ -331,7 +333,8 @@ class ApplicationEventPublisher:
             max_attempts=max_retries, base_delay=retry_delay_seconds, max_delay=10.0
         )
 
-        self._stats = {
+        # Use dict[str, Any] for stats to allow mixed types
+        self._stats: dict[str, Any] = {
             "total_published": 0,
             "total_failed": 0,
             "total_outbox_enqueued": 0,
@@ -353,17 +356,17 @@ class ApplicationEventPublisher:
     ) -> EventPublishStatus:
         start_time = time.perf_counter()
 
-        if self._enable_idempotency and idempotency_key:
-            if await self._is_event_processed(idempotency_key):
-                logger.warning(f"Duplicate event, skipping: {idempotency_key}")
-                return EventPublishStatus(
-                    event_id=uuid4(),
-                    event_type=event.__class__.__name__,
-                    result=PublishResult.SUCCESS,
-                    attempt=0,
-                    latency_ms=0,
-                    error_message="Duplicate event, already processed",
-                )
+        # SIM102: combine nested if
+        if self._enable_idempotency and idempotency_key and await self._is_event_processed(idempotency_key):
+            logger.warning(f"Duplicate event, skipping: {idempotency_key}")
+            return EventPublishStatus(
+                event_id=uuid4(),
+                event_type=event.__class__.__name__,
+                result=PublishResult.SUCCESS,
+                attempt=0,
+                latency_ms=0,
+                error_message="Duplicate event, already processed",
+            )
 
         envelope = EventEnvelope(
             event=event,
@@ -430,7 +433,8 @@ class ApplicationEventPublisher:
                     },
                 )
             except Exception as e:
-                if isinstance(e, (ConnectionError, TimeoutError)):
+                # UP038: use X | Y instead of tuple
+                if isinstance(e, ConnectionError | TimeoutError):
                     raise EventPublishRetryableError(f"Network error: {e}")
                 raise EventPublishFatalError(f"Fatal error: {e}")
 
@@ -448,7 +452,8 @@ class ApplicationEventPublisher:
             raise EventPublishFatalError("Outbox is None but ASYNC mode is used.")
 
         try:
-            record_id = await self._outbox.enqueue(
+            # F841: remove unused variable record_id (use _)
+            _ = await self._outbox.enqueue(
                 event_id=envelope.event_id,
                 event_type=envelope.event_type,
                 payload=envelope.to_json(),

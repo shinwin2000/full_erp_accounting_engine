@@ -31,13 +31,13 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from functools import wraps
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ class AuditRecord:
         """Serialize payload safely."""
         if data is None:
             return None
-        if isinstance(data, (str, int, float, bool)):
+        if isinstance(data, str | int | float | bool):
             return data
         if isinstance(data, UUID):
             return str(data)
@@ -174,7 +174,7 @@ class AuditRecord:
             return data.isoformat()
         if isinstance(data, dict):
             return {k: AuditRecord._serialize_payload(v) for k, v in data.items()}
-        if isinstance(data, (list, tuple)):
+        if isinstance(data, list | tuple):
             return [AuditRecord._serialize_payload(v) for v in data]
         if hasattr(data, "__dict__"):
             return {
@@ -343,10 +343,9 @@ class ImmutableAuditStore:
                     f"Record {i}: hash mismatch. Expected {computed_hash}, got {record.hash_chain_current}"
                 )
 
-            # Check signature if enabled
-            if self._enable_signatures and record.signature:
-                if not record.verify_signature(self._secret_key):
-                    violations.append(f"Record {i}: signature verification failed")
+            # Check signature if enabled (SIM102 fix: combine if statements)
+            if self._enable_signatures and record.signature and not record.verify_signature(self._secret_key):
+                violations.append(f"Record {i}: signature verification failed")
 
             prev_hash = record.hash_chain_current
 
@@ -363,7 +362,7 @@ class ImmutableAuditStore:
                     {
                         "type": "integrity_violation",
                         "details": violation,
-                        "detected_at": datetime.now(timezone.UTC).isoformat(),
+                        "detected_at": datetime.now(UTC).isoformat(),
                     }
                 )
 
@@ -428,7 +427,7 @@ class AuditContext:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_command(cls, command: Command, **kwargs) -> AuditContext:
+    def from_command(cls, command: BaseCommand, **kwargs) -> AuditContext:
         """Create AuditContext from command."""
         return cls(
             user_id=getattr(command, "user_id", None),
@@ -516,8 +515,8 @@ class CommandExecutorWithAudit:
         self._audit_store = audit_store or get_audit_store()
         self._default_timeout = default_timeout_seconds
         self._enable_audit = enable_audit
-        self._execution_hooks: list[Callable[[AuditRecord], Awaitable[None]]] = []
-        self._pre_execution_hooks: list[Callable[[Command, AuditContext], Awaitable[None]]] = []
+        self._post_execution_hooks: list[Callable[[AuditRecord], Awaitable[None]]] = []
+        self._pre_execution_hooks: list[Callable[[BaseCommand, AuditContext], Awaitable[None]]] = []
         self._stats = {
             "total_executions": 0,
             "successful_executions": 0,
@@ -540,7 +539,7 @@ class CommandExecutorWithAudit:
     @audit_action("add_pre_execution_hook")
     @require_authorization(required_role="admin")
     def add_pre_execution_hook(
-        self, hook: Callable[[Command, AuditContext], Awaitable[None]]
+        self, hook: Callable[[BaseCommand, AuditContext], Awaitable[None]]
     ) -> None:
         """Add hook to be called before command execution."""
         self._check_authority("admin")  # Explicit SOD check
@@ -551,14 +550,14 @@ class CommandExecutorWithAudit:
     def add_post_execution_hook(self, hook: Callable[[AuditRecord], Awaitable[None]]) -> None:
         """Add hook to be called after audit record is stored."""
         self._check_authority("admin")  # Explicit SOD check
-        self._execution_hooks.append(hook)
+        self._post_execution_hooks.append(hook)
 
     @audit_action("execute_command")
     @require_authorization(required_permission="execute_command")
     async def execute(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: AuditContext | None = None,
         timeout_seconds: float | None = None,
     ) -> CommandResult:
@@ -578,14 +577,14 @@ class CommandExecutorWithAudit:
         self._stats["total_executions"] += 1
 
         audit_id = uuid4()
-        started_at = datetime.now(timezone.UTC)
+        started_at = datetime.now(UTC)
         start_time = time.perf_counter()
         context = context or AuditContext.from_command(command)
 
         # Run pre-execution hooks
-        for hook in self._pre_execution_hooks:
+        for pre_hook in self._pre_execution_hooks:
             try:
-                await hook(command, context)
+                await pre_hook(command, context)
             except Exception as e:
                 logger.warning(f"Pre-execution hook failed: {e}")
 
@@ -626,7 +625,7 @@ class CommandExecutorWithAudit:
             result = CommandResult.failure(command.command_id, error_message, error_code)
             logger.exception(f"Command execution error: {e}")
 
-        completed_at = datetime.now(timezone.UTC)
+        completed_at = datetime.now(UTC)
         duration_ms = (time.perf_counter() - start_time) * 1000
 
         if result.is_success():
@@ -668,16 +667,16 @@ class CommandExecutorWithAudit:
                 raise AuditStoreError(f"Cannot store audit: {e}") from e
 
         # Execute post-execution hooks
-        for hook in self._execution_hooks:
+        for post_hook in self._post_execution_hooks:
             try:
-                await hook(audit_record)
+                await post_hook(audit_record)
             except Exception as e:
                 logger.warning(f"Post-execution hook failed: {e}")
 
         command.set_result(result)
         return result
 
-    def _serialize_command(self, command: Command) -> dict[str, Any]:
+    def _serialize_command(self, command: BaseCommand) -> dict[str, Any]:
         """Serialize command to safe dictionary for audit."""
         result = {}
 
@@ -701,7 +700,7 @@ class CommandExecutorWithAudit:
         """Convert non-serializable objects to string."""
         if value is None:
             return None
-        if isinstance(value, (str, int, float, bool)):
+        if isinstance(value, str | int | float | bool):
             return value
         if isinstance(value, UUID):
             return str(value)
@@ -709,7 +708,7 @@ class CommandExecutorWithAudit:
             return value.isoformat()
         if isinstance(value, dict):
             return {k: self._safe_serialize(v) for k, v in value.items()}
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             return [self._safe_serialize(v) for v in value]
         if hasattr(value, "__dict__"):
             return {

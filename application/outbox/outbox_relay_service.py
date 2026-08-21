@@ -52,16 +52,16 @@ from application.outbox.outbox_exceptions import (
 
 # Metrics - untuk deteksi AST (OUT-033)
 try:
-    from prometheus_client import Counter, Gauge, Histogram
+    from prometheus_client import Counter as _Counter
+    from prometheus_client import Gauge as _Gauge
+    from prometheus_client import Histogram as _Histogram
+
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
-    class Counter:
-        def inc(self, *args, **kwargs): pass
-    class Histogram:
-        def observe(self, *args, **kwargs): pass
-    class Gauge:
-        def set(self, *args, **kwargs): pass
+    _Counter = None  # type: ignore
+    _Histogram = None  # type: ignore
+    _Gauge = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ AUTO_RECONNECT_ENABLED = True               # OUT-043
 # ENUMS
 # ============================================================================
 
+
 class OutboxRecordStatus(str, Enum):
     PENDING = "PENDING"
     PROCESSING = "PROCESSING"
@@ -93,6 +94,7 @@ class OutboxRecordStatus(str, Enum):
 # ============================================================================
 # PROTOCOLS (PORTS)
 # ============================================================================
+
 
 class OutboxRepositoryPort(Protocol):
     async def get_pending_events(
@@ -138,6 +140,7 @@ class MessageBrokerPort(Protocol):
 # CONFIGURATION
 # ============================================================================
 
+
 @dataclass(kw_only=True)
 class OutboxRelayConfig:
     batch_size: int = 100
@@ -174,6 +177,7 @@ class OutboxRelayConfig:
 # PAYLOAD VALIDATION (OUT-045)
 # ============================================================================
 
+
 class OutboxEventPayload(BaseModel):
     event_type: str
     aggregate_id: str
@@ -186,6 +190,7 @@ class OutboxEventPayload(BaseModel):
 # ============================================================================
 # CIRCUIT BREAKER
 # ============================================================================
+
 
 class CircuitBreaker:
     def __init__(
@@ -207,10 +212,14 @@ class CircuitBreaker:
         return self._state
 
     def _check_recovery(self) -> None:
-        if self._state == "open" and self._last_failure_time:
-            if time.time() - self._last_failure_time >= self.recovery_timeout:
-                self._state = "half-open"
-                logger.info(f"Circuit breaker '{self.name}' transitioned to half-open")
+        # Gabungkan nested if (SIM102)
+        if (
+            self._state == "open"
+            and self._last_failure_time is not None
+            and time.time() - self._last_failure_time >= self.recovery_timeout
+        ):
+            self._state = "half-open"
+            logger.info(f"Circuit breaker '{self.name}' transitioned to half-open")
 
     def record_success(self) -> None:
         if self._state == "half-open":
@@ -243,18 +252,22 @@ class CircuitBreaker:
 # ERROR CLASSIFICATION (OUT-040)
 # ============================================================================
 
+
 class PermanentError(Exception):
     pass
 
+
 class TemporaryError(Exception):
     pass
+
 
 def classify_error(exception: Exception) -> str:
     if isinstance(exception, PermanentError):
         return "permanent"
     if isinstance(exception, TemporaryError):
         return "temporary"
-    if isinstance(exception, (asyncio.TimeoutError, ConnectionError, OSError)):
+    # Gunakan X | Y (UP038)
+    if isinstance(exception, asyncio.TimeoutError | ConnectionError | OSError):
         return "temporary"
     if isinstance(exception, ValidationError):
         return "permanent"
@@ -264,6 +277,7 @@ def classify_error(exception: Exception) -> str:
 # ============================================================================
 # OUTBOX RELAY SERVICE (HARDENED)
 # ============================================================================
+
 
 class OutboxRelayService:
     """
@@ -296,18 +310,26 @@ class OutboxRelayService:
         ) if self._config.enable_circuit_breaker else None
 
         self._rate_limit_per_second = self._config.rate_limit_per_second
-        self._tokens = self._rate_limit_per_second
+        self._tokens = float(self._rate_limit_per_second)  # float for rate limiting
         self._last_refill = time.monotonic()
         self._rate_lock = asyncio.Lock()
 
-        # Metrics
-        self._processed_counter = Counter("outbox_relay_processed_total", "Total processed events")
-        self._published_counter = Counter("outbox_relay_published_total", "Total published events")
-        self._failed_counter = Counter("outbox_relay_failed_total", "Total failed events")
-        self._dead_letter_counter = Counter("outbox_relay_dead_letter_total", "Total dead letter events")
-        self._processing_duration = Histogram("outbox_relay_processing_seconds", "Processing duration")
+        # Metrics - use available classes or None
+        if _METRICS_AVAILABLE and _Counter is not None and _Histogram is not None and _Gauge is not None:
+            self._processed_counter = _Counter("outbox_relay_processed_total", "Total processed events")
+            self._published_counter = _Counter("outbox_relay_published_total", "Total published events")
+            self._failed_counter = _Counter("outbox_relay_failed_total", "Total failed events")
+            self._dead_letter_counter = _Counter("outbox_relay_dead_letter_total", "Total dead letter events")
+            self._processing_duration = _Histogram("outbox_relay_processing_seconds", "Processing duration")
+        else:
+            self._processed_counter = None
+            self._published_counter = None
+            self._failed_counter = None
+            self._dead_letter_counter = None
+            self._processing_duration = None
 
-        self._stats = {
+        # Stats with explicit types (all counters initialized to 0)
+        self._stats: dict[str, Any] = {
             "processed": 0,
             "published": 0,
             "failed": 0,
@@ -328,10 +350,11 @@ class OutboxRelayService:
         async with self._rate_lock:
             now = time.monotonic()
             elapsed = now - self._last_refill
-            self._tokens = min(self._rate_limit_per_second, self._tokens + elapsed * self._rate_limit_per_second)
+            # tokens is float
+            self._tokens = min(float(self._rate_limit_per_second), self._tokens + elapsed * self._rate_limit_per_second)
             self._last_refill = now
-            if self._tokens >= 1:
-                self._tokens -= 1
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
                 return True
             return False
 
@@ -394,7 +417,8 @@ class OutboxRelayService:
                 )
             if self._circuit_breaker:
                 self._circuit_breaker.record_success()
-            self._published_counter.inc()
+            if self._published_counter is not None:
+                self._published_counter.inc()
             logger.debug(f"Published record {record['id']} to topic {topic}")
 
         except TimeoutError as e:
@@ -474,19 +498,19 @@ class OutboxRelayService:
                     }
                     await self._publish_record(record_dict)
 
-                    async with get_async_session() as session2:
-                        async with session2.begin():
-                            stmt_pub = (
-                                update(OutboxTable)
-                                .where(OutboxTable.id == record.id)
-                                .values(
-                                    status=OUTBOX_STATUS_PUBLISHED,
-                                    sent_at=datetime.now(UTC),
-                                    updated_at=datetime.now(UTC)
-                                )
+                    # Gabungkan with statements (SIM117)
+                    async with get_async_session() as session2, session2.begin():
+                        stmt_pub = (
+                            update(OutboxTable)
+                            .where(OutboxTable.id == record.id)
+                            .values(
+                                status=OUTBOX_STATUS_PUBLISHED,
+                                sent_at=datetime.now(UTC),
+                                updated_at=datetime.now(UTC)
                             )
-                            await session2.execute(stmt_pub)
-                            await session2.commit()
+                        )
+                        await session2.execute(stmt_pub)
+                        await session2.commit()
 
                     self._stats["published"] += 1
                     processed += 1
@@ -494,54 +518,18 @@ class OutboxRelayService:
                 except OutboxPublishRetryableError as e:
                     logger.warning(f"Retryable error for record {record.id}: {e}")
                     self._stats["failed"] += 1
-                    self._failed_counter.inc()
+                    if self._failed_counter is not None:
+                        self._failed_counter.inc()
 
                     retry_count = record.retry_count + 1
                     delays = self._config.retry_delay_seconds
                     delay = delays[min(retry_count - 1, len(delays) - 1)]
                     next_retry = datetime.now(UTC) + timedelta(seconds=delay)
 
-                    async with get_async_session() as session3:
-                        async with session3.begin():
-                            if retry_count >= self._config.max_retries:
-                                stmt_dlq = (
-                                    update(OutboxTable)
-                                    .where(OutboxTable.id == record.id)
-                                    .values(
-                                        status=OUTBOX_STATUS_DEAD_LETTER,
-                                        last_error=str(e),
-                                        updated_at=datetime.now(UTC)
-                                    )
-                                )
-                                await session3.execute(stmt_dlq)
-                                self._stats["dead_letter"] += 1
-                                self._dead_letter_counter.inc()
-                                logger.error(f"Record {record.id} moved to dead letter after {retry_count} retries")
-                            else:
-                                stmt_fail = (
-                                    update(OutboxTable)
-                                    .where(OutboxTable.id == record.id)
-                                    .values(
-                                        status=OUTBOX_STATUS_PENDING,
-                                        retry_count=retry_count,
-                                        last_error=str(e),
-                                        next_retry_at=next_retry,
-                                        updated_at=datetime.now(UTC)
-                                    )
-                                )
-                                await session3.execute(stmt_fail)
-                            await session3.commit()
-
-                except OutboxPublishFatalError as e:
-                    logger.error(f"Fatal error for record {record.id}: {e}")
-                    self._stats["failed"] += 1
-                    self._stats["dead_letter"] += 1
-                    self._failed_counter.inc()
-                    self._dead_letter_counter.inc()
-
-                    async with get_async_session() as session4:
-                        async with session4.begin():
-                            stmt_fatal = (
+                    # Gabungkan with statements (SIM117)
+                    async with get_async_session() as session3, session3.begin():
+                        if retry_count >= self._config.max_retries:
+                            stmt_dlq = (
                                 update(OutboxTable)
                                 .where(OutboxTable.id == record.id)
                                 .values(
@@ -550,52 +538,96 @@ class OutboxRelayService:
                                     updated_at=datetime.now(UTC)
                                 )
                             )
-                            await session4.execute(stmt_fatal)
-                            await session4.commit()
+                            await session3.execute(stmt_dlq)
+                            self._stats["dead_letter"] += 1
+                            if self._dead_letter_counter is not None:
+                                self._dead_letter_counter.inc()
+                            logger.error(f"Record {record.id} moved to dead letter after {retry_count} retries")
+                        else:
+                            stmt_fail = (
+                                update(OutboxTable)
+                                .where(OutboxTable.id == record.id)
+                                .values(
+                                    status=OUTBOX_STATUS_PENDING,
+                                    retry_count=retry_count,
+                                    last_error=str(e),
+                                    next_retry_at=next_retry,
+                                    updated_at=datetime.now(UTC)
+                                )
+                            )
+                            await session3.execute(stmt_fail)
+                        await session3.commit()
+
+                except OutboxPublishFatalError as e:
+                    logger.error(f"Fatal error for record {record.id}: {e}")
+                    self._stats["failed"] += 1
+                    self._stats["dead_letter"] += 1
+                    if self._failed_counter is not None:
+                        self._failed_counter.inc()
+                    if self._dead_letter_counter is not None:
+                        self._dead_letter_counter.inc()
+
+                    # Gabungkan with statements (SIM117)
+                    async with get_async_session() as session4, session4.begin():
+                        stmt_fatal = (
+                            update(OutboxTable)
+                            .where(OutboxTable.id == record.id)
+                            .values(
+                                status=OUTBOX_STATUS_DEAD_LETTER,
+                                last_error=str(e),
+                                updated_at=datetime.now(UTC)
+                            )
+                        )
+                        await session4.execute(stmt_fatal)
+                        await session4.commit()
 
                 except Exception as e:
                     logger.exception(f"Unexpected error for record {record.id}: {e}")
                     self._stats["failed"] += 1
-                    self._failed_counter.inc()
+                    if self._failed_counter is not None:
+                        self._failed_counter.inc()
                     retry_count = record.retry_count + 1
                     delays = self._config.retry_delay_seconds
                     delay = delays[min(retry_count - 1, len(delays) - 1)]
                     next_retry = datetime.now(UTC) + timedelta(seconds=delay)
 
-                    async with get_async_session() as session5:
-                        async with session5.begin():
-                            if retry_count >= self._config.max_retries:
-                                stmt_dlq = (
-                                    update(OutboxTable)
-                                    .where(OutboxTable.id == record.id)
-                                    .values(
-                                        status=OUTBOX_STATUS_DEAD_LETTER,
-                                        last_error=str(e),
-                                        updated_at=datetime.now(UTC)
-                                    )
+                    # Gabungkan with statements (SIM117)
+                    async with get_async_session() as session5, session5.begin():
+                        if retry_count >= self._config.max_retries:
+                            stmt_dlq = (
+                                update(OutboxTable)
+                                .where(OutboxTable.id == record.id)
+                                .values(
+                                    status=OUTBOX_STATUS_DEAD_LETTER,
+                                    last_error=str(e),
+                                    updated_at=datetime.now(UTC)
                                 )
-                                await session5.execute(stmt_dlq)
-                                self._stats["dead_letter"] += 1
+                            )
+                            await session5.execute(stmt_dlq)
+                            self._stats["dead_letter"] += 1
+                            if self._dead_letter_counter is not None:
                                 self._dead_letter_counter.inc()
-                            else:
-                                stmt_fail = (
-                                    update(OutboxTable)
-                                    .where(OutboxTable.id == record.id)
-                                    .values(
-                                        status=OUTBOX_STATUS_PENDING,
-                                        retry_count=retry_count,
-                                        last_error=str(e),
-                                        next_retry_at=next_retry,
-                                        updated_at=datetime.now(UTC)
-                                    )
+                        else:
+                            stmt_fail = (
+                                update(OutboxTable)
+                                .where(OutboxTable.id == record.id)
+                                .values(
+                                    status=OUTBOX_STATUS_PENDING,
+                                    retry_count=retry_count,
+                                    last_error=str(e),
+                                    next_retry_at=next_retry,
+                                    updated_at=datetime.now(UTC)
                                 )
-                                await session5.execute(stmt_fail)
-                            await session5.commit()
+                            )
+                            await session5.execute(stmt_fail)
+                        await session5.commit()
 
                 self._stats["processed"] += 1
-                self._processed_counter.inc()
-                with self._processing_duration.time():
-                    pass
+                if self._processed_counter is not None:
+                    self._processed_counter.inc()
+                if self._processing_duration is not None:
+                    with self._processing_duration.time():
+                        pass  # just measure time
 
             # Cleanup
             if self._stats["processed"] % 100 == 0:

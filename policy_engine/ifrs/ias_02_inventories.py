@@ -115,16 +115,17 @@ class IAS2Inventory:
         )
 
     def total_carrying_amount(self) -> Decimal:
-        return sum(i.carrying_amount for i in self.items)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((i.carrying_amount for i in self.items), Decimal(0))
 
     def total_write_down(self) -> Decimal:
-        return sum(i.write_down for i in self.items)
+        return sum((i.write_down for i in self.items), Decimal(0))
 
     def total_cost(self) -> Decimal:
-        return sum(i.total_cost for i in self.items)
+        return sum((i.total_cost for i in self.items), Decimal(0))
 
     def total_nrv(self) -> Decimal:
-        return sum(i.total_nrv for i in self.items)
+        return sum((i.total_nrv for i in self.items), Decimal(0))
 
     def to_dict(self) -> dict[str, Any]:
         return {

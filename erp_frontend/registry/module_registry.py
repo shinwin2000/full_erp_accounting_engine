@@ -65,6 +65,14 @@ class ActionSpec:
     path_suffix: str = ""  # ditambahkan setelah /{id}, mis "/approve"
     confirm: bool = True
     style: str = "default"  # default | primary | danger | success
+    # Sebagian endpoint aksi (mis. POST /journals/{id}/reverse pada modul
+    # UMKM) mewajibkan query param "reason" dengan panjang minimum tertentu.
+    # Kalau True, GenericListPage akan memunculkan dialog input teks sebelum
+    # mengirim aksi, lalu mengirim nilainya sebagai query param "reason".
+    # Default False supaya tidak mengubah perilaku modul lain yang sudah
+    # jalan (payments, journals inti, dll).
+    needs_reason: bool = False
+    reason_min_length: int = 0
 
 
 @dataclass
@@ -105,6 +113,32 @@ LOCK_ACTIONS = [
 ACTIVATE_ACTIONS = [
     ActionSpec("activate", "Activate", path_suffix="/activate", style="success"),
 ]
+
+# ---------------------------------------------------------------------------
+# UMKM Simplified - konstanta bagan akun & kategori laporan
+# ---------------------------------------------------------------------------
+# PENTING: daftar 27 kode akun ini HARUS tetap identik (kode + urutan tidak
+# masalah, tapi SET kodenya harus sama) dengan `SIMPLIFIED_ACCOUNTS` di
+# backend (application/service_layer/service_umkm.py &
+# adapters/primary_api/v1/fastapi_umkm_router.py). Kalau backend menambah/
+# menghapus akun, update juga di sini - kalau tidak, combo box di form akan
+# menampilkan kode yang ditolak backend (422 "Invalid account code"), atau
+# tidak menampilkan akun baru yang sebetulnya valid.
+UMKM_ACCOUNT_CHOICES: tuple[str, ...] = (
+    "1-1100", "1-1200", "1-1300", "1-1400", "1-1500", "1-1600", "1-1700", "1-1800",
+    "2-2100", "2-2200", "2-2300",
+    "3-3100", "3-3200", "3-3300",
+    "4-4100", "4-4200", "4-4300",
+    "5-5100", "5-5200", "5-5300", "5-5400", "5-5500", "5-5600", "5-5700", "5-5800",
+    "5-5900", "5-6000",
+)
+
+# "" di depan supaya field kategori (opsional) bisa dikosongkan di combo box -
+# lihat _extract_value() di ui/widgets/form_dialog.py: teks kosong -> None.
+UMKM_CATEGORY_CHOICES: tuple[str, ...] = (
+    "", "revenue", "cogs", "operating_expense", "other_income", "other_expense",
+    "asset", "liability", "equity",
+)
 
 # ---------------------------------------------------------------------------
 # REGISTRY
@@ -913,17 +947,48 @@ _reg(ModuleConfig(
 ))
 _reg(ModuleConfig(
     key="reports", label="Report Terjadwal", category="Umum", icon="🗂️",
-    base_path="/reports/reports", list_path="/",
-    columns=[("report_type", "Tipe Laporan"), ("schedule_name", "Nama Jadwal"), ("schedule_frequency", "Frekuensi")],
-    form_fields=[
-        FieldSpec("report_type", "Tipe Laporan", required=True),
-        FieldSpec("schedule_name", "Nama Jadwal", required=True),
-        FieldSpec("schedule_frequency", "Frekuensi", FieldType.SELECT,
-                  choices=("daily", "weekly", "monthly", "quarterly")),
-        FieldSpec("schedule_time", "Jam Jalan"),
-        FieldSpec("report_format", "Format", FieldType.SELECT, choices=("pdf", "xlsx", "csv")),
-        FieldSpec("is_active", "Aktif", FieldType.BOOL, default=True),
+    # PENTING (fix 2026-08-20): sebelumnya base_path/list_path menunjuk ke
+    # "/reports/reports" + "/" - itu endpoint LAPORAN AD-HOC yang sudah
+    # di-generate (list_reports di fastapi_report_router.py), BUKAN endpoint
+    # jadwal laporan. Endpoint jadwal yang benar ada di /reports/schedule
+    # (POST/GET/PUT/DELETE) - beda subsistem sama sekali. Salah alamat ini
+    # menyebabkan tombol "+ Baru" gagal 405 Method Not Allowed (endpoint
+    # /reports/reports/ tidak punya method POST) dan daftar yang tampil pun
+    # sebetulnya daftar laporan ad-hoc, bukan jadwal.
+    #
+    # id_field="schedule_id" (bukan default "id") karena
+    # ReportScheduleResponseSchema memakai nama field "schedule_id".
+    #
+    # Pilihan report_type sengaja dibatasi ke 12 jenis yang sudah punya
+    # implementasi generate_* nyata di ReportService - menjadwalkan jenis
+    # lain akan tersimpan tapi tidak akan pernah berhasil digenerate saat
+    # jadwalnya jalan.
+    base_path="/reports", list_path="/schedule", id_field="schedule_id",
+    columns=[
+        ("schedule_name", "Nama Jadwal"),
+        ("report_type", "Tipe Laporan"),
+        ("schedule_frequency", "Frekuensi"),
+        ("next_run_at", "Jalan Berikutnya"),
+        ("is_active", "Aktif"),
     ],
+    form_fields=[
+        FieldSpec("schedule_name", "Nama Jadwal", required=True, help_text="Minimal 3 karakter"),
+        FieldSpec("report_type", "Tipe Laporan", FieldType.SELECT, required=True, choices=(
+            "balance_sheet", "income_statement", "cash_flow", "equity_statement",
+            "trial_balance", "general_ledger", "ar_aging", "ap_aging",
+            "stock_card", "tax_summary", "financial_ratios", "budget_vs_actual",
+        )),
+        FieldSpec("schedule_frequency", "Frekuensi", FieldType.SELECT, required=True, choices=(
+            "daily", "weekly", "monthly", "quarterly", "semi_annually", "yearly", "custom",
+        )),
+        FieldSpec("schedule_time", "Jam Jalan (HH:MM)", help_text="Opsional, mis. 08:00"),
+        FieldSpec("report_format", "Format", FieldType.SELECT,
+                  choices=("pdf", "xlsx", "csv", "html", "json", "xml"), required=True),
+        FieldSpec("is_active", "Aktif", FieldType.BOOL, default=True),
+        FieldSpec("notes", "Catatan", FieldType.TEXTAREA),
+    ],
+    edit_http_method="PUT",
+    can_delete=True,
 ))
 _reg(ModuleConfig(
     key="settings", label="Pengaturan Sistem", category="Umum", icon="⚙️",
@@ -948,12 +1013,46 @@ _reg(ModuleConfig(
 _reg(ModuleConfig(
     key="umkm", label="UMKM Simplified", category="Umum", icon="🏪",
     base_path="/umkm/umkm", list_path="/journals",
-    columns=[("transaction_date", "Tanggal"), ("description", "Keterangan"), ("amount", "Jumlah")],
+    # PENTING (fix 2026-08-18): field lama (transaction_date, transaction_type,
+    # tanpa akun debit/kredit) adalah sisa desain versi awal modul UMKM
+    # (pencatatan income/expense sederhana). Backend sudah diaudit ulang dan
+    # sekarang endpoint /umkm/umkm/journals adalah jurnal double-entry penuh
+    # (SimplifiedJournalEntrySchema di fastapi_umkm_router.py) - field lama
+    # menyebabkan setiap POST/PUT gagal 422 "field required" untuk
+    # debit_account_code/credit_account_code. Daftar kode akun di
+    # UMKM_ACCOUNT_CHOICES HARUS tetap sinkron dengan SIMPLIFIED_ACCOUNTS di
+    # backend (application/service_layer/service_umkm.py).
+    columns=[
+        ("journal_number", "No. Jurnal"),
+        ("journal_date", "Tanggal"),
+        ("description", "Keterangan"),
+        ("debit_account_code", "Akun Debit"),
+        ("credit_account_code", "Akun Kredit"),
+        ("amount", "Jumlah"),
+        ("status", "Status"),
+    ],
     form_fields=[
-        FieldSpec("transaction_date", "Tanggal", FieldType.DATE, required=True),
-        FieldSpec("description", "Keterangan", required=True),
+        FieldSpec("journal_date", "Tanggal", FieldType.DATE, required=True),
+        FieldSpec("description", "Keterangan", required=True,
+                  help_text="Minimal 3 karakter"),
+        FieldSpec("debit_account_code", "Akun Debit", FieldType.SELECT,
+                  choices=UMKM_ACCOUNT_CHOICES, required=True,
+                  help_text="Akun yang bertambah nilainya (sisi debit)"),
+        FieldSpec("credit_account_code", "Akun Kredit", FieldType.SELECT,
+                  choices=UMKM_ACCOUNT_CHOICES, required=True,
+                  help_text="Akun yang berkurang nilainya (sisi kredit) - harus beda dari akun debit"),
         FieldSpec("amount", "Jumlah", FieldType.DECIMAL, required=True),
-        FieldSpec("transaction_type", "Tipe", FieldType.SELECT, choices=("income", "expense")),
+        FieldSpec("category", "Kategori Laporan", FieldType.SELECT,
+                  choices=UMKM_CATEGORY_CHOICES,
+                  help_text="Opsional - dipakai untuk Laba Rugi/Neraca/Arus Kas"),
+        FieldSpec("notes", "Catatan", FieldType.TEXTAREA),
+    ],
+    actions=[
+        ActionSpec("post", "Post ke Buku Besar", path_suffix="/post", style="primary"),
+        ActionSpec(
+            "reverse", "Reverse (Balik Jurnal)", path_suffix="/reverse", style="danger",
+            needs_reason=True, reason_min_length=5,
+        ),
     ],
 ))
 _reg(ModuleConfig(

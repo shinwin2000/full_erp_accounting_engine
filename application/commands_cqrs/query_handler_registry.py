@@ -326,8 +326,8 @@ class QueryHandlerRegistry:
                         f"{meta.deprecated_message or 'No message provided'}"
                     )
 
-                # Execute wildcards in priority order
-                for priority, idx, wc_handler, wc_meta in wildcards:
+                # Execute wildcards in priority order (use _ for unused variables)
+                for _priority, _idx, wc_handler, wc_meta in wildcards:
                     try:
                         result = await wc_handler(query)
                         if result is not None:
@@ -666,25 +666,23 @@ def register_default_query_wildcards() -> None:
 # === 7. EXPORTS ===
 
 __all__ = [
-    # Exceptions
     "InvalidQueryHandlerSignatureError",
+    # Exceptions
     "QueryHandlerAlreadyRegisteredError",
     "QueryHandlerMetadata",
     "QueryHandlerNotFoundError",
     "QueryHandlerRegistry",
     "QueryHandlerRegistryError",
     "QueryHandlerVersionError",
-    # Singleton and convenience
-    "get_query_handler_registry",
-    "query_handler_registry",
-    "reset_query_handler_registry",
     # Convenience functions
-    "get_query_handler",
-    "register_query_handler",
-    "has_query_handler",
     "clear_query_handlers",
-    "unregister_query_handler",
     "get_all_query_types",
-    # Wildcards
+    "get_query_handler",
+    "get_query_handler_registry",
+    "has_query_handler",
+    "query_handler_registry",
     "register_default_query_wildcards",
+    "register_query_handler",
+    "reset_query_handler_registry",
+    "unregister_query_handler",
 ]

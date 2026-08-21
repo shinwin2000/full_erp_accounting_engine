@@ -321,6 +321,8 @@ class ReverseJournalRequest:
             object.__setattr__(self, "reversal_date", datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
+        # reversal_date is guaranteed non-None after __post_init__
+        assert self.reversal_date is not None
         return {
             "journal_id": str(self.journal_id),
             "reversed_by": self.reversed_by,
@@ -641,34 +643,34 @@ CreateJournalEntryRequest = CreateJournalRequest
 # === 19. EXPORTS ===
 
 __all__ = [
-    # Core DTOs
-    "JournalLineRequest",
-    "CreateJournalRequest",
-    "UpdateJournalRequest",
-    "SubmitJournalRequest",
-    "ApproveJournalRequest",
-    "RejectJournalRequest",
-    "PostJournalRequest",
-    "ReverseJournalRequest",
-    "GetJournalRequest",
-    "ListJournalsRequest",
-    "JournalQueryParams",
-    "RecurringJournalTemplateDTO",
-    "JournalResponseDTO",
-    "JournalEntryStatusDTO",
-    # Factory
-    "JournalRequestFactory",
     # Constants
     "VALID_JOURNAL_TYPES",
     "VALID_SIDES",
+    "AdjustingJournalRequestDTO",
+    "ApproveJournalRequest",
+    "CreateJournalEntryRequest",
+    "CreateJournalRequest",
+    "GetJournalRequest",
+    "JournalCreateRequest",
+    "JournalEntryRequest",
     # Compatibility aliases
     "JournalEntryRequestDTO",
+    "JournalEntryStatusDTO",
+    # Core DTOs
+    "JournalLineRequest",
     "JournalLineRequestDTO",
-    "AdjustingJournalRequestDTO",
-    "JournalCreateRequest",
-    "JournalUpdateRequest",
-    "JournalEntryRequest",
-    "CreateJournalEntryRequest",
+    "JournalQueryParams",
     # Test compatibility
     "JournalRequest",
+    # Factory
+    "JournalRequestFactory",
+    "JournalResponseDTO",
+    "JournalUpdateRequest",
+    "ListJournalsRequest",
+    "PostJournalRequest",
+    "RecurringJournalTemplateDTO",
+    "RejectJournalRequest",
+    "ReverseJournalRequest",
+    "SubmitJournalRequest",
+    "UpdateJournalRequest",
 ]

@@ -540,9 +540,8 @@ class LegalObligationCalendar:
             "upcoming_count": len(upcoming),
             "overdue_details": [
                 {
-                    "title": self.get_obligation(i.obligation_id).title
-                    if self.get_obligation(i.obligation_id)
-                    else "Unknown",
+                    # FIX: gunakan getattr untuk menghindari None.title
+                    "title": getattr(self.get_obligation(i.obligation_id), 'title', 'Unknown'),
                     "due_date": i.due_date.isoformat(),
                     "period": i.period,
                 }
@@ -550,9 +549,8 @@ class LegalObligationCalendar:
             ],
             "upcoming_details": [
                 {
-                    "title": self.get_obligation(i.obligation_id).title
-                    if self.get_obligation(i.obligation_id)
-                    else "Unknown",
+                    # FIX: gunakan getattr untuk menghindari None.title
+                    "title": getattr(self.get_obligation(i.obligation_id), 'title', 'Unknown'),
                     "due_date": i.due_date.isoformat(),
                     "period": i.period,
                 }

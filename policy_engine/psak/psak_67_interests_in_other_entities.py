@@ -183,13 +183,14 @@ class PSAK67InterestsDisclosure:
     summary_of_associates: str = ""
 
     def total_nci_amount(self) -> Decimal:
-        return sum(nci.nci_amount for nci in self.non_controlling_interests)
+        # FIX: gunakan Decimal(0) sebagai nilai awal sum
+        return sum((nci.nci_amount for nci in self.non_controlling_interests), Decimal(0))
 
     def total_structured_entity_assets(self) -> Decimal:
-        return sum(se.carrying_amount_assets for se in self.structured_entities)
+        return sum((se.carrying_amount_assets for se in self.structured_entities), Decimal(0))
 
     def total_commitments_to_structured_entities(self) -> Decimal:
-        return sum(se.funding_commitments for se in self.structured_entities)
+        return sum((se.funding_commitments for se in self.structured_entities), Decimal(0))
 
     def to_dict(self) -> dict:
         return {
@@ -607,6 +608,8 @@ def get_psak67_validator() -> PSAK67Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak67_validator()
     entity_id = uuid4()
 
@@ -693,17 +696,11 @@ if __name__ == "__main__":
     print("\nDisclosure:")
     print(json.dumps(disclosure.to_dict(), indent=2, default=str))
 
-# ============================================================================
-# Compatibility Aliases for Orchestration / Aggregator Core (PSAK 67)
-# ============================================================================
-InterestType = PSAK67RelationshipType
-ControlLevel = PSAK67ControlAssessment
-StructuredEntity = PSAK67StructuredEntity
-InterestInOtherEntity = PSAK67InterestsDisclosure
 
 # ============================================================================
 # Compatibility Aliases for Orchestration / Aggregator Core (PSAK 67)
 # ============================================================================
+# Only one block to avoid duplicate definitions
 InterestType = PSAK67RelationshipType
 ControlLevel = PSAK67ControlAssessment
 StructuredEntity = PSAK67StructuredEntity

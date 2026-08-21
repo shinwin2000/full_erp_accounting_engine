@@ -209,9 +209,10 @@ class PSAK55ImpairmentAssessment:
     objective_evidence: list[str]  # Bukti objektif penurunan nilai
     estimated_future_cash_flows: list[tuple[datetime, Decimal]]
     discount_rate_original: Decimal
-    present_value_expected_cash_flows: Decimal
-    carrying_amount_before: Decimal
-    impairment_loss: Decimal
+    # FIX: tambahkan default agar mypy tidak memerlukan argumen saat pembuatan
+    present_value_expected_cash_flows: Decimal = Decimal(0)
+    carrying_amount_before: Decimal = Decimal(0)
+    impairment_loss: Decimal = Decimal(0)
     reversal_allowed: bool = False
 
     def __post_init__(self):
@@ -498,6 +499,7 @@ class PSAK55Validator:
         estimated_future_cash_flows: list[tuple[datetime, Decimal]],
         assessment_date: datetime,
     ) -> PSAK55ImpairmentAssessment:
+        # FIX: impairment_loss akan dihitung di __post_init__, cukup beri default
         return PSAK55ImpairmentAssessment(
             assessment_id=uuid4(),
             asset_id=asset.asset_id,
@@ -507,6 +509,8 @@ class PSAK55Validator:
             discount_rate_original=asset.effective_interest_rate,
             present_value_expected_cash_flows=Decimal(0),
             carrying_amount_before=asset.carrying_amount(),
+            impairment_loss=Decimal(0),  # akan dihitung ulang di __post_init__
+            reversal_allowed=False,
         )
 
     def create_hedge_relationship(
@@ -582,6 +586,8 @@ def get_psak55_validator() -> PSAK55Validator:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak55_validator()
 
     # Klasifikasi aset

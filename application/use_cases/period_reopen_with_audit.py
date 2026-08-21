@@ -174,7 +174,8 @@ class PeriodReopenWithAuditUseCase:
                     command.legal_entity_id, command.period_year, command.period_month
                 )
                 for journal in closing_journals:
-                    reversal_id = await self._journal_service.reverse_journal(
+                    # FIX: use underscore to indicate intentionally unused
+                    _ = await self._journal_service.reverse_journal(
                         original_journal_id=journal.id,
                         reason=f"Period reopening: {command.reason}",
                         user_id=command.user_id,
@@ -273,7 +274,7 @@ class PeriodReopenTestHelper:
         self._journal_service = journal_service
 
     @audit
-    def process(self, period: FiscalPeriod, reason: str, approved_by: str = None) -> Any:
+    def process(self, period: FiscalPeriod, reason: str, approved_by: str | None = None) -> Any:
         """
         Simulate reopening a period synchronously for testing.
 

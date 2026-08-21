@@ -232,13 +232,14 @@ class TrialBalanceCube:
         """
         tb = await self.get_trial_balance(legal_entity_id, as_of_date, include_zero_balance=False)
 
-        result = {}
+        result: dict[str, Decimal] = {}
         for line in tb:
             account_type = line["account_type"]
             balance = Decimal(line["closing_balance"])
-            result[account_type] = str(result.get(account_type, Decimal(0)) + balance)
+            result[account_type] = result.get(account_type, Decimal(0)) + balance
 
-        return result
+        # Convert all values to string
+        return {k: str(v) for k, v in result.items()}
 
     async def get_hierarchical_trial_balance(
         self, legal_entity_id: UUID, as_of_date: date

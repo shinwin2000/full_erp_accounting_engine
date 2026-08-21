@@ -84,7 +84,7 @@ class TamperAlertTrigger:
     - Support multiple streams
     """
 
-    def __init__(self, config_path: str = "config_files/audit_config.yaml"):
+    def __init__(self, config_path: str = "config_files/audit_config.yaml") -> None:
         self.config = self._load_config(config_path)
         self._enabled = self.config.get("enabled", True)
         self._check_interval = self.config.get("check_interval_seconds", 3600)
@@ -169,7 +169,7 @@ class TamperAlertTrigger:
                 await self._send_alert(stream_name, result)
 
                 # Auto-repair if configured (not recommended)
-                if self._auto_repair:
+                if self._auto_repair and broken_at is not None:
                     await self._attempt_repair(stream_name, events, broken_at)
 
         except Exception as e:

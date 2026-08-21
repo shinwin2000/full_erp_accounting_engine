@@ -184,10 +184,11 @@ class RelatedPartyDisclosure:
     ultimate_controlling_party: str | None = None
 
     def total_transactions_by_type(self, transaction_type: TransactionType) -> Decimal:
-        return sum(t.amount for t in self.transactions if t.transaction_type == transaction_type)
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
+        return sum((t.amount for t in self.transactions if t.transaction_type == transaction_type), Decimal(0))
 
     def total_key_management_compensation(self) -> Decimal:
-        return sum(k.amount for k in self.key_management_compensation)
+        return sum((k.amount for k in self.key_management_compensation), Decimal(0))
 
     def has_transactions_with_party(self, party_id: UUID) -> bool:
         return any(t.party_id == party_id for t in self.transactions)
@@ -205,7 +206,7 @@ class RelatedPartyDisclosure:
             "has_parent_entity": self.has_parent_entity,
             "parent_entity_name": self.parent_entity_name,
             "ultimate_controlling_party": self.ultimate_controlling_party,
-            "total_transactions": str(sum(t.amount for t in self.transactions)),
+            "total_transactions": str(sum((t.amount for t in self.transactions), Decimal(0))),
             "total_key_management_compensation": str(self.total_key_management_compensation()),
         }
 
@@ -365,7 +366,7 @@ class PSAK7Rules:
         result = PSAK7ValidationResult(
             is_compliant=True, compliance_level=PSAK7ComplianceLevel.FULL
         )
-        total = sum(c.amount for c in compensations)
+        total = sum((c.amount for c in compensations), Decimal(0))
         if total == 0 and compensations:
             result.add_error("Kompensasi manajemen kunci tidak diungkapkan atau nilai nol")
         if len(compensations) < 4:

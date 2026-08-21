@@ -189,14 +189,15 @@ class ManufacturingCostCalculator(BaseTransformer):
         labor_costs: list[dict],
         machine_costs: list[dict],
     ) -> dict[str, Decimal]:
-        total_material = sum(Decimal(str(m.get("cost", 0))) for m in material_costs)
-        total_labor = sum(Decimal(str(labor.get("cost", 0))) for labor in labor_costs)
-        total_machine = sum(Decimal(str(mc.get("cost", 0))) for mc in machine_costs)
+        # FIX: gunakan Decimal(0) sebagai initial value untuk sum
+        total_material = sum((Decimal(str(m.get("cost", 0))) for m in material_costs), Decimal(0))
+        total_labor = sum((Decimal(str(labor.get("cost", 0))) for labor in labor_costs), Decimal(0))
+        total_machine = sum((Decimal(str(mc.get("cost", 0))) for mc in machine_costs), Decimal(0))
 
         try:
             overhead = await self._overhead_engine.calculate_overhead(
                 labor_cost=total_labor,
-                machine_hours=(total_machine / DEFAULT_MACHINE_HOUR_RATE if DEFAULT_MACHINE_HOUR_RATE > 0 else 0),
+                machine_hours=(total_machine / DEFAULT_MACHINE_HOUR_RATE if DEFAULT_MACHINE_HOUR_RATE > 0 else Decimal(0)),
             )
         except AttributeError:
             overhead = total_labor * DEFAULT_OVERHEAD_RATE_PERCENT
@@ -474,7 +475,6 @@ class MESToManufacturingTransformer(BaseTransformer):
         work_order = await self._work_order_repo.get_by_id(work_order_id)
         if not work_order:
             raise WorkOrderNotFoundError(f"Work order {work_order_id} not found")
-        # wip tidak digunakan; kita langsung pakai wip_cost hasil perhitungan
         wip_cost = await self._cost_calculator.calculate_wip_cost(
             work_order_id,
             self._material_issues.get(work_order_id, []),
@@ -633,7 +633,7 @@ class MESToManufacturingTransformer(BaseTransformer):
         logger.info("MESToManufacturingTransformer reset")
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: tambahkan type annotation
         if self._cost_calculator is None:
             errors.append("Cost calculator not initialized")
         return {"is_valid": len(errors) == 0, "errors": errors}

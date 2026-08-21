@@ -322,7 +322,7 @@ class StockOpnameCycleUseCase:
         journal_date: date,
         user_id: UUID,
         correlation_id: str | None,
-    ) -> UUID:
+    ) -> UUID | None:
         lines = []
         for d in details:
             if d.discrepancy == 0:

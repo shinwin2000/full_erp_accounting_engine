@@ -26,7 +26,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-import aiofiles  # <-- Tambahan untuk async file I/O
+import aiofiles  # type: ignore[import-untyped]
 
 # Internal dependencies
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -40,7 +40,7 @@ logger = get_logger(__name__)
 # CONSTANTS
 # ============================================================================
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "csv_delimiter": ",",
     "csv_quotechar": '"',
     "csv_encoding": "utf-8",
@@ -51,7 +51,7 @@ DEFAULT_CONFIG = {
 }
 
 # Built-in type converters
-TYPE_CONVERTERS = {
+TYPE_CONVERTERS: dict[str, Any] = {
     "string": lambda x: str(x) if x is not None else "",
     "integer": lambda x: int(x) if x is not None and x != "" else 0,
     "float": lambda x: float(x) if x is not None and x != "" else 0.0,
@@ -187,12 +187,13 @@ class FormatConverterCSVJSON:
                     continue
                 obj = {}
                 for i, header in enumerate(headers):
-                    value = row[i] if i < len(row) else ""
+                    raw_value = row[i] if i < len(row) else ""
+                    value: Any = raw_value
                     if type_mapping and header in type_mapping:
                         converter = TYPE_CONVERTERS.get(type_mapping[header])
                         if converter:
                             try:
-                                value = converter(value)
+                                value = converter(raw_value)
                             except Exception as e:
                                 logger.warning(f"Type conversion error for {header}: {e}")
                     obj[header] = value
@@ -269,7 +270,7 @@ class FormatConverterCSVJSON:
                     val = row.get(field)
                     if val is None:
                         csv_row[field] = ""
-                    elif isinstance(val, (datetime, date)):
+                    elif isinstance(val, datetime | date):
                         fmt = datetime_format if isinstance(val, datetime) else date_format
                         csv_row[field] = val.strftime(fmt)
                     elif isinstance(val, Decimal):
@@ -357,12 +358,13 @@ class FormatConverterCSVJSON:
                     continue
                 obj = {}
                 for i, header in enumerate(headers):
-                    value = row[i] if i < len(row) else ""
+                    raw_value = row[i] if i < len(row) else ""
+                    value: Any = raw_value
                     if type_mapping and header in type_mapping:
                         conv = TYPE_CONVERTERS.get(type_mapping[header])
                         if conv:
                             with contextlib.suppress(builtins.BaseException):
-                                value = conv(value)
+                                value = conv(raw_value)
                     obj[header] = value
                 result.append(obj)
             return result, len(batch_rows)
@@ -421,7 +423,7 @@ class FormatConverterCSVJSON:
                         errors.append(
                             f"Record {i}: field '{field}' expected string, got {type(value).__name__}"
                         )
-                    elif expected_type == "number" and not isinstance(value, (int, float, Decimal)):
+                    elif expected_type == "number" and not isinstance(value, int | float | Decimal):
                         errors.append(
                             f"Record {i}: field '{field}' expected number, got {type(value).__name__}"
                         )

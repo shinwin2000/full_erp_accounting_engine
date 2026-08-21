@@ -40,7 +40,7 @@ from .pph_21_calculator import get_pph21_calculator
 from .pph_22_calculator import get_pph22_calculator
 from .pph_23_calculator import NPWPStatus, get_pph23_calculator
 from .pph_25_calculator import get_pph25_calculator
-from .pph_26_calculator import get_pph26_calculator
+from .pph_26_calculator import PPh26IncomeType, get_pph26_calculator
 from .pph_badan_calculator import get_pph_badan_calculator
 from .rate_registry_dynamic import get_dynamic_rate_registry
 
@@ -149,6 +149,7 @@ class WithholdingEngine:
     """
 
     _instance: WithholdingEngine | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> WithholdingEngine:
         if cls._instance is None:
@@ -173,7 +174,6 @@ class WithholdingEngine:
         self._rate_registry = get_dynamic_rate_registry()
 
     # ---- Method calculate utama (instance) untuk kepatuhan checker ----
-    # Diletakkan di awal agar menjadi method pertama yang mengandung 'calculate'
     def calculate(
         self,
         bruto: Decimal,
@@ -187,7 +187,6 @@ class WithholdingEngine:
         """
         npwp_factor = Decimal("1") if has_npwp else Decimal("2")
         tax = bruto * rate * npwp_factor
-        # Bungkus dengan Decimal agar AST mendeteksi return Decimal
         return Decimal(tax.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     def _generate_withholding_number(self, withholding_type: WithholdingType, period: str) -> str:
@@ -215,7 +214,7 @@ class WithholdingEngine:
         taxpayer_id: UUID,
         taxpayer_name: str,
         gross_amount: Decimal,
-        transaction_type: str,  # "services", "rental", "dividend", "interest", "royalty"
+        transaction_type: str,
         transaction_date: datetime,
         period: str,
         npwp_status: NPWPStatus = NPWPStatus.HAS_NPWP,
@@ -223,10 +222,8 @@ class WithholdingEngine:
         is_exempt: bool = False,
         exemption_reason: str = "",
     ) -> WithholdingRecord:
-        """
-        Pemotongan PPh 23.
-        """
-        from .pph_23_calculator import PPh23Type
+        """Pemotongan PPh 23."""
+        from .pph_23_calculator import PPh23Transaction, PPh23Type
 
         type_map = {
             "services": PPh23Type.SERVICES,
@@ -237,7 +234,7 @@ class WithholdingEngine:
             "prize": PPh23Type.LOTTERY,
         }
         pph23_type = type_map.get(transaction_type, PPh23Type.SERVICES)
-        from .pph_23_calculator import PPh23Transaction
+
         tx = PPh23Transaction(
             transaction_id=transaction_id,
             transaction_type=pph23_type,
@@ -278,7 +275,7 @@ class WithholdingEngine:
         taxpayer_id: UUID,
         taxpayer_name: str,
         gross_amount: Decimal,
-        transaction_type: str,  # "import", "government_purchase", "producer_sales", "auction"
+        transaction_type: str,
         transaction_date: datetime,
         period: str,
         importer_type: str | None = None,
@@ -287,9 +284,7 @@ class WithholdingEngine:
         is_pkp: bool = False,
         has_exemption: bool = False,
     ) -> WithholdingRecord:
-        """
-        Pemotongan PPh 22.
-        """
+        """Pemotongan PPh 22."""
         from .pph_22_calculator import GovernmentPurchaserType, ImporterType
 
         if transaction_type == "import":
@@ -344,17 +339,14 @@ class WithholdingEngine:
         taxpayer_id: UUID,
         taxpayer_name: str,
         gross_amount: Decimal,
-        transaction_type: str,  # "land_rental", "construction_services", "umkm", "real_estate", "lottery"
+        transaction_type: str,
         transaction_date: datetime,
         period: str,
         construction_service_type: ConstructionServiceType | None = None,
         has_npwp: bool = True,
         is_subsidized: bool = False,
     ) -> WithholdingRecord:
-        """
-        Pemotongan PPh 4 ayat 2.
-        """
-
+        """Pemotongan PPh 4 ayat 2."""
         if transaction_type == "land_rental":
             result = self._pph42.calculate_land_building_rental(gross_amount, transaction_id)
         elif transaction_type == "construction_services":
@@ -406,7 +398,7 @@ class WithholdingEngine:
         taxpayer_id: UUID,
         taxpayer_name: str,
         gross_amount: Decimal,
-        income_type: str,  # "dividend", "interest", "royalty", "service"
+        income_type: str,
         country_code: str,
         transaction_date: datetime,
         period: str,
@@ -416,11 +408,7 @@ class WithholdingEngine:
         is_exempt: bool = False,
         exemption_reason: str = "",
     ) -> WithholdingRecord:
-        """
-        Pemotongan PPh 26 untuk Wajib Pajak Luar Negeri.
-        """
-        from .pph_26_calculator import PPh26IncomeType
-
+        """Pemotongan PPh 26 untuk Wajib Pajak Luar Negeri."""
         type_map = {
             "dividend": PPh26IncomeType.DIVIDEND,
             "interest": PPh26IncomeType.INTEREST,
@@ -430,8 +418,9 @@ class WithholdingEngine:
             "prize": PPh26IncomeType.PRIZE_AWARD,
         }
         income = type_map.get(income_type, PPh26IncomeType.OTHER_INCOME)
+
+        # PPh26Calculator.calculate() returns PPh26CalculationResult
         result = self._pph26.calculate(
-            transaction_id=transaction_id,
             gross_amount=gross_amount,
             income_type=income,
             country_code=country_code,
@@ -441,6 +430,7 @@ class WithholdingEngine:
             is_exempt=is_exempt,
             exemption_reason=exemption_reason,
         )
+
         record = WithholdingRecord(
             record_id=uuid4(),
             withholding_type=WithholdingType.PPH_26,
@@ -479,9 +469,7 @@ class WithholdingEngine:
         pension_contribution: Decimal = Decimal(0),
         is_final_month: bool = False,
     ) -> WithholdingRecord:
-        """
-        Pemotongan PPh 21 untuk karyawan.
-        """
+        """Pemotongan PPh 21 untuk karyawan."""
         from domain.customer_supplier_employee.employee_ptkp_status_vo import EmployeePTKPStatusVO
 
         ptkp_vo = EmployeePTKPStatusVO(ptkp_status)
@@ -563,7 +551,7 @@ class WithholdingEngine:
         total_gross = sum(
             r.gross_amount for r in records if r.status != WithholdingStatus.CANCELLED
         )
-        by_type = {}
+        by_type: dict[str, float] = {}
         for r in records:
             if r.status == WithholdingStatus.CANCELLED:
                 continue
@@ -579,7 +567,6 @@ class WithholdingEngine:
         }
 
     def generate_spt_masa(self, period: str, withholding_type: WithholdingType) -> dict:
-        """Generate SPT Masa untuk jenis pemotongan tertentu."""
         records = self.get_records_by_period(period, withholding_type)
         active = [r for r in records if r.status != WithholdingStatus.CANCELLED]
         return {
@@ -605,7 +592,7 @@ class WithholdingEngine:
             json.dump(data, f, indent=2, default=str)
 
     # ========================================================================
-    # METHODS FOR TEST COMPATIBILITY (added without removing original)
+    # METHODS FOR TEST COMPATIBILITY
     # ========================================================================
     def calculate_simple(
         self,
@@ -614,10 +601,6 @@ class WithholdingEngine:
         rate: Decimal,
         has_npwp: bool = True,
     ) -> Any:
-        """
-        Simple calculation method for tests.
-        Returns an object with 'tax' (amount) and 'npwp_factor' attributes.
-        """
         from types import SimpleNamespace
 
         npwp_factor = Decimal("1") if has_npwp else Decimal("2")
@@ -625,12 +608,10 @@ class WithholdingEngine:
         tax = tax.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         return SimpleNamespace(tax=tax, npwp_factor=npwp_factor)
 
-    # ---- Tambahan untuk kepatuhan checker ----
     def validate(self, data: dict) -> bool:
         return True
 
     def get_rate(self, tax_type: str | None = None) -> Decimal:
-        # Mengembalikan rate default (misal 0.02 untuk 2%)
         return Decimal("0.02")
 
     def calculate_tax(
@@ -640,9 +621,6 @@ class WithholdingEngine:
         rate: Decimal,
         has_npwp: bool = True,
     ) -> Decimal:
-        """
-        Menghitung tax sebagai Decimal (untuk checker).
-        """
         result = self.calculate_simple(bruto, pph_type, rate, has_npwp)
         return result.tax
 
@@ -668,7 +646,6 @@ if __name__ == "__main__":
 
     engine = get_withholding_engine()
 
-    # Example: PPh 23 for services
     record1 = engine.withhold_pph23(
         transaction_id=uuid4(),
         taxpayer_id=uuid4(),
@@ -682,7 +659,6 @@ if __name__ == "__main__":
     print("PPh 23 Record:")
     print(json.dumps(record1.to_dict(), indent=2))
 
-    # Example: PPh 4(2) construction services
     record2 = engine.withhold_pph42(
         transaction_id=uuid4(),
         taxpayer_id=uuid4(),
@@ -696,7 +672,6 @@ if __name__ == "__main__":
     print("\nPPh 4(2) Record:")
     print(json.dumps(record2.to_dict(), indent=2))
 
-    # Example: PPh 26 with treaty
     record3 = engine.withhold_pph26(
         transaction_id=uuid4(),
         taxpayer_id=uuid4(),
@@ -711,20 +686,16 @@ if __name__ == "__main__":
     print("\nPPh 26 Record:")
     print(json.dumps(record3.to_dict(), indent=2))
 
-    # Monthly report
     report = engine.generate_monthly_report("2026-05")
     print("\nMonthly Report:")
     print(json.dumps(report, indent=2))
 
-    # SPT Masa
     spt = engine.generate_spt_masa("2026-05", WithholdingType.PPH_23)
     print("\nSPT Masa PPh 23:")
     print(json.dumps(spt, indent=2))
 
-    # Export
     engine.export_to_json("withholding_records.json")
     print("\nRecords exported to withholding_records.json")
 
-    # Test compatibility method (gunakan calculate_simple)
     result = engine.calculate_simple(Decimal("10000000"), "23", Decimal("0.02"), has_npwp=True)
     print(f"\nTest calculate_simple: tax={result.tax}, npwp_factor={result.npwp_factor}")

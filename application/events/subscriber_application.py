@@ -14,7 +14,6 @@ Responsibility:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from dataclasses import dataclass
@@ -269,12 +268,12 @@ class EventProcessorWorker:
         start_time = time.perf_counter()
 
         try:
-            if self._idempotency and envelope.idempotency_key:
-                if await self._idempotency.is_processed(envelope.idempotency_key):
-                    logger.info(f"Duplicate event {envelope.event_type} skipped")
-                    if self._metrics:
-                        self._metrics.events_consumed_total(envelope.event_type, "duplicate")
-                    return
+            # SIM102: gabungkan if statements
+            if self._idempotency and envelope.idempotency_key and await self._idempotency.is_processed(envelope.idempotency_key):
+                logger.info(f"Duplicate event {envelope.event_type} skipped")
+                if self._metrics:
+                    self._metrics.events_consumed_total(envelope.event_type, "duplicate")
+                return
 
             handlers = self._registry.get_handlers(envelope.event_type)
             if not handlers:
@@ -378,7 +377,8 @@ class ApplicationEventSubscriber:
         self._consumer_task: asyncio.Task | None = None
         self._running = False
         self._last_commit_time = datetime.now(UTC)
-        self._stats = {
+        # Use dict[str, Any] to allow mixed types for stats
+        self._stats: dict[str, Any] = {
             "messages_received": 0,
             "messages_committed": 0,
             "last_error": None,
@@ -462,12 +462,17 @@ class ApplicationEventSubscriber:
 
     async def _process_kafka_message(self, message: Any) -> None:
         try:
-            payload = json.loads(message.value)
+            # F841: hapus variabel payload yang tidak digunakan
+            # payload = json.loads(message.value)  # tidak digunakan
             envelope = EventEnvelope.from_json(message.value)
             self._stats["messages_received"] += 1
 
+            # mypy: _queue may be None, but it is set in start()
+            queue = self._queue
+            if queue is None:
+                raise RuntimeError("Queue not initialized")
             try:
-                await asyncio.wait_for(self._queue.put((message, envelope)), timeout=5.0)
+                await asyncio.wait_for(queue.put((message, envelope)), timeout=5.0)
             except TimeoutError:
                 logger.error("Queue full, message will be retried by Kafka")
                 raise

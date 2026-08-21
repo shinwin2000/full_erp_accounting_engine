@@ -233,7 +233,7 @@ class PPNCalculator:
         self,
         output_tax: Decimal,
         input_tax: Decimal,
-    ) -> dict[str, Decimal]:
+    ) -> dict[str, Any]:
         """
         Menghitung kompensasi PPN (kurang/lebih bayar).
 

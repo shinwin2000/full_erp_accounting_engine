@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
+from typing import Any
 
 # ============================================================================
 # Enums and Constants
@@ -253,7 +254,7 @@ class IFRS9:
         """
         Menghasilkan jadwal amortisasi untuk aset/liabilitas amortized cost.
         """
-        schedule = []
+        schedule: list[dict] = []  # FIX: tambahkan type annotation
         carrying_amount = initial_amount
         previous_date = None
         for cf in sorted(cash_flows, key=lambda x: x.date):
@@ -459,7 +460,7 @@ class IFRS9:
         contractual_rights_expired: bool,
         transfer_substantially_all_risks_rewards: bool,
         transfer_control: bool,
-    ) -> dict[str, bool]:
+    ) -> dict[str, Any]:  # FIX: ubah return type agar menerima str untuk "reason"
         """
         Penilaian penghentian pengakuan (derecognition) aset keuangan.
         """

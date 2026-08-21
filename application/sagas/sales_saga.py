@@ -1,4 +1,4 @@
-# sales_saga.py - Complete implementation
+# sales_saga.py - Complete implementation with fixed serialization
 
 #!/usr/bin/env python3
 """
@@ -297,7 +297,9 @@ class SalesSagaOrchestrator(SagaOrchestratorBase[SalesSagaState]):
             correlation_id=correlation_id,
         )
 
-    async def _serialize_data(self, data: SalesSagaState) -> dict[str, Any]:
+    # ===================== PERBAIKAN: synchronous methods =====================
+
+    def _serialize_data(self, data: SalesSagaState) -> dict[str, Any]:
         return {
             "saga_id": str(data.saga_id),
             "legal_entity_id": str(data.legal_entity_id),
@@ -320,7 +322,7 @@ class SalesSagaOrchestrator(SagaOrchestratorBase[SalesSagaState]):
             "updated_at": data.updated_at.isoformat(),
         }
 
-    async def _deserialize_data(self, data_dict: dict[str, Any]) -> SalesSagaState:
+    def _deserialize_data(self, data_dict: dict[str, Any]) -> SalesSagaState:
         return SalesSagaState(
             saga_id=UUID(data_dict["saga_id"]),
             legal_entity_id=UUID(data_dict["legal_entity_id"]),

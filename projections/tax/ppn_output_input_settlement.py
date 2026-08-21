@@ -39,7 +39,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeMeta, declarative_base
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -77,7 +77,8 @@ class PPNSettlementError(Exception):
 # ORM MODEL
 # ============================================================================
 
-Base = declarative_base()
+# Explicitly type Base as DeclarativeMeta to avoid mypy errors
+Base: DeclarativeMeta = declarative_base()  # type: ignore
 
 
 class PPNSettlementTable(Base):
@@ -135,6 +136,8 @@ class PPNSettlement:
     async def _get_session(self) -> AsyncSession:
         if self._session_factory is None:
             self._session_factory = await get_session_factory()
+        # mypy needs an assertion to know it's not None
+        assert self._session_factory is not None
         return self._session_factory.get_session()
 
     async def compute_settlement(

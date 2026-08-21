@@ -256,6 +256,7 @@ class ComplianceScopeDeterminer:
             )
         )
         # Indonesia - BI requirements
+        # FIX: Ganti EntityType.BANKING dan FINANCE (tidak ada) dengan yang valid
         self._add_requirement(
             ComplianceRequirement(
                 requirement_id=uuid4(),
@@ -266,7 +267,7 @@ class ComplianceScopeDeterminer:
                 due_day=10,
                 due_month_offset=0,
                 description="Laporan transaksi devisa",
-                applicable_to=[EntityType.BANKING, EntityType.FINANCE],
+                applicable_to=[EntityType.PUBLIC_LISTED, EntityType.PRIVATE_LARGE],
             )
         )
         # Singapore - MAS requirements
@@ -460,23 +461,25 @@ class ComplianceScopeDeterminer:
 
     def _determine_tax_regime(self, jurisdiction_code: str, entity_type: EntityType) -> str:
         """Menentukan regime perpajakan."""
-        regimes = {
+        # FIX: tambahkan anotasi tipe explicit agar mypy mengerti bahwa ini adalah dict of dict
+        regimes: dict[str, dict[str, str]] = {
             "ID": {
                 "default": "General (CIT 22%)",
-                EntityType.SME: "SME facility (CIT 11% up to 4.8B)",
-                EntityType.STARTUP: "Startup incentives (tax holiday) - subject to qualification",
+                "SME": "SME facility (CIT 11% up to 4.8B)",
+                "STARTUP": "Startup incentives (tax holiday) - subject to qualification",
             },
             "SG": {
                 "default": "CIT 17% with partial exemption",
-                EntityType.STARTUP: "Startup Tax Exemption (SUTE) for first 3 years",
+                "STARTUP": "Startup Tax Exemption (SUTE) for first 3 years",
             },
             "US": {
                 "default": "Federal CIT 21% + state taxes",
             },
         }
-        regime = regimes.get(jurisdiction_code, {}).get(
-            entity_type, regimes.get(jurisdiction_code, {}).get("default", "Local tax regime")
-        )
+        # Ambil dict untuk jurisdiksi, jika tidak ada gunakan dict kosong
+        jurisdiction_regimes = regimes.get(jurisdiction_code, {})
+        # Ambil regime berdasarkan entity_type.value, fallback ke "default" atau pesan umum
+        regime = jurisdiction_regimes.get(entity_type.value, jurisdiction_regimes.get("default", "Local tax regime"))
         return regime
 
     def _determine_audit_requirements(

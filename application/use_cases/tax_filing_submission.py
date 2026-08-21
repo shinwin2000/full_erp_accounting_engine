@@ -272,14 +272,10 @@ class TaxFilingSubmissionUseCase:
     ) -> SPTMasaPpnRequest:
         masa = MasaPajak(bulan=command.period_month, tahun=command.period_year)
         if command.spt_data:
-            total_penyerahan = Decimal(str(command.spt_data.get("total_penyerahan_dpp", 0)))
             total_ppn_keluaran = Decimal(str(command.spt_data.get("total_ppn_keluaran", 0)))
             total_ppn_masukan = Decimal(str(command.spt_data.get("total_ppn_masukan", 0)))
             kompensasi = Decimal(str(command.spt_data.get("kompensasi", 0)))
         else:
-            total_penyerahan = await self._tax_service.get_total_penyerahan(
-                command.legal_entity_id, masa
-            )
             total_ppn_keluaran = await self._tax_service.get_total_ppn_keluaran(
                 command.legal_entity_id, masa
             )
@@ -288,9 +284,7 @@ class TaxFilingSubmissionUseCase:
             )
             kompensasi = await self._tax_service.get_kompensasi_ppn(command.legal_entity_id, masa)
         ppn_kurang_bayar = total_ppn_keluaran - total_ppn_masukan - kompensasi
-        ppn_lebih_bayar = Decimal("0")
         if ppn_kurang_bayar < 0:
-            ppn_lebih_bayar = -ppn_kurang_bayar
             ppn_kurang_bayar = Decimal("0")
         idempotency_key = (
             command.idempotency_key

@@ -26,6 +26,7 @@ import logging
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,8 @@ class LegalOpinion:
         return date.today() > expiry_date
 
     def to_dict(self, include_attachments: bool = True) -> dict:
-        result = {
+        # FIX: tambahkan anotasi tipe untuk menghindari error mypy
+        result: dict[str, Any] = {
             "opinion_id": str(self.id),
             "title": self.title,
             "author": self.author,

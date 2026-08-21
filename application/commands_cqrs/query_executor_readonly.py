@@ -3,6 +3,7 @@
 # Fixed: Added QueryExecutionResult alias for backward compatibility
 # Fixed: Made CachePort and MetricsPort concrete with explicit authorization checks
 # Fixed: Added @audit decorator to satisfy accounting_posting_checker (AUDIT rule)
+# Fixed: mypy type errors by using get() with defaults for stats
 
 from __future__ import annotations
 
@@ -306,11 +307,13 @@ class CircuitBreaker:
 
     def _check_recovery(self) -> None:
         """Check if circuit should transition from OPEN to HALF_OPEN."""
-        if self._state == CircuitBreakerState.OPEN and self._last_failure_time:
-            if time.time() - self._last_failure_time >= self.recovery_timeout:
-                self._state = CircuitBreakerState.HALF_OPEN
-                self._half_open_calls = 0
-                logger.info(f"Circuit breaker '{self.name}' transitioned to HALF_OPEN")
+        # SIM102 fix: combine nested if statements
+        if (self._state == CircuitBreakerState.OPEN
+            and self._last_failure_time is not None
+            and time.time() - self._last_failure_time >= self.recovery_timeout):
+            self._state = CircuitBreakerState.HALF_OPEN
+            self._half_open_calls = 0
+            logger.info(f"Circuit breaker '{self.name}' transitioned to HALF_OPEN")
 
     def call(self, func: Callable[[], Awaitable[T]]) -> Awaitable[T]:
         """Execute function with circuit breaker protection."""
@@ -425,8 +428,8 @@ class QueryExecutorReadonly:
         # In-memory cache fallback
         self._memory_cache: dict[str, tuple[Any, float]] = {}
 
-        # Statistics
-        self._stats = {
+        # Statistics - use dict[str, Any] to handle mixed types safely
+        self._stats: dict[str, Any] = {
             "total_queries": 0,
             "successful_queries": 0,
             "failed_queries": 0,
@@ -624,7 +627,8 @@ class QueryExecutorReadonly:
         query_type = getattr(query, "query_type", type(query).__name__)
         self._record_audit("execute_query", {"query_type": query_type, "timestamp": datetime.now().isoformat()})
 
-        self._stats["total_queries"] += 1
+        # Use get with defaults for all stats to avoid union type issues
+        self._stats["total_queries"] = self._stats.get("total_queries", 0) + 1
         start_time = time.perf_counter()
 
         # Check cache
@@ -633,20 +637,20 @@ class QueryExecutorReadonly:
             cache_key = self._get_cache_key(query)
             cached = await self._get_cached(cache_key)
             if cached is not None:
-                self._stats["cached_hits"] += 1
+                self._stats["cached_hits"] = self._stats.get("cached_hits", 0) + 1
                 if self._metrics:
                     self._metrics.record_cache_hit(query_type)
                 logger.debug(f"Cache hit for query {query_type}")
                 return cached
             else:
-                self._stats["cached_misses"] += 1
+                self._stats["cached_misses"] = self._stats.get("cached_misses", 0) + 1
                 if self._metrics:
                     self._metrics.record_cache_miss(query_type)
 
         # Check circuit breaker
         cb = self._get_circuit_breaker(query_type)
         if cb and cb.state == CircuitBreakerState.OPEN:
-            self._stats["failed_queries"] += 1
+            self._stats["failed_queries"] = self._stats.get("failed_queries", 0) + 1
             raise CircuitBreakerOpenError(f"Circuit breaker open for query type: {query_type}")
 
         # Execute with semaphore concurrency limit
@@ -657,7 +661,7 @@ class QueryExecutorReadonly:
 
                 # Record success
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                self._stats["successful_queries"] += 1
+                self._stats["successful_queries"] = self._stats.get("successful_queries", 0) + 1
 
                 if self._metrics:
                     self._metrics.record_query_execution(query_type, duration_ms, True)
@@ -695,8 +699,8 @@ class QueryExecutorReadonly:
                 return result
 
             except TimeoutError as e:
-                self._stats["timeout_errors"] += 1
-                self._stats["failed_queries"] += 1
+                self._stats["timeout_errors"] = self._stats.get("timeout_errors", 0) + 1
+                self._stats["failed_queries"] = self._stats.get("failed_queries", 0) + 1
                 self._stats["last_error"] = str(e)
 
                 if self._metrics:
@@ -706,7 +710,7 @@ class QueryExecutorReadonly:
                 if cb:
                     cb._record_failure()
                     if cb.state == CircuitBreakerState.OPEN:
-                        self._stats["circuit_breaker_opens"] += 1
+                        self._stats["circuit_breaker_opens"] = self._stats.get("circuit_breaker_opens", 0) + 1
 
                 self._query_history.append(
                     {
@@ -731,7 +735,7 @@ class QueryExecutorReadonly:
 
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                self._stats["failed_queries"] += 1
+                self._stats["failed_queries"] = self._stats.get("failed_queries", 0) + 1
                 self._stats["last_error"] = str(e)
 
                 if self._metrics:
@@ -741,7 +745,7 @@ class QueryExecutorReadonly:
                 if cb:
                     cb._record_failure()
                     if cb.state == CircuitBreakerState.OPEN:
-                        self._stats["circuit_breaker_opens"] += 1
+                        self._stats["circuit_breaker_opens"] = self._stats.get("circuit_breaker_opens", 0) + 1
 
                 self._query_history.append(
                     {
@@ -808,27 +812,32 @@ class QueryExecutorReadonly:
 
     def get_stats(self) -> dict[str, Any]:
         """Get executor statistics."""
-        uptime_seconds = (
-            datetime.now() - datetime.fromisoformat(self._stats["started_at"])
-        ).total_seconds()
+        # Extract values with explicit defaults to avoid union type issues
+        total_queries = self._stats.get("total_queries", 0)
+        successful_queries = self._stats.get("successful_queries", 0)
+        self._stats.get("failed_queries", 0)
+        cached_hits = self._stats.get("cached_hits", 0)
+        cached_misses = self._stats.get("cached_misses", 0)
+        self._stats.get("timeout_errors", 0)
+        self._stats.get("circuit_breaker_opens", 0)
+        self._stats.get("last_error")
+        started_at_str = self._stats.get("started_at", datetime.now().isoformat())
+
+        # Calculate uptime
+        try:
+            started_at = datetime.fromisoformat(str(started_at_str))
+        except (ValueError, TypeError):
+            started_at = datetime.now()
+        uptime_seconds = (datetime.now() - started_at).total_seconds()
+
+        success_rate = (successful_queries / total_queries * 100) if total_queries > 0 else 100.0
+        cache_hit_rate = (cached_hits / (cached_hits + cached_misses) * 100) if (cached_hits + cached_misses) > 0 else 0.0
 
         return {
             **self._stats,
             "uptime_seconds": uptime_seconds,
-            "success_rate": (
-                (self._stats["successful_queries"] / self._stats["total_queries"] * 100)
-                if self._stats["total_queries"] > 0
-                else 100
-            ),
-            "cache_hit_rate": (
-                (
-                    self._stats["cached_hits"]
-                    / (self._stats["cached_hits"] + self._stats["cached_misses"])
-                    * 100
-                )
-                if (self._stats["cached_hits"] + self._stats["cached_misses"]) > 0
-                else 0
-            ),
+            "success_rate": success_rate,
+            "cache_hit_rate": cache_hit_rate,
             "circuit_breakers": {
                 name: cb.get_stats() for name, cb in self._circuit_breakers.items()
             },
@@ -844,16 +853,17 @@ class QueryExecutorReadonly:
             await self._router.get_health() if hasattr(self._router, "get_health") else {}
         )
 
+        total_queries = self._stats.get("total_queries", 0)
+        failed_queries = self._stats.get("failed_queries", 0)
+        successful_queries = self._stats.get("successful_queries", 0)
+
+        status = "healthy" if failed_queries < total_queries * 0.1 else "degraded"
+        success_rate = (successful_queries / total_queries * 100) if total_queries > 0 else 100.0
+
         return {
-            "status": "healthy"
-            if self._stats["failed_queries"] < self._stats["total_queries"] * 0.1
-            else "degraded",
-            "total_queries": self._stats["total_queries"],
-            "success_rate": (
-                (self._stats["successful_queries"] / self._stats["total_queries"] * 100)
-                if self._stats["total_queries"] > 0
-                else 100
-            ),
+            "status": status,
+            "total_queries": total_queries,
+            "success_rate": success_rate,
             "circuit_breakers_open": sum(
                 1 for cb in self._circuit_breakers.values() if cb.state == CircuitBreakerState.OPEN
             ),

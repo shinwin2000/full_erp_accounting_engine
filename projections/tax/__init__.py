@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """
-Package: projections.tax
-PPN settlement, PPH withholding summary.
+Package: projections
+Read models (projections) untuk CQRS.
 """
 
-__all__ = []
+__all__: list[str] = []

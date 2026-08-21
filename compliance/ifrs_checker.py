@@ -942,8 +942,9 @@ class IfrsChecker:
             else "partially_compliant"
             if overall_percentage >= 50
             else "non_compliant",
-            "findings_summary": [f for r in results for f in r.findings][:10],
-            "recommendations_summary": [r for r in results for r in r.recommendations][:10],
+            # FIX: Perbaikan list comprehension untuk menghindari konflik nama variabel
+            "findings_summary": [finding for result in results for finding in result.findings][:10],
+            "recommendations_summary": [rec for result in results for rec in result.recommendations][:10],
         }
 
     def to_json(self, file_path: str | None = None) -> str:

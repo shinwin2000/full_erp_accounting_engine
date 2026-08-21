@@ -591,7 +591,7 @@ class HRToPayrollTransformer(BaseTransformer):
         logger.info("HRToPayrollTransformer reset")
 
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []  # FIX: added type annotation
         if self._calculator is None:
             errors.append("Calculator not initialized")
         return {"is_valid": len(errors) == 0, "errors": errors}

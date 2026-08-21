@@ -202,8 +202,13 @@ class IAS12TaxService:
     def calculate_temporary_difference(
         carrying_amount: Money,
         tax_base: Money,
-    ) -> tuple[Money, IAS12TemporaryDifferenceType]:
-        """Menghitung perbedaan temporer."""
+    ) -> tuple[Money, IAS12TemporaryDifferenceType | None]:
+        """
+        Menghitung perbedaan temporer.
+        Returns:
+            - temporary_difference: Money
+            - difference_type: IAS12TemporaryDifferenceType or None if no difference
+        """
         diff = carrying_amount - tax_base
         if diff.amount > 0:
             # Aset: carrying > tax base -> taxable temporary difference
@@ -211,6 +216,7 @@ class IAS12TaxService:
         elif diff.amount < 0:
             return diff.abs(), IAS12TemporaryDifferenceType.DEDUCTIBLE
         else:
+            # No temporary difference
             return Money(Decimal(0), carrying_amount.currency), None
 
     @staticmethod

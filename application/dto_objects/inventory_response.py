@@ -371,9 +371,7 @@ class InventorySummaryDTO:
         return Decimal(0)
 
 
-# Add missing field import
-from dataclasses import field
-
+# === EXPORTS ===
 __all__ = [
     "InventorySummaryDTO",
     "ItemResponseDTO",

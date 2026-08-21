@@ -1473,6 +1473,7 @@ class Constitution:
 
 class SupremeLaw:
     _instance: SupremeLaw | None = None
+    _initialized: bool  # FIX: tambahkan deklarasi atribut
     _lock = threading.Lock()
 
     def __new__(cls) -> SupremeLaw:

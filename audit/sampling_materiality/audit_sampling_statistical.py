@@ -123,7 +123,7 @@ class AuditStatisticalSampling:
 
     def __init__(self, config_path: str = "config_files/audit_config.yaml"):
         self.config = _load_config(config_path)
-        self._last_sample: list | None = None
+        self._last_sample: list | dict | None = None  # bisa list atau dict
         self._sampling_params: dict[str, Any] = {}
 
     def calculate_sample_size(
@@ -366,7 +366,7 @@ class AuditStatisticalSampling:
             else:
                 result[name] = []
 
-        self._last_sample = result
+        self._last_sample = result  # dict
         logger = _get_logger()
         logger.info(
             f"Stratified sampling: {sample_size} items allocated across {len(strata)} strata"
@@ -458,22 +458,25 @@ class AuditStatisticalSampling:
 
         # Calculate statistics menggunakan Decimal
         total_error = sum(sample_errors)  # Decimal
-        avg_error = total_error / len(sample_errors)  # Decimal
+        # Konversi penyebut ke Decimal agar hasil pasti Decimal
+        avg_error: Decimal = total_error / Decimal(len(sample_errors))
 
         # Project to population
-        projected_error = avg_error * population_size / sample_size
+        projected_error: Decimal = avg_error * Decimal(population_size) / Decimal(sample_size)
 
         # Calculate variance and standard deviation dengan Decimal
         if len(sample_errors) > 1:
-            variance = sum((e - avg_error) ** 2 for e in sample_errors) / (len(sample_errors) - 1)
+            # Gunakan list comprehension agar mypy lebih jelas
+            squared_diffs: list[Decimal] = [(e - avg_error) ** 2 for e in sample_errors]
+            variance: Decimal = sum(squared_diffs) / Decimal(len(sample_errors) - 1)
         else:
             variance = Decimal(0)
 
         # Standard deviation (Decimal.sqrt() available in Python 3.11+)
-        std_dev = variance.sqrt() if variance > 0 else Decimal(0)
+        std_dev: Decimal = variance.sqrt() if variance > 0 else Decimal(0)
 
         # Standard error
-        std_error = std_dev / Decimal(sample_size).sqrt()
+        std_error: Decimal = std_dev / Decimal(sample_size).sqrt()
 
         # Z-score for confidence level
         if confidence_level == 90:
@@ -486,10 +489,10 @@ class AuditStatisticalSampling:
             z = Decimal('1.96')
 
         # Margin of error (semua Decimal)
-        margin = z * std_error * Decimal(population_size) / Decimal(sample_size)
+        margin: Decimal = z * std_error * Decimal(population_size) / Decimal(sample_size)
 
-        upper_bound = projected_error + margin
-        lower_bound = max(Decimal(0), projected_error - margin)
+        upper_bound: Decimal = projected_error + margin
+        lower_bound: Decimal = max(Decimal(0), projected_error - margin)
 
         # Error rate (percentage) - non-moneter, tetap float
         error_rate = (len([e for e in sample_errors if e > 0]) / sample_size) * 100
@@ -570,7 +573,7 @@ class AuditStatisticalSampling:
             "population_value": population_value,
         }
 
-    def get_last_sample(self) -> list | None:
+    def get_last_sample(self) -> list | dict | None:
         """Mendapatkan sampel terakhir yang diambil."""
         return self._last_sample
 

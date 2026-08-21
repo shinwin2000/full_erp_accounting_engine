@@ -210,8 +210,9 @@ class PSAK16Asset:
         return None
 
     def annual_depreciation(self) -> Decimal:
+        # FIX: tambahkan Decimal(0) sebagai nilai awal sum
         if self.components:
-            return sum(c.annual_depreciation() for c in self.components)
+            return sum((c.annual_depreciation() for c in self.components), Decimal(0))
         return Decimal(0)
 
     def to_dict(self) -> dict:
@@ -249,16 +250,16 @@ class PSAK16AssetRegister:
     depreciation_method_default: PSAK16DepreciationMethod = PSAK16DepreciationMethod.STRAIGHT_LINE
 
     def total_cost(self) -> Decimal:
-        return sum(a.cost for a in self.assets if a.is_active)
+        return sum((a.cost for a in self.assets if a.is_active), Decimal(0))
 
     def total_accumulated_depreciation(self) -> Decimal:
-        return sum(a.accumulated_depreciation for a in self.assets if a.is_active)
+        return sum((a.accumulated_depreciation for a in self.assets if a.is_active), Decimal(0))
 
     def total_carrying_amount(self) -> Decimal:
-        return sum(a.carrying_amount for a in self.assets if a.is_active)
+        return sum((a.carrying_amount for a in self.assets if a.is_active), Decimal(0))
 
     def total_revaluation_surplus(self) -> Decimal:
-        return sum(a.current_revaluation_surplus for a in self.assets if a.is_active)
+        return sum((a.current_revaluation_surplus for a in self.assets if a.is_active), Decimal(0))
 
     def to_dict(self) -> dict:
         return {
@@ -822,8 +823,6 @@ def get_psak16_validator() -> PSAK16Validator:
 # ============================================================================
 # PSAK16 class for test compatibility (simple facade)
 # ============================================================================
-
-
 class PSAK16:
     """
     Simple facade for PSAK 16 tests.
@@ -871,6 +870,8 @@ class PSAK16:
 # Demo
 # ============================================================================
 if __name__ == "__main__":
+    import json
+
     validator = get_psak16_validator()
     entity_id = uuid4()
 

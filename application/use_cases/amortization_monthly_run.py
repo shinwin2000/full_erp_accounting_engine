@@ -151,7 +151,11 @@ class AmortizationMonthlyRunUseCase:
     ):
         self._asset_service = intangible_asset_service
         self._journal_service = journal_service
-        self._stats = {"runs": 0, "assets_amortized": 0, "total_amortization": Decimal("0")}
+        self._stats: dict[str, Any] = {
+            "runs": 0,
+            "assets_amortized": 0,
+            "total_amortization": Decimal("0"),
+        }
         self._audit_trail: list[dict[str, Any]] = []
 
     # ==================== AUTHORITY CHECK (SOD) ====================
@@ -254,9 +258,9 @@ class AmortizationMonthlyRunUseCase:
 
             run_number = await self._generate_run_number(request.legal_entity_id)
 
-            self._stats["runs"] += 1
-            self._stats["assets_amortized"] += len(amortization_entries)
-            self._stats["total_amortization"] += total_amortization
+            self._stats["runs"] = self._stats["runs"] + 1
+            self._stats["assets_amortized"] = self._stats["assets_amortized"] + len(amortization_entries)
+            self._stats["total_amortization"] = self._stats["total_amortization"] + total_amortization
 
             self._record_audit("execute_amortization_run", {
                 "run_number": run_number,
