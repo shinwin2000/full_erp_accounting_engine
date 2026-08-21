@@ -96,8 +96,17 @@ class Setting:
     branch_id: UUID | None = None
     tags: list[str] | None = None
     validation_regex: str | None = None
-    min_value: Decimal | None = None
-    max_value: Decimal | None = None
+    # FIX: fastapi_system_settings_router.py builds SettingResponseSchema
+    # and SettingSchemaSchema with `min_value=setting.min_value` /
+    # `max_value=setting.min_value` passed straight through, and BOTH
+    # schemas declare these fields as `str | None`. When this dataclass
+    # stored them as Decimal, every response containing a numeric-bounded
+    # setting (e.g. tax.ppn_rate, security.session_timeout_minutes) failed
+    # pydantic validation with "Input should be a valid string". Storing as
+    # str here (parsed to Decimal only where numeric comparison is needed,
+    # in validate() below) matches the router's actual contract.
+    min_value: str | None = None
+    max_value: str | None = None
     allowed_values: list[str] | None = None
     default_value: str | None = None
     is_readonly: bool = False
@@ -154,7 +163,7 @@ class Setting:
         if self.min_value is not None:
             try:
                 val_decimal = Decimal(str(new_value))
-                if val_decimal < self.min_value:
+                if val_decimal < Decimal(self.min_value):
                     return False
             except (ValueError, TypeError):
                 return False
@@ -162,7 +171,7 @@ class Setting:
         if self.max_value is not None:
             try:
                 val_decimal = Decimal(str(new_value))
-                if val_decimal > self.max_value:
+                if val_decimal > Decimal(self.max_value):
                     return False
             except (ValueError, TypeError):
                 return False
@@ -211,11 +220,7 @@ class Setting:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Setting:
         min_val = data.get("min_value")
-        if min_val is not None:
-            min_val = Decimal(str(min_val))
         max_val = data.get("max_value")
-        if max_val is not None:
-            max_val = Decimal(str(max_val))
 
         return cls(
             id=UUID(data["id"]) if isinstance(data.get("id"), str) else data.get("id", uuid4()),
@@ -261,6 +266,12 @@ class BulkUpdateResult:
 class ImportResult:
     success: bool = True
     imported_count: int = 0
+    # FIX: fastapi_system_settings_router.py's POST /import handler reads
+    # `result.updated_count` to build its response dict, but this field
+    # never existed here, so every import request crashed with
+    # AttributeError. Added, and now genuinely tracks settings that already
+    # existed and were updated, separately from ones newly created.
+    updated_count: int = 0
     skipped_count: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -311,8 +322,8 @@ class SettingSchemaInfo:
     category: str
     scope: str
     validation_regex: str | None
-    min_value: Decimal | None
-    max_value: Decimal | None
+    min_value: str | None
+    max_value: str | None
     allowed_values: list[str] | None
     default_value: str | None
     is_readonly: bool
@@ -454,12 +465,12 @@ class SystemSettingsService:
             Setting(key="company.name", value="ERP System", category="general", is_readonly=True),
             Setting(key="company.currency", value="IDR", category="general"),
             Setting(key="company.fiscal_year_start", value="1", data_type=SettingDataType.INTEGER, category="general"),
-            Setting(key="tax.ppn_rate", value="11", data_type=SettingDataType.DECIMAL, category="tax", min_value=Decimal("0"), max_value=Decimal("100")),
-            Setting(key="tax.pph21_rate", value="5", data_type=SettingDataType.DECIMAL, category="tax", min_value=Decimal("0"), max_value=Decimal("100")),
+            Setting(key="tax.ppn_rate", value="11", data_type=SettingDataType.DECIMAL, category="tax", min_value="0", max_value="100"),
+            Setting(key="tax.pph21_rate", value="5", data_type=SettingDataType.DECIMAL, category="tax", min_value="0", max_value="100"),
             Setting(key="accounting.auto_approve_journal", value="false", data_type=SettingDataType.BOOLEAN, category="accounting"),
             Setting(key="inventory.valuation_method", value="FIFO", allowed_values=["FIFO", "AVERAGE"], category="inventory"),
             Setting(key="notification.email_enabled", value="true", data_type=SettingDataType.BOOLEAN, category="notification"),
-            Setting(key="security.session_timeout_minutes", value="30", data_type=SettingDataType.INTEGER, category="security", min_value=Decimal("1"), max_value=Decimal("1440")),
+            Setting(key="security.session_timeout_minutes", value="30", data_type=SettingDataType.INTEGER, category="security", min_value="1", max_value="1440"),
             # FIX: same problem as above - "coretax" is not a valid
             # SettingCategory either. Coretax is a tax-authority
             # integration, so "tax" is the closest valid category.
@@ -490,8 +501,8 @@ class SystemSettingsService:
         branch_id: UUID | None = None,
         description: str | None = None,
         validation_regex: str | None = None,
-        min_value: Decimal | None = None,
-        max_value: Decimal | None = None,
+        min_value: str | None = None,
+        max_value: str | None = None,
         allowed_values: list[str] | None = None,
         default_value: str | None = None,
         is_readonly: bool = False,
@@ -606,8 +617,8 @@ class SystemSettingsService:
         description: str | None = None,
         category: str | None = None,
         validation_regex: str | None = None,
-        min_value: Decimal | None = None,
-        max_value: Decimal | None = None,
+        min_value: str | None = None,
+        max_value: str | None = None,
         allowed_values: list[str] | None = None,
         default_value: str | None = None,
         is_readonly: bool | None = None,
@@ -1245,6 +1256,7 @@ class SystemSettingsService:
 
         errors = []
         imported_count = 0
+        updated_count = 0
         skipped_count = 0
 
         try:
@@ -1269,21 +1281,44 @@ class SystemSettingsService:
 
             for item in settings_data:
                 try:
-                    existing = await self.get_setting(item["key"], legal_entity_id)
-                    if existing and mode == "skip":
-                        skipped_count += 1
-                        continue
+                    key = item["key"]
+                    existing = await self.get_setting(key, legal_entity_id)
 
-                    await self.update_setting(
-                        key=item["key"],
-                        legal_entity_id=legal_entity_id,
-                        value=item.get("value"),
-                        description=item.get("description"),
-                        updated_by=imported_by,
-                        correlation_id=correlation_id,
-                    )
-                    imported_count += 1
-                except (SettingNotFoundError, SettingReadonlyError, SettingLockedError, SettingValidationError) as e:
+                    if existing:
+                        if mode == "skip":
+                            skipped_count += 1
+                            continue
+                        # FIX: previously always called update_setting() for
+                        # every row, even brand-new keys, so import could
+                        # never actually create a setting - it would raise
+                        # SettingNotFoundError and get swallowed into
+                        # `errors`. Now: existing key -> update, new key ->
+                        # create, matching what "import" is supposed to do.
+                        await self.update_setting(
+                            key=key,
+                            legal_entity_id=legal_entity_id,
+                            value=item.get("value"),
+                            description=item.get("description"),
+                            reason="imported",
+                            updated_by=imported_by,
+                            correlation_id=correlation_id,
+                        )
+                        updated_count += 1
+                    else:
+                        await self.create_setting(
+                            key=key,
+                            value=item.get("value"),
+                            data_type=item.get("data_type", "string"),
+                            category=item.get("category", "general"),
+                            scope=item.get("scope", "global"),
+                            legal_entity_id=legal_entity_id,
+                            description=item.get("description"),
+                            created_by=imported_by,
+                            correlation_id=correlation_id,
+                        )
+                        imported_count += 1
+                except (SettingNotFoundError, SettingReadonlyError, SettingLockedError, SettingValidationError,
+                        SystemSettingsError, ValueError) as e:
                     errors.append(f"Failed to import {item.get('key')}: {e}")
                 except KeyError as e:
                     errors.append(f"Missing required field: {e}")
@@ -1293,6 +1328,7 @@ class SystemSettingsService:
 
         self._record_audit("import_settings", {
             "imported_count": imported_count,
+            "updated_count": updated_count,
             "skipped_count": skipped_count,
             "imported_by": str(imported_by) if imported_by else None,
         })
@@ -1300,6 +1336,7 @@ class SystemSettingsService:
         return ImportResult(
             success=len(errors) == 0,
             imported_count=imported_count,
+            updated_count=updated_count,
             skipped_count=skipped_count,
             errors=errors,
         )
