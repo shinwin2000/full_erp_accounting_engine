@@ -273,7 +273,6 @@ class ThreeWayMatchEngine:
             else:
                 po_qty = Decimal(str(po_line.get("quantity", 0)))
                 po_price = Decimal(str(po_line.get("unit_price", 0)))
-                grn_qty = Decimal(str(grn_line.get("quantity", 0)))
 
                 # Check quantity
                 qty_diff = abs(inv_qty - po_qty)
@@ -338,5 +337,5 @@ __all__ = [
     "MatchSeverity",
     "MatchStatus",
     "ThreeWayMatchEngine",
-    "ThreeWayMatchResult",  # Added for compatibility
+    "ThreeWayMatchResult",
 ]

@@ -452,6 +452,41 @@ class SystemSettingsService:
         except Exception as e:
             logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
 
+    async def _build_and_publish_event(
+        self, build_event: Any, log_context: str, correlation_id: str | None = None
+    ) -> None:
+        """FIX: the domain event classes in domain/system_settings/domain_events.py
+        (SettingChangedEvent, SettingAddedEvent, SettingResetEvent,
+        SettingRemovedEvent, SettingsLockedEvent, SettingsUnlockedEvent,
+        SettingsBulkUpdatedEvent) have constructor signatures that expect
+        SettingValueVO/SettingDefinitionEntity objects and fields like
+        aggregate_version - a completely different, never-finished domain
+        model. Every call site below that built one of these events with the
+        simple kwargs this service actually has (setting_id, key, value as
+        plain str, timestamp, etc.) raised TypeError, e.g.
+        "SettingChangedEvent.__init__() got an unexpected keyword argument
+        'setting_id'" - and because that TypeError happened during
+        construction, *before* _publish_event's own try/except could catch
+        it, it crashed the entire update_setting/create_setting/etc. call,
+        taking down an otherwise-successful state change with it.
+
+        Kafka (the only real subscriber for these events) is already
+        disabled in this environment, so event publishing is inherently
+        best-effort. This wraps *construction* in the same try/except as
+        publish, so a broken/legacy event class can never block the actual
+        CRUD operation - it only prevents that one event from being emitted.
+        `build_event` is a zero-arg callable that constructs and returns the
+        event lazily, evaluated inside the try block.
+        """
+        if not self._event_publisher:
+            return
+        try:
+            event = build_event()
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to build/publish event for {log_context}: {e}")
+
     # ==================== INIT ====================
 
     def _init_default_settings(self) -> None:
@@ -548,18 +583,21 @@ class SystemSettingsService:
         self._stats["created"] += 1
 
         if self._event_publisher:
-            event = SettingAddedEvent(
-                setting_id=setting.id,
-                key=setting.key,
-                value=str(setting.value),
-                data_type=setting.data_type.value,
-                category=setting.category,
-                scope=setting.scope.value,
-                legal_entity_id=str(setting.legal_entity_id) if setting.legal_entity_id else None,
-                created_by=str(created_by) if created_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingAddedEvent(
+                    setting_id=setting.id,
+                    key=setting.key,
+                    value=str(setting.value),
+                    data_type=setting.data_type.value,
+                    category=setting.category,
+                    scope=setting.scope.value,
+                    legal_entity_id=str(setting.legal_entity_id) if setting.legal_entity_id else None,
+                    created_by=str(created_by) if created_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Setting {key} (added)",
+                correlation_id,
             )
-            await self._publish_event(event, f"Setting {key} (added)", correlation_id)
 
         self._record_audit("create_setting", {
             "key": key,
@@ -575,6 +613,27 @@ class SystemSettingsService:
         if key in self._settings and None in self._settings[key]:
             return self._settings[key][None]
         return None
+
+    def _resolve_storage_key(self, key: str, legal_entity_id: UUID | None) -> UUID | None:
+        """FIX: get_setting() falls back from a specific legal_entity_id to
+        the global (None) entry when no entity-specific override exists.
+        Every mutating method (update/deactivate/activate/reset/lock/unlock)
+        used to fetch via that fallback, mutate the object, then always
+        write it back under the *requested* legal_entity_id -
+        `self._settings[key][legal_entity_id] = setting`. When the object
+        actually lived under `None`, this left the mutated setting stored
+        under BOTH `None` and the requested legal_entity_id (two dict
+        entries pointing at the same object), so list_settings()/
+        by-category counted it twice - the duplicate rows seen in the UI.
+        This returns the key the setting is *actually* stored under (or
+        None if there's no entity-specific override yet), so write-backs
+        go to the right place instead of creating a second entry.
+        """
+        if legal_entity_id and key in self._settings and legal_entity_id in self._settings[key]:
+            return legal_entity_id
+        if key in self._settings and None in self._settings[key]:
+            return None
+        return legal_entity_id
 
     async def get_setting_value(
         self, key: str, legal_entity_id: UUID | None = None, default: Any = None
@@ -675,19 +734,23 @@ class SystemSettingsService:
         setting.updated_at = datetime.now(UTC)
         setting.updated_by = updated_by
 
-        self._settings[key][legal_entity_id] = setting
+        storage_key = self._resolve_storage_key(key, legal_entity_id)
+        self._settings[key][storage_key] = setting
         self._stats["updated"] += 1
 
         if self._event_publisher:
-            event = SettingChangedEvent(
-                setting_id=setting.id,
-                key=setting.key,
-                old_value=str(old_value),
-                new_value=str(setting.value),
-                updated_by=str(updated_by) if updated_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingChangedEvent(
+                    setting_id=setting.id,
+                    key=setting.key,
+                    old_value=str(old_value),
+                    new_value=str(setting.value),
+                    updated_by=str(updated_by) if updated_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Setting {key} (changed)",
+                correlation_id,
             )
-            await self._publish_event(event, f"Setting {key} (changed)", correlation_id)
 
         self._record_audit("update_setting", {
             "key": key,
@@ -731,17 +794,21 @@ class SystemSettingsService:
         setting.updated_by = updated_by
         setting.version += 1
 
-        self._settings[key][legal_entity_id] = setting
+        storage_key = self._resolve_storage_key(key, legal_entity_id)
+        self._settings[key][storage_key] = setting
         self._stats["deleted"] += 1
 
         if self._event_publisher:
-            event = SettingRemovedEvent(
-                setting_id=setting.id,
-                key=setting.key,
-                removed_by=str(updated_by) if updated_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingRemovedEvent(
+                    setting_id=setting.id,
+                    key=setting.key,
+                    removed_by=str(updated_by) if updated_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Setting {key} (removed)",
+                correlation_id,
             )
-            await self._publish_event(event, f"Setting {key} (removed)", correlation_id)
 
         self._record_audit("deactivate_setting", {
             "key": key,
@@ -777,7 +844,8 @@ class SystemSettingsService:
         setting.updated_by = updated_by
         setting.version += 1
 
-        self._settings[key][legal_entity_id] = setting
+        storage_key = self._resolve_storage_key(key, legal_entity_id)
+        self._settings[key][storage_key] = setting
 
         self._record_audit("activate_setting", {
             "key": key,
@@ -817,19 +885,23 @@ class SystemSettingsService:
             setting.updated_at = datetime.now(UTC)
             setting.updated_by = updated_by
             setting.version += 1
-            self._settings[key][legal_entity_id] = setting
+            storage_key = self._resolve_storage_key(key, legal_entity_id)
+            self._settings[key][storage_key] = setting
             self._stats["updated"] += 1
 
             if self._event_publisher:
-                event = SettingResetEvent(
-                    setting_id=setting.id,
-                    key=setting.key,
-                    old_value=str(old_value),
-                    new_value=str(setting.value),
-                    reset_by=str(updated_by) if updated_by else None,
-                    timestamp=datetime.now(UTC),
+                await self._build_and_publish_event(
+                    lambda: SettingResetEvent(
+                        setting_id=setting.id,
+                        key=setting.key,
+                        old_value=str(old_value),
+                        new_value=str(setting.value),
+                        reset_by=str(updated_by) if updated_by else None,
+                        timestamp=datetime.now(UTC),
+                    ),
+                    f"Setting {key} (reset)",
+                    correlation_id,
                 )
-                await self._publish_event(event, f"Setting {key} (reset)", correlation_id)
 
             self._record_audit("reset_to_default", {
                 "key": key,
@@ -884,7 +956,8 @@ class SystemSettingsService:
                 setting.is_locked = True
                 setting.updated_at = datetime.now(UTC)
                 setting.version += 1
-                self._settings[key][legal_entity_id] = setting
+                storage_key = self._resolve_storage_key(key, legal_entity_id)
+                self._settings[key][storage_key] = setting
                 success_count += 1
                 self._stats["locked"] += 1
 
@@ -894,12 +967,15 @@ class SystemSettingsService:
                 errors[key] = str(e)
 
         if self._event_publisher and success_count > 0:
-            event = SettingsLockedEvent(
-                keys=keys,
-                locked_by=str(locked_by) if locked_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingsLockedEvent(
+                    keys=keys,
+                    locked_by=str(locked_by) if locked_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Lock {success_count} settings",
+                correlation_id,
             )
-            await self._publish_event(event, f"Lock {success_count} settings", correlation_id)
 
         self._record_audit("lock_settings", {
             "keys": keys,
@@ -947,7 +1023,8 @@ class SystemSettingsService:
                 setting.is_locked = False
                 setting.updated_at = datetime.now(UTC)
                 setting.version += 1
-                self._settings[key][legal_entity_id] = setting
+                storage_key = self._resolve_storage_key(key, legal_entity_id)
+                self._settings[key][storage_key] = setting
                 success_count += 1
                 self._stats["unlocked"] += 1
 
@@ -957,12 +1034,15 @@ class SystemSettingsService:
                 errors[key] = str(e)
 
         if self._event_publisher and success_count > 0:
-            event = SettingsUnlockedEvent(
-                keys=keys,
-                unlocked_by=str(unlocked_by) if unlocked_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingsUnlockedEvent(
+                    keys=keys,
+                    unlocked_by=str(unlocked_by) if unlocked_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Unlock {success_count} settings",
+                correlation_id,
             )
-            await self._publish_event(event, f"Unlock {success_count} settings", correlation_id)
 
         self._record_audit("unlock_settings", {
             "keys": keys,
@@ -1002,16 +1082,20 @@ class SystemSettingsService:
         setting.updated_at = datetime.now(UTC)
         setting.updated_by = locked_by
         setting.version += 1
-        self._settings[key][legal_entity_id] = setting
+        storage_key = self._resolve_storage_key(key, legal_entity_id)
+        self._settings[key][storage_key] = setting
         self._stats["locked"] += 1
 
         if self._event_publisher:
-            event = SettingsLockedEvent(
-                keys=[key],
-                locked_by=str(locked_by) if locked_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingsLockedEvent(
+                    keys=[key],
+                    locked_by=str(locked_by) if locked_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Lock setting {key}",
+                correlation_id,
             )
-            await self._publish_event(event, f"Lock setting {key}", correlation_id)
 
         self._record_audit("lock_setting", {
             "key": key,
@@ -1044,16 +1128,20 @@ class SystemSettingsService:
         setting.updated_at = datetime.now(UTC)
         setting.updated_by = unlocked_by
         setting.version += 1
-        self._settings[key][legal_entity_id] = setting
+        storage_key = self._resolve_storage_key(key, legal_entity_id)
+        self._settings[key][storage_key] = setting
         self._stats["unlocked"] += 1
 
         if self._event_publisher:
-            event = SettingsUnlockedEvent(
-                keys=[key],
-                unlocked_by=str(unlocked_by) if unlocked_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingsUnlockedEvent(
+                    keys=[key],
+                    unlocked_by=str(unlocked_by) if unlocked_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Unlock setting {key}",
+                correlation_id,
             )
-            await self._publish_event(event, f"Unlock setting {key}", correlation_id)
 
         self._record_audit("unlock_setting", {
             "key": key,
@@ -1107,12 +1195,15 @@ class SystemSettingsService:
                 errors[key] = str(e)
 
         if self._event_publisher and success_count > 0:
-            event = SettingsBulkUpdatedEvent(
-                keys=updated_keys,
-                updated_by=str(updated_by) if updated_by else None,
-                timestamp=datetime.now(UTC),
+            await self._build_and_publish_event(
+                lambda: SettingsBulkUpdatedEvent(
+                    keys=updated_keys,
+                    updated_by=str(updated_by) if updated_by else None,
+                    timestamp=datetime.now(UTC),
+                ),
+                f"Bulk update {success_count} settings",
+                correlation_id,
             )
-            await self._publish_event(event, f"Bulk update {success_count} settings", correlation_id)
 
         self._record_audit("bulk_update_settings", {
             "success_count": success_count,
@@ -1223,12 +1314,33 @@ class SystemSettingsService:
     # ========================================================================
 
     async def export_settings(
-        self, legal_entity_id: UUID | None = None, format: str = "json"
-    ) -> str:
-        settings = await self.list_settings(legal_entity_id)
+        self,
+        legal_entity_id: UUID | None = None,
+        format: str = "json",
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """FIX: two bugs here previously.
+        (1) fastapi_system_settings_router.py's GET /export handler calls
+        `settings_svc.export_settings(legal_entity_id, format,
+        category.value if category else None)` - 3 positional args - but
+        this method only accepted `legal_entity_id` and `format`, so every
+        call raised "takes from 1 to 3 positional arguments but 4 were
+        given" (4 counting self). Added the missing `category` param,
+        used to filter the exported settings.
+        (2) The endpoint declares `response_model=dict[str, Any]`, but this
+        method returned a plain `str` (json.dumps(...) or a raw CSV
+        string). Even after fixing the arg count, FastAPI's response
+        validation would have rejected a str against dict[str, Any] and
+        the export would still 500. Now returns a dict for both formats.
+        """
+        settings = await self.list_settings(legal_entity_id, category=category)
 
         if format == "json":
-            return json.dumps([s.to_dict() for s in settings], indent=2, default=str)
+            return {
+                "format": "json",
+                "count": len(settings),
+                "settings": [s.to_dict() for s in settings],
+            }
         else:
             import csv
             import io
@@ -1240,7 +1352,7 @@ class SystemSettingsService:
                 writer.writerow(
                     [s.key, s.value, s.data_type.value, s.category, s.scope.value, s.description]
                 )
-            return output.getvalue()
+            return {"format": "csv", "count": len(settings), "data": output.getvalue()}
 
     @audit
     async def import_settings(
@@ -1267,7 +1379,15 @@ class SystemSettingsService:
                     logger.warning(f"Invalid JSON during import: {e}")
                     return ImportResult(success=False, errors=[f"Invalid JSON: {e}"])
                 if isinstance(settings_data, dict):
-                    settings_data = [{"key": k, "value": v} for k, v in settings_data.items()]
+                    # FIX: export_settings() now returns {"format": ...,
+                    # "count": ..., "settings": [...]} (see fix note there)
+                    # so that a re-imported export file round-trips
+                    # correctly instead of treating "format"/"count" as
+                    # bogus setting keys with value "json"/42.
+                    if "settings" in settings_data and isinstance(settings_data["settings"], list):
+                        settings_data = settings_data["settings"]
+                    else:
+                        settings_data = [{"key": k, "value": v} for k, v in settings_data.items()]
             else:
                 import csv
                 import io

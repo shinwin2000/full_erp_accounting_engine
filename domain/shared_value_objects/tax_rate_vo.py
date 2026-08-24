@@ -376,11 +376,7 @@ class TaxRateVO:
             as_of = datetime.now(UTC)
         elif as_of.tzinfo is None:
             as_of = as_of.replace(tzinfo=UTC)
-        if as_of < self.effective_date:
-            return False
-        if self.expiry_date is not None and as_of >= self.expiry_date:
-            return False
-        return True
+        return as_of >= self.effective_date and (self.expiry_date is None or as_of < self.expiry_date)
 
     def calculate(self, amount: Decimal, rounding: int | None = None) -> Decimal:
         """

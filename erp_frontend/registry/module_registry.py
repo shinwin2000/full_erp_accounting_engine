@@ -947,23 +947,30 @@ _reg(ModuleConfig(
 ))
 _reg(ModuleConfig(
     key="reports", label="Report Terjadwal", category="Umum", icon="🗂️",
-    # PENTING (fix 2026-08-20): sebelumnya base_path/list_path menunjuk ke
-    # "/reports/reports" + "/" - itu endpoint LAPORAN AD-HOC yang sudah
-    # di-generate (list_reports di fastapi_report_router.py), BUKAN endpoint
-    # jadwal laporan. Endpoint jadwal yang benar ada di /reports/schedule
-    # (POST/GET/PUT/DELETE) - beda subsistem sama sekali. Salah alamat ini
-    # menyebabkan tombol "+ Baru" gagal 405 Method Not Allowed (endpoint
-    # /reports/reports/ tidak punya method POST) dan daftar yang tampil pun
-    # sebetulnya daftar laporan ad-hoc, bukan jadwal.
+    # PENTING (fix 2026-08-20, dikoreksi 2026-08-21): base_path/list_path
+    # sebelumnya salah dua kali berturut-turut - pertama menunjuk ke
+    # "/reports/reports" + "/" (endpoint LAPORAN AD-HOC yang sudah
+    # di-generate, list_reports di fastapi_report_router.py, BUKAN endpoint
+    # jadwal), lalu percobaan perbaikan pertama (2026-08-20) salah asumsi
+    # base_path cukup "/reports" tanpa duplikasi.
     #
-    # id_field="schedule_id" (bukan default "id") karena
-    # ReportScheduleResponseSchema memakai nama field "schedule_id".
+    # FAKTA SEBENARNYA: fastapi_report_router.py dideklarasikan dengan
+    # `APIRouter(prefix="/reports", ...)` DAN di-mount lagi secara eksternal
+    # di app/main.py dengan prefix "/api/v1/reports" - pola yang SAMA di
+    # SEMUA router modul ini (lihat juga fastapi_umkm_router.py:
+    # `prefix="/umkm"` + mount "/api/v1/umkm", makanya UMKM juga pakai
+    # base_path="/umkm/umkm"). Jadi path asli endpoint /schedule adalah
+    # /api/v1/reports/reports/schedule (dobel "reports"), BUKAN
+    # /api/v1/reports/schedule. base_path yang benar tetap
+    # "/reports/reports" - yang salah HANYA list_path-nya (harus "/schedule",
+    # bukan "/" yang menunjuk ke laporan ad-hoc) dan id_field (harus
+    # "schedule_id" sesuai ReportScheduleResponseSchema, bukan default "id").
     #
     # Pilihan report_type sengaja dibatasi ke 12 jenis yang sudah punya
     # implementasi generate_* nyata di ReportService - menjadwalkan jenis
     # lain akan tersimpan tapi tidak akan pernah berhasil digenerate saat
     # jadwalnya jalan.
-    base_path="/reports", list_path="/schedule", id_field="schedule_id",
+    base_path="/reports/reports", list_path="/schedule", id_field="schedule_id",
     columns=[
         ("schedule_name", "Nama Jadwal"),
         ("report_type", "Tipe Laporan"),

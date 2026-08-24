@@ -1096,6 +1096,57 @@ async def list_reports(
 
 
 @router.get(
+    "/schedule",
+    response_model=list[ReportScheduleResponseSchema],
+    summary="List scheduled reports",
+    operation_id="list_scheduled_reports",
+)
+async def list_scheduled_reports(
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    report_type: ReportType | None = Query(None, description="Filter by report type"),
+    _permission: None = Depends(require_permission("report:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    scheduler: Any = Depends(get_report_scheduler),
+) -> list[ReportScheduleResponseSchema]:
+    """List all scheduled reports."""
+    try:
+        schedules = await scheduler.list_schedules(
+            legal_entity_id=legal_entity_id,
+            is_active=is_active,
+            report_type=report_type.value if report_type else None,
+        )
+
+        return [
+            ReportScheduleResponseSchema(
+                schedule_id=s.id,
+                schedule_name=s.schedule_name,
+                report_type=ReportType(s.report_type),
+                schedule_frequency=ScheduleFrequency(s.schedule_frequency),
+                schedule_time=s.schedule_time,
+                schedule_day_of_week=s.schedule_day_of_week,
+                schedule_day_of_month=s.schedule_day_of_month,
+                report_format=ReportFormat(s.report_format),
+                parameters=s.parameters,
+                recipient_emails=s.recipient_emails,
+                recipient_whatsapps=s.recipient_whatsapps,
+                delivery_methods=[DeliveryMethod(m) for m in s.delivery_methods],
+                is_active=s.is_active,
+                last_run_at=s.last_run_at,
+                next_run_at=s.next_run_at,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                created_by=s.created_by,
+                created_by_name=s.created_by_name,
+                version=s.version,
+            )
+            for s in schedules
+        ]
+    except Exception as e:
+        logger.exception("Failed to list scheduled reports: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
     "/{report_id}",
     response_model=ReportResponseSchema,
     summary="Get report by ID",
@@ -1349,57 +1400,6 @@ async def schedule_report(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         logger.exception("Failed to schedule report: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/schedule",
-    response_model=list[ReportScheduleResponseSchema],
-    summary="List scheduled reports",
-    operation_id="list_scheduled_reports",
-)
-async def list_scheduled_reports(
-    is_active: bool | None = Query(None, description="Filter by active status"),
-    report_type: ReportType | None = Query(None, description="Filter by report type"),
-    _permission: None = Depends(require_permission("report:read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    scheduler: Any = Depends(get_report_scheduler),
-) -> list[ReportScheduleResponseSchema]:
-    """List all scheduled reports."""
-    try:
-        schedules = await scheduler.list_schedules(
-            legal_entity_id=legal_entity_id,
-            is_active=is_active,
-            report_type=report_type.value if report_type else None,
-        )
-
-        return [
-            ReportScheduleResponseSchema(
-                schedule_id=s.id,
-                schedule_name=s.schedule_name,
-                report_type=ReportType(s.report_type),
-                schedule_frequency=ScheduleFrequency(s.schedule_frequency),
-                schedule_time=s.schedule_time,
-                schedule_day_of_week=s.schedule_day_of_week,
-                schedule_day_of_month=s.schedule_day_of_month,
-                report_format=ReportFormat(s.report_format),
-                parameters=s.parameters,
-                recipient_emails=s.recipient_emails,
-                recipient_whatsapps=s.recipient_whatsapps,
-                delivery_methods=[DeliveryMethod(m) for m in s.delivery_methods],
-                is_active=s.is_active,
-                last_run_at=s.last_run_at,
-                next_run_at=s.next_run_at,
-                created_at=s.created_at,
-                updated_at=s.updated_at,
-                created_by=s.created_by,
-                created_by_name=s.created_by_name,
-                version=s.version,
-            )
-            for s in schedules
-        ]
-    except Exception as e:
-        logger.exception("Failed to list scheduled reports: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

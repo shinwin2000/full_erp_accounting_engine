@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class InvariantResult:
     """Hasil validasi invariant dengan metode entity dasar."""
 
-    def __init__(self, is_valid: bool = True, errors: list[str] = None):
+    def __init__(self, is_valid: bool = True, errors: list[str] | None = None):
         self.is_valid = is_valid
         self.errors = errors or []
         self._version = 1

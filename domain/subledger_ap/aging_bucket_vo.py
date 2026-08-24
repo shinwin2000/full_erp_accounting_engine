@@ -189,7 +189,7 @@ class AgingSummary:
         Bukan nilai moneter, tetapi untuk presisi numerik digunakan Decimal.
         """
         if self.total_outstanding == 0:
-            return {k.value: Decimal("0.00") for k in self.buckets.keys()}
+            return {k.value: Decimal("0.00") for k in self.buckets}
         result = {}
         for k, v in self.buckets.items():
             pct = (v.amount / self.total_outstanding) * Decimal("100")

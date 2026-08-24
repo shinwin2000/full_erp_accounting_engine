@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextvars import ContextVar
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -94,83 +95,95 @@ class PeriodStatusTable(Base):
 # ============================================================================
 # REPOSITORY IMPLEMENTATION
 # ============================================================================
+#
+# CATATAN ARSITEKTUR PENTING: repo ini didaftarkan sebagai SINGLETON di IoC
+# container (satu instance untuk seumur hidup proses backend). session dan
+# legal_entity_id itu state PER-REQUEST. Percobaan sebelumnya menyimpannya
+# sebagai atribut instance biasa (self._session = value) TERNYATA MASIH
+# TIDAK AMAN untuk request bersamaan: kalau request A set self._session lalu
+# `await` (menyerahkan kontrol), request B bisa langsung menimpa
+# self._session SEBELUM request A lanjut jalan dan pakai session-nya -
+# request A akhirnya operasi di atas session milik request B ("cannot
+# perform operation: another operation is in progress", korupsi state).
+#
+# Fix: pakai contextvars.ContextVar, bukan atribut instance. ContextVar
+# otomatis terisolasi per-asyncio-Task - tiap request HTTP jalan di Task
+# terpisah, jadi .set()/.get() di sini otomatis "melihat" nilai milik
+# request yang sedang jalan saja, walau objek repo-nya sama-sama satu
+# instance singleton yang dipakai bersama.
+
+_session_ctx: ContextVar[AsyncSession | None] = ContextVar("forex_repo_session", default=None)
+_legal_entity_id_ctx: ContextVar[UUID | None] = ContextVar("forex_repo_legal_entity_id", default=None)
+
 
 class SQLAlchemyForexRepository(ForexRepositoryPort):
     def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
-        self._session = session
-        self._legal_entity_id = legal_entity_id
+        if session is not None:
+            _session_ctx.set(session)
+        if legal_entity_id is not None:
+            _legal_entity_id_ctx.set(legal_entity_id)
 
     @property
     def legal_entity_id(self) -> UUID | None:
-        return self._legal_entity_id
+        return _legal_entity_id_ctx.get()
 
     @legal_entity_id.setter
     def legal_entity_id(self, value: UUID) -> None:
         """
-        CATATAN: repo ini didaftarkan sebagai singleton di IoC container
-        (satu instance untuk seumur hidup aplikasi), sedangkan
-        legal_entity_id itu per-request. Tanpa setter ini, legal_entity_id
-        cuma bisa diisi lewat konstruktor sekali di awal - method manapun
-        yang mengandalkan self._get_legal_entity_id() (get_rate, set_rate,
-        get_last_revaluation_rate, dll) akan selalu ValueError "not set" di
-        request kedua dan seterusnya. Service (ForexService.set_context)
-        HARUS memanggil ini di awal setiap request.
+        Service (ForexService.set_context) HARUS memanggil ini di awal
+        setiap request, dengan legal_entity_id dari query/path param.
+        Disimpan di ContextVar (bukan atribut instance) supaya aman kalau
+        ada beberapa request untuk legal_entity_id berbeda berjalan
+        bersamaan pada repo singleton yang sama.
         """
-        self._legal_entity_id = value
+        _legal_entity_id_ctx.set(value)
 
     @property
     def session(self) -> AsyncSession | None:
-        return self._session
+        return _session_ctx.get()
 
     @session.setter
     def session(self, value: AsyncSession) -> None:
         """
-        Ikat session FRESH per-request ke repo ini.
-
-        CATATAN BUG BESAR yang diperbaiki: repo ini singleton, dan
-        sebelumnya "self-heal" - bikin SATU AsyncSession sekali lalu
-        dipakai ULANG terus untuk semua request berikutnya. AsyncSession
-        SQLAlchemy TIDAK aman dipakai dari lebih dari satu coroutine
-        secara bersamaan - begitu 2+ request forex nyaris bersamaan,
-        muncul "InvalidRequestError: This session is provisioning a new
-        connection; concurrent operations are not permitted". Fix: router
-        sekarang WAJIB menyuntik session baru per-request lewat
-        Depends(get_db_session) dan set lewat forex_svc.set_context(),
-        yang meneruskan ke sini.
+        Ikat session FRESH per-request ke repo ini, lewat ContextVar -
+        lihat catatan arsitektur di atas class ini soal kenapa TIDAK boleh
+        pakai atribut instance biasa untuk ini.
         """
-        self._session = value
+        _session_ctx.set(value)
 
     async def _get_session(self) -> AsyncSession:
-        if self._session is None:
+        session = _session_ctx.get()
+        if session is None:
             # Fallback untuk pemanggilan internal/lama yang belum
             # menyuntik session eksplisit lewat set_context() - sebaiknya
             # tidak terjadi lagi di jalur HTTP normal, tapi tetap
             # menyediakan session yang valid daripada crash.
             from infrastructure.database.session_factory_sqlalchemy import get_async_session_direct
-            self._session = await get_async_session_direct()
-        return self._session
-
+            session = await get_async_session_direct()
+            _session_ctx.set(session)
+        return session
 
     async def commit(self) -> None:
         """
-        Commit session yang dipegang repo ini.
+        Commit session yang dipegang repo ini (via ContextVar - lihat
+        catatan arsitektur di atas class ini).
 
         CATATAN BUG (sama persis dengan yang sudah diperbaiki di
         service_iam.py & service_consolidation.py): ForexService dulunya
         selalu manggil self.uow.commit() langsung, padahal self.uow
         (UnitOfWorkPort) di service ini TIDAK PERNAH di-`begin()`/dimasuki
         lewat `async with self.uow:` - jadi commit() selalu raise "UoW not
-        started or transaction not active". Repo ini sudah mengelola
-        session-nya sendiri secara lazy (_get_session), jadi commit
-        langsung lewat session itu, bukan lewat UoW yang tidak pernah aktif.
+        started or transaction not active".
         """
-        if self._session is not None:
-            await self._session.commit()
+        session = _session_ctx.get()
+        if session is not None:
+            await session.commit()
 
     def _get_legal_entity_id(self) -> UUID:
-        if self._legal_entity_id is None:
+        legal_entity_id = _legal_entity_id_ctx.get()
+        if legal_entity_id is None:
             raise ValueError("legal_entity_id not set in repository")
-        return self._legal_entity_id
+        return legal_entity_id
 
     # ========================================================================
     # MAPPING: ORM ↔ Domain

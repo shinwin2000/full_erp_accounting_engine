@@ -275,7 +275,7 @@ class CustomerCard:
             description=f"Invoice {invoice.invoice_number}",
             created_at=datetime.now(UTC),
         )
-        new_mutations = self.mutations + [mutation]
+        new_mutations = [*self.mutations, mutation]
         new_card = CustomerCard(
             customer_id=self.customer_id,
             customer_name=self.customer_name,
@@ -313,7 +313,7 @@ class CustomerCard:
             description=f"Payment {payment.payment_number}",
             created_at=datetime.now(UTC),
         )
-        new_mutations = self.mutations + [mutation]
+        new_mutations = [*self.mutations, mutation]
         new_card = CustomerCard(
             customer_id=self.customer_id,
             customer_name=self.customer_name,
@@ -351,7 +351,7 @@ class CustomerCard:
             description=f"Credit note applied: {amount}",
             created_at=datetime.now(UTC),
         )
-        new_mutations = self.mutations + [mutation]
+        new_mutations = [*self.mutations, mutation]
         new_card = CustomerCard(
             customer_id=self.customer_id,
             customer_name=self.customer_name,
@@ -515,7 +515,6 @@ class CustomerCard:
     def clone(self) -> CustomerCard:
         new_id = uuid4()
         now = datetime.now(UTC)
-        new_mutations = [m.clone() for m in self.mutations]
         cloned = CustomerCard(
             customer_id=new_id,
             customer_name=f"{self.customer_name}_COPY",

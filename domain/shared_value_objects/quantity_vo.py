@@ -231,7 +231,7 @@ class QuantityVO:
         """
         if isinstance(value, float):
             value = Decimal(str(value))
-        elif isinstance(value, int) or isinstance(value, str):
+        elif isinstance(value, (int, str)):
             value = Decimal(value)
         elif not isinstance(value, Decimal):
             raise InvalidQuantityError(f"Unsupported value type: {type(value)}")

@@ -231,9 +231,9 @@ class APInvoiceEntity:
         return (as_of - self.due_date).days
 
     def add_line(self, line: APInvoiceLine, added_by: str) -> APInvoiceEntity:
-        new_lines = self.lines + [line]
+        new_lines = [*self.lines, line]
         # Recalculate totals from lines
-        new_amount = sum(l.line_total for l in new_lines)
+        new_amount = sum(ln.line_total for ln in new_lines)
         self._record_audit("line_added", added_by, {"line_id": str(line.id)})
         return APInvoiceEntity(
             invoice_id=self.invoice_id,
@@ -263,11 +263,11 @@ class APInvoiceEntity:
         )
 
     def remove_line(self, line_id: UUID, removed_by: str) -> APInvoiceEntity:
-        line_to_remove = next((l for l in self.lines if l.id == line_id), None)
+        line_to_remove = next((ln for ln in self.lines if ln.id == line_id), None)
         if not line_to_remove:
             raise ValueError(f"Line {line_id} not found")
-        new_lines = [l for l in self.lines if l.id != line_id]
-        new_amount = sum(l.line_total for l in new_lines)
+        new_lines = [ln for ln in self.lines if ln.id != line_id]
+        new_amount = sum(ln.line_total for ln in new_lines)
         self._record_audit("line_removed", removed_by, {"line_id": str(line_id)})
         return APInvoiceEntity(
             invoice_id=self.invoice_id,

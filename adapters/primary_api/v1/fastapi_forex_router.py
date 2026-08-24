@@ -59,7 +59,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
@@ -726,7 +726,7 @@ class ForexRevaluationRequestSchema(BaseModel):
 
     @model_validator(mode="after")
 
-    def _apply_account_code_defaults(self) -> ForexRevaluationRequestSchema:
+    def _apply_account_code_defaults(self) -> "ForexRevaluationRequestSchema":
 
         """
 
@@ -2400,6 +2400,10 @@ async def run_forex_revaluation(
 
     revaluation_use_case: Any = Depends(get_forex_revaluation_use_case),
 
+    forex_svc: Any = Depends(get_forex_svc),
+
+    session: AsyncSession = Depends(get_db_session),
+
 ) -> ForexRevaluationResponseSchema:
 
     """
@@ -2432,69 +2436,68 @@ async def run_forex_revaluation(
 
 
 
+    forex_svc.set_context(legal_entity_id, session)
+
     try:
 
-        result = await revaluation_use_case.execute(
+        # FIX: revaluation_use_case.execute() menerima SATU objek
+        # ForexRevaluationCommand, bukan kwargs mentah - dan nama field-nya
+        # beda dari yang dikirim schema request (revaluation_date ->
+        # as_of_date, post_to_ledger -> post_to_gl, dst). gain_account_code/
+        # loss_account_code/notes/account_ids TIDAK dipakai sama sekali
+        # oleh use case ini saat ini (revaluasi jalan otomatis untuk semua
+        # akun cash/bank + AR/AP + loan mata uang asing, tidak bisa
+        # difilter per account_ids, dan jurnal yang di-post tidak memakai
+        # akun gain/loss kustom) - field2 itu diterima dari user tapi
+        # belum ada jalur untuk benar2 dipakai di use case, jadi diam-diam
+        # diabaikan untuk sekarang daripada dipaksakan.
+        from application.use_cases.forex_revaluation import ForexRevaluationCommand
 
+        command = ForexRevaluationCommand(
             legal_entity_id=legal_entity_id,
-
-            revaluation_date=request.revaluation_date,
-
+            as_of_date=request.revaluation_date,
             functional_currency=request.functional_currency.value,
-
-            account_ids=request.account_ids,
-
-            post_to_ledger=request.post_to_ledger,
-
-            gain_account_code=request.gain_account_code,
-
-            loss_account_code=request.loss_account_code,
-
-            notes=request.notes,
-
-            performed_by=current_user.user_id,
-
+            post_to_gl=request.post_to_ledger,
+            user_id=current_user.user_id,
         )
+        result = await revaluation_use_case.execute(command)
 
+        if not result.is_success():
+            raise HTTPException(status_code=422, detail=result.error or "Revaluasi gagal")
 
+        data = result.data or {}
+
+        # total_foreign_currency_balance TIDAK dihitung oleh use case ini
+        # (cuma total_gain/total_loss/net_effect) - ambil dari
+        # get_forex_position yang sudah dibangun & diverifikasi terpisah,
+        # supaya tidak mengarang angka.
+        position = await forex_svc.get_forex_position(
+            legal_entity_id, request.revaluation_date, request.functional_currency.value
+        )
 
         response = ForexRevaluationResponseSchema(
-
-            revaluation_id=result.revaluation_id,
-
-            revaluation_number=result.revaluation_number,
-
+            revaluation_id=uuid4(),
+            revaluation_number=f"REVAL-{request.revaluation_date.isoformat()}-{result.command_id.hex[:6]}",
             revaluation_date=request.revaluation_date,
-
-            functional_currency=CurrencyCode(result.functional_currency),
-
-            total_foreign_currency_balance=result.total_foreign_currency_balance,
-
-            total_gain=result.total_gain,
-
-            total_loss=result.total_loss,
-
-            net_gain_loss=result.net_gain_loss,
-
-            accounts_affected=result.accounts_affected,
-
-            journal_id=result.journal_id,
-
-            status=RevaluationStatus(result.status),
-
-            created_at=result.created_at,
-
-            created_by=result.created_by,
-
-            created_by_name=result.created_by_name,
-
-            posted_at=result.posted_at,
-
-            reversed_at=result.reversed_at,
-
+            functional_currency=request.functional_currency,
+            total_foreign_currency_balance=position.total_foreign_currency_balance,
+            total_gain=Decimal(str(data.get("total_gain", 0))),
+            total_loss=Decimal(str(data.get("total_loss", 0))),
+            net_gain_loss=Decimal(str(data.get("net_effect", 0))),
+            # accounts_affected: use case ini cuma balikin entries_count
+            # (jumlah), bukan detail per-akun - belum ada jalur untuk
+            # mengekspos daftar akun yang kena revaluasi.
+            accounts_affected=[],
+            journal_id=UUID(data["journal_id"]) if data.get("journal_id") else None,
+            status=RevaluationStatus.DRAFT if data.get("dry_run") else (
+                RevaluationStatus.POSTED if data.get("journal_id") else RevaluationStatus.PROCESSED
+            ),
+            created_at=result.occurred_at,
+            created_by=current_user.user_id,
+            created_by_name=None,
+            posted_at=result.occurred_at if data.get("journal_id") else None,
+            reversed_at=None,
         )
-
-
 
         if idempotency_key:
 
@@ -2503,6 +2506,10 @@ async def run_forex_revaluation(
 
 
         return response
+
+    except HTTPException:
+
+        raise
 
     except ValueError as e:
 
