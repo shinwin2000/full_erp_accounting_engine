@@ -33,7 +33,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from domain.shared_value_objects.money_vo import Money
 
 # ============================================================================
 # Custom Exceptions
@@ -116,7 +119,7 @@ class PercentageVO:
         """
         if isinstance(value, float):
             value = Decimal(str(value))
-        elif isinstance(value, int) or isinstance(value, str):
+        elif isinstance(value, int | str):
             value = Decimal(value)
         elif not isinstance(value, Decimal):
             raise InvalidPercentageError(f"Unsupported type: {type(value)}")
@@ -141,7 +144,7 @@ class PercentageVO:
         """
         if isinstance(factor, float):
             factor = Decimal(str(factor))
-        elif isinstance(factor, int) or isinstance(factor, str):
+        elif isinstance(factor, int | str):
             factor = Decimal(factor)
         elif not isinstance(factor, Decimal):
             raise InvalidPercentageError(f"Unsupported factor type: {type(factor)}")
@@ -214,7 +217,7 @@ class PercentageVO:
         """
         if isinstance(factor, float):
             factor = Decimal(str(factor))
-        elif isinstance(factor, int):
+        elif isinstance(factor, int | str):
             factor = Decimal(factor)
         elif not isinstance(factor, Decimal):
             raise InvalidPercentageError(f"Factor must be numeric, got {type(factor)}")
@@ -231,7 +234,7 @@ class PercentageVO:
         """
         if isinstance(divisor, float):
             divisor = Decimal(str(divisor))
-        elif isinstance(divisor, int):
+        elif isinstance(divisor, int | str):
             divisor = Decimal(divisor)
         elif not isinstance(divisor, Decimal):
             raise InvalidPercentageError(f"Divisor must be numeric, got {type(divisor)}")
@@ -348,12 +351,10 @@ class PercentageVO:
     ) -> PercentageVO:
         """Return a new percentage clamped to optional min and max bounds."""
         result = self.value
-        if min_pct is not None:
-            if result < min_pct.value:
-                result = min_pct.value
-        if max_pct is not None:
-            if result > max_pct.value:
-                result = max_pct.value
+        if min_pct is not None and result < min_pct.value:
+            result = min_pct.value
+        if max_pct is not None and result > max_pct.value:
+            result = max_pct.value
         return PercentageVO(result)
 
     # ------------------------------------------------------------------------

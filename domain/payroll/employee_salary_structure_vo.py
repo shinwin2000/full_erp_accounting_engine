@@ -94,7 +94,7 @@ class EmployeeSalaryStructureVO:
     def add_component(
         self, component: SalaryComponentEntity, added_by: str
     ) -> EmployeeSalaryStructureVO:
-        new_components = list(self.salary_components) + [component]
+        new_components = [*self.salary_components, component]
         return EmployeeSalaryStructureVO(
             structure_id=self.structure_id,
             employee_id=self.employee_id,
@@ -250,9 +250,8 @@ class EmployeeSalaryStructureVO:
     # ==================== QUERY METHODS ====================
 
     def is_active_at(self, date: datetime) -> bool:
-        if self.effective_date and date < self.effective_date:
-            return False
-        return True
+        """Return True if the structure is effective on the given date."""
+        return not (self.effective_date and date < self.effective_date)
 
     def get_component_by_name(self, name: str) -> SalaryComponentEntity | None:
         for comp in self.salary_components:

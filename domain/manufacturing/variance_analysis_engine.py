@@ -355,8 +355,8 @@ class VarianceAnalysisEngine:
         Calculate material price variance and usage variance.
 
         Formulas:
-            Price Variance = (Actual Price - Standard Price) × Actual Quantity
-            Usage Variance = (Actual Quantity - Standard Quantity) × Standard Price
+            Price Variance = (Actual Price - Standard Price) x Actual Quantity
+            Usage Variance = (Actual Quantity - Standard Quantity) x Standard Price
 
         Args:
             standard_price: Standard price per unit of material.
@@ -389,8 +389,8 @@ class VarianceAnalysisEngine:
         Calculate labor rate variance and efficiency variance.
 
         Formulas:
-            Rate Variance = (Actual Rate - Standard Rate) × Actual Hours
-            Efficiency Variance = (Actual Hours - Standard Hours) × Standard Rate
+            Rate Variance = (Actual Rate - Standard Rate) x Actual Hours
+            Efficiency Variance = (Actual Hours - Standard Hours) x Standard Rate
 
         Args:
             standard_rate: Standard labor rate per hour.

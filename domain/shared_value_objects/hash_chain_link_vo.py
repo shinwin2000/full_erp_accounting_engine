@@ -464,13 +464,10 @@ class HashChainLinkVO:
             )
 
         # 3. Verify chain continuity if previous_link provided
-        if previous_link is not None:
-            if self.previous_hash != previous_link.current_hash:
-                raise HashVerificationError(
-                    f"Previous hash mismatch: expected {previous_link.current_hash}, got {self.previous_hash}"
-                )
-            # Optionally verify previous link's own integrity (recursive)
-            # We'll not do full recursion here to avoid deep recursion.
+        if previous_link is not None and self.previous_hash != previous_link.current_hash:
+            raise HashVerificationError(
+                f"Previous hash mismatch: expected {previous_link.current_hash}, got {self.previous_hash}"
+            )
 
         return True
 

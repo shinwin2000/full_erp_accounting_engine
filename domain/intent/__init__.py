@@ -20,17 +20,6 @@ Audit: Setiap perubahan intent dictat dalam immutable audit trail.
 from __future__ import annotations
 
 import logging
-from typing import Any
-
-__version__ = "1.0.0"
-
-logger = logging.getLogger(__name__)
-
-# ============================================================================
-# Import semua modul secara statis (tanpa __import__) untuk menghindari
-# dynamic import warning. Circular dependencies telah diatasi dengan memisahkan
-# IntentType ke file terpisah dan menggunakan forward references di TYPE_CHECKING.
-# ============================================================================
 
 # approval_workflow
 from domain.intent.approval_workflow import (
@@ -161,100 +150,104 @@ from domain.intent.void_processor import (
     get_void_processor,
 )
 
+__version__ = "1.0.0"
+
+logger = logging.getLogger(__name__)
+
 # ============================================================================
 # Ekspor semua simbol
 # ============================================================================
 
 __all__ = [
-    # approval_workflow
-    "ApprovalLevel",
-    "ApprovalAction",
-    "ApprovalStatus",
-    "ApprovalRule",
-    "ApprovalRecord",
-    "ApprovalWorkflow",
-    "get_approval_workflow",
-    # audit_trail_writer
-    "IntentAuditAction",
-    "IntentAuditSeverity",
-    "IntentAuditRecord",
-    "AuditTrailWriter",
-    "get_audit_trail_writer",
-    # capture_service
-    "IntentType",
-    "CapturedIntent",
-    "IntentCaptureService",
-    "get_intent_capture_service",
-    # immutable_record
-    "IntentStatus",
-    "IntentSource",
-    "ImmutableIntentRecord",
-    "ImmutableIntentRecordService",
-    "get_immutable_intent_record_service",
     # cryptographic_signer
-    "CryptographicSigner",
-    "get_cryptographic_signer",
     "CRYPTO_AVAILABLE",
+    # approval_workflow
+    "ApprovalAction",
+    "ApprovalLevel",
+    "ApprovalRecord",
+    "ApprovalRule",
+    "ApprovalStatus",
+    "ApprovalWorkflow",
+    # audit_trail_writer
+    "AuditTrailWriter",
+    # capture_service
+    "CapturedIntent",
     # context_enricher
-    "EnrichedContext",
     "ContextEnricher",
-    "get_context_enricher",
-    # outcome_link_tracker
-    "LinkStatus",
-    "LinkType",
-    "IntentOutcomeLink",
-    "OutcomeLinkTracker",
-    "get_outcome_link_tracker",
+    "CryptographicSigner",
+    "EnrichedContext",
     # forensic_query_engine
+    "ForensicQueryEngine",
+    "ForensicQueryResult",
     "ForensicQueryType",
     "ForensicSortOrder",
-    "ForensicQueryResult",
-    "ForensicQueryEngine",
-    "get_forensic_query_engine",
-    # revision_logger
-    "RevisionChangeType",
-    "RevisionChange",
-    "IntentRevision",
-    "RevisionLogger",
-    "get_revision_logger",
-    # risk_assessor
-    "RiskCategory",
-    "RiskLevel",
-    "RiskAssessmentStatus",
-    "RiskFactor",
-    "RiskAssessment",
-    "RiskAssessor",
-    "get_risk_assessor",
-    # materiality_evaluator
-    "MaterialityLevel",
-    "MaterialityDimension",
-    "MaterialityThreshold",
-    "MaterialityEvaluation",
-    "MaterialityEvaluator",
-    "get_materiality_evaluator",
-    # void_processor
-    "VoidReason",
-    "VoidScope",
-    "VoidRecord",
-    "VoidProcessor",
-    "get_void_processor",
+    # immutable_record
+    "ImmutableIntentRecord",
+    "ImmutableIntentRecordService",
     # intent_exceptions
-    "IntentErrorCode",
-    "IntentSeverity",
-    "IntentError",
-    "IntentNotFoundError",
-    "IntentInvalidStatusError",
-    "IntentAlreadySubmittedError",
     "IntentAlreadyApprovedError",
-    "IntentAlreadyExecutedError",
     "IntentAlreadyCancelledError",
-    "IntentValidationFailedError",
-    "IntentDataIncompleteError",
+    "IntentAlreadyExecutedError",
+    "IntentAlreadySubmittedError",
     "IntentApprovalInsufficientError",
     "IntentApprovalLevelInvalidError",
-    "IntentRiskTooHighError",
+    "IntentAuditAction",
+    "IntentAuditRecord",
+    "IntentAuditSeverity",
     "IntentCannotVoidError",
-    "IntentWorkflowInvalidTransitionError",
+    "IntentCaptureService",
+    "IntentDataIncompleteError",
+    "IntentError",
+    "IntentErrorCode",
     "IntentExceptionFactory",
+    "IntentInvalidStatusError",
+    "IntentNotFoundError",
+    # outcome_link_tracker
+    "IntentOutcomeLink",
+    # revision_logger
+    "IntentRevision",
+    "IntentRiskTooHighError",
+    "IntentSeverity",
+    "IntentSource",
+    "IntentStatus",
+    "IntentType",
+    "IntentValidationFailedError",
+    "IntentWorkflowInvalidTransitionError",
+    "LinkStatus",
+    "LinkType",
+    # materiality_evaluator
+    "MaterialityDimension",
+    "MaterialityEvaluation",
+    "MaterialityEvaluator",
+    "MaterialityLevel",
+    "MaterialityThreshold",
+    "OutcomeLinkTracker",
+    "RevisionChange",
+    "RevisionChangeType",
+    "RevisionLogger",
+    # risk_assessor
+    "RiskAssessment",
+    "RiskAssessmentStatus",
+    "RiskAssessor",
+    "RiskCategory",
+    "RiskFactor",
+    "RiskLevel",
+    # void_processor
+    "VoidProcessor",
+    "VoidReason",
+    "VoidRecord",
+    "VoidScope",
     "__version__",
+    "get_approval_workflow",
+    "get_audit_trail_writer",
+    "get_context_enricher",
+    "get_cryptographic_signer",
+    "get_forensic_query_engine",
+    "get_immutable_intent_record_service",
+    "get_intent_capture_service",
+    "get_materiality_evaluator",
+    "get_outcome_link_tracker",
+    "get_revision_logger",
+    "get_risk_assessor",
+    "get_void_processor",
 ]

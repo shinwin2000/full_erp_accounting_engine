@@ -23,7 +23,7 @@ Method Standards (ERP):
 """
 
 
-from __future__ import annotationsimport hashlibimport importlibimport jsonimport loggingimport osfrom datetime import date, datetimefrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, statusfrom fastapi.responses import FileResponsefrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)logger = logging.getLogger(__name__)
+from __future__ import annotationsimport hashlibimport importlibimport jsonimport loggingimport osfrom datetime import date, datetimefrom enum import Enumfrom typing import Anyfrom uuid import UUIDfrom fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, statusfrom fastapi.responses import FileResponse, Responsefrom pydantic import BaseModel, ConfigDict, Field, field_validator, model_validatorfrom adapters.primary_api.common.fastapi_auth_jwt_middleware import (    TokenPayload,    get_current_legal_entity,    get_current_user,    require_permission,)logger = logging.getLogger(__name__)
 
 # ============================================================================
 # IDEMPOTENCY MANAGER (for write operations)
@@ -1092,6 +1092,50 @@ async def list_reports(
         )
     except Exception as e:
         logger.exception("Failed to list reports: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/export",
+    summary="Export scheduled reports to CSV/Excel/JSON",
+    operation_id="export_scheduled_reports",
+)
+async def export_scheduled_reports(
+    format: str = Query("csv", description="Format export: csv, excel, json"),
+    _permission: None = Depends(require_permission("report:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    scheduler: Any = Depends(get_report_scheduler),
+) -> Response:
+    """
+    Export seluruh jadwal laporan milik legal entity aktif.
+
+    NOTE: path adalah "/export" (BUKAN "/reports/export") karena Frontend
+    (`ui/widgets/generic_list_page.py::_export`) memanggil
+    `{config.base_path}/export`. Untuk modul "Report Terjadwal"
+    (module_registry.py key="reports"), base_path="/reports/reports" -
+    router ini sendiri dideklarasikan dengan `APIRouter(prefix="/reports")`
+    DAN di-mount lagi dengan prefix "/api/v1/reports" di app/main.py,
+    jadi path final = "/api/v1/reports/reports/export", cocok dengan yang
+    dipanggil frontend.
+    """
+    try:
+        content = await scheduler.export_schedules(legal_entity_id=legal_entity_id, format=format)
+        fmt = (format or "csv").lower()
+        media_types = {
+            "csv": "text/csv",
+            "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "json": "application/json",
+        }
+        extensions = {"csv": "csv", "excel": "xlsx", "xlsx": "xlsx", "json": "json"}
+        ext = extensions.get(fmt, "csv")
+        return Response(
+            content=content,
+            media_type=media_types.get(fmt, "text/csv"),
+            headers={"Content-Disposition": f"attachment; filename=scheduled_reports_export.{ext}"},
+        )
+    except Exception as e:
+        logger.exception("Failed to export scheduled reports: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

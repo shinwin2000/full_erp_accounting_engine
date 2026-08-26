@@ -218,7 +218,7 @@ class IntangibleAssetInvariants:
                 f"Useful life must be positive for amortizable assets: {years}"
             )
         if years > 100:
-            return InvariantResult.warning(f"Useful life {years} years is unusually long")
+            return InvariantResult.success(warnings=[f"Useful life {years} years is unusually long"])
         return InvariantResult.success()
 
     @staticmethod
@@ -367,11 +367,11 @@ def validate_status_transition(
             f"Status transition from {current_status.display_name()} to {new_status.display_name()} is not allowed"
         )
     required_role = TRANSITION_ROLE_REQUIREMENTS.get((current_status, new_status))
-    if required_role:
-        if user_role != required_role and user_role not in ("admin", "super_admin"):
-            return InvariantResult.failure(
-                f"Status transition requires role '{required_role}'. User has role '{user_role}'"
-            )
+    # Gabungkan kondisi bersarang menjadi satu dengan 'and'
+    if required_role and user_role != required_role and user_role not in ("admin", "super_admin"):
+        return InvariantResult.failure(
+            f"Status transition requires role '{required_role}'. User has role '{user_role}'"
+        )
     return InvariantResult.success()
 
 
@@ -508,9 +508,13 @@ class IntangibleAssetInvariantsValidator:
 
     @staticmethod
     def validate_useful_life(asset: IntangibleAssetEntity) -> None:
-        if asset.asset_type != IntangibleAssetType.GOODWILL and not asset.has_indefinite_life:
-            if asset.useful_life_years <= 0:
-                raise ValueError(f"Useful life must be positive: {asset.useful_life_years}")
+        # Gabungkan kondisi bersarang menjadi satu dengan 'and'
+        if (
+            asset.asset_type != IntangibleAssetType.GOODWILL
+            and not asset.has_indefinite_life
+            and asset.useful_life_years <= 0
+        ):
+            raise ValueError(f"Useful life must be positive: {asset.useful_life_years}")
 
     @staticmethod
     def validate_amortization_method(asset: IntangibleAssetEntity) -> None:

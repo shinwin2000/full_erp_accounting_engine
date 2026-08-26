@@ -451,7 +451,6 @@ class PayrollAggregate:
                 continue
 
             gross_salary = structure.total_salary
-            allowances = structure.total_allowances
             deductions = structure.total_deductions
             bpjs_employee = structure.bpjs_employee_contribution
 

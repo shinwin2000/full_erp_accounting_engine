@@ -598,8 +598,7 @@ class ProjectAggregate:
         if time_entry.project_id not in self.projects:
             raise ValueError(f"Project {time_entry.project_id} not found")
 
-        new_time_entries = self.time_entries + [time_entry]
-
+        # Removed unused variable new_time_entries
         cost_entry = CostEntry(
             entry_id=time_entry.entry_id,
             cost_type=CostType.LABOR,

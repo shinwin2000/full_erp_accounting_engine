@@ -392,10 +392,10 @@ class ForensicQueryEngine:
         regex = re.compile(pattern, re.IGNORECASE)
         records = []
         for r in self._get_all_records():
-            for field in fields:
-                val = r.data.get(field)
+            for field_name in fields:
+                val = r.data.get(field_name)
                 if (val and isinstance(val, str) and regex.search(val)) or (
-                    val and isinstance(val, (int, float)) and regex.search(str(val))
+                    val and isinstance(val, int | float) and regex.search(str(val))
                 ):
                     records.append(r)
                     break
@@ -420,7 +420,7 @@ class ForensicQueryEngine:
         user_intents = {}
         for r in self._get_all_records():
             user_intents.setdefault(r.created_by, []).append(r)
-        for user_id, intents in user_intents.items():
+        for _user_id, intents in user_intents.items():
             rejections = [i for i in intents if i.status == IntentStatus.REJECTED]
             if len(rejections) > 5:
                 suspicious.extend(rejections)

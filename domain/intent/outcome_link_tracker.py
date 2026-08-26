@@ -375,22 +375,22 @@ class OutcomeLinkTracker:
     ) -> list[tuple[IntentOutcomeLink, Any]]:
         with self._lock:
             links = [
-                l
-                for l in self._links.values()
-                if l.intent_id == intent_id and l.status != LinkStatus.CANCELLED
+                link
+                for link in self._links.values()
+                if link.intent_id == intent_id and link.status != LinkStatus.CANCELLED
             ]
             if outcome_type:
-                links = [l for l in links if l.outcome_type == outcome_type]
-            return [(l, None) for l in links]
+                links = [link for link in links if link.outcome_type == outcome_type]
+            return [(link, None) for link in links]
 
     def get_intents_for_outcome(self, outcome_id: UUID) -> list[tuple[IntentOutcomeLink, Any]]:
         with self._lock:
             links = [
-                l
-                for l in self._links.values()
-                if l.outcome_id == outcome_id and l.status != LinkStatus.CANCELLED
+                link
+                for link in self._links.values()
+                if link.outcome_id == outcome_id and link.status != LinkStatus.CANCELLED
             ]
-            return [(l, None) for l in links]
+            return [(link, None) for link in links]
 
     def get_link(self, link_id: UUID) -> IntentOutcomeLink | None:
         with self._lock:
@@ -472,20 +472,20 @@ class OutcomeLinkTracker:
 
     def search_links_by_intent(self, intent_id: UUID) -> list[IntentOutcomeLink]:
         with self._lock:
-            return [l for l in self._links.values() if l.intent_id == intent_id]
+            return [link for link in self._links.values() if link.intent_id == intent_id]
 
     def search_links_by_outcome(self, outcome_id: UUID) -> list[IntentOutcomeLink]:
         with self._lock:
-            return [l for l in self._links.values() if l.outcome_id == outcome_id]
+            return [link for link in self._links.values() if link.outcome_id == outcome_id]
 
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:
             total_links = len(self._links)
             by_status = {}
             by_type = {}
-            for l in self._links.values():
-                by_status[l.status.name] = by_status.get(l.status.name, 0) + 1
-                by_type[l.link_type.name] = by_type.get(l.link_type.name, 0) + 1
+            for link in self._links.values():
+                by_status[link.status.name] = by_status.get(link.status.name, 0) + 1
+                by_type[link.link_type.name] = by_type.get(link.link_type.name, 0) + 1
             return {
                 "total_links": total_links,
                 "by_status": by_status,

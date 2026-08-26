@@ -244,7 +244,7 @@ class ProductionRoutingEntity:
 
     def add_operation(self, operation: RoutingOperation, added_by: str) -> ProductionRoutingEntity:
         """Add an operation to the routing."""
-        new_ops = self._sort_operations(list(self.operations) + [operation])
+        new_ops = self._sort_operations([*self.operations, operation])
         return ProductionRoutingEntity(
             routing_id=self.routing_id,
             routing_code=self.routing_code,
@@ -412,13 +412,11 @@ class ProductionRoutingEntity:
 
     def is_active_at(self, date: datetime) -> bool:
         """Return True if routing is active on the given date."""
-        if self.status != RoutingStatus.ACTIVE:
-            return False
-        if self.effective_date and date < self.effective_date:
-            return False
-        if self.expiry_date and date > self.expiry_date:
-            return False
-        return True
+        return (
+            self.status == RoutingStatus.ACTIVE
+            and (self.effective_date is None or date >= self.effective_date)
+            and (self.expiry_date is None or date <= self.expiry_date)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return dictionary representation."""
@@ -482,10 +480,10 @@ class ProductionRoutingRepository:
 ProductionRouting = ProductionRoutingEntity
 
 __all__ = [
-    "ProductionRouting",  # Alias for entity
+    "ProductionRouting",
     "ProductionRoutingEntity",
     "ProductionRoutingRepository",
     "RoutingOperation",
     "RoutingStatus",
-    "RoutingStep",  # Added alias
+    "RoutingStep",
 ]

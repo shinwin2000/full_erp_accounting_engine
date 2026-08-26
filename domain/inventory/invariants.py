@@ -232,11 +232,11 @@ class InventoryInvariants:
             result.add_error(
                 f"Safety stock ({safety_stock}) cannot exceed reorder point ({reorder_point})"
             )
-        if minimum_stock is not None and maximum_stock is not None:
-            if minimum_stock > maximum_stock:
-                result.add_error(
-                    f"Minimum stock ({minimum_stock}) cannot exceed maximum stock ({maximum_stock})"
-                )
+        # Gabungkan kondisi bersarang menjadi satu
+        if minimum_stock is not None and maximum_stock is not None and minimum_stock > maximum_stock:
+            result.add_error(
+                f"Minimum stock ({minimum_stock}) cannot exceed maximum stock ({maximum_stock})"
+            )
         return result
 
     @staticmethod

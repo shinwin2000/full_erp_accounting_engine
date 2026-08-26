@@ -227,7 +227,7 @@ class InterWarehouseTransferEntity:
             batch_number=batch_number,
             expiry_date=expiry_date,
         )
-        new_items = self.items + [transfer_item]
+        new_items = [*self.items, transfer_item]
         new_entity = InterWarehouseTransferEntity(
             transfer_id=self.transfer_id,
             transfer_number=self.transfer_number,

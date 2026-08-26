@@ -93,11 +93,13 @@ class SalaryComponentEntity:
         return self.amount < 0
 
     def is_active_at(self, date: datetime) -> bool:
-        if self.effective_date and date < self.effective_date:
-            return False
-        if self.expiry_date and date > self.expiry_date:
-            return False
-        return True
+        """
+        Check if the component is active on the given date.
+        Returns True if effective_date <= date <= expiry_date (or no expiry) and date >= effective_date (or no effective).
+        """
+        return (not self.effective_date or date >= self.effective_date) and (
+            not self.expiry_date or date <= self.expiry_date
+        )
 
     def normalize(self) -> SalaryComponentEntity:
         return SalaryComponentEntity(

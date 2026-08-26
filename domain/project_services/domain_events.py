@@ -28,6 +28,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from domain.project_services.project_entity import ProjectEntity, ProjectStatus
+from domain.project_services.retainer_contract_entity import RetainerContractEntity
 from domain.project_services.time_entry_entity import TimeEntryEntity
 
 # === 1. DOMAIN EVENT BASE ===
@@ -501,17 +502,16 @@ __all__ = [
     "MilestoneBilledEvent",
     "MilestoneReadyEvent",
     "ProjectActivatedEvent",
-    "ProjectCompletedEvent",
-    "ProjectCreatedEvent",
+    "ProjectBillingGenerated",
     "ProjectBillingGeneratedEvent",
+    "ProjectCompleted",
+    "ProjectCompletedEvent",
+    "ProjectCreated",
+    "ProjectCreatedEvent",
     "RetainerContractActivatedEvent",
+    "RevenueRecognized",
     "RevenueRecognizedEvent",
     "TimeEntryApprovedEvent",
-    "TimeEntrySubmittedEvent",
-    # Aliases
-    "ProjectCreated",
-    "ProjectCompleted",
-    "RevenueRecognized",
     "TimeEntryRecorded",
-    "ProjectBillingGenerated",
+    "TimeEntrySubmittedEvent",
 ]

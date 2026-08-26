@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -644,11 +644,11 @@ class UserEntity:
     # ==================== BUSINESS LOGIC ====================
 
     def is_active(self) -> bool:
-        if self.status != UserStatus.ACTIVE:
-            return False
-        if self.locked_until and datetime.now(UTC) < self.locked_until:
-            return False
-        return True
+        """Return True if user is active and not locked."""
+        return (
+            self.status == UserStatus.ACTIVE
+            and (self.locked_until is None or datetime.now(UTC) >= self.locked_until)
+        )
 
     def is_locked(self) -> bool:
         if self.locked_until:

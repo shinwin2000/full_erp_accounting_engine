@@ -586,11 +586,8 @@ class SessionEntity:
     # ==================== BUSINESS LOGIC ====================
 
     def is_active(self) -> bool:
-        if self.status != SessionStatus.ACTIVE:
-            return False
-        if datetime.now(UTC) > self.expires_at:
-            return False
-        return True
+        """Return True if session is active and not expired."""
+        return self.status == SessionStatus.ACTIVE and datetime.now(UTC) <= self.expires_at
 
     def is_expired(self) -> bool:
         return datetime.now(UTC) > self.expires_at

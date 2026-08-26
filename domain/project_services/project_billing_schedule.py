@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -165,7 +165,7 @@ class ProjectBillingSchedule:
         return instance
 
     def add_milestone(self, milestone: BillingMilestone, added_by: str) -> ProjectBillingSchedule:
-        new_milestones = self.milestones + [milestone]
+        new_milestones = [*self.milestones, milestone]
         new_total = sum(m.amount for m in new_milestones)
         self._record_audit(
             "milestone_added",

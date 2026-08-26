@@ -286,34 +286,33 @@ class RealityValidationService:
                 )
             )
 
-        # Check source document for material events
-        if event.amount and event.amount.amount > Decimal("10000000"):  # > 10 juta
-            if not event.source_document_ref:
-                warnings.append(
-                    ValidationIssue(
-                        field="source_document_ref",
-                        message="Source document reference is recommended for material events (> 10 million)",
-                        severity=ValidationSeverity.WARNING,
-                        code="SOURCE_DOC_RECOMMENDED",
-                    )
+        # Check source document for material events (combined condition)
+        if (event.amount and event.amount.amount > Decimal("10000000")
+                and not event.source_document_ref):  # > 10 juta
+            warnings.append(
+                ValidationIssue(
+                    field="source_document_ref",
+                    message="Source document reference is recommended for material events (> 10 million)",
+                    severity=ValidationSeverity.WARNING,
+                    code="SOURCE_DOC_RECOMMENDED",
                 )
+            )
 
-        # Check counterparty for certain event types
-        if event.event_type in (
+        # Check counterparty for certain event types (combined condition)
+        if (event.event_type in (
             EconomicEventType.SALE_OF_GOODS,
             EconomicEventType.SALE_OF_SERVICES,
             EconomicEventType.PURCHASE_OF_GOODS,
             EconomicEventType.PURCHASE_OF_SERVICES,
-        ):
-            if not event.counterparty_id:
-                issues.append(
-                    ValidationIssue(
-                        field="counterparty_id",
-                        message="Counterparty is required for this event type",
-                        severity=ValidationSeverity.ERROR,
-                        code="COUNTERPARTY_REQUIRED",
-                    )
+        ) and not event.counterparty_id):
+            issues.append(
+                ValidationIssue(
+                    field="counterparty_id",
+                    message="Counterparty is required for this event type",
+                    severity=ValidationSeverity.ERROR,
+                    code="COUNTERPARTY_REQUIRED",
                 )
+            )
 
         return issues, warnings
 
@@ -468,17 +467,17 @@ class RealityValidationService:
         issues = []
         warnings = []
 
-        # Check for large cash transactions (AML)
-        if event.amount and event.amount.amount > Decimal("100000000"):  # > 100 juta
-            if event.metadata.get("payment_method") == "CASH":
-                issues.append(
-                    ValidationIssue(
-                        field="payment_method",
-                        message="Large cash transaction (>100M) requires enhanced due diligence per AML regulations",
-                        severity=ValidationSeverity.ERROR,
-                        code="AML_LARGE_CASH",
-                    )
+        # Check for large cash transactions (AML) - combined condition
+        if (event.amount and event.amount.amount > Decimal("100000000")
+                and event.metadata.get("payment_method") == "CASH"):  # > 100 juta
+            issues.append(
+                ValidationIssue(
+                    field="payment_method",
+                    message="Large cash transaction (>100M) requires enhanced due diligence per AML regulations",
+                    severity=ValidationSeverity.ERROR,
+                    code="AML_LARGE_CASH",
                 )
+            )
 
         # Check for related party transactions
         if event.metadata.get("is_related_party"):
@@ -501,17 +500,17 @@ class RealityValidationService:
                     )
                 )
 
-        # Check for cross-border transactions
-        if event.metadata.get("is_cross_border"):
-            if not event.metadata.get("exchange_rate_used"):
-                warnings.append(
-                    ValidationIssue(
-                        field="metadata.exchange_rate_used",
-                        message="Exchange rate is required for cross-border transactions",
-                        severity=ValidationSeverity.WARNING,
-                        code="CROSS_BORDER_EXCHANGE_RATE",
-                    )
+        # Check for cross-border transactions - combined condition
+        if (event.metadata.get("is_cross_border")
+                and not event.metadata.get("exchange_rate_used")):
+            warnings.append(
+                ValidationIssue(
+                    field="metadata.exchange_rate_used",
+                    message="Exchange rate is required for cross-border transactions",
+                    severity=ValidationSeverity.WARNING,
+                    code="CROSS_BORDER_EXCHANGE_RATE",
                 )
+            )
 
         return issues, warnings
 
@@ -534,12 +533,9 @@ class RealityValidationService:
         if event.event_type in approval_types:
             return True
 
-        # Related party transactions above threshold require approval
-        if event.metadata.get("is_related_party") and event.amount:
-            if event.amount.amount > Decimal("25000000"):  # > 25 juta
-                return True
-
-        return False
+        # Related party transactions above threshold require approval - return condition directly
+        return (event.metadata.get("is_related_party") and event.amount
+                and event.amount.amount > Decimal("25000000"))  # > 25 juta
 
     def _check_requires_dual_control(self, event: EconomicEvent) -> bool:
         """Memeriksa apakah event memerlukan dual control."""
@@ -556,10 +552,8 @@ class RealityValidationService:
             EconomicEventType.BAD_DEBT_WRITE_OFF,
         ]
 
-        if event.event_type in dual_control_types:
-            return True
-
-        return False
+        # Return condition directly (SIM103)
+        return event.event_type in dual_control_types
 
     async def validate_before_posting(
         self,

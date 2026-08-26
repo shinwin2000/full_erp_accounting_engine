@@ -259,8 +259,7 @@ class CapturedIntent:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
-        return self.version
+    # version() method removed to avoid conflict with version attribute (F811)
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]

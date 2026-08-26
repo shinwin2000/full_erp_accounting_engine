@@ -74,7 +74,7 @@ class NTPN:
     1. Must be exactly 16 digits (0-9 only).
     2. Optional hyphens or spaces are removed during normalization.
     3. A check digit is computed using weighted modulo 10 (custom).
-    4. The first 8 digits SHOULD represent payment date (YYYYMMDD) – validated if strict_mode=True.
+    4. The first 8 digits SHOULD represent payment date (YYYYMMDD) - validated if strict_mode=True.
     5. Two NTPN objects are equal iff their normalized strings are equal.
 
     Examples:

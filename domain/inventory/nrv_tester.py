@@ -282,7 +282,6 @@ class NRVTester:
         Menghitung penyisihan untuk keusangan persediaan.
         """
         provision = Decimal(0)
-        today = date.today()
 
         for item, quantity in items:
             # Get aging days

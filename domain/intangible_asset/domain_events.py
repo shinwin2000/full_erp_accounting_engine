@@ -535,7 +535,7 @@ class DomainEventPublisher:
 
 def deserialize_domain_event(json_str: str) -> DomainEvent:
     data = json.loads(json_str)
-    event_type = DomainEventType(data["event_type"])
+    # event_type is not needed; DomainEvent.from_dict will validate it.
     return DomainEvent.from_dict(data)
 
 

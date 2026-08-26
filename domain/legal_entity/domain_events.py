@@ -698,15 +698,15 @@ __all__ = [
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
+    # LegalEntity aggregate events
+    "LegalEntityCreated",
+    "LegalEntityCreatedEvent",
+    "LegalEntityDeactivated",
+    "LegalEntityDeactivatedEvent",
+    "LegalEntityUpdated",
+    "LegalEntityUpdatedEvent",
     "PKPStatusChanged",
     "PKPStatusChangedEvent",
     "TaxProfileUpdated",
     "TaxProfileUpdatedEvent",
-    # LegalEntity aggregate events
-    "LegalEntityCreated",
-    "LegalEntityDeactivated",
-    "LegalEntityUpdated",
-    "LegalEntityCreatedEvent",
-    "LegalEntityDeactivatedEvent",
-    "LegalEntityUpdatedEvent",
 ]

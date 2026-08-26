@@ -461,7 +461,7 @@ class AccountingPeriodVO:
         returns the same resulting period instance (if already closed, returns itself).
         """
         if self.is_closed:
-            # Already closed – return self (idempotent).
+            # Already closed - return self (idempotent).
             return self
 
         if idempotency_key:

@@ -663,10 +663,7 @@ class PermissionUtils:
         user_permissions: set[PermissionVO], required_permission: PermissionVO
     ) -> bool:
         """Check if user has required permission (with inheritance)."""
-        for perm in user_permissions:
-            if perm.matches(required_permission):
-                return True
-        return False
+        return any(perm.matches(required_permission) for perm in user_permissions)
 
     @staticmethod
     def get_permissions_by_resource(

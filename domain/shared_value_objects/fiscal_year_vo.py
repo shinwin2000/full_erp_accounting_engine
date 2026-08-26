@@ -32,6 +32,13 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
+# Import from accounting_period_vo for period generation
+from domain.shared_value_objects.accounting_period_vo import (
+    AccountingPeriodVO,
+    PeriodStatus,
+    PeriodType,
+)
+
 # ============================================================================
 # Enums
 # ============================================================================
@@ -175,7 +182,6 @@ class FiscalYearVO:
                 )
         else:
             # For standard types, enforce exactly 365/366 days
-            expected_days = 366 if self._is_leap_year_inclusive() else 365
             if duration_days not in (365, 366):
                 raise InvalidFiscalYearRangeError(
                     f"Standard fiscal year must be 365 or 366 days, got {duration_days}"
@@ -366,21 +372,13 @@ class FiscalYearVO:
         Return a list of monthly accounting periods within this fiscal year.
         Requires importing AccountingPeriodVO dynamically to avoid circular import.
         """
-        from domain.shared_value_objects.accounting_period_vo import AccountingPeriodVO
-
         periods = []
         current = self.start_date
         while current < self.end_date:
-            # Determine month number based on fiscal year start
-            month_num = self._get_fiscal_month_number(current)
             # Create AccountingPeriodVO for this month
             period = AccountingPeriodVO.from_month(
                 current.year, current.month, status=PeriodStatus.OPEN
             )
-            # We'll set fiscal_year and fiscal_period_number in a wrapper; for now just use standard month
-            # But AccountingPeriodVO expects fiscal_year and period_number. We'll create with custom attributes.
-            # To properly support fiscal periods, we should extend AccountingPeriodVO with fiscal_period_number.
-            # For simplicity, we'll use the standard month period.
             periods.append(period)
             # Move to next month
             next_month = current.replace(day=28) + timedelta(days=4)
@@ -403,8 +401,6 @@ class FiscalYearVO:
         """
         Return a list of quarterly periods within this fiscal year.
         """
-        from domain.shared_value_objects.accounting_period_vo import AccountingPeriodVO
-
         quarters = []
         quarter_months = [(1, 3), (4, 6), (7, 9), (10, 12)]
         # Adjust quarter mapping based on fiscal year start month
@@ -422,7 +418,7 @@ class FiscalYearVO:
                 start_date=q_start,
                 end_date=q_end,
                 status=PeriodStatus.OPEN,
-                period_type=PeriodType.QUARTERLY,  # need import from accounting_period_vo
+                period_type=PeriodType.QUARTERLY,
             )
             quarters.append(period)
         return quarters
@@ -601,12 +597,6 @@ def fiscal_year_from_string(value: str) -> FiscalYearVO | None:
     else:
         return FiscalYearVO.from_calendar(year)
 
-
-# ============================================================================
-# Temporary imports for type hints (avoid circular import in method bodies)
-# ============================================================================
-
-from domain.shared_value_objects.accounting_period_vo import AccountingPeriodVO, PeriodType
 
 # ============================================================================
 # Exports

@@ -20,6 +20,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
+from domain.payroll.payslip_projection import PayslipProjection
 from domain.payroll.salary_component_entity import SalaryComponentEntity
 
 logger = logging.getLogger(__name__)
@@ -268,7 +269,7 @@ class PayrollRunEntity:
             components=components,
             bank_account_number=bank_account_number,
         )
-        new_employees = existing + [new_employee]
+        new_employees = [*existing, new_employee]
 
         return PayrollRunEntity(
             run_id=self.run_id,

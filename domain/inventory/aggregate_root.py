@@ -987,9 +987,9 @@ class InventoryAggregate:
         """Validate that item exists and warehouse is valid."""
         if self._item is None:
             raise ValueError("No item loaded")
-        if warehouse_id is not None and self._warehouse_id is not None:
-            if warehouse_id != self._warehouse_id:
-                raise ValueError(f"Warehouse mismatch: {warehouse_id} != {self._warehouse_id}")
+        # Gabungkan kondisi bersarang menjadi satu
+        if warehouse_id is not None and self._warehouse_id is not None and warehouse_id != self._warehouse_id:
+            raise ValueError(f"Warehouse mismatch: {warehouse_id} != {self._warehouse_id}")
 
     def receive_stock(self, movement: StockMovement, user_id: UUID) -> None:
         """Receive stock (inbound movement)."""
@@ -1132,7 +1132,8 @@ class InventoryAggregate:
                 consume = min(layer["remaining_quantity"], remaining_qty)
                 layer["remaining_quantity"] -= consume
                 remaining_qty -= consume
-        self._fifo_layers = [l for l in self._fifo_layers if l["remaining_quantity"] > 0]
+        # Perbaiki E741: ganti 'l' menjadi 'layer'
+        self._fifo_layers = [layer for layer in self._fifo_layers if layer["remaining_quantity"] > 0]
 
         self.increment_version()
         self._add_event(
@@ -1270,7 +1271,8 @@ class InventoryAggregate:
                     consume = min(layer["remaining_quantity"], remaining_qty)
                     layer["remaining_quantity"] -= consume
                     remaining_qty -= consume
-            self._fifo_layers = [l for l in self._fifo_layers if l["remaining_quantity"] > 0]
+            # Perbaiki E741: ganti 'l' menjadi 'layer'
+            self._fifo_layers = [layer for layer in self._fifo_layers if layer["remaining_quantity"] > 0]
 
         adjustment_entity = StockAdjustmentEntity(
             adjustment_id=uuid4(),

@@ -262,7 +262,7 @@ class StockOpnameEntity:
             new_items = self.items.copy()
             new_items[existing_indices[0]] = opname_item
         else:
-            new_items = self.items + [opname_item]
+            new_items = [*self.items, opname_item]
 
         return StockOpnameEntity(
             opname_id=self.opname_id,

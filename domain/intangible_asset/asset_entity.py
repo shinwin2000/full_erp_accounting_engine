@@ -751,15 +751,15 @@ class IntangibleAssetEntity:
 
         new_nbv = self.nbv - impairment_loss
         new_cost = self.cost
-        new_impairment_history = self.impairment_history + [
-            {
-                "date": datetime.now(UTC).isoformat(),
-                "loss": str(impairment_loss),
-                "nbv_before": str(self.nbv),
-                "nbv_after": str(new_nbv),
-                "impaired_by": impaired_by,
-            }
-        ]
+
+        # Gunakan iterable unpacking sebagai pengganti concatenation
+        new_impairment_history = [*self.impairment_history, {
+            "date": datetime.now(UTC).isoformat(),
+            "loss": str(impairment_loss),
+            "nbv_before": str(self.nbv),
+            "nbv_after": str(new_nbv),
+            "impaired_by": impaired_by,
+        }]
 
         new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,

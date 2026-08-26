@@ -57,7 +57,7 @@ class ProjectType(Enum):
 
 
 class CostType(Enum):
-    """Cost type enumeration – used in CostEntry (referenced by aggregate_root)."""
+    """Cost type enumeration - used in CostEntry (referenced by aggregate_root)."""
 
     LABOR = "labor"
     MATERIAL = "material"
@@ -655,7 +655,7 @@ class ProjectRevenueRecognizer:
     """
     Tracks recognized revenue, cost, and profit for a project.
     Uses percentage-of-completion (cost-to-cost) method.
-    Immutable – every recognition produces a new instance.
+    Immutable - every recognition produces a new instance.
     """
 
     project_id: UUID = field(default_factory=uuid4)

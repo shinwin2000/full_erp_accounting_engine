@@ -200,19 +200,19 @@ class ManufacturingInvariants:
                 f"must be after planned start date {work_order.planned_start_date}"
             )
 
-        if work_order.actual_start_date and work_order.actual_end_date:
-            if work_order.actual_end_date < work_order.actual_start_date:
-                result.add_error(
-                    f"Work order {work_order.work_order_number}: actual end date {work_order.actual_end_date} "
-                    f"cannot be before actual start date {work_order.actual_start_date}"
-                )
-
+        # Combined condition for actual dates
         if (
             work_order.actual_start_date
-            and work_order.actual_start_date < work_order.planned_start_date
+            and work_order.actual_end_date
+            and work_order.actual_end_date < work_order.actual_start_date
         ):
-            # This is allowed but may be worth a warning; we'll treat as info, not error.
-            pass
+            result.add_error(
+                f"Work order {work_order.work_order_number}: actual end date {work_order.actual_end_date} "
+                f"cannot be before actual start date {work_order.actual_start_date}"
+            )
+
+        # Note: actual_start_date before planned_start_date is allowed (might be a warning)
+        # We intentionally do nothing for that case.
 
         return result
 
@@ -883,5 +883,5 @@ __all__ = [
     "InvariantResult",
     "ManufacturingInvariantEnforcer",
     "ManufacturingInvariants",
-    "ManufacturingInvariantsValidator",  # Added alias
+    "ManufacturingInvariantsValidator",
 ]

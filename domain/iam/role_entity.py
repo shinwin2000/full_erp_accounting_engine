@@ -269,7 +269,7 @@ class RoleEntity:
             "role_id": str(self.role_id),
             "role_name": self.role_name,
             "description": self.description,
-            "permissions": sorted(list(self.permissions)),
+            "permissions": sorted(self.permissions),
             "status": self.status.value,
             "parent_role_id": str(self.parent_role_id) if self.parent_role_id else None,
             "is_default": self.is_default,
@@ -649,8 +649,8 @@ class RoleRepository:
         query_lower = query.lower()
         results = []
         for role in cls._storage.values():
-            for field in fields:
-                value = getattr(role, field, "")
+            for field_name in fields:
+                value = getattr(role, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(role)
                     break

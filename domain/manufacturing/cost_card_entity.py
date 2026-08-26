@@ -267,7 +267,7 @@ class CostCardEntity:
             created_by=added_by,
         )
 
-        new_entries = self.entries + [entry]
+        new_entries = [*self.entries, entry]
 
         if cost_element == CostElement.MATERIAL:
             new_material = self.material_cost + amount
@@ -474,7 +474,7 @@ class CostCardEntity:
             description=f"Cost adjustment: {reason}",
             created_by=adjusted_by,
         )
-        new_entries = self.entries + [adjustment_entry]
+        new_entries = [*self.entries, adjustment_entry]
 
         new_unit = (
             new_total_cost / self.completed_quantity if self.completed_quantity > 0 else Decimal(0)

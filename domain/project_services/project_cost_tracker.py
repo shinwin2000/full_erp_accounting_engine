@@ -162,7 +162,7 @@ class ProjectCostTracker:
         )
 
     def add_cost(self, cost_entry: CostEntry, added_by: str) -> ProjectCostTracker:
-        new_entries = self.entries + [cost_entry]
+        new_entries = [*self.entries, cost_entry]
 
         new_material = self.material_cost
         new_labor = self.labor_cost

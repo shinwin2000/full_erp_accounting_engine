@@ -47,39 +47,39 @@ from domain.legal_entity.invariants import (
 )
 
 __all__ = [
-    # Aggregate
-    "EntityStatus",
-    "EntityType",
-    "FiscalYearType",
-    "LegalEntity",
-    "LegalEntityAggregate",
-    "LegalEntityRepository",
-    "LegalEntityStatus",
-    "LegalEntityType",
     # Company
     "Company",
-    "CompanyEntity",
-    "CompanyEntityRepository",
-    # Tax Profile VO
-    "CompanyTaxProfile",
-    "CompanyTaxProfileVO",
-    "TaxPaymentMethod",
-    "TaxRegime",
     # Events
     "CompanyAddressUpdatedEvent",
     "CompanyContactUpdatedEvent",
     "CompanyDissolvedEvent",
+    "CompanyEntity",
+    # Invariants
+    "CompanyEntityInvariants",
+    "CompanyEntityRepository",
     "CompanyReactivatedEvent",
     "CompanyRegisteredEvent",
     "CompanySuspendedEvent",
+    # Tax Profile VO
+    "CompanyTaxProfile",
+    "CompanyTaxProfileVO",
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
-    "PKPStatusChangedEvent",
-    "TaxProfileUpdatedEvent",
-    # Invariants
-    "CompanyEntityInvariants",
+    # Aggregate
+    "EntityStatus",
+    "EntityType",
+    "FiscalYearType",
     "InvariantResult",
+    "LegalEntity",
+    "LegalEntityAggregate",
     "LegalEntityInvariantEnforcer",
     "LegalEntityInvariants",
+    "LegalEntityRepository",
+    "LegalEntityStatus",
+    "LegalEntityType",
+    "PKPStatusChangedEvent",
+    "TaxPaymentMethod",
+    "TaxProfileUpdatedEvent",
+    "TaxRegime",
 ]

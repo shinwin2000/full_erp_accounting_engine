@@ -237,7 +237,7 @@ class StockCardProjection:
             created_at=movement.created_at,
         )
 
-        new_entries = self.entries + [entry]
+        new_entries = [*self.entries, entry]
 
         return StockCardProjection(
             item_id=self.item_id,

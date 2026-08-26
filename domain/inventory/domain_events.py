@@ -489,7 +489,7 @@ class COGSCalculatedEvent(DomainEvent):
 class InventoryValuationUpdated(DomainEvent):
     """
     Event ketika valuasi persediaan diperbarui.
-    Ini adalah event, bukan class valuasi. 
+    Ini adalah event, bukan class valuasi.
     Nama class tanpa 'Event' untuk konsistensi dengan beberapa event lain,
     tetapi alias `InventoryValuationUpdatedEvent` tersedia untuk kompatibilitas.
     """

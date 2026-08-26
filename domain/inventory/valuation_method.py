@@ -249,7 +249,7 @@ class FIFOValuation(ValuationMethodStrategy):
                     total_value -= deduct * layer["unit_cost"]
                     remaining_quantity -= deduct
 
-        active_layers = [l for l in layers if l["quantity"] > 0]
+        active_layers = [layer for layer in layers if layer["quantity"] > 0]
         unit_cost = total_value / remaining_quantity if remaining_quantity > 0 else Decimal(0)
         unit_cost = unit_cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -347,7 +347,7 @@ class FIFOValuation(ValuationMethodStrategy):
         if quantity == 0:
             return Decimal(0), layers[:]
 
-        total_available = sum(l.remaining_quantity for l in layers)
+        total_available = sum(layer.remaining_quantity for layer in layers)
         if quantity > total_available:
             raise ValueError(
                 f"Quantity {quantity} exceeds available quantity (available: {total_available})"
@@ -357,18 +357,18 @@ class FIFOValuation(ValuationMethodStrategy):
         total_cost = Decimal(0)
         new_layers = [
             FIFOLayer(
-                id=l.id,
-                item_id=l.item_id,
-                quantity=l.quantity,
-                remaining_quantity=l.remaining_quantity,
-                unit_cost=l.unit_cost,
-                purchase_date=l.purchase_date,
-                layer_number=l.layer_number,
-                batch_code=l.batch_code,
-                location_id=l.location_id,
-                currency=l.currency,
+                id=layer.id,
+                item_id=layer.item_id,
+                quantity=layer.quantity,
+                remaining_quantity=layer.remaining_quantity,
+                unit_cost=layer.unit_cost,
+                purchase_date=layer.purchase_date,
+                layer_number=layer.layer_number,
+                batch_code=layer.batch_code,
+                location_id=layer.location_id,
+                currency=layer.currency,
             )
-            for l in layers
+            for layer in layers
         ]
 
         for layer in new_layers:
@@ -390,7 +390,7 @@ class FIFOValuation(ValuationMethodStrategy):
         """Add a new layer and return sorted list."""
         if new_layer.quantity <= 0:
             raise ValueError("New layer quantity must be positive")
-        new_layers = layers + [new_layer]
+        new_layers = [*layers, new_layer]
         return FIFOValuation.sort_layers_by_date(new_layers)
 
     @staticmethod
@@ -404,17 +404,17 @@ class FIFOValuation(ValuationMethodStrategy):
     @staticmethod
     def get_remaining_value(layers: list[FIFOLayer]) -> Decimal:
         """Get total remaining value of all layers."""
-        return sum(l.remaining_quantity * l.unit_cost for l in layers).quantize(Decimal("0.01"))
+        return sum(layer.remaining_quantity * layer.unit_cost for layer in layers).quantize(Decimal("0.01"))
 
     @staticmethod
     def sort_layers_by_date(layers: list[FIFOLayer]) -> list[FIFOLayer]:
         """Sort layers by purchase date then layer number."""
-        return sorted(layers, key=lambda l: (l.purchase_date, l.layer_number))
+        return sorted(layers, key=lambda layer: (layer.purchase_date, layer.layer_number))
 
     @staticmethod
     def remove_empty_layers(layers: list[FIFOLayer]) -> list[FIFOLayer]:
         """Remove layers with remaining_quantity <= 0."""
-        return [l for l in layers if l.remaining_quantity > 0]
+        return [layer for layer in layers if layer.remaining_quantity > 0]
 
 
 class LIFOValuation(ValuationMethodStrategy):
@@ -455,7 +455,7 @@ class LIFOValuation(ValuationMethodStrategy):
                     total_value -= deduct * layer["unit_cost"]
                     remaining_quantity -= deduct
 
-        active_layers = [l for l in layers if l["quantity"] > 0]
+        active_layers = [layer for layer in layers if layer["quantity"] > 0]
         unit_cost = total_value / remaining_quantity if remaining_quantity > 0 else Decimal(0)
         unit_cost = unit_cost.quantize(Decimal("0.01"))
 
@@ -938,8 +938,8 @@ class FifoValuation:
     def get_remaining(self):
         """Return remaining quantity and value after last consumption."""
         if not hasattr(self, "_layers"):
-            total_qty = sum(l["quantity"] for l in self._inbound)
-            total_val = sum(l["quantity"] * l["unit_cost"] for l in self._inbound)
+            total_qty = sum(layer["quantity"] for layer in self._inbound)
+            total_val = sum(layer["quantity"] * layer["unit_cost"] for layer in self._inbound)
             return type("Remaining", (), {"quantity": total_qty, "value": total_val})()
         remaining_qty = Decimal(0)
         remaining_value = Decimal(0)

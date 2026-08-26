@@ -472,7 +472,7 @@ class HedgedItem:
             description=description,
             recorded_by=recorded_by,
         )
-        new_adjustments = self.adjustments + [adjustment]
+        new_adjustments = [*self.adjustments, adjustment]
         new_item = HedgedItem(
             **{
                 **self.__dict__,

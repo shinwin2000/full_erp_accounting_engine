@@ -491,8 +491,6 @@ class ApprovalWorkflow:
         intent = self._record_service.get(intent_id)
         if not intent or intent.status != IntentStatus.DRAFT:
             return False
-        amount = Decimal(str(intent.data.get("amount", 0)))
-        rule = self.get_approval_requirement(amount)
         updated = ImmutableIntentRecord(
             intent_id=intent.intent_id,
             intent_type=intent.intent_type,

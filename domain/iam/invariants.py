@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from domain.iam.role_entity import RoleEntity, RoleStatus
 from domain.iam.session_entity import SessionEntity, SessionStatus
@@ -190,9 +191,9 @@ class UserInvariants:
             if current_status == UserStatus.LOCKED:
                 result.add_error("Locked user must be unlocked first")
 
-        if new_status in (UserStatus.INACTIVE, UserStatus.SUSPENDED):
-            if is_self:
-                result.add_error("User cannot deactivate or suspend own account")
+        # Gabungkan kondisi bersarang menjadi satu dengan 'and'
+        if new_status in (UserStatus.INACTIVE, UserStatus.SUSPENDED) and is_self:
+            result.add_error("User cannot deactivate or suspend own account")
 
         allowed_transitions = {
             UserStatus.PENDING_ACTIVATION: {UserStatus.ACTIVE, UserStatus.INACTIVE},

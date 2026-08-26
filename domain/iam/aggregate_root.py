@@ -890,7 +890,7 @@ class IAM:
         if role_id in user.role_ids:
             return self
 
-        new_role_ids = list(user.role_ids) + [role_id]
+        new_role_ids = [*user.role_ids, role_id]
         updated_user = UserEntity(
             user_id=user.user_id,
             username=user.username,

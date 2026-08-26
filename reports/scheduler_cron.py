@@ -578,6 +578,57 @@ class ReportScheduler:
     async def get_schedule_by_id(self, schedule_id: UUID, legal_entity_id: UUID):
         return await self._get_repo().get_scheduled_report_by_id(schedule_id, legal_entity_id)
 
+    async def export_schedules(self, *, legal_entity_id: UUID, format: str = "csv") -> bytes:
+        """Export seluruh jadwal laporan (tanpa filter) ke CSV/Excel/JSON.
+        Dipakai oleh tombol "Export" generik di GenericListPage
+        (ui/widgets/generic_list_page.py::_export), yang selalu memanggil
+        `{base_path}/export` - untuk modul "Report Terjadwal" ini berarti
+        mengekspor daftar jadwal yang sedang ditampilkan."""
+        import csv
+        import io
+        import json
+
+        schedules = await self.list_schedules(legal_entity_id=legal_entity_id)
+        headers = [
+            "schedule_id", "schedule_name", "report_type", "schedule_frequency",
+            "schedule_time", "report_format", "is_active", "next_run_at", "last_run_at",
+        ]
+        rows = [
+            [
+                str(s.id), s.schedule_name, s.report_type, s.schedule_frequency,
+                s.schedule_time or "", s.report_format, s.is_active,
+                s.next_run_at.isoformat() if s.next_run_at else "",
+                s.last_run_at.isoformat() if s.last_run_at else "",
+            ]
+            for s in schedules
+        ]
+
+        fmt = (format or "csv").lower()
+        if fmt == "json":
+            payload = [dict(zip(headers, row, strict=False)) for row in rows]
+            return json.dumps(payload, default=str, indent=2, ensure_ascii=False).encode("utf-8")
+        if fmt in ("excel", "xlsx"):
+            try:
+                from openpyxl import Workbook
+
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Jadwal Laporan"
+                ws.append(headers)
+                for row in rows:
+                    ws.append(row)
+                buf = io.BytesIO()
+                wb.save(buf)
+                return buf.getvalue()
+            except ImportError:
+                pass  # fallback ke CSV di bawah kalau openpyxl tidak tersedia
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        writer.writerows(rows)
+        return output.getvalue().encode("utf-8-sig")
+
     async def update_schedule(
         self,
         *,

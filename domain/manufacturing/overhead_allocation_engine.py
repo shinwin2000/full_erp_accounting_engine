@@ -120,11 +120,7 @@ class AllocationRate:
 
     def is_active_at(self, date: datetime) -> bool:
         """Check if this rate is active on the given date."""
-        if date < self.effective_date:
-            return False
-        if self.expiry_date and date > self.expiry_date:
-            return False
-        return True
+        return date >= self.effective_date and (self.expiry_date is None or date <= self.expiry_date)
 
     def to_dict(self) -> dict[str, Any]:
         return {

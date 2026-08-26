@@ -201,7 +201,7 @@ class Money:
         """
         if isinstance(amount, float):
             amount = Decimal(str(amount))
-        elif isinstance(amount, int) or isinstance(amount, str):
+        elif isinstance(amount, int | str):
             amount = Decimal(amount)
         elif not isinstance(amount, Decimal):
             raise InvalidAmountError(f"Unsupported amount type: {type(amount)}")
@@ -443,7 +443,7 @@ class Money:
 
         allocations = []
         total_allocated = Decimal("0")
-        for i, ratio in enumerate(normalized):
+        for _i, ratio in enumerate(normalized):
             raw = self.amount * ratio
             quantize_str = f"1.{'0' * self.decimal_places}" if self.decimal_places > 0 else "1"
             floored = raw.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)

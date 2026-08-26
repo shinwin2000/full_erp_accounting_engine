@@ -207,12 +207,7 @@ class Journal(VersionedJournalMixin):
 
         Note: Segregation of duties (ACC-051) - creator cannot approve own journal.
         """
-        if self.status != JournalStatus.SUBMITTED:
-            return False
-        # ========== SEGREGATION OF DUTIES (ACC-051) ==========
-        if user_id == self.created_by:  # Maker cannot approve own journal
-            return False
-        return True
+        return self.status == JournalStatus.SUBMITTED and user_id != self.created_by
 
     def can_post(self, user_id: str) -> bool:
         """
@@ -281,8 +276,8 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If lines are unbalanced.
         """
-        total_debit = sum(l.amount for l in lines if l.side == JournalSide.DEBIT)
-        total_credit = sum(l.amount for l in lines if l.side == JournalSide.CREDIT)
+        total_debit = sum(line.amount for line in lines if line.side == JournalSide.DEBIT)
+        total_credit = sum(line.amount for line in lines if line.side == JournalSide.CREDIT)
         if abs(total_debit - total_credit) > Decimal("0.01"):
             raise ValueError(
                 f"Journal would be unbalanced: debit={total_debit}, credit={total_credit}"
@@ -484,7 +479,7 @@ class Journal(VersionedJournalMixin):
         if not valid:
             raise ValueError(message)
 
-        new_approved_by = self.approved_by + [approved_by]
+        new_approved_by = [*self.approved_by, approved_by]
         self._record_audit_trail("approved", {"user_id": approved_by})
         logger.info("Journal %s approved by %s", self.journal_id, approved_by)
 
@@ -870,7 +865,7 @@ class Journal(VersionedJournalMixin):
         self._ensure_editable("add line")
         self._ensure_not_posted("add line")
 
-        new_lines = self.lines + [new_line]
+        new_lines = [*self.lines, new_line]
         self._ensure_balanced_lines(new_lines)
 
         self._record_audit_trail("line_added", {"line_id": str(new_line.line_id)})
@@ -919,11 +914,11 @@ class Journal(VersionedJournalMixin):
         self._ensure_editable("remove line")
         self._ensure_not_posted("remove line")
 
-        line_to_remove = next((l for l in self.lines if l.line_id == line_id), None)
+        line_to_remove = next((line for line in self.lines if line.line_id == line_id), None)
         if not line_to_remove:
             raise ValueError(f"Line {line_id} not found")
 
-        new_lines = [l for l in self.lines if l.line_id != line_id]
+        new_lines = [line for line in self.lines if line.line_id != line_id]
         if not new_lines:
             raise ValueError("Journal must have at least one line")
 
@@ -983,11 +978,11 @@ class Journal(VersionedJournalMixin):
         self._ensure_editable("update line")
         self._ensure_not_posted("update line")
 
-        existing = next((l for l in self.lines if l.line_id == line_id), None)
+        existing = next((line for line in self.lines if line.line_id == line_id), None)
         if not existing:
             raise ValueError(f"Line {line_id} not found")
 
-        new_lines = [updated_line if l.line_id == line_id else l for l in self.lines]
+        new_lines = [updated_line if line.line_id == line_id else line for line in self.lines]
         self._ensure_balanced_lines(new_lines)
 
         self._record_audit_trail("line_updated", {

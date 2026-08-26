@@ -133,12 +133,12 @@ class ExchangeRateVO:
             normalized_ask = self.ask_rate.quantize(quantize, rounding=self.ROUNDING)
             object.__setattr__(self, "ask_rate", normalized_ask)
 
-        # Validate bid <= ask if both present
-        if self.bid_rate is not None and self.ask_rate is not None:
-            if self.bid_rate > self.ask_rate:
-                raise InvalidExchangeRateError(
-                    f"Bid rate ({self.bid_rate}) cannot exceed ask rate ({self.ask_rate})"
-                )
+        # Validate bid <= ask if both present (combined condition)
+        if (self.bid_rate is not None and self.ask_rate is not None
+                and self.bid_rate > self.ask_rate):
+            raise InvalidExchangeRateError(
+                f"Bid rate ({self.bid_rate}) cannot exceed ask rate ({self.ask_rate})"
+            )
 
         # Ensure effective_date is timezone-aware
         if self.effective_date.tzinfo is None:
@@ -663,7 +663,7 @@ def average_rate(rates: list[ExchangeRateVO]) -> ExchangeRateVO:
 # ============================================================================
 
 __all__ = [
-    "ExchangeRate",  # alias added for backward compatibility
+    "ExchangeRate",
     "ExchangeRateError",
     "ExchangeRateVO",
     "InvalidExchangeRateError",

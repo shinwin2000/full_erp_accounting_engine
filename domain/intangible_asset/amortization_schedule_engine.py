@@ -199,7 +199,6 @@ class AmortizationScheduleEngine:
             )
 
         annual_amortization = amortizable_amount / Decimal(asset.useful_life_years)
-        monthly_amortization = annual_amortization / Decimal(12)
 
         entries = []
         current_nbv = asset.cost

@@ -221,14 +221,14 @@ class PayslipProjection:
         <div class="payslip-title">SLIP GAJI</div>
         <div>Periode: {self.period_month}/{self.period_year}</div>
     </div>
-    
+
     <div class="employee-info">
         <strong>Nama Karyawan:</strong> {self.employee_name}<br>
         <strong>NIK:</strong> {self.employee_nik or "-"}<br>
         <strong>Jabatan:</strong> {self.employee_position or "-"}<br>
         <strong>Tanggal Cetak:</strong> {self.created_at.strftime("%d/%m/%Y %H:%M")}
     </div>
-    
+
     <h3>Komponen Gaji</h3>
     <table>
         <tr><th>Komponen</th><th>Keterangan</th><th>Jumlah (Rp)</th></tr>
@@ -238,7 +238,7 @@ class PayslipProjection:
         <tr><td>PPh 21</td><td>Pajak Penghasilan</td><td class='amount'>{self.tax:,.2f}</td></tr>
         <tr class="total"><td colspan="2"><strong>Take Home Pay</strong></td><td class='amount'><strong>{self.net_salary:,.2f}</strong></td></tr>
     </table>
-    
+
     <div class="footer">
         Dicetak oleh sistem pada {self.created_at.strftime("%d/%m/%Y %H:%M:%S")}<br>
         Slip gaji ini adalah bukti sah pembayaran gaji.

@@ -480,11 +480,11 @@ class HedgeRelationshipAggregate:
 
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _events: list[Any] = []
+    # _events dideklarasikan sebagai instance attribute, bukan class attribute
 
     def __init__(self, hedge: HedgeRelationship):
         self._hedge = hedge
-        self._events = []
+        self._events: list[Any] = []  # instance attribute
         self.id = hedge.id
         self.version = hedge.version
         self._take_snapshot()
@@ -872,7 +872,7 @@ class HedgeRelationshipAggregate:
             message=message,
             tested_by=tested_by,
         )
-        new_history = self._hedge.test_history + [test]
+        new_history = [*self._hedge.test_history, test]
 
         effectiveness_status = (
             HedgeEffectivenessStatus.EFFECTIVE
@@ -929,7 +929,7 @@ class HedgeRelationshipAggregate:
             description=description,
             recorded_by=recorded_by,
         )
-        new_adjustments = self._hedge.adjustments + [adjustment]
+        new_adjustments = [*self._hedge.adjustments, adjustment]
         new_ineffectiveness = self._hedge.accumulated_ineffectiveness + ineffectiveness
         new_hedge = HedgeRelationship(
             **{

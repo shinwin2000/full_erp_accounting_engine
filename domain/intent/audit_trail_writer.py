@@ -19,6 +19,7 @@ Kebijakan Penanganan Eror:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -220,8 +221,6 @@ class AuditTrailWriter:
                 f"Gagal mengamankan log untuk intent ID: {record.intent_id}. Operasi dibatalkan secara paksa."
             )
 
-        import asyncio
-
         async def safe_append():
             try:
                 # Memanggil implementasi asinkron milik infrastruktur terdaftar
@@ -236,7 +235,7 @@ class AuditTrailWriter:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(safe_append())
+            _task = loop.create_task(safe_append())  # noqa: RUF006
         except RuntimeError:
             # Jika tidak ada event loop runtime aktif, jalankan di dalam thread terpisah
             # menggunakan loop baru agar benar-benar non-blocking dan menghindari warning asyncio.run()
@@ -382,11 +381,7 @@ class AuditTrailWriter:
 
         # Pengecekan menyeluruh terhadap elemen arsitektur kritikal pembentuk jurnal
         critical_fields = ["counterparty_id", "account_code", "legal_entity_id", "currency"]
-        for field in critical_fields:
-            if old_data.get(field) != new_data.get(field):
-                return True
-
-        return False
+        return any(old_data.get(field) != new_data.get(field) for field in critical_fields)
 
     def write_submitted(
         self,

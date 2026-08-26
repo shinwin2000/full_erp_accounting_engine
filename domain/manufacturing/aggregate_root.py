@@ -624,7 +624,7 @@ class ManufacturingAggregate:
             quantity_started=work_order.planned_quantity,
             created_by=started_by,
         )
-        new_wip_entries = self.wip_entries + [wip]
+        new_wip_entries = [*self.wip_entries, wip]
 
         self._add_event(
             WorkOrderStartedEvent(
@@ -772,7 +772,7 @@ class ManufacturingAggregate:
     # ==================== WIP MANAGEMENT ====================
 
     def add_wip_entry(self, wip: WorkInProcessEntity) -> ManufacturingAggregate:
-        new_wip_entries = self.wip_entries + [wip]
+        new_wip_entries = [*self.wip_entries, wip]
         self._record_audit("ADD_WIP_ENTRY", {"wip_id": str(wip.wip_id)})
         self.increment_version()
         return ManufacturingAggregate(

@@ -176,7 +176,7 @@ class MappedJournal:
     cryptographic_hash: str = ""
 
     def compute_hash(self) -> str:
-        lines_str = "|".join([f"{l.account_code}:{l.side}:{l.amount}" for l in self.lines])
+        lines_str = "|".join([f"{line.account_code}:{line.side}:{line.amount}" for line in self.lines])
         content = f"{self.journal_id}|{self.journal_number}|{self.description}|{lines_str}"
         return hashlib.sha3_256(content.encode()).hexdigest()
 
@@ -189,8 +189,8 @@ class MappedJournal:
             "transaction_date": self.transaction_date.isoformat(),
             "description": self.description,
             "lines": [
-                {"account_code": l.account_code, "side": l.side, "amount": str(l.amount)}
-                for l in self.lines
+                {"account_code": line.account_code, "side": line.side, "amount": str(line.amount)}
+                for line in self.lines
             ],
             "reference": self.reference,
             "legal_entity_id": str(self.legal_entity_id),
@@ -283,8 +283,8 @@ class RealityToAccountingMapper:
             )
 
         # Validasi kesamaan nilai total debit dan kredit
-        total_debit = sum(l.amount for l in lines if l.side == "DEBIT")
-        total_credit = sum(l.amount for l in lines if l.side == "CREDIT")
+        total_debit = sum(line.amount for line in lines if line.side == "DEBIT")
+        total_credit = sum(line.amount for line in lines if line.side == "CREDIT")
 
         if abs(total_debit - total_credit) > EPSILON:
             raise MappingImbalanceError(

@@ -573,7 +573,7 @@ class HedgeInstrument:
             valued_by=valued_by,
             notes=notes,
         )
-        new_history = self.fair_value_history + [history_entry]
+        new_history = [*self.fair_value_history, history_entry]
 
         if self.hedge_type == HedgeType.CASH_FLOW:
             new_accumulated_oci = self.accumulated_oci + change

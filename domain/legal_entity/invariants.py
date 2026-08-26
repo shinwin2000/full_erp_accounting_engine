@@ -19,7 +19,7 @@ Audit: Setiap pelanggaran invariant dictat.
 from __future__ import annotations
 
 import logging
-from datetime import UTC
+from datetime import UTC, datetime
 
 from domain.legal_entity.aggregate_root import LegalEntity, LegalEntityStatus
 from domain.legal_entity.company_entity import CompanyEntity
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class InvariantResult:
     """Hasil validasi invariant."""
 
-    def __init__(self, is_valid: bool, errors: list[str] = None):
+    def __init__(self, is_valid: bool, errors: list[str] | None = None):
         self.is_valid = is_valid
         self.errors = errors or []
 
@@ -121,17 +121,16 @@ class LegalEntityInvariants:
         """
         result = InvariantResult(True)
 
-        # Rule 1: Entity code uniqueness
-        if not skip_code_check:
-            if legal_entity.entity_code in existing_codes:
-                # Check if it's the same entity (code unchanged)
-                # This validation should be called with existing codes excluding current entity
-                pass
+        # Rule 1: Entity code uniqueness (combined condition)
+        if not skip_code_check and legal_entity.entity_code in existing_codes:
+            # This validation should be called with existing codes excluding current entity
+            # If it's the same entity, the code would not be in the set, so we need to handle that.
+            # This is a placeholder - the actual check is done in the enforcer.
+            pass
 
-        # Rule 2: NPWP uniqueness
-        if not skip_npwp_check:
-            if str(legal_entity.npwp) in existing_npwps:
-                pass
+        # Rule 2: NPWP uniqueness (combined condition)
+        if not skip_npwp_check and str(legal_entity.npwp) in existing_npwps:
+            pass
 
         # Rule 3: Valid status transitions
         if legal_entity.status == LegalEntityStatus.ACTIVE:
@@ -165,18 +164,26 @@ class LegalEntityInvariants:
             result.add_error("Cannot change status of a dissolved entity.")
             return result
 
-        if new_status == LegalEntityStatus.DISSOLVED:
-            if current_status != LegalEntityStatus.SUSPENDED:
-                result.add_error("Entity must be suspended before it can be dissolved.")
+        # Combined condition: dissolved requires suspended
+        if new_status == LegalEntityStatus.DISSOLVED and current_status != LegalEntityStatus.SUSPENDED:
+            result.add_error("Entity must be suspended before it can be dissolved.")
 
-        if new_status == LegalEntityStatus.SUSPENDED and current_status == LegalEntityStatus.ACTIVE:
-            if requires_approval:
-                # Approval needed, but invariant only checks validity
-                pass
+        # Combined condition for suspension requiring approval
+        if (
+            new_status == LegalEntityStatus.SUSPENDED
+            and current_status == LegalEntityStatus.ACTIVE
+            and requires_approval
+        ):
+            # Approval needed, but invariant only checks validity
+            pass
 
-        if new_status == LegalEntityStatus.ACTIVE and current_status == LegalEntityStatus.SUSPENDED:
-            if requires_approval:
-                pass
+        # Combined condition for reactivation requiring approval
+        if (
+            new_status == LegalEntityStatus.ACTIVE
+            and current_status == LegalEntityStatus.SUSPENDED
+            and requires_approval
+        ):
+            pass
 
         return result
 
@@ -252,11 +259,8 @@ class CompanyEntityInvariants:
         if not company.npwp:
             result.add_error("Company must have NPWP before registering as PKP.")
 
-        if registration_date:
-            from datetime import datetime
-
-            if registration_date > datetime.now(UTC):
-                result.add_error("PKP registration date cannot be in the future.")
+        if registration_date and registration_date > datetime.now(UTC):
+            result.add_error("PKP registration date cannot be in the future.")
 
         if company.pkp_status:
             result.add_error("Company is already registered as PKP.")

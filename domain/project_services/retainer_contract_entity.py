@@ -103,11 +103,8 @@ class RetainerContractEntity:
         return self._audit_trail.copy()
 
     def is_active(self) -> bool:
-        if self.status != RetainerStatus.ACTIVE:
-            return False
-        if self.end_date and datetime.now(UTC) > self.end_date:
-            return False
-        return True
+        # Return condition directly (SIM103)
+        return self.status == RetainerStatus.ACTIVE and (self.end_date is None or self.end_date >= datetime.now(UTC))
 
     def is_expired(self) -> bool:
         if not self.end_date:

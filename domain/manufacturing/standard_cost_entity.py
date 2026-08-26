@@ -346,14 +346,12 @@ class StandardCostEntity:
     def obsoleted(self, obsoleted_by: str, reason: str) -> StandardCostEntity:
         """Mark this standard cost as obsolete."""
         new_notes = f"Obsoleted: {reason}"
-        # Add note to components? We'll add a note component
-        new_components = list(self.components) + [
-            StandardCostComponent(
-                cost_element=CostElement.OTHER,
-                amount=Decimal(0),
-                notes=new_notes,
-            )
-        ]
+        # Add note to components using iterable unpacking
+        new_components = [*self.components, StandardCostComponent(
+            cost_element=CostElement.OTHER,
+            amount=Decimal(0),
+            notes=new_notes,
+        )]
         return StandardCostEntity(
             standard_cost_id=self.standard_cost_id,
             product_id=self.product_id,
@@ -380,13 +378,11 @@ class StandardCostEntity:
 
     def is_active_at_date(self, date: datetime) -> bool:
         """Check if this standard cost is active on the given date."""
-        if self.status != StandardCostStatus.ACTIVE:
-            return False
-        if date < self.effective_date:
-            return False
-        if self.expiry_date and date > self.expiry_date:
-            return False
-        return True
+        return (
+            self.status == StandardCostStatus.ACTIVE
+            and date >= self.effective_date
+            and (self.expiry_date is None or date <= self.expiry_date)
+        )
 
     def get_cost_by_element(self, element: CostElement) -> Decimal:
         """Get the standard cost for a specific cost element."""
@@ -466,7 +462,7 @@ class StandardCostRepository:
 StandardCost = StandardCostEntity
 
 __all__ = [
-    "StandardCost",  # Added alias
+    "StandardCost",
     "StandardCostComponent",
     "StandardCostEntity",
     "StandardCostRepository",

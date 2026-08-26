@@ -865,14 +865,5 @@ def create_legal_entity(
         created_by=created_by,
         version=1,
     )
-    # Create and add CompanyRegisteredEvent using dictionary
-    legal_entity_data = {
-        "entity_id": str(new_entity.entity_id),
-        "entity_type": new_entity.entity_type.value,
-        "functional_currency": new_entity.functional_currency,
-        "fiscal_year_type": new_entity.fiscal_year_type.value,
-    }
-    # We need a company object (CompanyEntity) here, but factory doesn't have it.
-    # In practice, company is created separately, then this event is raised.
-    # For simplicity, we'll leave event creation to the caller.
+    # The caller is responsible for raising CompanyRegisteredEvent if needed.
     return new_entity

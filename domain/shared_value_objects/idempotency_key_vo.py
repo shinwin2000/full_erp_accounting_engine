@@ -120,10 +120,9 @@ class IdempotencyKeyVO:
                 )
             object.__setattr__(self, "prefix", prefix_clean if prefix_clean else None)
 
-        # Validate created_at
-        if self.created_at is not None:
-            if self.created_at.tzinfo is None:
-                object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=UTC))
+        # Validate created_at - combined if to avoid nesting
+        if self.created_at is not None and self.created_at.tzinfo is None:
+            object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=UTC))
 
         # Validate source
         if not self.source or not isinstance(self.source, str):

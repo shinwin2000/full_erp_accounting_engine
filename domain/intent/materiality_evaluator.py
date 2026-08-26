@@ -577,12 +577,7 @@ class MaterialityEvaluator:
         evaluation = self.get_evaluation(intent_id)
         if not evaluation:
             return {"error": "No materiality evaluation found"}
-        # Gunakan nilai amount dari evaluation? Lebih tepat pakai threshold dari amount asli.
-        # Di sini kita ambil threshold berdasarkan quantitative_score (bukan amount asli, tapi aman)
-        amount = (
-            evaluation.quantitative_score
-        )  # ini dalam persen, bukan nilai uang. Sebaiknya simpan amount asli.
-        # Karena kita tidak simpan amount asli, fallback ke threshold pertama yang sesuai dengan level.
+        # Cari threshold berdasarkan level materiality
         threshold = next(
             (t for t in self._thresholds if t.level == evaluation.materiality_level),
             self._thresholds[-1],

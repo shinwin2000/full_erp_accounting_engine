@@ -298,7 +298,7 @@ class BillOfMaterialsEntity:
         """Add a component to the BOM."""
         if item.item_id in [i.item_id for i in self.items]:
             raise ValueError(f"Item {item.item_id} already exists in BOM")
-        new_items = list(self.items) + [item]
+        new_items = [*self.items, item]
         self._record_audit(
             "item_added", added_by, {"item_id": str(item.item_id), "item_code": item.item_code}
         )
@@ -713,13 +713,11 @@ class BillOfMaterialsEntity:
 
     def is_active_at(self, date: datetime) -> bool:
         """Return True if BOM is active on the given date."""
-        if self.status != BOMStatus.ACTIVE:
-            return False
-        if self.effective_date and date < self.effective_date:
-            return False
-        if self.expiry_date and date > self.expiry_date:
-            return False
-        return True
+        return (
+            self.status == BOMStatus.ACTIVE
+            and (self.effective_date is None or date >= self.effective_date)
+            and (self.expiry_date is None or date <= self.expiry_date)
+        )
 
     def get_item_by_id(self, item_id: UUID) -> BOMItem | None:
         """Get an item by its ID."""

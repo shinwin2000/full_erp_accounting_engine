@@ -7,7 +7,7 @@ Module: npwp_vo.py
 Layer: Domain / Shared Value Objects
 
 Responsibility:
-    Value object for NPWP (Nomor Pokok Wajib Pajak) – Indonesian Taxpayer
+    Value object for NPWP (Nomor Pokok Wajib Pajak) - Indonesian Taxpayer
     Identification Number. NPWP is a 15-digit number with a specific structure:
     - 2 digits: 01, 02, 03, 04, 05, 07, 09 (tax office code prefix)
     - 2 digits: group code (business type)

@@ -238,7 +238,7 @@ class WorkInProcessEntity:
             quantity=quantity,
             unit_cost=unit_cost,
         )
-        new_components = self.cost_components + [new_component]
+        new_components = [*self.cost_components, new_component]
 
         return WorkInProcessEntity(
             wip_id=self.wip_id,
@@ -282,7 +282,7 @@ class WorkInProcessEntity:
             quantity=quantity,
             unit_cost=unit_cost,
         )
-        new_components = self.cost_components + [new_component]
+        new_components = [*self.cost_components, new_component]
 
         return WorkInProcessEntity(
             wip_id=self.wip_id,
@@ -326,7 +326,7 @@ class WorkInProcessEntity:
             quantity=quantity,
             unit_cost=unit_cost,
         )
-        new_components = self.cost_components + [new_component]
+        new_components = [*self.cost_components, new_component]
 
         return WorkInProcessEntity(
             wip_id=self.wip_id,
@@ -437,7 +437,7 @@ class WorkInProcessEntity:
             quantity=Decimal(0),
             unit_cost=Decimal(0),
         )
-        new_components = self.cost_components + [adjustment_component]
+        new_components = [*self.cost_components, adjustment_component]
 
         return WorkInProcessEntity(
             wip_id=self.wip_id,
@@ -563,7 +563,7 @@ WorkInProcess = WorkInProcessEntity
 __all__ = [
     "WIPCostComponent",
     "WIPStatus",
-    "WorkInProcess",  # Added alias
+    "WorkInProcess",
     "WorkInProcessEntity",
     "WorkInProcessRepository",
 ]
