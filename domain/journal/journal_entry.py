@@ -113,11 +113,11 @@ class JournalEntry:
 
     @property
     def total_debit(self) -> Decimal:
-        return sum(line.debit for line in self.lines)
+        return sum((line.debit for line in self.lines), Decimal(0))
 
     @property
     def total_credit(self) -> Decimal:
-        return sum(line.credit for line in self.lines)
+        return sum((line.credit for line in self.lines), Decimal(0))
 
     def is_balanced(self) -> bool:
         return self.total_debit == self.total_credit
@@ -171,7 +171,7 @@ class JournalEntry:
             source_system=source_system,
             status=JournalEntryStatus.DRAFT,
             created_by=created_by,
-            created_at=datetime.now(UTC),  # Fixed: timezone-aware
+            created_at=datetime.now(UTC),  # timezone-aware
             lines=lines,
             reference=reference,
         )

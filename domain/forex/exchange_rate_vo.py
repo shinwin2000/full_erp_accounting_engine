@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 
@@ -387,12 +387,6 @@ def calculate_cross_rate(
         source="cross_calculation",
     )
 
-
-# ============================================================================
-# Imports for timedelta
-# ============================================================================
-
-from datetime import timedelta
 
 __all__ = [
     "ExchangeRate",

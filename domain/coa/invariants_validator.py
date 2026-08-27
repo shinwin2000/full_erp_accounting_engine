@@ -33,7 +33,7 @@ import logging
 import re
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID
 
 from domain.coa.account_entity import AccountEntity
@@ -104,10 +104,10 @@ class COAInvariantsValidator:
     MIN_ACCOUNT_CODE_LENGTH: int = 1
     MAX_HIERARCHY_DEPTH: int = 10
     VALID_CODE_PATTERN: str = r"^[A-Za-z0-9._-]+$"
-    ALLOWED_CURRENCIES: set[str] = {"IDR", "USD", "EUR", "GBP", "JPY", "CNY", "SGD", "MYR"}
+    ALLOWED_CURRENCIES: ClassVar[set[str]] = {"IDR", "USD", "EUR", "GBP", "JPY", "CNY", "SGD", "MYR"}
 
     # Mapping of child account types to allowed parent types
-    ALLOWED_PARENT_TYPES: dict[AccountType, set[AccountType]] = {
+    ALLOWED_PARENT_TYPES: ClassVar[dict[AccountType, set[AccountType]]] = {
         AccountType.ASSET: {AccountType.ASSET},
         AccountType.CONTRA_ASSET: {AccountType.ASSET},
         AccountType.LIABILITY: {AccountType.LIABILITY},
@@ -248,9 +248,9 @@ class COAInvariantsValidator:
         """
         if new_parent_id is None:
             return ValidationResult.success()
-        # Traverse up from new_parent to see if we encounter account_id
-        current = new_parent_id
-        visited = set()
+
+        current: UUID | None = new_parent_id
+        visited: set[UUID] = set()
         while current is not None and current not in visited:
             if current == account_id:
                 return ValidationResult.failure("Moving would create a cycle in account hierarchy")
@@ -384,7 +384,9 @@ class COAInvariantsValidator:
             "CNY": 2,
         }
         max_decimals = currency_decimals.get(currency_code.upper(), 2)
-        if opening_balance.as_tuple().exponent < -max_decimals:
+        # Handle Decimal exponent: can be int or special string 'n','N','F'
+        exponent = opening_balance.as_tuple().exponent
+        if isinstance(exponent, int) and exponent < -max_decimals:
             return ValidationResult.failure(
                 f"Opening balance has too many decimal places for {currency_code}. "
                 f"Maximum allowed: {max_decimals}"
@@ -465,9 +467,10 @@ class COAInvariantsValidator:
                 )
             )
 
-        # Opening balance
+        # Opening balance - pass normal_balance as string
+        normal_balance_str = account.normal_balance.value if hasattr(account.normal_balance, "value") else str(account.normal_balance)
         results.append(
-            self.validate_opening_balance_sign(account.opening_balance, account.normal_balance)
+            self.validate_opening_balance_sign(account.opening_balance, normal_balance_str)
         )
         results.append(
             self.validate_opening_balance_precision(account.opening_balance, account.currency_code)
@@ -536,9 +539,10 @@ class COAInvariantsValidator:
 
         # Opening balance validation
         if new_account.opening_balance != old_account.opening_balance:
+            normal_balance_str = new_account.normal_balance.value if hasattr(new_account.normal_balance, "value") else str(new_account.normal_balance)
             results.append(
                 self.validate_opening_balance_sign(
-                    new_account.opening_balance, new_account.normal_balance
+                    new_account.opening_balance, normal_balance_str
                 )
             )
             results.append(
@@ -561,7 +565,7 @@ class COAInvariantsValidator:
     @classmethod
     def validate_all_results(cls, results: list[ValidationResult]) -> tuple[bool, list[str]]:
         """Aggregate multiple validation results."""
-        errors = [r.message for r in results if not r.is_valid]
+        errors = [r.message for r in results if not r.is_valid and r.message is not None]
         return len(errors) == 0, errors
 
     @classmethod

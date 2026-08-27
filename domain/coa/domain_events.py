@@ -250,7 +250,7 @@ class AccountUpdatedEvent(DomainEvent):
         causation_id: str | None = None,
     ):
         # Calculate changed fields
-        changes = {}
+        changes: dict[str, Any] = {}
         if old_account.account_name != new_account.account_name:
             changes["name"] = {"old": old_account.account_name, "new": new_account.account_name}
         if old_account.parent_account_id != new_account.parent_account_id:
@@ -757,13 +757,8 @@ def deserialize_event(json_str: str) -> DomainEvent:
     event_type_str = data.get("event_type")
     if not event_type_str:
         raise ValueError("Missing event_type in JSON")
-    event_type = DomainEventType(event_type_str)
-
-    # Map event_type to specific class for proper deserialization
-    # Note: For simplicity, we use base class from_dict which works for all
-    # since they only add constructor logic, not extra fields.
-    # For events with extra fields, we'd need custom mapping.
-    # Here we use base class.
+    # event_type = DomainEventType(event_type_str)  # removed (F841)
+    # Use base class from_dict which works for all events
     return DomainEvent.from_dict(data)
 
 
@@ -772,43 +767,36 @@ def deserialize_event(json_str: str) -> DomainEvent:
 # ============================================================================
 
 __all__ = [
-    # Enum
-    "DomainEventType",
-    # Base class
-    "DomainEvent",
-    # Account events
-    "AccountCreatedEvent",
-    "AccountUpdatedEvent",
-    "AccountDeactivatedEvent",
-    "AccountReactivatedEvent",
-    "AccountLockedEvent",
-    "AccountUnlockedEvent",
-    "AccountMergedEvent",
-    "AccountSplitEvent",
-    "HierarchyChangedEvent",
-    # COA events
-    "COACreatedEvent",
-    "COALockedEvent",
-    "COAUnlockedEvent",
-    "COAArchivedEvent",
-    # Short aliases (for compatibility)
     "AccountCreated",
-    "AccountUpdated",
+    "AccountCreatedEvent",
     "AccountDeactivated",
-    "AccountReactivated",
+    "AccountDeactivatedEvent",
     "AccountLocked",
-    "AccountUnlocked",
+    "AccountLockedEvent",
     "AccountMerged",
+    "AccountMergedEvent",
+    "AccountReactivated",
+    "AccountReactivatedEvent",
     "AccountSplit",
-    "HierarchyChanged",
-    "COACreated",
-    "COALocked",
-    "COAUnlocked",
+    "AccountSplitEvent",
+    "AccountUnlocked",
+    "AccountUnlockedEvent",
+    "AccountUpdated",
+    "AccountUpdatedEvent",
     "COAArchived",
-    # Protocols
+    "COAArchivedEvent",
+    "COACreated",
+    "COACreatedEvent",
+    "COALocked",
+    "COALockedEvent",
+    "COAUnlocked",
+    "COAUnlockedEvent",
+    "DomainEvent",
     "DomainEventPublisher",
+    "DomainEventType",
     "EventStore",
-    # Helpers
-    "event_type_from_name",
+    "HierarchyChanged",
+    "HierarchyChangedEvent",
     "deserialize_event",
+    "event_type_from_name",
 ]

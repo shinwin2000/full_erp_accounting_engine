@@ -347,7 +347,7 @@ class FIFOValuation(ValuationMethodStrategy):
         if quantity == 0:
             return Decimal(0), layers[:]
 
-        total_available = sum(layer.remaining_quantity for layer in layers)
+        total_available = sum((layer.remaining_quantity for layer in layers), Decimal(0))
         if quantity > total_available:
             raise ValueError(
                 f"Quantity {quantity} exceeds available quantity (available: {total_available})"
@@ -404,7 +404,7 @@ class FIFOValuation(ValuationMethodStrategy):
     @staticmethod
     def get_remaining_value(layers: list[FIFOLayer]) -> Decimal:
         """Get total remaining value of all layers."""
-        return sum(layer.remaining_quantity * layer.unit_cost for layer in layers).quantize(Decimal("0.01"))
+        return sum((layer.remaining_quantity * layer.unit_cost for layer in layers), Decimal(0)).quantize(Decimal("0.01"))
 
     @staticmethod
     def sort_layers_by_date(layers: list[FIFOLayer]) -> list[FIFOLayer]:
@@ -599,8 +599,8 @@ class AverageValuation(ValuationMethodStrategy):
             if qty > 0:
                 items.append((qty, cost))
 
-        total_qty = sum(q for q, _ in items)
-        total_value = sum(q * c for q, c in items)
+        total_qty = sum((q for q, _ in items), Decimal(0))
+        total_value = sum((q * c for q, c in items), Decimal(0))
 
         if total_qty <= 0:
             raise ValueError("No inventory available")
@@ -685,8 +685,8 @@ class MovingAverageValuation(ValuationMethodStrategy):
             if qty > 0:
                 items.append((qty, cost))
 
-        total_qty = sum(q for q, _ in items)
-        total_value = sum(q * c for q, c in items)
+        total_qty = sum((q for q, _ in items), Decimal(0))
+        total_value = sum((q * c for q, c in items), Decimal(0))
 
         if total_qty <= 0:
             raise ValueError("No inventory available")

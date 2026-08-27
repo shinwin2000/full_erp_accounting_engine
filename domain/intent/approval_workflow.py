@@ -454,6 +454,7 @@ DEFAULT_APPROVAL_RULES = [
 
 class ApprovalWorkflow:
     _instance: ApprovalWorkflow | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> ApprovalWorkflow:
         if cls._instance is None:

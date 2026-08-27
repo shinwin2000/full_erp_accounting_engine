@@ -500,28 +500,28 @@ NCICalculatedEvent.__name__ = "NCICalculatedEvent"
 # ============================================================================
 
 __all__ = [
+    "ConsolidationArchivedEvent",
     # Original classes
     "ConsolidationCancelled",
+    # Alias untuk router
+    "ConsolidationCancelledEvent",
     "ConsolidationCompleted",
+    "ConsolidationCompletedEvent",
     "ConsolidationCreated",
+    "ConsolidationCreatedEvent",
     "ConsolidationEventPublisher",
     "ConsolidationEventType",
     "ConsolidationStarted",
+    "ConsolidationStartedEvent",
     "DomainEvent",
     "EliminationEntryCreated",
-    "IntercompanyTransactionDetected",
-    "NCICalculated",
-    # Alias untuk router
-    "ConsolidationCancelledEvent",
-    "ConsolidationCompletedEvent",
-    "ConsolidationCreatedEvent",
-    "ConsolidationStartedEvent",
-    "ConsolidationArchivedEvent",
     "EliminationEntryCreatedEvent",
+    "IntercompanyTransactionDetected",
     "IntercompanyTransactionDetectedEvent",
-    "NCICalculatedEvent",
     # Event dari domain lain yang dibutuhkan (solusi cepat)
     "LegalEntityCreatedEvent",
     "LegalEntityDeactivatedEvent",
     "LegalEntityUpdatedEvent",
+    "NCICalculated",
+    "NCICalculatedEvent",
 ]

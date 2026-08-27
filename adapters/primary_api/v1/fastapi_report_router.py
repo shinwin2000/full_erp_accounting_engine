@@ -1523,6 +1523,7 @@ async def update_scheduled_report(
             schedule_id=schedule_id,
             legal_entity_id=legal_entity_id,
             schedule_name=request.schedule_name,
+            report_type=request.report_type.value,
             schedule_frequency=request.schedule_frequency.value,
             schedule_time=request.schedule_time,
             schedule_day_of_week=request.schedule_day_of_week,

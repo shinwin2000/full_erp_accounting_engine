@@ -376,8 +376,8 @@ class EmployeePTKPStatusVO:
         if tax_year is None:
             tax_year = date.today().year
         # For years before 2024, use 2024 rates (simplified)
-        year = max(tax_year, 2024)
-        # Amounts are constant from 2016 onward, but we can adjust if needed
+        # (Year-specific logic can be added here if rates change in future)
+        # Amounts are constant from 2016 onward, so we ignore the tax_year parameter.
         return PTKP_ANNUAL_AMOUNTS.get(self.category, 54_000_000)
 
     def get_monthly_ptkp(self, tax_year: int | None = None) -> Decimal:

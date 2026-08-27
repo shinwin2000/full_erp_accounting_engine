@@ -225,8 +225,8 @@ class JournalInvariantEnforcer:
         result.merge(self._invariants.validate_lines_exist(lines))
         result.merge(self._invariants.validate_line_amounts(lines))
 
-        total_debit = sum(line.amount for line in lines if line.side == JournalSide.DEBIT)
-        total_credit = sum(line.amount for line in lines if line.side == JournalSide.CREDIT)
+        total_debit = sum((line.amount for line in lines if line.side == JournalSide.DEBIT), Decimal(0))
+        total_credit = sum((line.amount for line in lines if line.side == JournalSide.CREDIT), Decimal(0))
         result.merge(self._invariants.validate_balance(total_debit, total_credit))
         result.merge(
             self._invariants.validate_legal_entity_consistency(lines, journal.legal_entity_id)
@@ -234,14 +234,16 @@ class JournalInvariantEnforcer:
         result.merge(self._invariants.validate_accounts_exist(lines, self._account_getter))
         result.merge(self._invariants.validate_currency_consistency(lines))
 
-        existing_numbers = await self._journal_number_checker(journal.legal_entity_id)
+        # journal_number_checker is sync, no await
+        existing_numbers = self._journal_number_checker(journal.legal_entity_id)
         result.merge(
             self._invariants.validate_journal_number_unique(
                 journal.journal_number, existing_numbers
             )
         )
 
-        period_start, period_end = await self._period_checker(
+        # period_checker is sync, no await
+        period_start, period_end = self._period_checker(
             journal.legal_entity_id, journal.transaction_date
         )
         result.merge(
@@ -249,9 +251,12 @@ class JournalInvariantEnforcer:
                 journal.transaction_date, period_start, period_end
             )
         )
+
+        # posting_date might not exist on JournalEntity; use getattr fallback None
+        posting_date = getattr(journal, "posting_date", None)
         result.merge(
             self._invariants.validate_date_consistency(
-                journal.transaction_date, journal.posting_date
+                journal.transaction_date, posting_date
             )
         )
 
@@ -342,20 +347,25 @@ class JournalInvariantsValidator:
         result.merge(self.validate_lines_exist(lines))
         result.merge(self.validate_line_amounts(lines))
         total_debit = sum(
-            getattr(line, "amount", 0)
-            for line in lines
-            if getattr(line, "side", JournalSide.DEBIT) == JournalSide.DEBIT
+            (getattr(line, "amount", Decimal(0))
+             for line in lines
+             if getattr(line, "side", JournalSide.DEBIT) == JournalSide.DEBIT),
+            Decimal(0)
         )
         total_credit = sum(
-            getattr(line, "amount", 0)
-            for line in lines
-            if getattr(line, "side", JournalSide.CREDIT) == JournalSide.CREDIT
+            (getattr(line, "amount", Decimal(0))
+             for line in lines
+             if getattr(line, "side", JournalSide.CREDIT) == JournalSide.CREDIT),
+            Decimal(0)
         )
         result.merge(self.validate_balance(total_debit, total_credit))
         result.merge(self.validate_legal_entity_consistency(lines, journal.legal_entity_id))
         result.merge(self.validate_transaction_date(journal.transaction_date))
         result.merge(self.validate_currency_consistency(lines))
-        result.merge(self.validate_date_consistency(journal.transaction_date, journal.posting_date))
+
+        # posting_date may not exist on JournalEntity
+        posting_date = getattr(journal, "posting_date", None)
+        result.merge(self.validate_date_consistency(journal.transaction_date, posting_date))
         return result
 
 

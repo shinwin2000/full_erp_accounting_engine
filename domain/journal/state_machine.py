@@ -196,12 +196,17 @@ class JournalStateMachine:
             if rule.check_period_open and not period_is_open:
                 return False, "Accounting period is closed. Cannot perform this transition."
 
-            if rule.requires_approval and user_role not in (
-                rule.allowed_user_roles or [rule.required_role]
-            ):
+            # ========== FIX: Role checking with safe list construction ==========
+            allowed_roles: list[str] = []
+            if rule.allowed_user_roles:
+                allowed_roles.extend(rule.allowed_user_roles)
+            if rule.required_role:
+                allowed_roles.append(rule.required_role)
+
+            if rule.requires_approval and user_role not in allowed_roles:
                 return (
                     False,
-                    f"Approval required. User must have role '{rule.required_role or rule.allowed_user_roles}'",
+                    f"Approval required. User must have one of roles: {allowed_roles}",
                 )
 
             if rule.requires_reason and not reason:

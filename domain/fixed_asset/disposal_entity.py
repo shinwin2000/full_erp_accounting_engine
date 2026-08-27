@@ -22,7 +22,7 @@ Business rules:
 
 Dependencies:
     - Python standard library (uuid, datetime, decimal, logging, re)
-    - domain.fixed_asset.asset_entity (FixedAsset) for TYPE_CHECKING
+    - domain.fixed_asset.asset_entity (FixedAsset, AssetStatus) for TYPE_CHECKING
 
 Audit:
     Every disposal should be logged; domain events emitted separately.
@@ -41,6 +41,9 @@ from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
     from domain.fixed_asset.asset_entity import FixedAsset
+
+# Runtime import for AssetStatus (used in is_disposal_allowed)
+from domain.fixed_asset.asset_entity import AssetStatus
 
 logger = logging.getLogger(__name__)
 
@@ -1397,7 +1400,7 @@ def is_disposal_allowed(asset: FixedAsset) -> tuple[bool, str]:
 __all__ = [
     "AssetAlreadyDisposedError",
     "AssetDisposal",
-    "Disposal",  # added for repository compatibility
+    "Disposal",
     "DisposalAlreadyCompletedError",
     "DisposalEntity",
     "DisposalError",

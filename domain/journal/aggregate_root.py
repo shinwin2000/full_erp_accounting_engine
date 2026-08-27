@@ -131,12 +131,12 @@ class Journal(VersionedJournalMixin):
     @property
     def total_debit(self) -> Decimal:
         """Total debit amount across all lines."""
-        return sum(line.amount for line in self.lines if line.side == JournalSide.DEBIT)
+        return sum((line.amount for line in self.lines if line.side == JournalSide.DEBIT), Decimal(0))
 
     @property
     def total_credit(self) -> Decimal:
         """Total credit amount across all lines."""
-        return sum(line.amount for line in self.lines if line.side == JournalSide.CREDIT)
+        return sum((line.amount for line in self.lines if line.side == JournalSide.CREDIT), Decimal(0))
 
     @property
     def difference(self) -> Decimal:
@@ -276,8 +276,9 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If lines are unbalanced.
         """
-        total_debit = sum(line.amount for line in lines if line.side == JournalSide.DEBIT)
-        total_credit = sum(line.amount for line in lines if line.side == JournalSide.CREDIT)
+        total_debit = sum((line.amount for line in lines if line.side == JournalSide.DEBIT), Decimal(0))
+        total_credit = sum((line.amount for line in lines if line.side == JournalSide.CREDIT), Decimal(0))
+        # Explicit Decimal comparison to avoid mypy union type issues
         if abs(total_debit - total_credit) > Decimal("0.01"):
             raise ValueError(
                 f"Journal would be unbalanced: debit={total_debit}, credit={total_credit}"
@@ -1051,7 +1052,7 @@ class Journal(VersionedJournalMixin):
         self._ensure_editable("update metadata")
         self._ensure_not_posted("update metadata")
 
-        changes = {}
+        changes: dict[str, Any] = {}
         new_description = self.description
         new_reference = self.reference
         new_transaction_date = self.transaction_date

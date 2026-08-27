@@ -581,6 +581,7 @@ class DividendDeclarationEntity:
         new_id = uuid4()
         new_number_str = new_number or f"{self.dividend_number}_COPY"
         now = datetime.now(UTC)
+        # C416 fix: use list() instead of list comprehension
         cloned = DividendDeclarationEntity(
             dividend_id=new_id,
             legal_entity_id=self.legal_entity_id,
@@ -594,7 +595,7 @@ class DividendDeclarationEntity:
             status=DividendStatus.PROPOSED,
             description=f"Cloned from {self.dividend_number}",
             resolution_reference=self.resolution_reference,
-            allocations=[a for a in self.allocations],
+            allocations=list(self.allocations),
             created_at=now,
             updated_at=now,
             created_by=self.created_by,
@@ -792,6 +793,7 @@ class DividendDeclarationEntity:
     # ==================== PRIVATE HELPERS ====================
 
     def _copy(self) -> DividendDeclarationEntity:
+        # C416 fix: use list() instead of list comprehension
         return DividendDeclarationEntity(
             dividend_id=self.dividend_id,
             legal_entity_id=self.legal_entity_id,
@@ -805,7 +807,7 @@ class DividendDeclarationEntity:
             status=self.status,
             description=self.description,
             resolution_reference=self.resolution_reference,
-            allocations=[a for a in self.allocations],
+            allocations=list(self.allocations),
             approved_by=self.approved_by,
             approved_at=self.approved_at,
             paid_by=self.paid_by,
@@ -924,8 +926,8 @@ class DividendDeclarationRepository:
         query_lower = query.lower()
         results = []
         for d in dividends:
-            for field in fields:
-                value = getattr(d, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(d, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(d)
                     break

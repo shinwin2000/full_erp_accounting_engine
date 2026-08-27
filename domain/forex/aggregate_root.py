@@ -169,11 +169,11 @@ class RevaluationJournal:
 
     @property
     def total_debit(self) -> Decimal:
-        return sum(line.debit for line in self.lines)
+        return sum((line.debit for line in self.lines), Decimal(0))
 
     @property
     def total_credit(self) -> Decimal:
-        return sum(line.credit for line in self.lines)
+        return sum((line.credit for line in self.lines), Decimal(0))
 
     @property
     def is_balanced(self) -> bool:
@@ -275,6 +275,7 @@ class ForexRevaluationAggregate:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: str = "system"
+    updated_by: str = "system"  # <-- ditambahkan
     version: int = 1
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -438,11 +439,14 @@ class ForexRevaluationAggregate:
             errors.append(str(e))
         if self.old_rate.effective_date > self.revaluation_date:
             errors.append(f"Old rate date {self.old_rate.effective_date} is after revaluation date")
-        if self.new_rate.effective_date != self.revaluation_date:
-            if self.new_rate.effective_date.date() != self.revaluation_date.date():
-                errors.append(
-                    f"New rate date {self.new_rate.effective_date} does not match revaluation date"
-                )
+        # Fixed: combine nested if using `and`
+        if (
+            self.new_rate.effective_date != self.revaluation_date
+            and self.new_rate.effective_date.date() != self.revaluation_date.date()
+        ):
+            errors.append(
+                f"New rate date {self.new_rate.effective_date} does not match revaluation date"
+            )
         return {
             "is_valid": len(errors) == 0,
             "errors": errors,
@@ -477,6 +481,7 @@ class ForexRevaluationAggregate:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "created_by": self.created_by,
+            "updated_by": self.updated_by,
             "version": self.version,
             "metadata": self.metadata,
         }
@@ -527,6 +532,7 @@ class ForexRevaluationAggregate:
             created_at=created_at,
             updated_at=updated_at,
             created_by=data.get("created_by", "system"),
+            updated_by=data.get("updated_by", "system"),
             version=data.get("version", 1),
             metadata=data.get("metadata", {}),
         )
@@ -548,6 +554,7 @@ class ForexRevaluationAggregate:
             created_at=now,
             updated_at=now,
             created_by=self.created_by,
+            updated_by=self.updated_by,
             version=1,
         )
         cloned._record_audit("CLONE", self.created_by, {"source": str(self.aggregate_id)})
@@ -572,6 +579,7 @@ class ForexRevaluationAggregate:
     def touch(self, touched_by: str) -> ForexRevaluationAggregate:
         new_agg = self._copy()
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = touched_by
         new_agg.version = self.version + 1
         new_agg._record_audit("TOUCH", touched_by, {})
         return new_agg
@@ -595,6 +603,9 @@ class ForexRevaluationAggregate:
         if not self.journal:
             journal = self.create_adjustment_journal()
             return self._post_with_journal(journal.journal_id, posted_by)
+        # self.journal_id must not be None here because self.journal exists
+        if self.journal_id is None:
+            raise ForexRevaluationError("Journal exists but journal_id is None")
         return self._post_with_journal(self.journal_id, posted_by)
 
     def _post_with_journal(self, journal_id: UUID, posted_by: str) -> ForexRevaluationAggregate:
@@ -604,6 +615,7 @@ class ForexRevaluationAggregate:
         new_agg.posted_by = posted_by
         new_agg.posted_at = datetime.now(UTC)
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = posted_by
         new_agg.version = self.version + 1
         new_agg._record_audit("POST", posted_by, {"journal_id": str(journal_id)})
         return new_agg
@@ -621,6 +633,7 @@ class ForexRevaluationAggregate:
         new_agg.approved_by = approved_by
         new_agg.approved_at = datetime.now(UTC)
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = approved_by
         new_agg.version = self.version + 1
         new_agg._record_audit("APPROVE", approved_by, {})
         return new_agg
@@ -639,6 +652,7 @@ class ForexRevaluationAggregate:
         new_agg.rejected_at = datetime.now(UTC)
         new_agg.rejection_reason = reason
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = rejected_by
         new_agg.version = self.version + 1
         new_agg._record_audit("REJECT", rejected_by, {"reason": reason})
         return new_agg
@@ -657,6 +671,7 @@ class ForexRevaluationAggregate:
         new_agg.cancelled_at = datetime.now(UTC)
         new_agg.cancel_reason = reason
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = cancelled_by
         new_agg.version = self.version + 1
         new_agg._record_audit("CANCEL", cancelled_by, {"reason": reason})
         return new_agg
@@ -686,6 +701,7 @@ class ForexRevaluationAggregate:
             gain_loss_type=reversal_type,
             status=RevaluationStatus.DRAFT,
             created_by=reversed_by,
+            updated_by=reversed_by,
         )
         new_agg._record_audit(
             "REVERSE", reversed_by, {"reason": reason, "original_id": str(self.aggregate_id)}
@@ -710,6 +726,7 @@ class ForexRevaluationAggregate:
         new_agg = self._copy()
         new_agg.status = RevaluationStatus.DRAFT
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = reopened_by
         new_agg.version = self.version + 1
         new_agg._record_audit("REOPEN", reopened_by, {"reason": reason})
         return new_agg
@@ -724,6 +741,7 @@ class ForexRevaluationAggregate:
             )
         new_agg = self._copy()
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = archived_by
         new_agg.version = self.version + 1
         new_agg._record_audit("ARCHIVE", archived_by, {"reason": reason})
         return new_agg
@@ -734,6 +752,7 @@ class ForexRevaluationAggregate:
     def unarchive(self, unarchived_by: str) -> ForexRevaluationAggregate:
         new_agg = self._copy()
         new_agg.updated_at = datetime.now(UTC)
+        new_agg.updated_by = unarchived_by
         new_agg.version = self.version + 1
         new_agg._record_audit("UNARCHIVE", unarchived_by, {})
         return new_agg
@@ -785,6 +804,7 @@ class ForexRevaluationAggregate:
             gain_loss=gain_loss,
             gain_loss_type=GainLossType(gain_loss_type),
             created_by=created_by,
+            updated_by=created_by,
         )
 
     def create_adjustment_journal(self) -> RevaluationJournal:
@@ -895,6 +915,7 @@ class ForexRevaluationAggregate:
             created_at=self.created_at,
             updated_at=self.updated_at,
             created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
             metadata=self.metadata.copy(),
         )

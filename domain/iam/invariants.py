@@ -164,6 +164,7 @@ class UserInvariants:
         result = InvariantResult()
         result.merge(validate_username(user.username))
         result.merge(validate_email(user.email))
+        # Perbaikan: akses full_name melalui profile (asumsi UserEntity memiliki atribut profile)
         result.merge(validate_full_name(user.profile.full_name))
 
         if user.username in existing_usernames:
@@ -191,7 +192,6 @@ class UserInvariants:
             if current_status == UserStatus.LOCKED:
                 result.add_error("Locked user must be unlocked first")
 
-        # Gabungkan kondisi bersarang menjadi satu dengan 'and'
         if new_status in (UserStatus.INACTIVE, UserStatus.SUSPENDED) and is_self:
             result.add_error("User cannot deactivate or suspend own account")
 
@@ -291,7 +291,7 @@ class RoleInvariants:
         result = InvariantResult()
 
         if parent_role_id:
-            current = parent_role_id
+            current: UUID | None = parent_role_id
             visited = set()
             while current and current not in visited:
                 if current == role_id:
@@ -370,14 +370,14 @@ class IAMInvariantEnforcer:
         self._role_invariants = RoleInvariants()
         self._session_invariants = SessionInvariants()
 
-    async def enforce_user_create(
+    def enforce_user_create(
         self,
         username: str,
         email: str,
         full_name: str,
     ) -> InvariantResult:
-        existing_usernames = await self._usernames_provider()
-        existing_emails = await self._emails_provider()
+        existing_usernames = self._usernames_provider()
+        existing_emails = self._emails_provider()
         return self._user_invariants.validate_on_create(
             username=username,
             email=email,
@@ -386,12 +386,12 @@ class IAMInvariantEnforcer:
             existing_emails=existing_emails,
         )
 
-    async def enforce_user_update(
+    def enforce_user_update(
         self,
         user: UserEntity,
     ) -> InvariantResult:
-        existing_usernames = await self._usernames_provider()
-        existing_emails = await self._emails_provider()
+        existing_usernames = self._usernames_provider()
+        existing_emails = self._emails_provider()
         existing_usernames.discard(user.username)
         existing_emails.discard(user.email)
         return self._user_invariants.validate_on_update(
@@ -400,7 +400,7 @@ class IAMInvariantEnforcer:
             existing_emails=existing_emails,
         )
 
-    async def enforce_user_status_transition(
+    def enforce_user_status_transition(
         self,
         current_status: UserStatus,
         new_status: UserStatus,
@@ -416,30 +416,30 @@ class IAMInvariantEnforcer:
             is_self=is_self,
         )
 
-    async def enforce_role_create(
+    def enforce_role_create(
         self,
         role_name: str,
         parent_role_id: UUID | None = None,
     ) -> InvariantResult:
-        existing_role_names = await self._role_names_provider()
+        existing_role_names = self._role_names_provider()
         return self._role_invariants.validate_on_create(
             role_name=role_name,
             existing_role_names=existing_role_names,
             parent_role_id=str(parent_role_id) if parent_role_id else None,
         )
 
-    async def enforce_role_update(
+    def enforce_role_update(
         self,
         role: RoleEntity,
     ) -> InvariantResult:
-        existing_role_names = await self._role_names_provider()
+        existing_role_names = self._role_names_provider()
         existing_role_names.discard(role.role_name)
         return self._role_invariants.validate_on_update(
             role=role,
             existing_role_names=existing_role_names,
         )
 
-    async def enforce_role_delete(
+    def enforce_role_delete(
         self,
         role: RoleEntity,
         assigned_user_count: int,
@@ -449,7 +449,7 @@ class IAMInvariantEnforcer:
             assigned_user_count=assigned_user_count,
         )
 
-    async def enforce_role_parent(
+    def enforce_role_parent(
         self,
         role: RoleEntity,
         parent_role: RoleEntity | None,
@@ -467,20 +467,20 @@ class IAMInvariantEnforcer:
 
         return result
 
-    async def enforce_session_creation(
+    def enforce_session_creation(
         self,
         user: UserEntity,
         device_type: str,
     ) -> InvariantResult:
         return self._session_invariants.validate_session_creation(user, device_type)
 
-    async def enforce_session_renewal(
+    def enforce_session_renewal(
         self,
         session: SessionEntity,
     ) -> InvariantResult:
         return self._session_invariants.validate_session_renewal(session)
 
-    async def enforce_session_revocation(
+    def enforce_session_revocation(
         self,
         session: SessionEntity,
     ) -> InvariantResult:

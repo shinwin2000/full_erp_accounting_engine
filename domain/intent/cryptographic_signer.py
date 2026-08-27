@@ -67,6 +67,7 @@ class CryptographicSigner:
     _instance: CryptographicSigner | None = None
     _private_key: rsa.RSAPrivateKey | None = None
     _public_key_pem: str | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> CryptographicSigner:
         if cls._instance is None:

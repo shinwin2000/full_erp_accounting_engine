@@ -19,7 +19,7 @@ Audit: Setiap pelanggaran invariant dictat.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from domain.customer_supplier_employee.customer_entity import CustomerStatus
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class InvariantResult:
     """Hasil validasi invariant."""
 
-    def __init__(self, is_valid: bool = True, errors: list[str] = None):
+    def __init__(self, is_valid: bool = True, errors: list[str] | None = None):
         self.is_valid = is_valid
         self.errors = errors or []
 

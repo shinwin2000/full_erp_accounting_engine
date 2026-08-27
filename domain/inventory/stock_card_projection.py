@@ -138,13 +138,21 @@ class StockCardProjection:
         balance_value = Decimal(0)
         opening_balance_qty = Decimal(0)
         opening_balance_value = Decimal(0)
-        opening_date = None
+        opening_date: datetime | None = None
 
         sorted_movements = sorted(movements, key=lambda m: m.movement_date)
 
         for movement in sorted_movements:
             if as_of_date and movement.movement_date > as_of_date:
                 break
+
+            # Pastikan movement_type tidak None
+            movement_type = movement.movement_type
+            if movement_type is None:
+                raise ValueError(f"Movement {movement.movement_id} has no movement_type")
+
+            # Konversi date ke datetime (gunakan waktu 00:00:00 UTC)
+            movement_datetime = datetime.combine(movement.movement_date, datetime.min.time(), tzinfo=UTC)
 
             is_inbound = movement.is_inbound
             in_qty = movement.quantity if is_inbound else Decimal(0)
@@ -158,9 +166,9 @@ class StockCardProjection:
             entry = StockCardEntry(
                 entry_id=uuid4(),
                 movement_id=movement.movement_id,
-                movement_type=movement.movement_type,
+                movement_type=movement_type,
                 movement_number=movement.movement_number,
-                date=movement.movement_date,
+                date=movement_datetime,
                 reference_document_type=movement.reference_document_type,
                 reference_document_number=movement.reference_document_number,
                 in_quantity=in_qty,
@@ -179,7 +187,7 @@ class StockCardProjection:
             if opening_balance_qty == 0 and opening_date is None and new_balance_qty != 0:
                 opening_balance_qty = balance_qty
                 opening_balance_value = balance_value
-                opening_date = movement.movement_date
+                opening_date = movement_datetime
 
             balance_qty = new_balance_qty
             balance_value = new_balance_value
@@ -209,6 +217,14 @@ class StockCardProjection:
         if movement.item_id != self.item_id or movement.warehouse_id != self.warehouse_id:
             return self
 
+        # Pastikan movement_type tidak None
+        movement_type = movement.movement_type
+        if movement_type is None:
+            raise ValueError(f"Movement {movement.movement_id} has no movement_type")
+
+        # Konversi date ke datetime
+        movement_datetime = datetime.combine(movement.movement_date, datetime.min.time(), tzinfo=UTC)
+
         is_inbound = movement.is_inbound
         in_qty = movement.quantity if is_inbound else Decimal(0)
         out_qty = movement.quantity if not is_inbound else Decimal(0)
@@ -221,9 +237,9 @@ class StockCardProjection:
         entry = StockCardEntry(
             entry_id=uuid4(),
             movement_id=movement.movement_id,
-            movement_type=movement.movement_type,
+            movement_type=movement_type,
             movement_number=movement.movement_number,
-            date=movement.movement_date,
+            date=movement_datetime,
             reference_document_type=movement.reference_document_type,
             reference_document_number=movement.reference_document_number,
             in_quantity=in_qty,

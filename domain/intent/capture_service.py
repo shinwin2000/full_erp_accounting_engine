@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: UP006
 """
 Module: capture_service.py
 Layer: 5 - Reality, Intent, Causality / Intent
@@ -12,7 +13,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, List  # noqa: UP035
 from uuid import UUID, uuid4
 
 from domain.intent.immutable_record import (
@@ -60,7 +61,6 @@ class CapturedIntent:
     deleted_at: datetime | None = None
     deleted_by: str | None = None
 
-    # PERBAIKAN: menggunakan default_factory untuk mutable default
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
@@ -259,8 +259,6 @@ class CapturedIntent:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    # version() method removed to avoid conflict with version attribute (F811)
-
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
@@ -313,6 +311,7 @@ class CapturedIntent:
 
 class IntentCaptureService:
     _instance: IntentCaptureService | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> IntentCaptureService:
         if cls._instance is None:
@@ -400,7 +399,7 @@ class IntentCaptureService:
 
     def get_intents_by_user(
         self, user_id: str, status_filter: IntentStatus | None = None, limit: int = 50
-    ) -> list[CapturedIntent]:
+    ) -> List[CapturedIntent]:
         with self._lock:
             result = [i for i in self._captured_intents.values() if i.captured_by == user_id]
             if status_filter:
@@ -410,7 +409,7 @@ class IntentCaptureService:
 
     def get_intents_by_type(
         self, intent_type: IntentType, status_filter: IntentStatus | None = None, limit: int = 50
-    ) -> list[CapturedIntent]:
+    ) -> List[CapturedIntent]:
         with self._lock:
             result = [i for i in self._captured_intents.values() if i.intent_type == intent_type]
             if status_filter:
@@ -418,7 +417,7 @@ class IntentCaptureService:
             result.sort(key=lambda i: i.captured_at, reverse=True)
             return result[:limit]
 
-    def get_pending_intents(self, limit: int = 50) -> list[CapturedIntent]:
+    def get_pending_intents(self, limit: int = 50) -> List[CapturedIntent]:
         return self.get_intents_by_type(
             IntentType.APPROVE_TRANSACTION, status_filter=IntentStatus.DRAFT, limit=limit
         )
@@ -439,13 +438,13 @@ class IntentCaptureService:
     def exists(self, intent_id: UUID) -> bool:
         return self.get_intent(intent_id) is not None
 
-    def get_all(self) -> list[CapturedIntent]:
+    def get_all(self) -> List[CapturedIntent]:
         with self._lock:
             return list(self._captured_intents.values())
 
-    def search(self, query: str, fields: list[str] | None = None) -> list[CapturedIntent]:
+    def search(self, query: str, fields: List[str] | None = None) -> List[CapturedIntent]:
         query_lower = query.lower()
-        results = []
+        results: List[CapturedIntent] = []
         with self._lock:
             for intent in self._captured_intents.values():
                 if query_lower in intent.captured_by.lower() or any(
@@ -459,12 +458,12 @@ class IntentCaptureService:
         with self._lock:
             return len(self._captured_intents)
 
-    def list(self, limit: int = 100, offset: int = 0) -> list[CapturedIntent]:
+    def list(self, limit: int = 100, offset: int = 0) -> List[CapturedIntent]:
         intents = self.get_all()
         intents.sort(key=lambda i: i.captured_at, reverse=True)
         return intents[offset : offset + limit]
 
-    def paginate(self, page: int = 1, per_page: int = 20) -> tuple[list[CapturedIntent], int]:
+    def paginate(self, page: int = 1, per_page: int = 20) -> tuple[List[CapturedIntent], int]:
         intents = self.get_all()
         total = len(intents)
         intents.sort(key=lambda i: i.captured_at, reverse=True)
@@ -491,7 +490,7 @@ class IntentCaptureService:
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:
             total = len(self._captured_intents)
-            by_status = {}
+            by_status: dict[str, int] = {}
             for i in self._captured_intents.values():
                 by_status[i.status.name] = by_status.get(i.status.name, 0) + 1
             return {"total_intents": total, "by_status": by_status}

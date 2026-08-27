@@ -1033,7 +1033,7 @@ def deserialize_domain_event(json_str: str) -> DomainEvent:
         DomainEvent: Objek DomainEvent yang sudah direkonstruksi.
     """
     data = json.loads(json_str)
-    event_type = DomainEventType(data["event_type"])
+    # event_type is not used because DomainEvent.from_dict handles it; removed unused variable
     return DomainEvent.from_dict(data)
 
 

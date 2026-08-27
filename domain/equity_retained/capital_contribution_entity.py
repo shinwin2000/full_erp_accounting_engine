@@ -779,8 +779,8 @@ class CapitalContributionRepository:
         query_lower = query.lower()
         results = []
         for c in contributions:
-            for field in fields:
-                value = getattr(c, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(c, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(c)
                     break

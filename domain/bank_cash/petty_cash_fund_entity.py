@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -123,7 +123,7 @@ class PettyCashFundSignature:
     signed_by: str
 
     @classmethod
-    def create(cls, petty_cash: PettyCashFundEntity, signed_by: str) -> Self:
+    def create(cls, petty_cash: PettyCashFundEntity, signed_by: str) -> PettyCashFundSignature:
         data = f"{petty_cash.petty_cash_id}{petty_cash.version}{petty_cash.current_balance}{petty_cash.updated_at}"
         hash_value = hashlib.sha3_256(data.encode()).hexdigest()
         return cls(
@@ -138,6 +138,15 @@ class PettyCashFundSignature:
         data = f"{petty_cash.petty_cash_id}{petty_cash.version}{petty_cash.current_balance}{petty_cash.updated_at}"
         expected = hashlib.sha3_256(data.encode()).hexdigest()
         return self.hash_value == expected
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "petty_cash_id": str(self.petty_cash_id),
+            "version": self.version,
+            "hash_value": self.hash_value,
+            "signed_at": self.signed_at.isoformat(),
+            "signed_by": self.signed_by,
+        }
 
 
 @dataclass
@@ -276,7 +285,7 @@ class PettyCashFundEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: str) -> Self:
+    def create(self, created_by: str) -> PettyCashFundEntity:
         self._record_audit(
             "CREATE",
             created_by,
@@ -284,7 +293,7 @@ class PettyCashFundEntity:
         )
         return self
 
-    def update(self, updated_by: str, **kwargs) -> Self:
+    def update(self, updated_by: str, **kwargs) -> PettyCashFundEntity:
         if self.status not in (PettyCashStatus.ACTIVE, PettyCashStatus.PENDING_APPROVAL):
             raise ValueError(f"Cannot update petty cash in status {self.status.value}")
 
@@ -304,7 +313,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_pc
 
-    def delete(self, deleted_by: str, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: str, reason: str | None = None) -> PettyCashFundEntity:
         if self.current_balance != 0:
             raise ValueError(
                 f"Cannot delete petty cash with non-zero balance: {self.current_balance}"
@@ -319,7 +328,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("DELETE", deleted_by, {"reason": reason})
         return new_pc
 
-    def restore(self, restored_by: str) -> Self:
+    def restore(self, restored_by: str) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.CLOSED:
             raise ValueError(f"Cannot restore petty cash in status {self.status.value}")
 
@@ -332,7 +341,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("RESTORE", restored_by, {})
         return new_pc
 
-    def activate(self, activated_by: str) -> Self:
+    def activate(self, activated_by: str) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.PENDING_APPROVAL:
             raise ValueError(f"Cannot activate petty cash in status {self.status.value}")
 
@@ -343,7 +352,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("ACTIVATE", activated_by, {})
         return new_pc
 
-    def deactivate(self, deactivated_by: str, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: str, reason: str | None = None) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.ACTIVE:
             raise ValueError(f"Cannot deactivate petty cash in status {self.status.value}")
 
@@ -357,7 +366,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("DEACTIVATE", deactivated_by, {"reason": reason})
         return new_pc
 
-    def lock(self, locked_by: str, reason: str) -> Self:
+    def lock(self, locked_by: str, reason: str) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.ACTIVE:
             raise ValueError(f"Cannot lock petty cash in status {self.status.value}")
 
@@ -371,7 +380,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("LOCK", locked_by, {"reason": reason})
         return new_pc
 
-    def unlock(self, unlocked_by: str) -> Self:
+    def unlock(self, unlocked_by: str) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.FROZEN:
             raise ValueError(f"Cannot unlock petty cash in status {self.status.value}")
 
@@ -469,7 +478,7 @@ class PettyCashFundEntity:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> PettyCashFundEntity:
         return cls(
             petty_cash_id=UUID(data["petty_cash_id"]),
             petty_cash_code=data["petty_cash_code"],
@@ -523,7 +532,7 @@ class PettyCashFundEntity:
             version=data.get("version", 1),
         )
 
-    def clone(self) -> Self:
+    def clone(self) -> PettyCashFundEntity:
         new_id = uuid4()
         cloned = self._copy()
         object.__setattr__(cloned, "petty_cash_id", new_id)
@@ -559,7 +568,7 @@ class PettyCashFundEntity:
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: str) -> Self:
+    def touch(self, touched_by: str) -> PettyCashFundEntity:
         new_pc = self._copy()
         new_pc.updated_at = datetime.now(UTC)
         new_pc.version = self.version + 1
@@ -646,7 +655,7 @@ class PettyCashFundEntity:
 
     # ==================== RESET LIMITS ====================
 
-    def reset_daily_limit(self, reset_by: str) -> Self:
+    def reset_daily_limit(self, reset_by: str) -> PettyCashFundEntity:
         """Reset daily disbursement counter."""
         new_pc = self._copy()
         new_pc.today_disbursements = Decimal(0)
@@ -655,7 +664,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("RESET_DAILY_LIMIT", reset_by, {})
         return new_pc
 
-    def reset_monthly_limit(self, reset_by: str) -> Self:
+    def reset_monthly_limit(self, reset_by: str) -> PettyCashFundEntity:
         """Reset monthly disbursement counter."""
         new_pc = self._copy()
         new_pc.month_disbursements = Decimal(0)
@@ -693,7 +702,7 @@ class PettyCashFundEntity:
             approved_at=None if requires_approval else datetime.now(UTC),
         )
 
-    def init_fund(self, created_by: str, approved_by: str | None = None) -> Self:
+    def init_fund(self, created_by: str, approved_by: str | None = None) -> PettyCashFundEntity:
         """Set initial fund (biasanya saat pembuatan)."""
         if self.transactions:
             raise ValueError("Petty cash already has transactions, cannot re-initialize")
@@ -727,7 +736,7 @@ class PettyCashFundEntity:
         created_by: str,
         reference: str | None = None,
         approved_by: str | None = None,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         if not self.can_disburse():
             raise ValueError(f"Cannot disburse from petty cash in status {self.status.value}")
 
@@ -781,7 +790,7 @@ class PettyCashFundEntity:
         disbursements: list[tuple[Decimal, str, str | None]],
         created_by: str,
         approved_by: str | None = None,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         total = Decimal(0)
         descriptions = []
         for amt, desc, _ref in disbursements:
@@ -798,7 +807,7 @@ class PettyCashFundEntity:
         replenished_by: str,
         reference: str | None = None,
         approved_by: str | None = None,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         if not self.can_replenish():
             raise ValueError(f"Cannot replenish petty cash in status {self.status.value}")
         if amount <= 0:
@@ -845,7 +854,7 @@ class PettyCashFundEntity:
         replenished_by: str,
         reference: str | None = None,
         approved_by: str | None = None,
-    ) -> Self | None:
+    ) -> PettyCashFundEntity | None:
         if self.needs_replenishment():
             return self.replenish(
                 self.replenishment_amount,
@@ -862,7 +871,7 @@ class PettyCashFundEntity:
         adjusted_by: str,
         approved_by: str | None = None,
         is_audit: bool = False,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         if self.status == PettyCashStatus.CLOSED:
             raise ValueError("Cannot adjust closed petty cash")
 
@@ -934,7 +943,7 @@ class PettyCashFundEntity:
         description: str,
         created_by: str,
         approved_by: str | None = None,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         return self.replenish(
             amount, created_by, f"{description} (from {from_source})", approved_by
         )
@@ -946,14 +955,14 @@ class PettyCashFundEntity:
         description: str,
         created_by: str,
         approved_by: str | None = None,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         return self.add_disbursement(
             amount, f"{description} (to {to_destination})", created_by, None, approved_by
         )
 
     # ==================== SUSPEND & ACTIVATE ====================
 
-    def suspend(self, suspended_by: str, reason: str) -> Self:
+    def suspend(self, suspended_by: str, reason: str) -> PettyCashFundEntity:
         if self.status == PettyCashStatus.CLOSED:
             raise ValueError("Cannot suspend closed petty cash")
         if self.status == PettyCashStatus.SUSPENDED:
@@ -969,7 +978,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("SUSPEND", suspended_by, {"reason": reason})
         return new_pc
 
-    def activate_suspended(self, activated_by: str) -> Self:
+    def activate_suspended(self, activated_by: str) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.SUSPENDED:
             raise ValueError(f"Cannot activate petty cash in status {self.status.value}")
 
@@ -987,7 +996,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("ACTIVATE", activated_by, {})
         return new_pc
 
-    def mark_under_audit(self, audited_by: str, reason: str) -> Self:
+    def mark_under_audit(self, audited_by: str, reason: str) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.ACTIVE:
             raise ValueError(f"Cannot mark under audit in status {self.status.value}")
 
@@ -1001,7 +1010,7 @@ class PettyCashFundEntity:
         new_pc._record_audit("UNDER_AUDIT", audited_by, {"reason": reason})
         return new_pc
 
-    def complete_audit(self, completed_by: str, findings: str | None = None) -> Self:
+    def complete_audit(self, completed_by: str, findings: str | None = None) -> PettyCashFundEntity:
         if self.status != PettyCashStatus.UNDER_AUDIT:
             raise ValueError(f"Cannot complete audit in status {self.status.value}")
 
@@ -1024,7 +1033,7 @@ class PettyCashFundEntity:
 
     # ==================== CLOSE ====================
 
-    def close(self, closed_by: str, final_balance: Decimal | None = None) -> Self:
+    def close(self, closed_by: str, final_balance: Decimal | None = None) -> PettyCashFundEntity:
         if self.status == PettyCashStatus.CLOSED:
             raise ValueError("Petty cash already closed")
 
@@ -1083,7 +1092,7 @@ class PettyCashFundEntity:
         new_custodian_employee_id: UUID | None,
         changed_by: str,
         effective_date: datetime | None = None,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         if not self.can_change_custodian():
             raise ValueError(f"Cannot change custodian in status {self.status.value}")
 
@@ -1110,7 +1119,7 @@ class PettyCashFundEntity:
         new_secondary_name: str | None,
         new_secondary_employee_id: UUID | None,
         changed_by: str,
-    ) -> Self:
+    ) -> PettyCashFundEntity:
         new_pc = self._copy()
         new_pc.secondary_custodian_name = new_secondary_name
         new_pc.secondary_custodian_employee_id = new_secondary_employee_id
@@ -1127,7 +1136,7 @@ class PettyCashFundEntity:
 
     # ==================== SIGNATURE METHODS ====================
 
-    def sign(self, signed_by: str) -> Self:
+    def sign(self, signed_by: str) -> PettyCashFundEntity:
         new_pc = self._copy()
         new_pc.signature = PettyCashFundSignature.create(self, signed_by)
         new_pc.updated_at = datetime.now(UTC)
@@ -1253,7 +1262,7 @@ class PettyCashFundEntity:
 
     # ==================== PRIVATE HELPERS ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> PettyCashFundEntity:
         return PettyCashFundEntity(
             petty_cash_id=self.petty_cash_id,
             petty_cash_code=self.petty_cash_code,

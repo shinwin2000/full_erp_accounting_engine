@@ -506,16 +506,17 @@ class EmployeeBPJSEnrollmentVO:
     # ------------------------------------------------------------------------
 
     def is_active_on_date(self, check_date: date | None = None) -> bool:
-        """Check if enrollment is active on a specific date."""
-        if not self.is_active:
-            return False
+        """
+        Check if enrollment is active on a specific date.
+        (SIM103 fix: return boolean expression directly.)
+        """
         if check_date is None:
             check_date = date.today()
-        if check_date < self.enrollment_date:
-            return False
-        if self.termination_date and check_date > self.termination_date:
-            return False
-        return True
+        return (
+            self.is_active
+            and check_date >= self.enrollment_date
+            and (self.termination_date is None or check_date <= self.termination_date)
+        )
 
     def terminate(
         self, termination_date: date | None = None, reason: str = ""

@@ -19,6 +19,7 @@ Audit: Setiap pelanggaran invariant dictat.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from domain.legal_entity.aggregate_root import LegalEntity, LegalEntityStatus
@@ -281,13 +282,27 @@ class LegalEntityInvariantEnforcer:
 
     def __init__(
         self,
-        existing_codes_provider: callable,
-        existing_npwps_provider: callable,
+        existing_codes_provider: Callable[[], Awaitable[set[str]]] | Callable[[], set[str]],
+        existing_npwps_provider: Callable[[], Awaitable[set[str]]] | Callable[[], set[str]],
     ):
         self._existing_codes_provider = existing_codes_provider
         self._existing_npwps_provider = existing_npwps_provider
         self._legal_entity_invariants = LegalEntityInvariants()
         self._company_invariants = CompanyEntityInvariants()
+
+    async def _get_existing_codes(self) -> set[str]:
+        """Get existing codes, handling both sync and async callables."""
+        result = self._existing_codes_provider()
+        if hasattr(result, "__await__"):
+            return await result
+        return result
+
+    async def _get_existing_npwps(self) -> set[str]:
+        """Get existing NPWPs, handling both sync and async callables."""
+        result = self._existing_npwps_provider()
+        if hasattr(result, "__await__"):
+            return await result
+        return result
 
     async def enforce_create(
         self,
@@ -299,8 +314,8 @@ class LegalEntityInvariantEnforcer:
         """
         Menegakkan invariant saat pembuatan legal entity.
         """
-        existing_codes = await self._existing_codes_provider()
-        existing_npwps = await self._existing_npwps_provider()
+        existing_codes = await self._get_existing_codes()
+        existing_npwps = await self._get_existing_npwps()
 
         return self._legal_entity_invariants.validate_on_create(
             entity_code=entity_code,
@@ -318,8 +333,8 @@ class LegalEntityInvariantEnforcer:
         """
         Menegakkan invariant saat update legal entity.
         """
-        existing_codes = await self._existing_codes_provider()
-        existing_npwps = await self._existing_npwps_provider()
+        existing_codes = await self._get_existing_codes()
+        existing_npwps = await self._get_existing_npwps()
 
         # Remove current entity from uniqueness check
         existing_codes.discard(legal_entity.entity_code)
@@ -360,7 +375,7 @@ class LegalEntityInvariantEnforcer:
         """
         Menegakkan invariant saat pembuatan company.
         """
-        existing_npwps = await self._existing_npwps_provider()
+        existing_npwps = await self._get_existing_npwps()
 
         return self._company_invariants.validate_on_create(
             trade_name=trade_name,

@@ -685,7 +685,7 @@ class COAAggregate:
     version: int
     id: UUID | None
 
-    _events: list[DomainEvent] = []  # Will be overridden in __init__
+    # Removed class-level _events; it will be defined as instance attribute in __init__
 
     def __init__(self, coa: ChartOfAccounts | None = None):
         self._coa = coa

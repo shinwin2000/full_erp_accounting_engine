@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""
-Domain: Goodwill
-Responsibility: Goodwill accounting and impairment testing (PSAK 48 / IFRS 3, IAS 36).
-"""
-
 from .aggregate_root import (
     Goodwill,
     GoodwillAggregate,
@@ -38,33 +33,35 @@ from .impairment_tester import (
     ImpairmentTestResult,
 )
 
+"""
+Domain: Goodwill
+Responsibility: Goodwill accounting and impairment testing (PSAK 48 / IFRS 3, IAS 36).
+"""
+
 __all__ = [
-    # Aggregate
-    "Goodwill",
-    "GoodwillAggregate",
-    "GoodwillAllocation",
-    "GoodwillError",
-    "GoodwillImpairmentHistory",
-    "GoodwillRepository",
-    "GoodwillStatus",
-    "InvalidGoodwillAmountError",
-    "InvalidImpairmentAmountError",
-    "InvalidReversalAmountError",
-    # Domain Events
+    "CGUAllocation",
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
+    "Goodwill",
+    "GoodwillAggregate",
+    "GoodwillAllocation",
     "GoodwillAmortized",
     "GoodwillAmortizedEvent",
     "GoodwillDisposedEvent",
+    "GoodwillError",
     "GoodwillImpaired",
     "GoodwillImpairedEvent",
+    "GoodwillImpairmentHistory",
     "GoodwillImpairmentReversedEvent",
+    "GoodwillImpairmentTester",
     "GoodwillRecognized",
     "GoodwillRecognizedEvent",
-    # Impairment Tester
-    "CGUAllocation",
-    "GoodwillImpairmentTester",
+    "GoodwillRepository",
+    "GoodwillStatus",
     "ImpairmentTestError",
     "ImpairmentTestResult",
+    "InvalidGoodwillAmountError",
+    "InvalidImpairmentAmountError",
+    "InvalidReversalAmountError",
 ]

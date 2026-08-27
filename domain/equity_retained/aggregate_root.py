@@ -832,7 +832,8 @@ class EquityAggregate:
             raise InsufficientRetainedEarningsError(
                 f"Dividend amount {dividend.total_amount} exceeds retained earnings {self.total_retained_earnings}"
             )
-        new_dividends = self.dividend_declarations + [dividend]
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_dividends = [*self.dividend_declarations, dividend]
         self._register_event(
             DividendDeclaredEvent(
                 aggregate_id=self.equity_id,
@@ -1318,8 +1319,8 @@ class EquityRepository:
         query_lower = query.lower()
         results = []
         for agg in cls._storage.values():
-            for field in fields:
-                value = getattr(agg, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(agg, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(agg)
                     break

@@ -232,7 +232,6 @@ class InventoryInvariants:
             result.add_error(
                 f"Safety stock ({safety_stock}) cannot exceed reorder point ({reorder_point})"
             )
-        # Gabungkan kondisi bersarang menjadi satu
         if minimum_stock is not None and maximum_stock is not None and minimum_stock > maximum_stock:
             result.add_error(
                 f"Minimum stock ({minimum_stock}) cannot exceed maximum stock ({maximum_stock})"
@@ -277,9 +276,8 @@ class InventoryInvariantEnforcer:
         self,
         sku: str,
     ) -> InvariantResult:
-        existing_skus = (
-            await self._sku_checker() if callable(self._sku_checker) else self._sku_checker()
-        )
+        # _sku_checker adalah sync Callable, tidak perlu await
+        existing_skus = self._sku_checker() if callable(self._sku_checker) else set()
         return self._invariants.validate_item_sku_unique(sku, existing_skus)
 
     async def enforce_item_update(
@@ -333,11 +331,8 @@ class InventoryInvariantEnforcer:
         result.merge(ref_result)
 
         # === VALIDATE NEGATIVE STOCK (using new_stock calculation) ===
-        current_stock = (
-            await self._stock_getter(item_id, warehouse_id)
-            if callable(self._stock_getter)
-            else Decimal(0)
-        )
+        # _stock_getter adalah sync Callable, tidak perlu await
+        current_stock = self._stock_getter(item_id, warehouse_id) if callable(self._stock_getter) else Decimal(0)
         new_stock = current_stock - quantity
         if new_stock < 0:
             result.add_error(

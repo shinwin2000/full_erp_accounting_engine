@@ -315,12 +315,13 @@ class TrialBalanceCube:
     def clone(self) -> TrialBalanceCube:
         new_id = uuid4()
         now = datetime.now(UTC)
+        # C416 fix: use list() instead of list comprehension
         cloned = TrialBalanceCube(
             cube_id=new_id,
             legal_entity_id=self.legal_entity_id,
             period_start=self.period_start,
             period_end=self.period_end,
-            accounts=[acc for acc in self.accounts],  # Shallow copy of immutable accounts
+            accounts=list(self.accounts),  # Shallow copy of immutable accounts
             description=f"Cloned from {self.cube_id}",
             created_at=now,
             created_by=self.created_by,

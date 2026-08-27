@@ -445,6 +445,7 @@ DEFAULT_MATERIALITY_THRESHOLDS = [
 
 class MaterialityEvaluator:
     _instance: MaterialityEvaluator | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> MaterialityEvaluator:
         if cls._instance is None:
@@ -618,7 +619,7 @@ class MaterialityEvaluator:
             total = len(self._evaluations)
             if total == 0:
                 return {"total_evaluations": 0}
-            by_level = {}
+            by_level: dict[str, int] = {}  # anotasi ditambahkan
             for e in self._evaluations.values():
                 by_level[e.materiality_level.name] = by_level.get(e.materiality_level.name, 0) + 1
             return {

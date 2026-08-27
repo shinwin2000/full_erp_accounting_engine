@@ -173,9 +173,9 @@ class CustomerEntity:
             cleaned = re.sub(r"[^\d]", "", self.tax_id)
             if len(cleaned) != 15:
                 raise ValueError(f"Tax ID must be 15 digits, got {len(cleaned)}")
-        if self.email:
-            if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", self.email):
-                raise ValueError(f"Invalid email: {self.email}")
+        # Combined nested if for email validation (SIM102 fix)
+        if self.email and not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", self.email):
+            raise ValueError(f"Invalid email: {self.email}")
         if self.postal_code and not self.postal_code.isdigit():
             raise ValueError(f"Postal code must be digits: {self.postal_code}")
         self.outstanding_balance = self.outstanding_balance.quantize(
@@ -644,18 +644,7 @@ class CustomerEntity:
             }
         )
 
-    def deactivate(self, deactivated_by: str) -> CustomerEntity:
-        if self.status == CustomerStatus.INACTIVE:
-            return self
-        return CustomerEntity(
-            **{
-                **self.__dict__,
-                "status": CustomerStatus.INACTIVE,
-                "updated_at": datetime.now(UTC),
-                "updated_by": deactivated_by,
-                "version": self.version + 1,
-            }
-        )
+    # Duplicate deactivate method removed (F811 fix)
 
     def update_credit_hold(
         self, credit_hold: bool, updated_by: str, reason: str | None = None
@@ -828,8 +817,8 @@ class CustomerEntityRepository:
         query_lower = query.lower()
         results = []
         for cust in customers:
-            for field in fields:
-                value = getattr(cust, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(cust, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(cust)
                     break

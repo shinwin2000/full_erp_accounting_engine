@@ -15,7 +15,11 @@ from enum import Enum
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from domain.consolidation.domain_events import ConsolidationCompleted
+from domain.consolidation.domain_events import (
+    ConsolidationCompleted,
+    EliminationEntryCreated,
+    IntercompanyTransactionDetected,
+)
 from domain.consolidation.elimination_entry import EliminationEntry
 from domain.consolidation.intercompany_transaction import IntercompanyTransaction
 from domain.legal_entity.company_entity import Company
@@ -370,7 +374,8 @@ class ConsolidationGroup:
             raise ValueError(f"Cannot add subsidiary in status {self.status.value}")
         if subsidiary.company_id in [s.company_id for s in self.subsidiaries]:
             raise ValueError(f"Subsidiary {subsidiary.company_id} already exists")
-        new_subsidiaries = self.subsidiaries + [subsidiary]
+        # RUF005 fix: use iterable unpacking
+        new_subsidiaries = [*self.subsidiaries, subsidiary]
         new_group = self._copy()
         new_group.subsidiaries = new_subsidiaries
         new_group.updated_at = datetime.now(UTC)
@@ -402,7 +407,8 @@ class ConsolidationGroup:
         """Tambah transaksi antar perusahaan."""
         if not self.status.can_modify():
             raise ValueError(f"Cannot add transaction in status {self.status.value}")
-        new_transactions = self.intercompany_transactions + [transaction]
+        # RUF005 fix: use iterable unpacking
+        new_transactions = [*self.intercompany_transactions, transaction]
         new_group = self._copy()
         new_group.intercompany_transactions = new_transactions
         new_group.updated_at = datetime.now(UTC)

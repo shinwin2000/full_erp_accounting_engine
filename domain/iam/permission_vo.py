@@ -363,7 +363,10 @@ class PermissionVO:
         # Wildcard resource only
         if self.is_resource_wildcard:
             if isinstance(self.action, ActionType):
-                action_match = self.action.matches(other.action)
+                if isinstance(other.action, ActionType):
+                    action_match = self.action.matches(other.action)
+                else:
+                    action_match = self.action.value == other.action
             else:
                 action_match = self.action == "*" or self.action == other.action_value
             return action_match
@@ -371,7 +374,10 @@ class PermissionVO:
         # Wildcard action only
         if self.is_action_wildcard:
             if isinstance(self.resource, ResourceType):
-                resource_match = self.resource.matches(other.resource)
+                if isinstance(other.resource, ResourceType):
+                    resource_match = self.resource.matches(other.resource)
+                else:
+                    resource_match = self.resource.value == other.resource
             else:
                 resource_match = self.resource == "*" or self.resource == other.resource_value
             return resource_match

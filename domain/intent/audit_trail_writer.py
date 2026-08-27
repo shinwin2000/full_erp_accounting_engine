@@ -171,6 +171,7 @@ class AuditTrailWriter:
     """
 
     _instance: AuditTrailWriter | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
     _audit_records: dict[UUID, list[IntentAuditRecord]]
 
     def __new__(cls) -> AuditTrailWriter:

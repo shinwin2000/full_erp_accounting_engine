@@ -236,6 +236,7 @@ class EnrichedContext:
 
 class ContextEnricher:
     _instance: ContextEnricher | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> ContextEnricher:
         if cls._instance is None:

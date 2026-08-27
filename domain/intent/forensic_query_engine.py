@@ -7,6 +7,8 @@ Responsibility: Mesin query forensik untuk investigasi intent.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import threading
@@ -89,9 +91,6 @@ class ForensicQueryResult:
             object.__setattr__(self, "cryptographic_hash", self.compute_hash())
 
     def compute_hash(self) -> str:
-        import hashlib
-        import json
-
         content = {
             "query_id": str(self.query_id),
             "query_type": self.query_type.name,
@@ -230,6 +229,7 @@ class ForensicQueryResult:
 
 class ForensicQueryEngine:
     _instance: ForensicQueryEngine | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> ForensicQueryEngine:
         if cls._instance is None:
@@ -395,7 +395,7 @@ class ForensicQueryEngine:
             for field_name in fields:
                 val = r.data.get(field_name)
                 if (val and isinstance(val, str) and regex.search(val)) or (
-                    val and isinstance(val, int | float) and regex.search(str(val))
+                    val and isinstance(val, int | float) and regex.search(str(val))  # <- perbaikan di sini
                 ):
                     records.append(r)
                     break
@@ -417,7 +417,7 @@ class ForensicQueryEngine:
     def find_compromised_intents(self, executed_by: str = "system") -> ForensicQueryResult:
         start = time.perf_counter()
         suspicious = []
-        user_intents = {}
+        user_intents: dict[str, list[ImmutableIntentRecord]] = {}
         for r in self._get_all_records():
             user_intents.setdefault(r.created_by, []).append(r)
         for _user_id, intents in user_intents.items():
@@ -493,7 +493,7 @@ class ForensicQueryEngine:
             total = len(self._query_history)
             if total == 0:
                 return {"total_queries": 0}
-            by_type = {}
+            by_type: dict[str, int] = {}
             total_time = 0.0
             for q in self._query_history:
                 by_type[q.query_type.name] = by_type.get(q.query_type.name, 0) + 1

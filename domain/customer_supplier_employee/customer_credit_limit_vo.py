@@ -360,13 +360,11 @@ class CustomerCreditLimitVO:
         if check_date.tzinfo is None:
             check_date = check_date.replace(tzinfo=UTC)
 
-        if self.status != CreditLimitStatus.ACTIVE:
-            return False
-        if check_date < self.effective_date:
-            return False
-        if self.expiry_date is not None and check_date >= self.expiry_date:
-            return False
-        return True
+        return (
+            self.status == CreditLimitStatus.ACTIVE
+            and check_date >= self.effective_date
+            and (self.expiry_date is None or check_date < self.expiry_date)
+        )
 
     def is_exceeded(self, current_balance: Decimal, as_of: datetime | None = None) -> bool:
         """
@@ -626,12 +624,12 @@ def sum_credit_limits(limits: list[CustomerCreditLimitVO]) -> CustomerCreditLimi
     if not limits:
         return CustomerCreditLimitVO.zero()
     first = limits[0]
-    total_amount = sum(l.amount for l in limits)
+    total_amount = sum(limit.amount for limit in limits)
     # Take the earliest effective date and latest expiry
-    effective = min(l.effective_date for l in limits)
+    effective = min(limit.effective_date for limit in limits)
     expiry = (
-        max(l.expiry_date for l in limits if l.expiry_date is not None)
-        if any(l.expiry_date for l in limits)
+        max(limit.expiry_date for limit in limits if limit.expiry_date is not None)
+        if any(limit.expiry_date for limit in limits)
         else None
     )
     return CustomerCreditLimitVO(
@@ -648,7 +646,7 @@ def get_most_recent_limit(limits: list[CustomerCreditLimitVO]) -> CustomerCredit
     """Return the most recent (latest effective date) credit limit."""
     if not limits:
         return None
-    return max(limits, key=lambda l: l.effective_date)
+    return max(limits, key=lambda limit: limit.effective_date)
 
 
 def get_active_limit_at_date(
@@ -657,11 +655,11 @@ def get_active_limit_at_date(
     """Return the active credit limit on a given date."""
     if as_of is None:
         as_of = datetime.now(UTC)
-    active = [l for l in limits if l.is_active(as_of)]
+    active = [limit for limit in limits if limit.is_active(as_of)]
     if not active:
         return None
     # Return the one with highest effective date (most recent)
-    return max(active, key=lambda l: l.effective_date)
+    return max(active, key=lambda limit: limit.effective_date)
 
 
 # ============================================================================

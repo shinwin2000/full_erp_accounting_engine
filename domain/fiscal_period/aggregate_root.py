@@ -196,26 +196,26 @@ class FiscalPeriod:
 
     def __init__(
         self,
-        period_id: UUID = None,
-        legal_entity_id: UUID = None,
-        period_type: PeriodType = None,
-        period_number: int = None,
-        year: int = None,
-        start_date: datetime = None,
-        end_date: datetime = None,
-        status: PeriodStatus = None,
-        opened_at: datetime = None,
-        opened_by: str = None,
-        closed_at: datetime = None,
-        closed_by: str = None,
-        locked_at: datetime = None,
-        locked_by: str = None,
-        created_at: datetime = None,
-        updated_at: datetime = None,
+        period_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        period_type: PeriodType | None = None,
+        period_number: int | None = None,
+        year: int | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        status: PeriodStatus | None = None,
+        opened_at: datetime | None = None,
+        opened_by: str | None = None,
+        closed_at: datetime | None = None,
+        closed_by: str | None = None,
+        locked_at: datetime | None = None,
+        locked_by: str | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
         created_by: str = "system",
         updated_by: str = "system",
         version: int = 1,
-        period: str = None,
+        period: str | None = None,
     ):
         # Handle test case where period is provided as string
         if period is not None:
@@ -446,7 +446,7 @@ class FiscalPeriod:
         year: int,
         month: int,
         created_by: str = "system",
-        period_id: UUID = None,
+        period_id: UUID | None = None,
         status: PeriodStatus = PeriodStatus.OPEN,
     ) -> FiscalPeriod:
         return cls(
@@ -473,7 +473,7 @@ class FiscalPeriod:
         year: int,
         quarter: int,
         created_by: str = "system",
-        period_id: UUID = None,
+        period_id: UUID | None = None,
         status: PeriodStatus = PeriodStatus.OPEN,
     ) -> FiscalPeriod:
         start_month = (quarter - 1) * 3 + 1
@@ -501,7 +501,7 @@ class FiscalPeriod:
         legal_entity_id: UUID,
         year: int,
         created_by: str = "system",
-        period_id: UUID = None,
+        period_id: UUID | None = None,
         status: PeriodStatus = PeriodStatus.OPEN,
     ) -> FiscalPeriod:
         return cls(
@@ -872,7 +872,6 @@ class FiscalPeriod:
         """
         Return True if this period overlaps with another period.
         """
-        # Logika yang benar: overlap jika start_date < other.end_date AND other.start_date < end_date
         return self._start_date < other._end_date and other._start_date < self._end_date
 
     # ==================== VALIDATE & CONVERT METHODS ====================

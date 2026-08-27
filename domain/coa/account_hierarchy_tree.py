@@ -109,7 +109,7 @@ class HierarchyNode:
 
     def to_dict(self, include_children: bool = True) -> dict[str, Any]:
         """Convert node to dictionary for serialization."""
-        result = {
+        result: dict[str, Any] = {
             "account_id": str(self.account.account_id),
             "account_code": self.account.account_code,
             "account_name": self.account.account_name,
@@ -155,7 +155,6 @@ class HierarchyNode:
     def clone(self, new_account_id_map: dict[UUID, UUID] | None = None) -> HierarchyNode:
         """Create a deep copy of this node and all descendants."""
         cloned_account = self.account.clone() if hasattr(self.account, "clone") else self.account
-        # If account has clone method, use it; otherwise, we assume immutable
         cloned_node = HierarchyNode(
             account=cloned_account,
             level=self.level,
@@ -209,7 +208,7 @@ class HierarchyNode:
 
     def get_all_descendants(self) -> list[HierarchyNode]:
         """Return all descendant nodes (BFS order)."""
-        result = []
+        result: list[HierarchyNode] = []
         queue = deque(self.children)
         while queue:
             node = queue.popleft()
@@ -219,7 +218,7 @@ class HierarchyNode:
 
     def get_all_leaf_nodes(self) -> list[HierarchyNode]:
         """Return all leaf nodes (no children) under this node."""
-        leaves = []
+        leaves: list[HierarchyNode] = []
         if not self.children:
             leaves.append(self)
         else:
@@ -229,7 +228,7 @@ class HierarchyNode:
 
     def audit_trail(self) -> list[dict[str, Any]]:
         """Collect audit trail information for this node and descendants."""
-        entries = [self.snapshot()]
+        entries: list[dict[str, Any]] = [self.snapshot()]
         for child in self.children:
             entries.extend(child.audit_trail())
         return entries
@@ -534,7 +533,7 @@ class AccountHierarchyTree:
 
     def get_ancestors(self, account_id: UUID) -> list[HierarchyNode]:
         """Return all ancestors (parent, grandparent, etc.) up to root."""
-        ancestors = []
+        ancestors: list[HierarchyNode] = []
         current = self.get_parent(account_id)
         while current:
             ancestors.append(current)
@@ -588,7 +587,7 @@ class AccountHierarchyTree:
 
     def dfs_preorder(self, root_id: UUID | None = None) -> list[HierarchyNode]:
         """Depth-first search pre-order traversal."""
-        result = []
+        result: list[HierarchyNode] = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
             if rid in self._nodes:
@@ -602,7 +601,7 @@ class AccountHierarchyTree:
 
     def dfs_postorder(self, root_id: UUID | None = None) -> list[HierarchyNode]:
         """Depth-first search post-order traversal."""
-        result = []
+        result: list[HierarchyNode] = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
             if rid in self._nodes:
@@ -616,7 +615,7 @@ class AccountHierarchyTree:
 
     def bfs(self, root_id: UUID | None = None) -> list[HierarchyNode]:
         """Breadth-first search traversal."""
-        result = []
+        result: list[HierarchyNode] = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
             if rid in self._nodes:
@@ -638,7 +637,7 @@ class AccountHierarchyTree:
 
     def get_leaf_nodes(self) -> list[HierarchyNode]:
         """Return all leaf nodes (accounts with no children)."""
-        leaves = []
+        leaves: list[HierarchyNode] = []
         for node in self._nodes.values():
             if not node.children:
                 leaves.append(node)
@@ -650,7 +649,7 @@ class AccountHierarchyTree:
 
     def find_by_code_prefix(self, prefix: str) -> list[HierarchyNode]:
         """Find all accounts whose code starts with given prefix."""
-        result = []
+        result: list[HierarchyNode] = []
         for node in self._nodes.values():
             if node.account.account_code.startswith(prefix):
                 result.append(node)
@@ -660,7 +659,7 @@ class AccountHierarchyTree:
         self, substring: str, case_sensitive: bool = False
     ) -> list[HierarchyNode]:
         """Find accounts whose name contains substring."""
-        result = []
+        result: list[HierarchyNode] = []
         search = substring if case_sensitive else substring.lower()
         for node in self._nodes.values():
             name = (
@@ -672,7 +671,7 @@ class AccountHierarchyTree:
 
     def find_by_type(self, account_type) -> list[HierarchyNode]:
         """Find all accounts of a given account type."""
-        result = []
+        result: list[HierarchyNode] = []
         for node in self._nodes.values():
             if node.account.account_type == account_type:
                 result.append(node)
@@ -680,7 +679,7 @@ class AccountHierarchyTree:
 
     def find_by_level(self, level: int) -> list[HierarchyNode]:
         """Find all accounts at specific depth level."""
-        result = []
+        result: list[HierarchyNode] = []
         for node in self._nodes.values():
             if node.level == level:
                 result.append(node)
@@ -701,7 +700,7 @@ class AccountHierarchyTree:
 
     def get_validation_errors(self) -> list[str]:
         """Return a list of validation error messages."""
-        errors = []
+        errors: list[str] = []
         if self.has_orphans:
             errors.append(f"Orphan accounts: {len(self._orphans)} accounts have missing parents")
         for node in self._nodes.values():
@@ -825,11 +824,6 @@ class AccountHierarchyTree:
 
         temp_tree = self.remove_account(account_id, cascade=False)
         original_account = self._nodes[account_id].account
-        # In real implementation, we'd need to create a new account entity with updated parent
-        # For now, we'll just add back with the same account but modified parent
-        # This requires the account to be mutable or we create a new instance
-        # Since we don't have a direct way to update account parent immutably here,
-        # we'll assume the account is already updated externally.
         return temp_tree.add_account(original_account)
 
     # ------------------------------------------------------------------------
@@ -895,7 +889,6 @@ class AccountHierarchyTree:
             roots.append(root_node.account.account_id)
         orphan_codes = data.get("orphan_accounts", [])
         for orphan_code in orphan_codes:
-            # Find account by code
             for acc_id, acc in accounts_map.items():
                 if acc.account_code == orphan_code:
                     orphans.append(acc_id)
@@ -909,10 +902,8 @@ class AccountHierarchyTree:
         new_nodes = {}
         new_roots = list(self._roots)
         new_orphans = list(self._orphans)
-        # Deep copy nodes
         for acc_id, node in self._nodes.items():
             new_nodes[acc_id] = node.clone()
-        # Rebuild children relationships (clone already preserves children)
         return AccountHierarchyTree(nodes=new_nodes, roots=new_roots, orphans=new_orphans)
 
     def snapshot(self) -> dict[str, Any]:
@@ -937,7 +928,7 @@ class AccountHierarchyTree:
 
     def pretty_print(self, root_id: UUID | None = None, indent: int = 2) -> str:
         """Return a string representation of the tree for debugging."""
-        lines = []
+        lines: list[str] = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
             if rid in self._nodes:

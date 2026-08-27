@@ -542,13 +542,21 @@ class UserEntity:
         status = UserStatus.from_string(data["status"]) or UserStatus.PENDING_ACTIVATION
         profile = UserProfile.from_dict(data["profile"])
         audit = UserAudit(**data.get("audit", {}))
+
+        # Pastikan password_hash selalu bertipe PasswordHashedVO
+        password_hash = data.get("password_hash")
+        if isinstance(password_hash, PasswordHashedVO):
+            pass  # sudah benar
+        elif isinstance(password_hash, str):
+            password_hash = PasswordHashedVO(password_hash, "bcrypt")
+        else:
+            raise UserError("Invalid password_hash format in data")
+
         return cls(
             user_id=UUID(data["user_id"]),
             username=data["username"],
             email=data["email"],
-            password_hash=PasswordHashedVO(data["password_hash"], "bcrypt")
-            if isinstance(data.get("password_hash"), str)
-            else data.get("password_hash"),
+            password_hash=password_hash,
             status=status,
             profile=profile,
             legal_entity_id=UUID(data["legal_entity_id"]),

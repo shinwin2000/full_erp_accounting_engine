@@ -690,10 +690,7 @@ class DomainEventPublisher:
 
 def deserialize_domain_event(json_str: str) -> DomainEvent:
     """Deserialize JSON string to appropriate DomainEvent subclass."""
-    data = json.loads(json_str)
-    event_type = DomainEventType(data["event_type"])
-    # All events use the base class constructor pattern
-    return DomainEvent.from_dict(data)
+    return DomainEvent.from_dict(json.loads(json_str))
 
 
 def serialize_domain_event(event: DomainEvent) -> str:
@@ -706,37 +703,32 @@ def serialize_domain_event(event: DomainEvent) -> str:
 # ============================================================================
 
 __all__ = [
-    "DomainEventType",
-    "DomainEvent",
-    # Asset events
-    "AssetAcquiredEvent",
-    "AssetUpdatedEvent",
-    "AssetDepreciationPostedEvent",
-    "AssetRevaluatedEvent",
-    "AssetDisposedEvent",
-    "AssetTransferredEvent",
-    "AssetImpairedEvent",
-    "AssetImpairmentReversedEvent",
-    "AssetFullyDepreciatedEvent",
-    # Group events
-    "AssetGroupCreatedEvent",
-    "AssetGroupUpdatedEvent",
-    # Short aliases
     "AssetAcquired",
-    "AssetUpdated",
+    "AssetAcquiredEvent",
     "AssetDepreciated",
-    "AssetRevalued",
+    "AssetDepreciationPostedEvent",
     "AssetDisposed",
-    "AssetTransferred",
-    "AssetImpaired",
-    "AssetImpairmentReversed",
+    "AssetDisposedEvent",
     "AssetFullyDepreciated",
+    "AssetFullyDepreciatedEvent",
     "AssetGroupCreated",
+    "AssetGroupCreatedEvent",
     "AssetGroupUpdated",
-    "AssetImpairmentRecognized",  # added for compatibility
-    # Protocols
+    "AssetGroupUpdatedEvent",
+    "AssetImpaired",
+    "AssetImpairedEvent",
+    "AssetImpairmentRecognized",
+    "AssetImpairmentReversed",
+    "AssetImpairmentReversedEvent",
+    "AssetRevaluatedEvent",
+    "AssetRevalued",
+    "AssetTransferred",
+    "AssetTransferredEvent",
+    "AssetUpdated",
+    "AssetUpdatedEvent",
+    "DomainEvent",
     "DomainEventPublisher",
-    # Helpers
+    "DomainEventType",
     "deserialize_domain_event",
     "serialize_domain_event",
 ]

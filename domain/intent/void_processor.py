@@ -258,6 +258,7 @@ class VoidRecord:
 
 class VoidProcessor:
     _instance: VoidProcessor | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> VoidProcessor:
         if cls._instance is None:
@@ -428,8 +429,8 @@ class VoidProcessor:
             total = len(self._void_records)
             if total == 0:
                 return {"total_voided_intents": 0}
-            by_reason = {}
-            by_user = {}
+            by_reason: dict[str, int] = {}  # anotasi ditambahkan
+            by_user: dict[str, int] = {}    # anotasi ditambahkan
             for r in self._void_records.values():
                 by_reason[r.reason.name] = by_reason.get(r.reason.name, 0) + 1
                 by_user[r.voided_by] = by_user.get(r.voided_by, 0) + 1

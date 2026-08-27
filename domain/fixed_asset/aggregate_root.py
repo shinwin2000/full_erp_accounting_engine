@@ -274,8 +274,7 @@ class FixedAssetCollection:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
-        return self.version
+    # Removed redundant version() method (F811) because 'version' is already a field.
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -567,7 +566,8 @@ class FixedAssetCollection:
         )
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
-        new_revaluations = self.revaluations + [revaluation]
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_revaluations = [*self.revaluations, revaluation]
         self.register_event(
             AssetRevaluatedEvent(
                 aggregate_id=self.asset_id,
@@ -609,7 +609,8 @@ class FixedAssetCollection:
         )
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
-        new_disposals = self.disposals + [disposal]
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_disposals = [*self.disposals, disposal]
         self.register_event(
             AssetDisposedEvent(
                 aggregate_id=self.asset_id,
@@ -643,7 +644,8 @@ class FixedAssetCollection:
         updated_asset = asset.transfer(transfer.destination, transfer.completed_by or UUID(int=0))
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
-        new_transfers = self.transfers + [transfer]
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_transfers = [*self.transfers, transfer]
         self.register_event(
             AssetTransferredEvent(
                 aggregate_id=self.asset_id,

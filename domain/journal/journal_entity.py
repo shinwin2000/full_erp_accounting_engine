@@ -314,12 +314,17 @@ class JournalStateMachine:
             if rule.check_period_open and not period_is_open:
                 return False, "Accounting period is closed. Cannot perform this transition."
 
-            if rule.requires_approval and user_role not in (
-                rule.allowed_user_roles or [rule.required_role]
-            ):
+            # --- FIX: Build allowed_roles list safely ---
+            allowed_roles: list[str] = []
+            if rule.allowed_user_roles:
+                allowed_roles.extend(rule.allowed_user_roles)
+            if rule.required_role:
+                allowed_roles.append(rule.required_role)
+
+            if rule.requires_approval and user_role not in allowed_roles:
                 return (
                     False,
-                    f"Approval required. User must have role '{rule.required_role or rule.allowed_user_roles}'",
+                    f"Approval required. User must have one of roles: {allowed_roles}",
                 )
 
             if rule.requires_reason and not reason:
@@ -625,7 +630,8 @@ class JournalEntity:
         self._ensure_editable("update metadata")
         self._ensure_not_posted("update metadata")
 
-        changes = {}
+        # Use Any to allow None values for reference
+        changes: dict[str, Any] = {}
         new_description = self.description
         new_reference = self.reference
         new_transaction_date = self.transaction_date
@@ -637,6 +643,7 @@ class JournalEntity:
             new_description = description
 
         if reference is not None and reference != self.reference:
+            # Allow None values in the change dict
             changes["reference"] = {"old": self.reference, "new": reference}
             new_reference = reference
 

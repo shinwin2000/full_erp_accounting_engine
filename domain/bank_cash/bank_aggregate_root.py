@@ -89,6 +89,22 @@ class BankAggregate:
     def __post_init__(self) -> None:
         object.__setattr__(self, "_events", [])
 
+    # ==================== HELPER ====================
+
+    @staticmethod
+    def _to_uuid(value: str | UUID | None) -> UUID | None:
+        """Convert string to UUID if possible, otherwise return None."""
+        if value is None:
+            return None
+        if isinstance(value, UUID):
+            return value
+        if isinstance(value, str):
+            try:
+                return UUID(value)
+            except ValueError:
+                return None
+        return None
+
     # ==================== FACTORY METHODS (untuk checker) ====================
 
     @classmethod
@@ -380,7 +396,7 @@ class BankAggregate:
         account_id: UUID,
         amount: Decimal,
         description: str,
-        created_by: str,
+        created_by: str | UUID,
         reference: str | None = None,
     ) -> Self:
         self._validate_account_exists(account_id)
@@ -388,7 +404,9 @@ class BankAggregate:
         account = self.accounts[account_id]
         if not account.can_deposit(amount):
             raise ValueError(f"Cannot deposit {amount} to account {account_id}")
-        updated_account = account.deposit(amount, created_by)
+        # Convert created_by to UUID if needed
+        creator_uuid = self._to_uuid(created_by) or uuid4()
+        updated_account = account.deposit(amount, creator_uuid)
         transaction = BankTransactionEntity(
             transaction_id=uuid4(),
             legal_entity_id=self.legal_entity_id,
@@ -402,7 +420,7 @@ class BankAggregate:
             counterparty_account=None,
             status=BankTransactionStatus.PENDING,
             is_reconciled=False,
-            created_by=created_by,
+            created_by=creator_uuid,
             created_at=datetime.now(UTC),
             reconciled_at=None,
         )
@@ -424,7 +442,7 @@ class BankAggregate:
         account_id: UUID,
         amount: Decimal,
         description: str,
-        created_by: str,
+        created_by: str | UUID,
         reference: str | None = None,
     ) -> Self:
         self._validate_account_exists(account_id)
@@ -432,7 +450,8 @@ class BankAggregate:
         account = self.accounts[account_id]
         if not account.can_withdraw(amount):
             raise ValueError(f"Cannot withdraw {amount} from account {account_id}")
-        updated_account = account.withdraw(amount, created_by)
+        creator_uuid = self._to_uuid(created_by) or uuid4()
+        updated_account = account.withdraw(amount, creator_uuid)
         transaction = BankTransactionEntity(
             transaction_id=uuid4(),
             legal_entity_id=self.legal_entity_id,
@@ -446,7 +465,7 @@ class BankAggregate:
             counterparty_account=None,
             status=BankTransactionStatus.PENDING,
             is_reconciled=False,
-            created_by=created_by,
+            created_by=creator_uuid,
             created_at=datetime.now(UTC),
             reconciled_at=None,
         )
@@ -471,7 +490,7 @@ class BankAggregate:
         to_account_id: UUID,
         amount: Decimal,
         description: str,
-        created_by: str,
+        created_by: str | UUID,
         reference: str | None = None,
     ) -> Self:
         self._validate_account_exists(from_account_id)
@@ -485,8 +504,9 @@ class BankAggregate:
             raise ValueError(f"Currency mismatch: {from_acc.currency} vs {to_acc.currency}")
         if not from_acc.can_withdraw(amount):
             raise ValueError(f"Insufficient funds in source account: {from_acc.current_balance}")
-        updated_from = from_acc.withdraw(amount, created_by)
-        updated_to = to_acc.deposit(amount, created_by)
+        creator_uuid = self._to_uuid(created_by) or uuid4()
+        updated_from = from_acc.withdraw(amount, creator_uuid)
+        updated_to = to_acc.deposit(amount, creator_uuid)
 
         out_tx = BankTransactionEntity(
             transaction_id=uuid4(),
@@ -501,7 +521,7 @@ class BankAggregate:
             counterparty_account=to_acc.account_number,
             status=BankTransactionStatus.PENDING,
             is_reconciled=False,
-            created_by=created_by,
+            created_by=creator_uuid,
             created_at=datetime.now(UTC),
             reconciled_at=None,
         )
@@ -518,7 +538,7 @@ class BankAggregate:
             counterparty_account=from_acc.account_number,
             status=BankTransactionStatus.PENDING,
             is_reconciled=False,
-            created_by=created_by,
+            created_by=creator_uuid,
             created_at=datetime.now(UTC),
             reconciled_at=None,
         )
@@ -573,7 +593,8 @@ class BankAggregate:
         if idx is None:
             raise ValueError(f"Transaction {transaction_id} not found")
         tx = self.transactions[idx]
-        if not tx.is_pending():
+        # check if pending via status
+        if tx.status != BankTransactionStatus.PENDING:
             raise ValueError(f"Cannot clear transaction in status {tx.status.value}")
         cleared_tx = tx.mark_as_cleared(cleared_by)
         new_transactions = self.transactions.copy()
@@ -585,7 +606,7 @@ class BankAggregate:
         self.register_event({"type": "TRANSACTION_CLEARED", "transaction_id": str(transaction_id)})
         return new_agg
 
-    def reconcile_transaction(self, transaction_id: UUID, reconciled_by: UUID) -> Self:
+    def reconcile_transaction(self, transaction_id: UUID, reconciled_by: UUID | str) -> Self:
         """Mark a transaction as reconciled (bank reconciliation)."""
         idx = next(
             (i for i, t in enumerate(self.transactions) if t.transaction_id == transaction_id), None
@@ -595,7 +616,8 @@ class BankAggregate:
         tx = self.transactions[idx]
         if tx.is_reconciled:
             raise ValueError("Transaction already reconciled")
-        reconciled_tx = tx.mark_as_reconciled(reconciled_by)
+        recon_uuid = self._to_uuid(reconciled_by) or uuid4()
+        reconciled_tx = tx.mark_as_reconciled(recon_uuid)
         new_transactions = self.transactions.copy()
         new_transactions[idx] = reconciled_tx
         new_agg = self._copy()
@@ -616,22 +638,24 @@ class BankAggregate:
 
         return new_agg
 
-    def cancel_transaction(self, transaction_id: UUID, cancelled_by: UUID, reason: str) -> Self:
+    def cancel_transaction(self, transaction_id: UUID, cancelled_by: UUID | str, reason: str) -> Self:
         idx = next(
             (i for i, t in enumerate(self.transactions) if t.transaction_id == transaction_id), None
         )
         if idx is None:
             raise ValueError(f"Transaction {transaction_id} not found")
         tx = self.transactions[idx]
-        if tx.is_cleared() or tx.is_reconciled:
+        # Check if cleared or reconciled: use status and is_reconciled flag
+        if tx.status == BankTransactionStatus.CLEARED or tx.is_reconciled:
             raise ValueError("Cannot cancel cleared/reconciled transaction")
-        cancelled_tx = tx.cancel(cancelled_by, reason)
+        cancel_uuid = self._to_uuid(cancelled_by) or uuid4()
+        cancelled_tx = tx.cancel(cancel_uuid, reason)
         # Reverse account balance
         account = self.accounts[tx.bank_account_id]
         if tx.is_outflow:
-            reversed_account = account.deposit(tx.amount, cancelled_by)
+            reversed_account = account.deposit(tx.amount, cancel_uuid)
         else:
-            reversed_account = account.withdraw(tx.amount, cancelled_by)
+            reversed_account = account.withdraw(tx.amount, cancel_uuid)
         new_accounts = self.accounts.copy()
         new_accounts[tx.bank_account_id] = reversed_account
         new_transactions = self.transactions.copy()
@@ -749,7 +773,7 @@ class BankAggregate:
         statement_balance: Decimal,
         statement_date: datetime,
         statement_transactions: list[dict[str, Any]],
-        reconciled_by: str,
+        reconciled_by: str | UUID,
     ) -> tuple[Self, ReconciliationResult]:
         """Perform bank reconciliation."""
         self._validate_account_exists(account_id)
@@ -769,19 +793,20 @@ class BankAggregate:
             statement_balance,
             statement_date,
             statement_transactions,
-            reconciled_by,
+            str(reconciled_by) if isinstance(reconciled_by, UUID) else reconciled_by,
         )
         # Update matched transactions to reconciled
         new_transactions = []
+        recon_uuid = self._to_uuid(reconciled_by) or uuid4()
         for tx in self.transactions:
             if any(item.transaction_id == tx.transaction_id for item in result.matched_items):
-                new_tx = tx.mark_as_reconciled(reconciled_by)
+                new_tx = tx.mark_as_reconciled(recon_uuid)
                 new_transactions.append(new_tx)
             else:
                 new_transactions.append(tx)
         new_reconciliations = [*self.reconciliations, result]
         account = self.accounts[account_id]
-        updated_account = account.mark_reconciled(statement_balance, reconciled_by)
+        updated_account = account.mark_reconciled(statement_balance, recon_uuid)
         new_accounts = self.accounts.copy()
         new_accounts[account_id] = updated_account
         new_agg = self._copy()
@@ -803,8 +828,8 @@ class BankAggregate:
         start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=UTC)
         end = start + timedelta(days=1)
         today_transactions = self.get_transactions(from_date=start, to_date=end)
-        total_debit = sum(t.amount for t in today_transactions if t.is_outflow)
-        total_credit = sum(t.amount for t in today_transactions if t.is_inflow)
+        total_debit = sum((t.amount for t in today_transactions if t.is_outflow), Decimal(0))
+        total_credit = sum((t.amount for t in today_transactions if t.is_inflow), Decimal(0))
         last_tx = max(self.transactions, key=lambda x: x.created_at) if self.transactions else None
         return BankSummary(
             total_accounts=len(self.accounts),

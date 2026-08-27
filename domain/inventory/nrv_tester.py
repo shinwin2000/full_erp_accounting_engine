@@ -157,17 +157,27 @@ class NRVTester:
         """
         Menguji NRV untuk satu item.
         """
-        selling_price = estimated_selling_price or getattr(item, "selling_price", Decimal(0))
-        if selling_price <= 0:
-            selling_price = getattr(item, "standard_cost", Decimal(0)) * Decimal("1.2")
+        # Pastikan selling_price selalu Decimal
+        selling_price = estimated_selling_price
+        if selling_price is None or selling_price <= 0:
+            selling_price = getattr(item, "selling_price", Decimal(0))
+            if selling_price is None or selling_price <= 0:
+                selling_price = getattr(item, "standard_cost", Decimal(0)) * Decimal("1.2")
+        # Jika masih None, set ke 0
+        if selling_price is None:
+            selling_price = Decimal(0)
 
-        cost_to_sell = estimated_cost_to_sell or (
-            selling_price * self.default_cost_to_sell_percentage / 100
-        )
+        cost_to_sell = estimated_cost_to_sell
+        if cost_to_sell is None or cost_to_sell <= 0:
+            cost_to_sell = selling_price * self.default_cost_to_sell_percentage / 100
+        if cost_to_sell is None:
+            cost_to_sell = Decimal(0)
 
         nrv_per_unit = selling_price - cost_to_sell
         nrv_total = nrv_per_unit * quantity
         unit_cost = getattr(item, "unit_cost", getattr(item, "standard_cost", Decimal(0)))
+        if unit_cost is None:
+            unit_cost = Decimal(0)
         total_cost = unit_cost * quantity
 
         write_down_needed = total_cost > nrv_total
@@ -212,7 +222,8 @@ class NRVTester:
         # Calculate write-down based on method
         if method == WriteDownMethod.PER_ITEM:
             total_write_down = sum(
-                ti.write_down_amount for ti in test_items if ti.write_down_needed
+                (ti.write_down_amount for ti in test_items if ti.write_down_needed),
+                Decimal(0)
             )
         elif method == WriteDownMethod.PER_CATEGORY:
             category_groups: dict[str, dict[str, Decimal]] = {}
@@ -292,7 +303,10 @@ class NRVTester:
 
             for threshold, percentage in sorted(provision_percentages.items()):
                 if days_in_stock >= threshold:
-                    provision += getattr(item, "unit_cost", Decimal(0)) * quantity * percentage
+                    unit_cost = getattr(item, "unit_cost", Decimal(0))
+                    if unit_cost is None:
+                        unit_cost = Decimal(0)
+                    provision += unit_cost * quantity * percentage
                     break
 
         return provision.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

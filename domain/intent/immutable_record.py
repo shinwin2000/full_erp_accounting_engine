@@ -1,5 +1,5 @@
-# domain/intent/immutable_record.py
 #!/usr/bin/env python3
+# ruff: noqa: UP006
 """
 Module: immutable_record.py
 Layer: 5 - Reality, Intent, Causality / Intent
@@ -15,7 +15,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
-from typing import Any
+from typing import Any, List  # noqa: UP035
 from uuid import UUID, uuid4
 
 from domain.intent.intent_type import IntentType
@@ -57,7 +57,6 @@ class ImmutableIntentRecord:
     previous_hash: str | None = None
     cryptographic_hash: str = ""
 
-    # PERBAIKAN: field mutable dengan default_factory
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
@@ -285,6 +284,7 @@ class ImmutableIntentRecord:
 
 class ImmutableIntentRecordService:
     _instance: ImmutableIntentRecordService | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> ImmutableIntentRecordService:
         if cls._instance is None:
@@ -309,9 +309,9 @@ class ImmutableIntentRecordService:
         with self._lock:
             return self._records.get(intent_id)
 
-    def get_chain(self, intent_id: UUID) -> list[ImmutableIntentRecord]:
+    def get_chain(self, intent_id: UUID) -> List[ImmutableIntentRecord]:
         with self._lock:
-            chain = []
+            chain: List[ImmutableIntentRecord] = []
             current = self._records.get(intent_id)
             while current:
                 chain.insert(0, current)
@@ -321,13 +321,13 @@ class ImmutableIntentRecordService:
                     break
             return chain
 
-    def get_by_status(self, status: IntentStatus, limit: int = 100) -> list[ImmutableIntentRecord]:
+    def get_by_status(self, status: IntentStatus, limit: int = 100) -> List[ImmutableIntentRecord]:
         with self._lock:
             result = [r for r in self._records.values() if r.status == status]
             result.sort(key=lambda r: r.created_at, reverse=True)
             return result[:limit]
 
-    def get_all(self) -> list[ImmutableIntentRecord]:
+    def get_all(self) -> List[ImmutableIntentRecord]:
         with self._lock:
             return list(self._records.values())
 
@@ -335,14 +335,14 @@ class ImmutableIntentRecordService:
         with self._lock:
             return len(self._records)
 
-    def list(self, limit: int = 100, offset: int = 0) -> list[ImmutableIntentRecord]:
+    def list(self, limit: int = 100, offset: int = 0) -> List[ImmutableIntentRecord]:
         records = self.get_all()
         records.sort(key=lambda r: r.created_at, reverse=True)
         return records[offset : offset + limit]
 
     def paginate(
         self, page: int = 1, per_page: int = 20
-    ) -> tuple[list[ImmutableIntentRecord], int]:
+    ) -> tuple[List[ImmutableIntentRecord], int]:
         records = self.get_all()
         total = len(records)
         records.sort(key=lambda r: r.created_at, reverse=True)
@@ -353,9 +353,9 @@ class ImmutableIntentRecordService:
     def exists(self, intent_id: UUID) -> bool:
         return self.get(intent_id) is not None
 
-    def search(self, query: str, fields: list[str] | None = None) -> list[ImmutableIntentRecord]:
+    def search(self, query: str, fields: List[str] | None = None) -> List[ImmutableIntentRecord]:
         query_lower = query.lower()
-        results = []
+        results: List[ImmutableIntentRecord] = []
         with self._lock:
             for rec in self._records.values():
                 if query_lower in rec.created_by.lower() or any(
@@ -391,7 +391,7 @@ class ImmutableIntentRecordService:
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:
             total = len(self._records)
-            by_status = {}
+            by_status: dict[str, int] = {}
             for r in self._records.values():
                 by_status[r.status.name] = by_status.get(r.status.name, 0) + 1
             return {"total_records": total, "by_status": by_status}

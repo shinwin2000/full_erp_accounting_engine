@@ -228,7 +228,8 @@ class IntentRevision:
             version=1,
         )
 
-    def snapshot(self) -> dict[str, Any]:
+    # Method renamed to avoid conflict with field 'snapshot'
+    def get_snapshot_summary(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "revision_id": str(self.revision_id),
@@ -250,6 +251,7 @@ class IntentRevision:
 
 class RevisionLogger:
     _instance: RevisionLogger | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> RevisionLogger:
         if cls._instance is None:

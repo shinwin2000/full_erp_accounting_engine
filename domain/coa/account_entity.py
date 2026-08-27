@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: UP035, UP006
 """
 Module: account_entity.py
 Layer: Domain / COA (Chart of Accounts)
@@ -12,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, List
 from uuid import UUID, uuid4
 
 from domain.coa.account_code_vo import AccountCodeVO
@@ -205,7 +206,7 @@ class AccountEntity:
         }
 
     def to_dict(self, include_metadata: bool = True) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),
             "code": self.code.code,
@@ -442,7 +443,7 @@ class AccountRepository:
 
     async def paginate(
         self, legal_entity_id: UUID, page: int = 1, per_page: int = 20
-    ) -> tuple[list[AccountEntity], int]:
+    ) -> tuple[List[AccountEntity], int]:
         accounts = await self.get_all(legal_entity_id, include_inactive=True)
         total = len(accounts)
         start = (page - 1) * per_page
@@ -450,16 +451,16 @@ class AccountRepository:
         return accounts[start:end], total
 
     async def search(
-        self, legal_entity_id: UUID, query: str, fields: list[str] | None = None
-    ) -> list[AccountEntity]:
+        self, legal_entity_id: UUID, query: str, fields: List[str] | None = None
+    ) -> List[AccountEntity]:
         if fields is None:
             fields = ["code", "name", "description"]
         accounts = await self.get_all(legal_entity_id, include_inactive=True)
         query_lower = query.lower()
         results = []
         for acc in accounts:
-            for field in fields:
-                value = getattr(acc, field, "")
+            for field_name in fields:
+                value = getattr(acc, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(acc)
                     break

@@ -201,7 +201,7 @@ class HedgedItem:
 
     @property
     def total_adjustment(self) -> Decimal:
-        return sum(a.adjustment_amount for a in self.adjustments)
+        return sum((a.adjustment_amount for a in self.adjustments), Decimal(0))
 
     @property
     def adjusted_carrying_amount(self) -> Decimal:
@@ -268,7 +268,7 @@ class HedgedItem:
         )
 
     def to_dict(self, include_history: bool = False) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "id": str(self.id),
             "item_number": self.item_number,
             "item_type": self.item_type.value,

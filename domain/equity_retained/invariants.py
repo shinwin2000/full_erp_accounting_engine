@@ -42,6 +42,13 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+# Import the enums used in this module
+from domain.equity_retained.aggregate_root import (
+    ContributionStatus,
+    DividendStatus,
+    WithdrawalStatus,
+)
+
 logger = logging.getLogger(__name__)
 
 

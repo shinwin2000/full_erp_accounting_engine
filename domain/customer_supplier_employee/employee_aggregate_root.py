@@ -476,7 +476,7 @@ class EmployeeAggregate:
     # ==================== FACTORY METHODS ====================
 
     @classmethod
-    def create(cls, legal_entity_id: UUID, created_by: str = "system") -> EmployeeAggregate:
+    def create_aggregate(cls, legal_entity_id: UUID, created_by: str = "system") -> EmployeeAggregate:
         """Factory method to create a new empty aggregate."""
         agg = cls(
             aggregate_id=uuid4(),
@@ -927,8 +927,8 @@ class EmployeeAggregateRepository:
         query_lower = query.lower()
         results = []
         for agg in cls._storage.values():
-            for field in fields:
-                value = getattr(agg, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(agg, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(agg)
                     break

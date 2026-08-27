@@ -473,6 +473,7 @@ class RiskAssessment:
 
 class RiskAssessor:
     _instance: RiskAssessor | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
     __slots__ = ("_assessments", "_initialized", "_lock", "_record_service")
 
     def __new__(cls) -> RiskAssessor:
@@ -827,8 +828,8 @@ class RiskAssessor:
             total = len(self._assessments)
             if total == 0:
                 return {"total_assessments": 0}
-            by_risk = {}
-            by_status = {}
+            by_risk: dict[str, int] = {}  # anotasi ditambahkan
+            by_status: dict[str, int] = {}  # anotasi ditambahkan
             total_score = 0.0
             for assessment in self._assessments.values():
                 by_risk[assessment.overall_risk.name] = (

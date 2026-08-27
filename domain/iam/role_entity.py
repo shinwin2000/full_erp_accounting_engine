@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: UP035, UP006
 """
 Module: role_entity.py
 Layer: Domain / IAM
@@ -9,10 +10,11 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, List
 from uuid import UUID, uuid4
 
 from domain.iam.permission_vo import PermissionVO
@@ -440,7 +442,7 @@ class RoleEntity:
         return new_role
 
     def set_parent(
-        self, parent_role_id: UUID | None, updated_by: str, parent_getter: callable | None = None
+        self, parent_role_id: UUID | None, updated_by: str, parent_getter: Callable[[UUID], RoleEntity | None] | None = None
     ) -> RoleEntity:
         if self.status == RoleStatus.ARCHIVED:
             raise InvalidRoleStatusTransitionError("Cannot modify archived role")
@@ -449,7 +451,7 @@ class RoleEntity:
 
         # Check for cycle if parent_getter is provided
         if parent_getter and parent_role_id:
-            current = parent_role_id
+            current: UUID | None = parent_role_id
             visited = set()
             while current and current not in visited:
                 if current == self.role_id:
@@ -469,7 +471,7 @@ class RoleEntity:
         )
         return new_role
 
-    def has_permission(self, permission: str, role_getter: callable | None = None) -> bool:
+    def has_permission(self, permission: str, role_getter: Callable[[UUID], RoleEntity | None] | None = None) -> bool:
         """
         Check if role (including parent) has permission.
 
@@ -486,7 +488,7 @@ class RoleEntity:
                 return parent_role.has_permission(permission, role_getter)
         return False
 
-    def get_all_permissions(self, role_getter: callable | None = None) -> set[str]:
+    def get_all_permissions(self, role_getter: Callable[[UUID], RoleEntity | None] | None = None) -> set[str]:
         """
         Get all permissions including inherited from parent roles.
 
@@ -502,7 +504,7 @@ class RoleEntity:
 
         return all_perms
 
-    def get_hierarchy(self, role_getter: callable) -> list[RoleEntity]:
+    def get_hierarchy(self, role_getter: Callable[[UUID], RoleEntity | None]) -> list[RoleEntity]:
         """Get role hierarchy from this role up to root."""
         hierarchy = [self]
         if self.parent_role_id:
@@ -511,7 +513,7 @@ class RoleEntity:
                 hierarchy.extend(parent.get_hierarchy(role_getter))
         return hierarchy
 
-    def is_descendant_of(self, ancestor_role_id: UUID, role_getter: callable) -> bool:
+    def is_descendant_of(self, ancestor_role_id: UUID, role_getter: Callable[[UUID], RoleEntity | None]) -> bool:
         """Check if this role is a descendant of the given ancestor role."""
         if self.parent_role_id == ancestor_role_id:
             return True
@@ -521,7 +523,7 @@ class RoleEntity:
                 return parent.is_descendant_of(ancestor_role_id, role_getter)
         return False
 
-    def is_ancestor_of(self, descendant_role_id: UUID, role_getter: callable) -> bool:
+    def is_ancestor_of(self, descendant_role_id: UUID, role_getter: Callable[[UUID], RoleEntity | None]) -> bool:
         """Check if this role is an ancestor of the given descendant role."""
         descendant = role_getter(descendant_role_id)
         if descendant:
@@ -574,21 +576,21 @@ class RoleRepository:
         return None
 
     @classmethod
-    async def get_by_status(cls, status: RoleStatus) -> list[RoleEntity]:
+    async def get_by_status(cls, status: RoleStatus) -> List[RoleEntity]:
         return [r for r in cls._storage.values() if r.status == status]
 
     @classmethod
-    async def get_active(cls) -> list[RoleEntity]:
+    async def get_active(cls) -> List[RoleEntity]:
         return [r for r in cls._storage.values() if r.is_active]
 
     @classmethod
-    async def get_children(cls, parent_role_id: UUID) -> list[RoleEntity]:
+    async def get_children(cls, parent_role_id: UUID) -> List[RoleEntity]:
         return [r for r in cls._storage.values() if r.parent_role_id == parent_role_id]
 
     @classmethod
     async def get_descendants(
-        cls, ancestor_role_id: UUID, role_getter: callable | None = None
-    ) -> list[RoleEntity]:
+        cls, ancestor_role_id: UUID, role_getter: Callable[[UUID], RoleEntity | None] | None = None
+    ) -> List[RoleEntity]:
         """Get all descendant roles."""
         children = await cls.get_children(ancestor_role_id)
         descendants = []
@@ -598,7 +600,7 @@ class RoleRepository:
         return descendants
 
     @classmethod
-    async def get_all(cls) -> list[RoleEntity]:
+    async def get_all(cls) -> List[RoleEntity]:
         return list(cls._storage.values())
 
     @classmethod
@@ -630,12 +632,12 @@ class RoleRepository:
         return len(cls._storage)
 
     @classmethod
-    async def list(cls, limit: int = 100, offset: int = 0) -> list[RoleEntity]:
+    async def list(cls, limit: int = 100, offset: int = 0) -> List[RoleEntity]:
         roles = list(cls._storage.values())
         return roles[offset : offset + limit]
 
     @classmethod
-    async def paginate(cls, page: int = 1, per_page: int = 20) -> tuple[list[RoleEntity], int]:
+    async def paginate(cls, page: int = 1, per_page: int = 20) -> tuple[List[RoleEntity], int]:
         roles = list(cls._storage.values())
         total = len(roles)
         start = (page - 1) * per_page
@@ -643,11 +645,11 @@ class RoleRepository:
         return roles[start:end], total
 
     @classmethod
-    async def search(cls, query: str, fields: list[str] | None = None) -> list[RoleEntity]:
+    async def search(cls, query: str, fields: List[str] | None = None) -> List[RoleEntity]:
         if fields is None:
             fields = ["role_name", "description"]
         query_lower = query.lower()
-        results = []
+        results: List[RoleEntity] = []
         for role in cls._storage.values():
             for field_name in fields:
                 value = getattr(role, field_name, "")

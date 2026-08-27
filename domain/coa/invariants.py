@@ -593,42 +593,42 @@ class InsufficientRoleError(COAInvariantError):
 # ============================================================================
 
 __all__ = [
+    "AccountAlreadyExistsError",
+    "AccountArchivedError",
+    "AccountCodeDuplicateError",
+    "AccountHasChildrenError",
+    "AccountLockedError",
+    "AccountNameEmptyError",
+    "AccountNameTooLongError",
+    "AccountNotActiveError",
+    "AccountNotFoundError",
+    "COAAlreadyExistsError",
+    "COAArchivedError",
     # Base
     "COAInvariantError",
-    # Code & Name
-    "InvalidAccountCodeError",
-    "AccountCodeDuplicateError",
-    "AccountNameTooLongError",
-    "AccountNameEmptyError",
-    # Hierarchy
-    "ParentAccountNotFoundError",
-    "CircularParentReferenceError",
-    "AccountHasChildrenError",
-    "InvalidParentTypeError",
-    "MaxHierarchyDepthExceededError",
-    "SelfParentError",
-    "ParentNotActiveError",
-    # Account Status & Operation
-    "CannotDeleteAccountWithTransactionsError",
-    "CannotDeactivateControlAccountError",
-    "AccountLockedError",
-    "AccountArchivedError",
-    "AccountAlreadyExistsError",
-    "AccountNotFoundError",
-    "AccountNotActiveError",
     # COA Level
     "COALockedError",
-    "COAArchivedError",
-    "COANotFoundError",
-    "COAAlreadyExistsError",
     "COANotActiveError",
-    # Currency & Balance
-    "CurrencyMismatchError",
-    "OpeningBalanceSignError",
-    "InvalidNormalBalanceError",
+    "COANotFoundError",
+    "CannotDeactivateControlAccountError",
+    # Account Status & Operation
+    "CannotDeleteAccountWithTransactionsError",
+    "CircularParentReferenceError",
     # Legal Entity
     "CrossLegalEntityError",
+    # Currency & Balance
+    "CurrencyMismatchError",
+    "InsufficientRoleError",
+    # Code & Name
+    "InvalidAccountCodeError",
+    "InvalidNormalBalanceError",
+    "InvalidParentTypeError",
     # Transition & Approval
     "InvalidStatusTransitionError",
-    "InsufficientRoleError",
+    "MaxHierarchyDepthExceededError",
+    "OpeningBalanceSignError",
+    # Hierarchy
+    "ParentAccountNotFoundError",
+    "ParentNotActiveError",
+    "SelfParentError",
 ]

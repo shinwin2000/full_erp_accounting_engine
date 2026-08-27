@@ -461,9 +461,15 @@ class StatusTransitionRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StatusTransitionRecord:
+        from_status = AccountStatus.from_string(data["from_status"])
+        if from_status is None:
+            raise ValueError(f"Invalid from_status: {data['from_status']}")
+        to_status = AccountStatus.from_string(data["to_status"])
+        if to_status is None:
+            raise ValueError(f"Invalid to_status: {data['to_status']}")
         return cls(
-            from_status=AccountStatus.from_string(data["from_status"]),
-            to_status=AccountStatus.from_string(data["to_status"]),
+            from_status=from_status,
+            to_status=to_status,
             transitioned_at=datetime.fromisoformat(data["transitioned_at"]),
             transitioned_by=data["transitioned_by"],
             reason=data.get("reason"),
@@ -602,9 +608,10 @@ def is_active_to_status(is_active: bool, is_locked: bool = False) -> AccountStat
 def get_status_display_name(status: AccountStatus | str) -> str:
     """Get user-friendly display name."""
     if isinstance(status, str):
-        status = AccountStatus.from_string(status)
-        if status is None:
-            return status
+        parsed = AccountStatus.from_string(status)
+        if parsed is None:
+            return status  # return the raw string if not recognized
+        status = parsed
     return status.display_name()
 
 

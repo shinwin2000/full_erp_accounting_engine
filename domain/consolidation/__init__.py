@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""
-Module: domain/consolidation/__init__.py
-Layer: Domain / Consolidation
-Responsibility: Package untuk konsolidasi laporan keuangan grup perusahaan.
-"""
-
 from .aggregate_root import (
     ConsolidationAggregate,
     ConsolidationGroup,
@@ -43,34 +37,36 @@ from .non_controlling_interest import (
     NonControllingInterestCalculator,
 )
 
+"""
+Module: domain/consolidation/__init__.py
+Layer: Domain / Consolidation
+Responsibility: Package untuk konsolidasi laporan keuangan grup perusahaan.
+"""
+
 __all__ = [
-    # Aggregate
     "ConsolidationAggregate",
-    "ConsolidationGroup",
-    "ConsolidationGroupRepository",
-    "ConsolidationStatus",
-    # Events
     "ConsolidationCancelled",
     "ConsolidationCompleted",
     "ConsolidationCreated",
     "ConsolidationEventPublisher",
     "ConsolidationEventType",
+    "ConsolidationGroup",
+    "ConsolidationGroupRepository",
     "ConsolidationStarted",
+    "ConsolidationStatus",
     "DomainEvent",
-    "EliminationEntryCreated",
-    "IntercompanyTransactionDetected",
-    "NCICalculated",
-    # Entities
     "EliminationEntry",
-    "IntercompanyTransaction",
-    "IntercompanyTransactionRepository",
-    "IntercompanyTransactionStatus",
-    "TransactionType",
-    # Value Objects / Services
+    "EliminationEntryCreated",
     "ExchangeRateNotFoundError",
     "ExchangeRateProvider",
     "ForeignCurrencyTranslator",
     "InMemoryExchangeRateProvider",
+    "IntercompanyTransaction",
+    "IntercompanyTransactionDetected",
+    "IntercompanyTransactionRepository",
+    "IntercompanyTransactionStatus",
+    "NCICalculated",
     "NCICalculationResult",
     "NonControllingInterestCalculator",
+    "TransactionType",
 ]

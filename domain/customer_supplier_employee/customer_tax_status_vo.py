@@ -260,10 +260,9 @@ class CustomerTaxStatusVO:
                 # Allow unknown codes but log warning
                 logger.warning(f"Unknown tax office code: {clean_code}")
 
-        # Validate registration and deregistration dates
-        if self.registration_date and self.deregistration_date:
-            if self.deregistration_date <= self.registration_date:
-                raise TaxStatusError("Deregistration date must be after registration date")
+        # Validate registration and deregistration dates (SIM102 fix: combined condition)
+        if self.registration_date and self.deregistration_date and self.deregistration_date <= self.registration_date:
+            raise TaxStatusError("Deregistration date must be after registration date")
 
         # Validate registration status consistency
         if self.is_pkp and self.registration_status == TaxRegistrationStatus.NOT_REGISTERED:
@@ -285,10 +284,9 @@ class CustomerTaxStatusVO:
         if self.validation_attempts < 0:
             object.__setattr__(self, "validation_attempts", 0)
 
-        # Validate vat_rate_override using Decimal for comparisons
-        if self.vat_rate_override is not None:
-            if self.vat_rate_override < Decimal("0") or self.vat_rate_override > Decimal("100"):
-                raise TaxStatusError(f"Invalid VAT rate override: {self.vat_rate_override}")
+        # Validate vat_rate_override using Decimal for comparisons (SIM102 fix: combined condition)
+        if self.vat_rate_override is not None and (self.vat_rate_override < Decimal("0") or self.vat_rate_override > Decimal("100")):
+            raise TaxStatusError(f"Invalid VAT rate override: {self.vat_rate_override}")
 
     # ------------------------------------------------------------------------
     # NPWP Helpers
@@ -472,15 +470,16 @@ class CustomerTaxStatusVO:
         return self.registration_status == TaxRegistrationStatus.REGISTERED
 
     def is_active(self, as_of: date | None = None) -> bool:
-        """Check if tax registration is active on given date."""
-        if self.registration_status != TaxRegistrationStatus.REGISTERED:
-            return False
+        """
+        Check if tax registration is active on given date.
+        (SIM103 fix: return boolean expression directly)
+        """
         check_date = as_of or date.today()
-        if self.registration_date and check_date < self.registration_date:
-            return False
-        if self.deregistration_date and check_date >= self.deregistration_date:
-            return False
-        return True
+        return (
+            self.registration_status == TaxRegistrationStatus.REGISTERED
+            and (self.registration_date is None or check_date >= self.registration_date)
+            and (self.deregistration_date is None or check_date < self.deregistration_date)
+        )
 
     def can_issue_invoice_with_tax(self) -> bool:
         """Check if customer can receive tax invoice (faktur pajak)."""

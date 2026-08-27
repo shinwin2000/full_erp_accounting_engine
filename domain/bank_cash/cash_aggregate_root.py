@@ -7,13 +7,13 @@ Responsibility: Root agregat untuk manajemen kas (cash book & petty cash).
 
 from __future__ import annotations
 
-import hashlib  # <-- tambahan
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from domain.bank_cash.cash_book_entity import CashBookEntity, CashBookStatus
@@ -72,7 +72,7 @@ class CashAggregateSignature:
     signed_by: str
 
     @classmethod
-    def create(cls, aggregate: CashAggregate, signed_by: str) -> Self:
+    def create(cls, aggregate: CashAggregate, signed_by: str) -> CashAggregateSignature:
         data = f"{aggregate.cash_id}{aggregate.version}{aggregate.get_total_cash_balance()}{aggregate.updated_at}"
         hash_value = hashlib.sha3_256(data.encode()).hexdigest()
         return cls(
@@ -115,11 +115,11 @@ class CashAggregate:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: str) -> Self:
+    def create(self, created_by: str) -> CashAggregate:
         self._record_audit("CREATE", created_by, {})
         return self
 
-    def update(self, updated_by: str, **kwargs) -> Self:
+    def update(self, updated_by: str, **kwargs) -> CashAggregate:
         data = self.to_dict()
         for key, value in kwargs.items():
             if hasattr(self, key) and key not in ("cash_id", "created_at", "version"):
@@ -133,7 +133,7 @@ class CashAggregate:
         new_agg._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_agg
 
-    def delete(self, deleted_by: str, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: str, reason: str | None = None) -> CashAggregate:
         if self.get_total_cash_balance() != 0:
             raise ValueError(
                 f"Cannot delete cash aggregate with non-zero balance: {self.get_total_cash_balance()}"
@@ -148,7 +148,7 @@ class CashAggregate:
         new_agg._record_audit("DELETE", deleted_by, {"reason": reason})
         return new_agg
 
-    def restore(self, restored_by: str) -> Self:
+    def restore(self, restored_by: str) -> CashAggregate:
         # For aggregate, restoration would require reloading from events
         new_agg = self._copy()
         new_agg.updated_at = datetime.now(UTC)
@@ -156,13 +156,14 @@ class CashAggregate:
         new_agg._record_audit("RESTORE", restored_by, {})
         return new_agg
 
-    def activate(self, activated_by: str) -> Self:
+    def activate(self, activated_by: str) -> CashAggregate:
         # Activate all cash books and petty cash
         new_agg = self._copy()
         new_cash_books = {}
         for cb_id, cb in self.cash_books.items():
             if cb.status == CashBookStatus.SUSPENDED:
-                new_cash_books[cb_id] = cb.activate_suspended(activated_by)
+                # Use activate method if available
+                new_cash_books[cb_id] = cb.activate(activated_by)
             else:
                 new_cash_books[cb_id] = cb
         new_petty_cash = {}
@@ -178,7 +179,7 @@ class CashAggregate:
         new_agg._record_audit("ACTIVATE", activated_by, {})
         return new_agg
 
-    def deactivate(self, deactivated_by: str, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: str, reason: str | None = None) -> CashAggregate:
         new_agg = self._copy()
         new_cash_books = {}
         for cb_id, cb in self.cash_books.items():
@@ -201,7 +202,7 @@ class CashAggregate:
         new_agg._record_audit("DEACTIVATE", deactivated_by, {"reason": reason})
         return new_agg
 
-    def lock(self, locked_by: str, reason: str) -> Self:
+    def lock(self, locked_by: str, reason: str) -> CashAggregate:
         new_agg = self._copy()
         new_cash_books = {}
         for cb_id, cb in self.cash_books.items():
@@ -222,7 +223,7 @@ class CashAggregate:
         new_agg._record_audit("LOCK", locked_by, {"reason": reason})
         return new_agg
 
-    def unlock(self, unlocked_by: str) -> Self:
+    def unlock(self, unlocked_by: str) -> CashAggregate:
         new_agg = self._copy()
         new_cash_books = {}
         for cb_id, cb in self.cash_books.items():
@@ -299,7 +300,7 @@ class CashAggregate:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> CashAggregate:
         return cls(
             cash_id=UUID(data["cash_id"]),
             legal_entity_id=UUID(data["legal_entity_id"]),
@@ -312,7 +313,7 @@ class CashAggregate:
             version=data.get("version", 1),
         )
 
-    def clone(self) -> Self:
+    def clone(self) -> CashAggregate:
         new_id = uuid4()
         new_agg = self._copy()
         object.__setattr__(new_agg, "cash_id", new_id)
@@ -340,7 +341,7 @@ class CashAggregate:
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: str) -> Self:
+    def touch(self, touched_by: str) -> CashAggregate:
         new_agg = self._copy()
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
@@ -398,7 +399,7 @@ class CashAggregate:
         }
         self._audit_trail.append(entry)
 
-    def sign(self, signed_by: str) -> Self:
+    def sign(self, signed_by: str) -> CashAggregate:
         new_agg = self._copy()
         new_agg.signature = CashAggregateSignature.create(self, signed_by)
         new_agg.updated_at = datetime.now(UTC)
@@ -413,7 +414,7 @@ class CashAggregate:
 
     # ==================== CASH BOOK MANAGEMENT ====================
 
-    def add_child(self, cash_book: CashBookEntity) -> Self:
+    def add_child(self, cash_book: CashBookEntity) -> CashAggregate:
         """Add cash book (child entity)."""
         if cash_book.cash_book_id in self.cash_books:
             raise ValueError(f"Cash book {cash_book.cash_book_id} already exists")
@@ -430,7 +431,7 @@ class CashAggregate:
         )
         return new_agg
 
-    def remove_child(self, cash_book_id: UUID, removed_by: str) -> Self:
+    def remove_child(self, cash_book_id: UUID, removed_by: str) -> CashAggregate:
         """Remove cash book (child entity)."""
         self._validate_cash_book_exists(cash_book_id)
         cb = self.cash_books[cash_book_id]
@@ -457,7 +458,7 @@ class CashAggregate:
     def get_active_cash_books(self) -> list[CashBookEntity]:
         return [cb for cb in self.cash_books.values() if cb.is_active()]
 
-    def close_cash_book(self, cash_book_id: UUID, closed_by: str) -> Self:
+    def close_cash_book(self, cash_book_id: UUID, closed_by: str) -> CashAggregate:
         self._validate_cash_book_exists(cash_book_id)
         cb = self.cash_books[cash_book_id]
         if cb.current_balance != 0:
@@ -474,7 +475,7 @@ class CashAggregate:
 
     # ==================== PETTY CASH MANAGEMENT ====================
 
-    def add_petty_cash_fund(self, petty_cash: PettyCashFundEntity) -> Self:
+    def add_petty_cash_fund(self, petty_cash: PettyCashFundEntity) -> CashAggregate:
         if petty_cash.petty_cash_id in self.petty_cash_funds:
             raise ValueError(f"Petty cash {petty_cash.petty_cash_id} already exists")
         new_petty_cash = self.petty_cash_funds.copy()
@@ -506,7 +507,7 @@ class CashAggregate:
         replenished_by: str,
         reference: str | None = None,
         approved_by: str | None = None,
-    ) -> Self:
+    ) -> CashAggregate:
         self._validate_petty_cash_exists(petty_cash_id)
         self._validate_positive_amount(amount)
         pc = self.petty_cash_funds[petty_cash_id]
@@ -522,7 +523,7 @@ class CashAggregate:
         new_agg._record_audit("REPLENISH_PETTY_CASH", replenished_by, {"amount": str(amount)})
         return new_agg
 
-    def auto_replenish_petty_cash(self, petty_cash_id: UUID, replenished_by: str) -> Self:
+    def auto_replenish_petty_cash(self, petty_cash_id: UUID, replenished_by: str) -> CashAggregate:
         pc = self.petty_cash_funds.get(petty_cash_id)
         if not pc or not pc.needs_replenishment():
             return self
@@ -532,7 +533,7 @@ class CashAggregate:
 
     # ==================== CASH RECEIPTS ====================
 
-    def add_cash_receipt(self, receipt: CashReceiptEntity) -> Self:
+    def add_cash_receipt(self, receipt: CashReceiptEntity) -> CashAggregate:
         if receipt.cash_book_id:
             self._validate_cash_book_exists(receipt.cash_book_id)
         new_receipts = [*self.cash_receipts, receipt]
@@ -546,7 +547,8 @@ class CashAggregate:
                     receipt.created_by,
                     receipt.payment_reference,
                 )
-                new_cash_books[receipt.cash_book_id] = updated_cb
+                if receipt.cash_book_id is not None:
+                    new_cash_books[receipt.cash_book_id] = updated_cb
         new_agg = self._copy()
         new_agg.cash_receipts = new_receipts
         new_agg.cash_books = new_cash_books
@@ -557,7 +559,7 @@ class CashAggregate:
 
     def confirm_cash_receipt(
         self, receipt_id: UUID, confirmed_by: str, confirmed_amount: Decimal | None = None
-    ) -> Self:
+    ) -> CashAggregate:
         idx = next(
             (i for i, r in enumerate(self.cash_receipts) if r.receipt_id == receipt_id), None
         )
@@ -581,7 +583,8 @@ class CashAggregate:
                 updated_cb = cb.add_receipt(
                     amount_to_confirm, receipt.description, confirmed_by, receipt.payment_reference
                 )
-                new_cash_books[receipt.cash_book_id] = updated_cb
+                if confirmed_receipt.cash_book_id is not None:
+                    new_cash_books[confirmed_receipt.cash_book_id] = updated_cb
         new_agg = self._copy()
         new_agg.cash_receipts = new_receipts
         new_agg.cash_books = new_cash_books
@@ -590,7 +593,7 @@ class CashAggregate:
         new_agg._record_audit("CONFIRM_RECEIPT", confirmed_by, {"receipt_id": str(receipt_id)})
         return new_agg
 
-    def cancel_cash_receipt(self, receipt_id: UUID, cancelled_by: str, reason: str) -> Self:
+    def cancel_cash_receipt(self, receipt_id: UUID, cancelled_by: str, reason: str) -> CashAggregate:
         idx = next(
             (i for i, r in enumerate(self.cash_receipts) if r.receipt_id == receipt_id), None
         )
@@ -611,7 +614,8 @@ class CashAggregate:
                     f"Reversal of receipt {receipt.receipt_number}",
                     cancelled_by,
                 )
-                new_cash_books[receipt.cash_book_id] = reversed_cb
+                if receipt.cash_book_id is not None:
+                    new_cash_books[receipt.cash_book_id] = reversed_cb
         new_agg = self._copy()
         new_agg.cash_receipts = new_receipts
         new_agg.cash_books = new_cash_books
@@ -624,7 +628,7 @@ class CashAggregate:
 
     # ==================== CASH DISBURSEMENTS ====================
 
-    def add_cash_disbursement(self, disbursement: CashDisbursementEntity) -> Self:
+    def add_cash_disbursement(self, disbursement: CashDisbursementEntity) -> CashAggregate:
         if disbursement.cash_book_id:
             self._validate_cash_book_exists(disbursement.cash_book_id)
         new_disbursements = [*self.cash_disbursements, disbursement]
@@ -638,7 +642,8 @@ class CashAggregate:
                     disbursement.created_by,
                     disbursement.payment_reference,
                 )
-                new_cash_books[disbursement.cash_book_id] = updated_cb
+                if disbursement.cash_book_id is not None:
+                    new_cash_books[disbursement.cash_book_id] = updated_cb
         new_agg = self._copy()
         new_agg.cash_disbursements = new_disbursements
         new_agg.cash_books = new_cash_books
@@ -658,7 +663,7 @@ class CashAggregate:
         approver_id: UUID,
         approver_name: str,
         comment: str | None = None,
-    ) -> Self:
+    ) -> CashAggregate:
         idx = next(
             (
                 i
@@ -694,7 +699,7 @@ class CashAggregate:
         paid_by: str,
         paid_amount: Decimal | None = None,
         payment_reference: str | None = None,
-    ) -> Self:
+    ) -> CashAggregate:
         idx = next(
             (
                 i
@@ -721,7 +726,8 @@ class CashAggregate:
                 updated_cb = cb.add_disbursement(
                     amount_to_pay, disbursement.description, paid_by, payment_reference
                 )
-                new_cash_books[disbursement.cash_book_id] = updated_cb
+                if disbursement.cash_book_id is not None:
+                    new_cash_books[disbursement.cash_book_id] = updated_cb
         new_agg = self._copy()
         new_agg.cash_disbursements = new_disbursements
         new_agg.cash_books = new_cash_books
@@ -734,7 +740,7 @@ class CashAggregate:
 
     def cancel_cash_disbursement(
         self, disbursement_id: UUID, cancelled_by: str, reason: str
-    ) -> Self:
+    ) -> CashAggregate:
         idx = next(
             (
                 i
@@ -760,7 +766,8 @@ class CashAggregate:
                     f"Reversal of disbursement {disbursement.disbursement_number}",
                     cancelled_by,
                 )
-                new_cash_books[disbursement.cash_book_id] = reversed_cb
+                if disbursement.cash_book_id is not None:
+                    new_cash_books[disbursement.cash_book_id] = reversed_cb
         new_agg = self._copy()
         new_agg.cash_disbursements = new_disbursements
         new_agg.cash_books = new_cash_books
@@ -782,7 +789,7 @@ class CashAggregate:
         amount: Decimal,
         description: str,
         created_by: str,
-    ) -> Self:
+    ) -> CashAggregate:
         self._validate_cash_book_exists(from_cash_book_id)
         self._validate_cash_book_exists(to_cash_book_id)
         if from_cash_book_id == to_cash_book_id:
@@ -977,7 +984,7 @@ class CashAggregate:
 
     # ==================== SERIALIZATION ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> CashAggregate:
         return CashAggregate(
             cash_id=self.cash_id,
             legal_entity_id=self.legal_entity_id,

@@ -883,8 +883,7 @@ class EmployeeEntity:
         """Update basic salary. Effective_date can be stored in notes."""
         if new_salary <= 0:
             raise ValueError(f"Salary must be positive: {new_salary}")
-        notes_suffix = f"Salary changed from {self.basic_salary} to {new_salary} on {effective_date or date.today()}"
-        # We don't have a notes field, but we can use a separate audit trail.
+        # Removed unused notes_suffix variable (F841 fix)
         return EmployeeEntity(
             employee_id=self.employee_id,
             legal_entity_id=self.legal_entity_id,

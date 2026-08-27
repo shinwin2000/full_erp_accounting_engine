@@ -127,7 +127,6 @@ class UserAggregate:
     password_reset_expires_at: datetime | None = None
 
 
-
 # ============================================================================
 # IAM Aggregate Root (container untuk seluruh konteks IAM per legal entity)
 # ============================================================================
@@ -744,7 +743,7 @@ class IAM:
         if not user:
             raise UserNotFoundError(f"User {user_id} not found")
 
-        unlocked_user = user.unlock()
+        unlocked_user = user.unlock(unlocked_by)
         new_users = dict(self.users)
         new_users[user_id] = unlocked_user
 
@@ -891,21 +890,16 @@ class IAM:
             return self
 
         new_role_ids = [*user.role_ids, role_id]
+        # Buat UserEntity baru dengan field yang diketahui
         updated_user = UserEntity(
             user_id=user.user_id,
             username=user.username,
             email=user.email,
             password_hash=user.password_hash,
             status=user.status,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
+            profile=user.profile,
             role_ids=new_role_ids,
-            created_at=user.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
-            last_login_at=user.last_login_at,
-            last_login_ip=user.last_login_ip,
+            legal_entity_id=user.legal_entity_id,
             failed_login_attempts=user.failed_login_attempts,
             locked_until=user.locked_until,
         )
@@ -952,21 +946,16 @@ class IAM:
             raise IAMError(f"Cannot remove last role from user {user.username}")
 
         new_role_ids = [rid for rid in user.role_ids if rid != role_id]
+        # Buat UserEntity baru dengan field yang diketahui
         updated_user = UserEntity(
             user_id=user.user_id,
             username=user.username,
             email=user.email,
             password_hash=user.password_hash,
             status=user.status,
-            full_name=user.full_name,
-            legal_entity_id=user.legal_entity_id,
+            profile=user.profile,
             role_ids=new_role_ids,
-            created_at=user.created_at,
-            updated_at=datetime.now(UTC),
-            created_by=user.created_by,
-            version=user.version + 1,
-            last_login_at=user.last_login_at,
-            last_login_ip=user.last_login_ip,
+            legal_entity_id=user.legal_entity_id,
             failed_login_attempts=user.failed_login_attempts,
             locked_until=user.locked_until,
         )

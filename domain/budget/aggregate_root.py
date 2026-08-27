@@ -304,7 +304,7 @@ class Budget:
 
     @property
     def total_amount(self) -> Decimal:
-        return sum(line.amount for line in self.lines).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        return sum((line.amount for line in self.lines), Decimal(0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -384,7 +384,7 @@ class BudgetAggregate:
     Mutable aggregate wrapper that holds a Budget and allows state changes.
     """
 
-    # Untuk kepatuhan static checker
+    # Untuk kepatuhan static checker (type hints only)
     version: int
     id: UUID
 
@@ -396,7 +396,7 @@ class BudgetAggregate:
         self._version = version
         self._events: list[Any] = []
         self._take_snapshot()
-        # Untuk kepatuhan static checker
+        # Untuk kepatuhan static checker: set instance attributes
         self.id = budget.id
         self.version = version
 
@@ -404,13 +404,8 @@ class BudgetAggregate:
     def budget(self) -> Budget:
         return self._budget
 
-    @property
-    def version(self) -> int:
-        return self._version
-
-    @property
-    def id(self) -> UUID:
-        return self._budget.id
+    # Properties for version and id are redundant because they are instance attributes;
+    # we keep them only as attributes, not properties, to avoid conflict.
 
     @property
     def total_amount(self) -> Decimal:
@@ -1014,6 +1009,9 @@ class BudgetAggregate:
 
         if old_amount is None:
             raise ValueError(f"Line {line_id} not found")
+        # account_code must be str; we already ensured it's set
+        if account_code is None:
+            raise ValueError(f"Line {line_id} has no account_code")
 
         data = self._budget.to_dict()
         data["lines"] = [line_item.to_dict() for line_item in new_lines]
@@ -1207,7 +1205,8 @@ class BudgetAggregate:
         }
         self._snapshots.append(snapshot)
         if len(self._snapshots) > 50:
-            self._snapshots = self._snapshots[-25:]
+            # Slice assignment to keep list in place and avoid class variable shadowing
+            self._snapshots[:] = self._snapshots[-25:]
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         entry = {

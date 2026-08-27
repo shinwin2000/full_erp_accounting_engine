@@ -337,7 +337,7 @@ class HedgeInstrument:
         )
 
     def to_dict(self, include_history: bool = False) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "id": str(self.id),
             "instrument_number": self.instrument_number,
             "instrument_type": self.instrument_type.value,
@@ -525,6 +525,7 @@ class HedgeInstrument:
         return new_instrument
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        # Use class variable _audit_trail (shared across instances)
         if not hasattr(self, "_audit_trail"):
             object.__setattr__(self, "_audit_trail", [])
         entry = {

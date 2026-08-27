@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: UP035, UP006
 """
 Module: aggregate_root.py
 Layer: Domain / Hedge
@@ -12,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, List
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -333,7 +334,7 @@ class HedgeRelationship:
 
     @property
     def total_adjustment(self) -> Decimal:
-        return sum(a.adjustment_amount for a in self.adjustments)
+        return sum((a.adjustment_amount for a in self.adjustments), Decimal(0))
 
     @property
     def total_ineffectiveness(self) -> Decimal:
@@ -428,7 +429,7 @@ class HedgeRelationship:
         )
 
     def to_dict(self, include_history: bool = False) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "id": str(self.id),
             "hedge_number": self.hedge_number,
             "legal_entity_id": str(self.legal_entity_id),
@@ -478,8 +479,8 @@ class HedgeRelationshipAggregate:
     version: int
     id: UUID
 
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
+    _audit_trail: ClassVar[List[dict[str, Any]]] = []
+    _snapshots: ClassVar[List[dict[str, Any]]] = []
     # _events dideklarasikan sebagai instance attribute, bukan class attribute
 
     def __init__(self, hedge: HedgeRelationship):
@@ -714,7 +715,8 @@ class HedgeRelationshipAggregate:
 
     # snapshot already defined above
 
-    def version(self) -> int:
+    def get_version(self) -> int:
+        """Get current version."""
         return self._hedge.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:

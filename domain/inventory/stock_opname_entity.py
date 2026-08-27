@@ -152,23 +152,25 @@ class StockOpnameEntity:
 
     @property
     def total_discrepancy(self) -> Decimal:
-        return sum(i.discrepancy for i in self.items)
+        return sum((i.discrepancy for i in self.items), Decimal(0))
 
     @property
     def total_surplus(self) -> Decimal:
         return sum(
-            i.discrepancy for i in self.items if i.discrepancy_type == DiscrepancyType.SURPLUS
+            (i.discrepancy for i in self.items if i.discrepancy_type == DiscrepancyType.SURPLUS),
+            Decimal(0)
         )
 
     @property
     def total_shortage(self) -> Decimal:
         return sum(
-            i.discrepancy for i in self.items if i.discrepancy_type == DiscrepancyType.SHORTAGE
+            (i.discrepancy for i in self.items if i.discrepancy_type == DiscrepancyType.SHORTAGE),
+            Decimal(0)
         )
 
     @property
     def total_discrepancy_value(self) -> Decimal:
-        return sum(i.discrepancy_value for i in self.items)
+        return sum((i.discrepancy_value for i in self.items), Decimal(0))
 
     # ==================== DUMMY METHODS FOR CHECKER COMPLIANCE ====================
 

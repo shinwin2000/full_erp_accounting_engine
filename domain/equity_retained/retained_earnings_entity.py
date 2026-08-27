@@ -224,7 +224,8 @@ class RetainedEarningsEntity:
 
     def _add_entry(self, entry: RetainedEarningsEntry) -> RetainedEarningsEntity:
         new_balance = self.current_balance + entry.amount
-        new_entries = self.entries + [entry]
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_entries = [*self.entries, entry]
         return RetainedEarningsEntity(
             retained_earnings_id=self.retained_earnings_id,
             legal_entity_id=self.legal_entity_id,
@@ -691,8 +692,8 @@ class RetainedEarningsRepository:
         query_lower = query.lower()
         results = []
         for re in cls._storage.values():
-            for field in fields:
-                value = getattr(re, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(re, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(re)
                     break

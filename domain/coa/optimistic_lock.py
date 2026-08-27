@@ -40,7 +40,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -165,21 +165,24 @@ class RetryConfig:
         Calculate delay in seconds for the given attempt number.
         attempt = 0 for first retry, 1 for second, etc.
         """
+        # start with float to avoid type issues
+        delay_ms: float = float(self.initial_delay_ms)
+
         if self.strategy == RetryStrategy.IMMEDIATE:
-            return 0.0
+            delay_ms = 0.0
         elif self.strategy == RetryStrategy.FIXED_DELAY:
-            delay_ms = self.initial_delay_ms
+            delay_ms = float(self.initial_delay_ms)
         elif self.strategy == RetryStrategy.LINEAR_BACKOFF:
-            delay_ms = self.initial_delay_ms * (attempt + 1)
+            delay_ms = float(self.initial_delay_ms * (attempt + 1))
         elif self.strategy == RetryStrategy.EXPONENTIAL_BACKOFF:
-            delay_ms = self.initial_delay_ms * (self.backoff_multiplier**attempt)
+            delay_ms = float(self.initial_delay_ms * (self.backoff_multiplier**attempt))
         elif self.strategy == RetryStrategy.RANDOM_BACKOFF:
-            delay_ms = random.uniform(self.initial_delay_ms, self.max_delay_ms)
+            delay_ms = random.uniform(float(self.initial_delay_ms), float(self.max_delay_ms))
         else:
-            delay_ms = self.initial_delay_ms
+            delay_ms = float(self.initial_delay_ms)
 
         # Cap at max_delay_ms
-        delay_ms = min(delay_ms, self.max_delay_ms)
+        delay_ms = min(delay_ms, float(self.max_delay_ms))
 
         # Add jitter (±20% of delay)
         if self.jitter and delay_ms > 0:
@@ -320,7 +323,7 @@ def retry_on_conflict(
     backoff_multiplier: float = 2.0,
     jitter: bool = True,
     retryable_exceptions: tuple = (OptimisticLockException,),
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+) -> Callable[..., Any]:
     """
     Decorator that automatically retries a function when an optimistic lock conflict occurs.
 
@@ -353,55 +356,54 @@ def retry_on_conflict(
         retryable_exceptions=retryable_exceptions,
     )
 
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        def sync_wrapper(*args, **kwargs) -> T:
-            last_exception = None
-            for attempt in range(config.max_retries + 1):  # +1 for first attempt
-                try:
-                    return func(*args, **kwargs)
-                except retryable_exceptions as e:
-                    last_exception = e
-                    if attempt >= config.max_retries:
-                        logger.error(f"Retry exhausted after {attempt} attempts: {e}")
-                        break
-                    delay = config.get_delay(attempt)
-                    logger.warning(
-                        f"Optimistic lock conflict (attempt {attempt + 1}/{config.max_retries + 1}), "
-                        f"retrying in {delay * 1000:.0f}ms: {e}"
-                    )
-                    if delay > 0:
-                        time.sleep(delay)
-            raise OptimisticLockRetryExhausted(
-                f"Retry exhausted after {config.max_retries} retries"
-            ) from last_exception
-
-        async def async_wrapper(*args, **kwargs) -> T:
-            last_exception = None
-            for attempt in range(config.max_retries + 1):
-                try:
-                    return await func(*args, **kwargs)
-                except retryable_exceptions as e:
-                    last_exception = e
-                    if attempt >= config.max_retries:
-                        logger.error(f"Retry exhausted after {attempt} attempts: {e}")
-                        break
-                    delay = config.get_delay(attempt)
-                    logger.warning(
-                        f"Optimistic lock conflict (attempt {attempt + 1}/{config.max_retries + 1}), "
-                        f"retrying in {delay * 1000:.0f}ms: {e}"
-                    )
-                    if delay > 0:
-                        await asyncio.sleep(delay)
-            raise OptimisticLockRetryExhausted(
-                f"Retry exhausted after {config.max_retries} retries"
-            ) from last_exception
-
-        # Determine if function is async
+    def decorator(func: Callable[..., T]) -> Callable[..., Any]:
         import inspect
 
         if inspect.iscoroutinefunction(func):
+            async def async_wrapper(*args, **kwargs) -> T:
+                last_exception = None
+                for attempt in range(config.max_retries + 1):
+                    try:
+                        return await func(*args, **kwargs)
+                    except retryable_exceptions as e:
+                        last_exception = e
+                        if attempt >= config.max_retries:
+                            logger.error(f"Retry exhausted after {attempt} attempts: {e}")
+                            break
+                        delay = config.get_delay(attempt)
+                        logger.warning(
+                            f"Optimistic lock conflict (attempt {attempt + 1}/{config.max_retries + 1}), "
+                            f"retrying in {delay * 1000:.0f}ms: {e}"
+                        )
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                raise OptimisticLockRetryExhausted(
+                    f"Retry exhausted after {config.max_retries} retries"
+                ) from last_exception
+
             return async_wrapper
         else:
+            def sync_wrapper(*args, **kwargs) -> T:
+                last_exception = None
+                for attempt in range(config.max_retries + 1):
+                    try:
+                        return func(*args, **kwargs)
+                    except retryable_exceptions as e:
+                        last_exception = e
+                        if attempt >= config.max_retries:
+                            logger.error(f"Retry exhausted after {attempt} attempts: {e}")
+                            break
+                        delay = config.get_delay(attempt)
+                        logger.warning(
+                            f"Optimistic lock conflict (attempt {attempt + 1}/{config.max_retries + 1}), "
+                            f"retrying in {delay * 1000:.0f}ms: {e}"
+                        )
+                        if delay > 0:
+                            time.sleep(delay)
+                raise OptimisticLockRetryExhausted(
+                    f"Retry exhausted after {config.max_retries} retries"
+                ) from last_exception
+
             return sync_wrapper
 
     return decorator
@@ -493,7 +495,7 @@ class OptimisticLockUtils:
         else:
             # Try to get all fields from dataclass
             if hasattr(entity, "__dataclass_fields__"):
-                for field_name in entity.__dataclass_fields__.keys():
+                for field_name in entity.__dataclass_fields__:
                     value = getattr(entity, field_name)
                     if hasattr(value, "to_dict"):
                         value = value.to_dict()
@@ -508,7 +510,6 @@ class OptimisticLockUtils:
     ) -> bool:
         """Verify that the entity's current hash matches the stored hash."""
         current_hash = OptimisticLockUtils.create_version_hash(entity, include_fields)
-        # Use constant-time comparison? Not needed for MD5, but good practice.
         return current_hash == version_hash
 
     @staticmethod
@@ -517,8 +518,6 @@ class OptimisticLockUtils:
         Attempt to extract version number from a version hash.
         This is a best-effort; not guaranteed to work for all hashes.
         """
-        # If the hash was created with create_version_hash, version is embedded.
-        # But MD5 is one-way, so we cannot extract. This method returns None.
         return None
 
     @staticmethod
@@ -534,7 +533,6 @@ class OptimisticLockUtils:
     @staticmethod
     def parse_version_from_etag(etag: str) -> int | None:
         """Parse version number from an ETag string."""
-        # ETag format: "123" or W/"123" or "v=123"
         import re
 
         match = re.search(r"(\d+)", etag)
@@ -613,11 +611,14 @@ def with_retry(operation: Callable[[], T], config: RetryConfig | None = None) ->
         jitter=config.jitter,
         retryable_exceptions=config.retryable_exceptions,
     )
-    return decorator(operation)()
+    result = decorator(operation)()
+    return cast(T, result)
 
 
 async def with_retry_async(operation: Callable[[], T], config: RetryConfig | None = None) -> T:
-    """Async version of with_retry."""
+    """
+    Async version of with_retry.
+    """
     if config is None:
         config = RetryConfig()
     decorator = retry_on_conflict(
@@ -629,7 +630,8 @@ async def with_retry_async(operation: Callable[[], T], config: RetryConfig | Non
         jitter=config.jitter,
         retryable_exceptions=config.retryable_exceptions,
     )
-    return await decorator(operation)()
+    result = await decorator(operation)()
+    return cast(T, result)
 
 
 # ============================================================================

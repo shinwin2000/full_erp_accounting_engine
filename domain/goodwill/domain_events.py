@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -430,7 +430,7 @@ class GoodwillUpdatedEvent(DomainEvent):
         if acquisition_date is not None:
             event_data["acquisition_date"] = acquisition_date.isoformat()
         if useful_life is not None:
-            event_data["useful_life"] = useful_life
+            event_data["useful_life"] = str(useful_life)  # <-- perbaikan
         if amortization_method is not None:
             event_data["amortization_method"] = amortization_method
         if note is not None:
@@ -470,7 +470,7 @@ class DomainEventPublisher:
     Publisher untuk domain event Goodwill.
     Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
     """
-    _published_events: list[DomainEvent] = []
+    _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:

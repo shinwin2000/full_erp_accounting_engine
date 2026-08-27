@@ -581,7 +581,7 @@ class FixedAsset:
         useful_life_years: int = 5,
         depreciation_method: str | Any = "straight_line",  # accept string
         currency: str = "IDR",
-        created_by: UUID = None,
+        created_by: UUID | None = None,  # <-- FIX: changed from UUID = None
         **kwargs,
     ) -> FixedAsset:
         """

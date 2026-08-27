@@ -152,11 +152,11 @@ def validate_status_transition(
         )
 
     required_role = TRANSITION_ROLE_REQUIREMENTS.get((current_status, new_status))
-    if required_role:
-        if user_role != required_role and user_role not in ("admin", "super_admin"):
-            return InvariantResult.failure(
-                f"Status transition requires role '{required_role}'. User has role '{user_role}'"
-            )
+    # Gabungkan kedua kondisi menjadi satu `if` (SIM102)
+    if required_role and user_role != required_role and user_role not in ("admin", "super_admin"):
+        return InvariantResult.failure(
+            f"Status transition requires role '{required_role}'. User has role '{user_role}'"
+        )
     return InvariantResult.success()
 
 

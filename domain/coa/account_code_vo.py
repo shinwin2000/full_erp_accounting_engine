@@ -279,7 +279,7 @@ class AccountCodeVO:
         """
         Return list of ancestor codes from root to this code (or to parent if not include_self).
         """
-        ancestors = []
+        ancestors: list[AccountCodeVO] = []  # <-- Perbaikan: tambahkan anotasi tipe
         if self.depth == 0:
             return ancestors
         # Build root to parent
@@ -417,7 +417,8 @@ class AccountCodeVO:
 
     def append_level(self, new_level: str) -> AccountCodeVO:
         """Append a new level at the end, creating deeper hierarchy."""
-        new_levels = list(self.levels) + [new_level]
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_levels = [*self.levels, new_level]
         if self.effective_separator:
             new_code = self.effective_separator.join(new_levels)
         else:
@@ -426,7 +427,8 @@ class AccountCodeVO:
 
     def prepend_level(self, new_level: str) -> AccountCodeVO:
         """Prepend a new level at the beginning (new root)."""
-        new_levels = [new_level] + list(self.levels)
+        # RUF005 fix: use iterable unpacking instead of concatenation
+        new_levels = [new_level, *self.levels]
         if self.effective_separator:
             new_code = self.effective_separator.join(new_levels)
         else:

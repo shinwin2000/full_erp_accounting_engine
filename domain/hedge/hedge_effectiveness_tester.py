@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: UP035, UP006, UP007
 """
 Module: hedge_effectiveness_tester.py
 Layer: Domain / Hedge
@@ -14,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import Any
+from typing import Any, List, Union, cast
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -102,21 +103,21 @@ class EffectivenessTestResult:
 class HedgeEffectivenessTester:
     """Performs prospective and retrospective hedge effectiveness tests (IFRS 9)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._test_history: list[EffectivenessTestResult] = []
 
     # ==================== Core Test Methods ====================
 
     def calculate_effectiveness_ratio(
         self,
-        hedge_changes: list[Decimal],
-        hedged_changes: list[Decimal],
+        hedge_changes: List[Decimal],
+        hedged_changes: List[Decimal],
     ) -> Decimal:
         """Calculate effectiveness ratio using cumulative changes."""
         if not hedge_changes or not hedged_changes:
             return Decimal("0")
-        total_hedge = sum(abs(c) for c in hedge_changes)
-        total_hedged = sum(abs(c) for c in hedged_changes)
+        total_hedge = sum((abs(c) for c in hedge_changes), Decimal(0))
+        total_hedged = sum((abs(c) for c in hedged_changes), Decimal(0))
         if total_hedged == 0:
             return Decimal("0")
         return (total_hedge / total_hedged).quantize(Decimal("0.0001"), rounding=ROUND_HALF_EVEN)
@@ -124,8 +125,8 @@ class HedgeEffectivenessTester:
     def prospective_test(
         self,
         hedge_id: UUID,
-        expected_hedge_changes: list[Decimal],
-        expected_hedged_changes: list[Decimal],
+        expected_hedge_changes: List[Decimal],
+        expected_hedged_changes: List[Decimal],
         threshold_lower: Decimal = Decimal("0.80"),
         threshold_upper: Decimal = Decimal("1.25"),
         tested_by: str = "system",
@@ -149,8 +150,8 @@ class HedgeEffectivenessTester:
         if not expected_hedge_changes:
             raise EffectivenessTestError("No data points provided")
 
-        total_hedge = sum(abs(c) for c in expected_hedge_changes)
-        total_hedged = sum(abs(c) for c in expected_hedged_changes)
+        total_hedge = sum((abs(c) for c in expected_hedge_changes), Decimal(0))
+        total_hedged = sum((abs(c) for c in expected_hedged_changes), Decimal(0))
 
         if total_hedged == 0:
             is_effective = False
@@ -202,7 +203,7 @@ class HedgeEffectivenessTester:
     def retrospective_test(
         self,
         hedge_id: UUID,
-        data_points: list[EffectivenessTestDataPoint] | list[tuple[date, Decimal, Decimal]],
+        data_points: Union[List[EffectivenessTestDataPoint], List[tuple[date, Decimal, Decimal]]],
         threshold_lower: Decimal = Decimal("0.80"),
         threshold_upper: Decimal = Decimal("1.25"),
         tested_by: str = "system",
@@ -225,15 +226,18 @@ class HedgeEffectivenessTester:
 
         # Convert to proper format if needed
         if isinstance(data_points[0], tuple):
-            dps = [
+            # Cast to list of tuples to satisfy mypy
+            tuple_list = cast(List[tuple[date, Decimal, Decimal]], data_points)
+            dps: List[EffectivenessTestDataPoint] = [
                 EffectivenessTestDataPoint(date=d[0], hedge_change=d[1], hedged_change=d[2])
-                for d in data_points
+                for d in tuple_list
             ]
         else:
-            dps = data_points
+            # data_points is already List[EffectivenessTestDataPoint]
+            dps = cast(List[EffectivenessTestDataPoint], data_points)
 
-        cumulative_hedge = sum(dp.hedge_change for dp in dps)
-        cumulative_hedged = sum(dp.hedged_change for dp in dps)
+        cumulative_hedge = sum((dp.hedge_change for dp in dps), Decimal(0))
+        cumulative_hedged = sum((dp.hedged_change for dp in dps), Decimal(0))
 
         if cumulative_hedged == 0:
             is_effective = False
@@ -275,7 +279,7 @@ class HedgeEffectivenessTester:
     def regression_test(
         self,
         hedge_id: UUID,
-        data_points: list[EffectivenessTestDataPoint],
+        data_points: List[EffectivenessTestDataPoint],
         threshold: Decimal = Decimal("0.80"),
         tested_by: str = "system",
     ) -> EffectivenessTestResult:
@@ -296,11 +300,11 @@ class HedgeEffectivenessTester:
 
         # Calculate correlation coefficient (simplified Pearson correlation)
         n = Decimal(len(data_points))
-        sum_x = sum(dp.hedge_change for dp in data_points)
-        sum_y = sum(dp.hedged_change for dp in data_points)
-        sum_xx = sum(dp.hedge_change**2 for dp in data_points)
-        sum_yy = sum(dp.hedged_change**2 for dp in data_points)
-        sum_xy = sum(dp.hedge_change * dp.hedged_change for dp in data_points)
+        sum_x = sum((dp.hedge_change for dp in data_points), Decimal(0))
+        sum_y = sum((dp.hedged_change for dp in data_points), Decimal(0))
+        sum_xx = sum((dp.hedge_change ** 2 for dp in data_points), Decimal(0))
+        sum_yy = sum((dp.hedged_change ** 2 for dp in data_points), Decimal(0))
+        sum_xy = sum((dp.hedge_change * dp.hedged_change for dp in data_points), Decimal(0))
 
         denominator_x = n * sum_xx - sum_x * sum_x
         denominator_y = n * sum_yy - sum_y * sum_y
@@ -315,8 +319,8 @@ class HedgeEffectivenessTester:
             is_effective = r_squared >= threshold
             message = f"Regression test: R-squared = {r_squared}"
 
-        cumulative_hedge = sum(dp.hedge_change for dp in data_points)
-        cumulative_hedged = sum(dp.hedged_change for dp in data_points)
+        cumulative_hedge = sum((dp.hedge_change for dp in data_points), Decimal(0))
+        cumulative_hedged = sum((dp.hedged_change for dp in data_points), Decimal(0))
 
         return EffectivenessTestResult(
             test_id=uuid4(),
@@ -360,6 +364,9 @@ class HedgeEffectivenessTester:
 
         if hedge_currency != hedged_currency:
             return False, f"Currency mismatch: {hedge_currency} vs {hedged_currency}"
+
+        if hedged_notional == 0:
+            return False, "Hedged notional is zero"
 
         if abs(hedge_notional - hedged_notional) / hedged_notional > Decimal("0.10"):
             return False, f"Notional mismatch: {hedge_notional} vs {hedged_notional}"

@@ -290,6 +290,7 @@ class IntentOutcomeLink:
 
 class OutcomeLinkTracker:
     _instance: OutcomeLinkTracker | None = None
+    _initialized: bool = False  # Tambahan untuk mypy
 
     def __new__(cls) -> OutcomeLinkTracker:
         if cls._instance is None:
@@ -481,8 +482,8 @@ class OutcomeLinkTracker:
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:
             total_links = len(self._links)
-            by_status = {}
-            by_type = {}
+            by_status: dict[str, int] = {}  # anotasi ditambahkan
+            by_type: dict[str, int] = {}    # anotasi ditambahkan
             for link in self._links.values():
                 by_status[link.status.name] = by_status.get(link.status.name, 0) + 1
                 by_type[link.link_type.name] = by_type.get(link.link_type.name, 0) + 1

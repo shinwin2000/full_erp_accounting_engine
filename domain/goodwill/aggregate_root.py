@@ -428,18 +428,17 @@ class GoodwillAggregate:
     """Aggregate wrapper for Goodwill with mutation operations."""
 
     # ---- Class-level attributes for static checker compliance ----
-    version: int
     id: UUID
+    # version is now a property, not a class attribute
 
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _events: list[Any] = []
 
     def __init__(self, goodwill: Goodwill):
         self._goodwill = goodwill
-        self._events = []
-        self.version = goodwill.version
+        self._events: list[Any] = []  # <-- anotasi tipe ditambahkan
         self.id = goodwill.id
+        self._version = goodwill.version
 
     # ==================== EVENT CONTRACT ====================
 
@@ -472,7 +471,7 @@ class GoodwillAggregate:
         """Replay a list of events to rebuild state."""
         for event in events:
             self.apply(event)
-        self.version += len(events)
+        self._version += len(events)
 
     def reconstruct(self, events: list[Any]) -> None:
         """Reconstruct state from events (alias for replay)."""
@@ -483,7 +482,7 @@ class GoodwillAggregate:
     def snapshot(self) -> dict[str, Any]:
         """Get current snapshot."""
         return {
-            "version": self.version,
+            "version": self._version,
             "goodwill_id": str(self.id),
             "goodwill_number": self._goodwill.goodwill_number,
             "carrying_amount": str(self._goodwill.carrying_amount),
@@ -492,6 +491,11 @@ class GoodwillAggregate:
         }
 
     # ==================== END EVENT CONTRACT ====================
+
+    @property
+    def version(self) -> int:
+        """Get current version."""
+        return self._version
 
     @property
     def goodwill(self) -> Goodwill:
@@ -542,7 +546,7 @@ class GoodwillAggregate:
         self._record_audit(
             "CREATE", created_by, {"goodwill_number": self._goodwill.goodwill_number}
         )
-        self.version = self._goodwill.version
+        self._version = self._goodwill.version
         return self
 
     def update(self, updated_by: str, **kwargs) -> GoodwillAggregate:
@@ -552,7 +556,7 @@ class GoodwillAggregate:
                 data[key] = value
         new_goodwill = Goodwill.from_dict(data)
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return self
 
@@ -587,7 +591,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("DELETE", deleted_by, {"reason": reason})
         return self
 
@@ -622,7 +626,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("RESTORE", restored_by, {})
         return self
 
@@ -637,7 +641,7 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("ACTIVATE", activated_by, {})
         return self
 
@@ -660,7 +664,7 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("LOCK", locked_by, {"reason": reason})
         return self
 
@@ -678,7 +682,7 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("UNLOCK", unlocked_by, {})
         return self
 
@@ -699,8 +703,9 @@ class GoodwillAggregate:
 
     # snapshot already defined above
 
-    def version(self) -> int:
-        return self._goodwill.version
+    def get_version(self) -> int:
+        """Alias for version property for compatibility."""
+        return self._version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -714,14 +719,14 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("TOUCH", touched_by, {})
         return self
 
     # ==================== AGGREGATE ROOT METHODS ====================
 
     def add_child(self, allocation: GoodwillAllocation, created_by: str) -> GoodwillAggregate:
-        new_allocations = self._goodwill.allocations + [allocation]
+        new_allocations = [*self._goodwill.allocations, allocation]
         total_allocated = sum(a.allocated_amount for a in new_allocations)
         if total_allocated > self._goodwill.amount:
             raise GoodwillError(
@@ -736,7 +741,7 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit(
             "ADD_ALLOCATION",
             created_by,
@@ -755,7 +760,7 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("REMOVE_ALLOCATION", removed_by, {"cgu_code": cgu_code})
         return self
 
@@ -830,7 +835,7 @@ class GoodwillAggregate:
             }
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self._record_audit("REOPEN", reopened_by, {"reason": reason})
         return self
 
@@ -940,7 +945,7 @@ class GoodwillAggregate:
             tested_by=tested_by,
             notes=notes,
         )
-        new_history = self._goodwill.impairment_history + [impairment_record]
+        new_history = [*self._goodwill.impairment_history, impairment_record]
 
         new_goodwill = Goodwill(
             id=self._goodwill.id,
@@ -970,7 +975,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self.register_event(
             {
                 "event_type": "GoodwillImpaired",
@@ -1016,7 +1021,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self.register_event(
             {
                 "event_type": "GoodwillImpairmentReversed",
@@ -1067,7 +1072,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self.version = new_goodwill.version
+        self._version = new_goodwill.version
         self.register_event(
             {
                 "event_type": "GoodwillAmortized",

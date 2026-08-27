@@ -827,34 +827,34 @@ def serialize_event(event: DomainEvent) -> str:
 
 
 __all__ = [
-    "DomainEventType",
-    "DomainEvent",
-    "DomainEventPublisher",
-    # Customer events
-    "CustomerCreatedEvent",
-    "CustomerStatusChangedEvent",
-    "CustomerCreditLimitChangedEvent",
+    "CustomerBalanceUpdated",
     "CustomerBalanceUpdatedEvent",
     "CustomerCreated",
-    "CustomerStatusChanged",
+    # Customer events
+    "CustomerCreatedEvent",
     "CustomerCreditLimitChanged",
-    "CustomerBalanceUpdated",
-    # Supplier events
-    "SupplierCreatedEvent",
-    "SupplierPaymentTermsChangedEvent",
-    "SupplierWithholdingCategoryChangedEvent",
-    "SupplierCreated",
-    "SupplierPaymentTermsChanged",
-    "SupplierWithholdingCategoryChanged",
-    # Employee events
-    "EmployeeCreatedEvent",
-    "EmployeeResignedEvent",
-    "EmployeePTKPUpdatedEvent",
+    "CustomerCreditLimitChangedEvent",
+    "CustomerStatusChanged",
+    "CustomerStatusChangedEvent",
+    "DomainEvent",
+    "DomainEventPublisher",
+    "DomainEventType",
+    "EmployeeBPJSUpdated",
     "EmployeeBPJSUpdatedEvent",
     "EmployeeCreated",
-    "EmployeeResigned",
+    # Employee events
+    "EmployeeCreatedEvent",
     "EmployeePTKPUpdated",
-    "EmployeeBPJSUpdated",
+    "EmployeePTKPUpdatedEvent",
+    "EmployeeResigned",
+    "EmployeeResignedEvent",
+    "SupplierCreated",
+    # Supplier events
+    "SupplierCreatedEvent",
+    "SupplierPaymentTermsChanged",
+    "SupplierPaymentTermsChangedEvent",
+    "SupplierWithholdingCategoryChanged",
+    "SupplierWithholdingCategoryChangedEvent",
     # Helpers
     "deserialize_event",
     "serialize_event",

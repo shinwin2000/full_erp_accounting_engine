@@ -23,7 +23,7 @@ Business rules:
 
 Dependencies:
     - Python standard library (decimal, datetime, logging, uuid)
-    - domain.fixed_asset.asset_entity (FixedAsset) for TYPE_CHECKING
+    - domain.fixed_asset.asset_entity (FixedAsset, AssetStatus) for TYPE_CHECKING
 
 Audit:
     Every impairment test should be logged; results recorded for audit trail.
@@ -41,6 +41,8 @@ from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
     from domain.fixed_asset.asset_entity import FixedAsset
+
+from domain.fixed_asset.asset_entity import AssetStatus
 
 logger = logging.getLogger(__name__)
 

@@ -424,7 +424,7 @@ class ForexTransaction:
     # ==================== BUSINESS METHODS ====================
 
     @classmethod
-    def create(
+    def create_transaction(
         cls,
         legal_entity_id: UUID,
         transaction_number: str,

@@ -476,7 +476,7 @@ class CustomerAggregate:
     # ==================== FACTORY METHODS ====================
 
     @classmethod
-    def create(cls, legal_entity_id: UUID, created_by: str = "system") -> CustomerAggregate:
+    def create_aggregate(cls, legal_entity_id: UUID, created_by: str = "system") -> CustomerAggregate:
         """Factory method to create a new empty aggregate."""
         agg = cls(
             aggregate_id=uuid4(),
@@ -958,8 +958,8 @@ class CustomerAggregateRepository:
         query_lower = query.lower()
         results = []
         for agg in cls._storage.values():
-            for field in fields:
-                value = getattr(agg, field, "")
+            for field_name in fields:  # renamed loop variable to avoid shadowing imported `field`
+                value = getattr(agg, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(agg)
                     break

@@ -750,8 +750,8 @@ class CapitalWithdrawalRepository:
         query_lower = query.lower()
         results = []
         for w in withdrawals:
-            for field in fields:
-                value = getattr(w, field, "")
+            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+                value = getattr(w, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(w)
                     break
