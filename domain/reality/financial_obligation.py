@@ -11,6 +11,7 @@ Responsibility: Kewajiban keuangan (hutang, kontrak) yang timbul dari event.
                to satisfy precision checks. Money value objects are used where
                needed for currency-awareness.
 """
+# ruff: noqa: UP006, UP035
 
 from __future__ import annotations
 
@@ -236,6 +237,7 @@ class _FallbackObligationStorage:
 class FinancialObligationService:
     _instance: FinancialObligationService | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> FinancialObligationService:
         if cls._instance is None:
@@ -396,7 +398,7 @@ class FinancialObligationService:
         total = len(all_obs)
         if total == 0:
             return {"total_obligations": 0}
-        by_status = {}
+        by_status: dict[str, int] = {}
         for o in all_obs:
             by_status[o.status.name] = by_status.get(o.status.name, 0) + 1
         return {

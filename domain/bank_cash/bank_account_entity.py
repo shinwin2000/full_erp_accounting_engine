@@ -7,6 +7,7 @@ Responsibility: Entitas rekening bank dengan semua atribut dan method bisnis.
 Audit: Setiap perubahan state rekening (create, update, block, close, deposit, withdraw)
        harus menghasilkan domain event.
 """
+# ruff: noqa: UP006, UP035
 
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, List
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class BankAccountSignature:
     signed_by: str
 
     @classmethod
-    def create(cls, account: BankAccountEntity, signed_by: str) -> Self:
+    def create(cls, account: BankAccountEntity, signed_by: str) -> BankAccountSignature:
         data = f"{account.account_id}{account.version}{account.current_balance}{account.updated_at}"
         hash_value = hashlib.sha3_256(data.encode()).hexdigest()
         return cls(
@@ -307,12 +308,12 @@ class BankAccountEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: UUID) -> Self:
+    def create(self, created_by: UUID) -> BankAccountEntity:
         """Create new bank account entity (factory method)."""
         self._record_audit("CREATE", str(created_by), {"account_number": self.account_number})
         return self
 
-    def update(self, updated_by: UUID, **kwargs) -> Self:
+    def update(self, updated_by: UUID, **kwargs) -> BankAccountEntity:
         """Update account attributes."""
         if not self.can_edit():
             raise ValueError(f"Cannot update account in status {self.status.value}")
@@ -333,7 +334,7 @@ class BankAccountEntity:
         new_account._record_audit("UPDATE", str(updated_by), {"changes": kwargs})
         return new_account
 
-    def delete(self, deleted_by: UUID, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: UUID, reason: str | None = None) -> BankAccountEntity:
         """Soft delete account."""
         if self.current_balance != 0:
             raise ValueError(f"Cannot delete account with non-zero balance: {self.current_balance}")
@@ -368,7 +369,7 @@ class BankAccountEntity:
         new_account._record_audit("DELETE", str(deleted_by), {"reason": reason})
         return new_account
 
-    def restore(self, restored_by: UUID) -> Self:
+    def restore(self, restored_by: UUID) -> BankAccountEntity:
         """Restore soft-deleted account."""
         if self.deleted_at is None:
             raise ValueError("Account is not deleted")
@@ -403,7 +404,7 @@ class BankAccountEntity:
         new_account._record_audit("RESTORE", str(restored_by), {})
         return new_account
 
-    def activate(self, activated_by: UUID) -> Self:
+    def activate(self, activated_by: UUID) -> BankAccountEntity:
         """Activate account."""
         if self.status == BankAccountStatus.ACTIVE:
             return self
@@ -438,7 +439,7 @@ class BankAccountEntity:
         new_account._record_audit("ACTIVATE", str(activated_by), {})
         return new_account
 
-    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> BankAccountEntity:
         """Deactivate account."""
         if self.status != BankAccountStatus.ACTIVE:
             raise ValueError(f"Cannot deactivate account in status {self.status.value}")
@@ -449,7 +450,7 @@ class BankAccountEntity:
         new_account._record_audit("DEACTIVATE", str(deactivated_by), {"reason": reason})
         return new_account
 
-    def lock(self, locked_by: UUID, reason: str) -> Self:
+    def lock(self, locked_by: UUID, reason: str) -> BankAccountEntity:
         """Lock account for security reasons."""
         if self.status not in (BankAccountStatus.ACTIVE, BankAccountStatus.INACTIVE):
             raise ValueError(f"Cannot lock account in status {self.status.value}")
@@ -462,7 +463,7 @@ class BankAccountEntity:
         new_account._record_audit("LOCK", str(locked_by), {"reason": reason})
         return new_account
 
-    def unlock(self, unlocked_by: UUID) -> Self:
+    def unlock(self, unlocked_by: UUID) -> BankAccountEntity:
         """Unlock frozen account."""
         if self.status != BankAccountStatus.FROZEN:
             raise ValueError(f"Cannot unlock account in status {self.status.value}")
@@ -557,7 +558,7 @@ class BankAccountEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> BankAccountEntity:
         """Deserialization."""
         instance = cls(
             account_id=UUID(data["account_id"]),
@@ -625,7 +626,7 @@ class BankAccountEntity:
         instance._is_verified = data.get("is_verified", False)
         return instance
 
-    def clone(self, new_account_number: str | None = None) -> Self:
+    def clone(self, new_account_number: str | None = None) -> BankAccountEntity:
         """Clone account with new ID and optional new account number."""
         new_id = uuid4()
         new_number = new_account_number or f"{self.account_number}_COPY_{uuid4().hex[:4]}"
@@ -677,7 +678,7 @@ class BankAccountEntity:
         """Get audit trail entries."""
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: UUID) -> Self:
+    def touch(self, touched_by: UUID) -> BankAccountEntity:
         """Update timestamp without changing data."""
         new_account = self._copy()
         new_account.updated_at = datetime.now(UTC)
@@ -807,7 +808,7 @@ class BankAccountEntity:
 
     # ==================== TRANSACTION METHODS ====================
 
-    def deposit(self, amount: Decimal, updated_by: UUID) -> Self:
+    def deposit(self, amount: Decimal, updated_by: UUID) -> BankAccountEntity:
         if not self.can_deposit(amount):
             raise ValueError(f"Cannot deposit {amount} to account {self.account_number}")
 
@@ -831,7 +832,7 @@ class BankAccountEntity:
             increment_today_count=True,
         )
 
-    def withdraw(self, amount: Decimal, updated_by: UUID) -> Self:
+    def withdraw(self, amount: Decimal, updated_by: UUID) -> BankAccountEntity:
         if not self.can_withdraw(amount):
             raise ValueError(f"Cannot withdraw {amount} from account {self.account_number}")
 
@@ -857,17 +858,17 @@ class BankAccountEntity:
             increment_today_count=True,
         )
 
-    def transfer_out(self, amount: Decimal, reference: str, updated_by: UUID) -> Self:
+    def transfer_out(self, amount: Decimal, reference: str, updated_by: UUID) -> BankAccountEntity:
         logger.debug(f"Transfer out {amount} to {reference} from {self.account_number}")
         return self.withdraw(amount, updated_by)
 
-    def transfer_in(self, amount: Decimal, reference: str, updated_by: UUID) -> Self:
+    def transfer_in(self, amount: Decimal, reference: str, updated_by: UUID) -> BankAccountEntity:
         logger.debug(f"Transfer in {amount} from {reference} to {self.account_number}")
         return self.deposit(amount, updated_by)
 
     # ==================== STATUS CHANGE METHODS ====================
 
-    def block(self, blocked_by: UUID, reason: str) -> Self:
+    def block(self, blocked_by: UUID, reason: str) -> BankAccountEntity:
         if self.status != BankAccountStatus.ACTIVE:
             raise ValueError(f"Cannot block account in status {self.status.value}")
 
@@ -879,7 +880,7 @@ class BankAccountEntity:
         new_account._record_audit("BLOCK", str(blocked_by), {"reason": reason})
         return new_account
 
-    def unblock(self, unblocked_by: UUID) -> Self:
+    def unblock(self, unblocked_by: UUID) -> BankAccountEntity:
         if self.status != BankAccountStatus.BLOCKED:
             raise ValueError(f"Cannot unblock account in status {self.status.value}")
 
@@ -891,7 +892,7 @@ class BankAccountEntity:
         new_account._record_audit("UNBLOCK", str(unblocked_by), {})
         return new_account
 
-    def close(self, closed_by: UUID) -> Self:
+    def close(self, closed_by: UUID) -> BankAccountEntity:
         if self.status == BankAccountStatus.CLOSED:
             raise ValueError("Account already closed")
         if self.current_balance != 0:
@@ -909,7 +910,7 @@ class BankAccountEntity:
         new_account._record_audit("CLOSE", str(closed_by), {})
         return new_account
 
-    def mark_dormant(self, marked_by: UUID) -> Self:
+    def mark_dormant(self, marked_by: UUID) -> BankAccountEntity:
         if self.status != BankAccountStatus.ACTIVE:
             raise ValueError(f"Cannot mark dormant account in status {self.status.value}")
 
@@ -921,7 +922,7 @@ class BankAccountEntity:
         new_account._record_audit("MARK_DORMANT", str(marked_by), {})
         return new_account
 
-    def activate_dormant(self, activated_by: UUID) -> Self:
+    def activate_dormant(self, activated_by: UUID) -> BankAccountEntity:
         if self.status != BankAccountStatus.DORMANT:
             raise ValueError(f"Cannot activate dormant account in status {self.status.value}")
 
@@ -941,7 +942,7 @@ class BankAccountEntity:
         reconciled_by: UUID,
         gl_balance: Decimal | None = None,
         strict: bool = True,
-    ) -> Self:
+    ) -> BankAccountEntity:
         """
         Mark account as reconciled with bank statement.
         Optionally compare with GL balance to ensure consistency.
@@ -994,7 +995,7 @@ class BankAccountEntity:
         )
         return new_account
 
-    def reconcile_with_gl(self, gl_balance: Decimal, reconciled_by: UUID) -> Self:
+    def reconcile_with_gl(self, gl_balance: Decimal, reconciled_by: UUID) -> BankAccountEntity:
         """
         Dedicated method to reconcile account balance with GL.
         This performs a strict check that GL balance matches current account balance.
@@ -1026,7 +1027,7 @@ class BankAccountEntity:
             strict=True,
         )
 
-    def update_available_balance(self, new_available: Decimal, updated_by: UUID) -> Self:
+    def update_available_balance(self, new_available: Decimal, updated_by: UUID) -> BankAccountEntity:
         new_available = new_available.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
         if new_available > self.current_balance:
@@ -1065,7 +1066,7 @@ class BankAccountEntity:
         interest = self.current_balance * daily_rate / Decimal(100)
         return interest.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
-    def accrue_daily_interest(self, accrued_by: UUID) -> Self:
+    def accrue_daily_interest(self, accrued_by: UUID) -> BankAccountEntity:
         """Accrue daily interest."""
         interest = self.calculate_daily_interest()
         if interest <= 0:
@@ -1081,7 +1082,7 @@ class BankAccountEntity:
         new_account._record_audit("ACCRUE_INTEREST", str(accrued_by), {"interest": str(interest)})
         return new_account
 
-    def apply_monthly_interest(self, applied_by: UUID) -> Self:
+    def apply_monthly_interest(self, applied_by: UUID) -> BankAccountEntity:
         """Apply accrued interest to balance (capitalize)."""
         if self.accrued_interest <= 0:
             return self
@@ -1104,7 +1105,7 @@ class BankAccountEntity:
         )
         return new_account
 
-    def deduct_monthly_fee(self, deducted_by: UUID) -> Self:
+    def deduct_monthly_fee(self, deducted_by: UUID) -> BankAccountEntity:
         """Deduct monthly fee from account."""
         if self.monthly_fee <= 0:
             return self
@@ -1129,7 +1130,7 @@ class BankAccountEntity:
 
     # ==================== VERIFICATION METHODS ====================
 
-    def verify(self, verified_by: UUID) -> Self:
+    def verify(self, verified_by: UUID) -> BankAccountEntity:
         """Mark account as verified."""
         if self._is_verified:
             return self
@@ -1143,7 +1144,7 @@ class BankAccountEntity:
         new_account._record_audit("VERIFY", str(verified_by), {})
         return new_account
 
-    def sign(self, signed_by: str) -> Self:
+    def sign(self, signed_by: str) -> BankAccountEntity:
         """Generate digital signature for account."""
         new_account = self._copy()
         new_account.signature = BankAccountSignature.create(self, signed_by)
@@ -1160,7 +1161,7 @@ class BankAccountEntity:
 
     # ==================== LIMIT RESET METHODS ====================
 
-    def reset_daily_limits(self, reset_by: UUID) -> Self:
+    def reset_daily_limits(self, reset_by: UUID) -> BankAccountEntity:
         """Reset daily transaction counters (usually at midnight)."""
         new_account = self._copy()
         new_account.today_withdrawn = Decimal(0)
@@ -1170,7 +1171,7 @@ class BankAccountEntity:
         new_account._record_audit("RESET_DAILY_LIMITS", str(reset_by), {})
         return new_account
 
-    def reset_monthly_limits(self, reset_by: UUID) -> Self:
+    def reset_monthly_limits(self, reset_by: UUID) -> BankAccountEntity:
         """Reset monthly transaction counter."""
         new_account = self._copy()
         new_account.month_transaction_count = 0
@@ -1181,7 +1182,7 @@ class BankAccountEntity:
 
     # ==================== PRIVATE HELPER METHODS ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> BankAccountEntity:
         """Create a copy with same values."""
         return BankAccountEntity(
             account_id=self.account_id,
@@ -1229,7 +1230,7 @@ class BankAccountEntity:
             deleted_by=self.deleted_by,
         )
 
-    def _copy_with_status(self, new_status: BankAccountStatus) -> Self:
+    def _copy_with_status(self, new_status: BankAccountStatus) -> BankAccountEntity:
         new_account = self._copy()
         new_account.status = new_status
         return new_account
@@ -1241,7 +1242,7 @@ class BankAccountEntity:
         today_withdrawn: Decimal | None = None,
         updated_by: UUID | None = None,
         increment_today_count: bool = False,
-    ) -> Self:
+    ) -> BankAccountEntity:
         new_account = self._copy()
         if current_balance is not None:
             new_account.current_balance = current_balance
@@ -1295,27 +1296,27 @@ class BankAccountRepository:
                 return account
         return None
 
-    async def get_by_bank(self, bank_code: str, legal_entity_id: UUID) -> list[BankAccountEntity]:
+    async def get_by_bank(self, bank_code: str, legal_entity_id: UUID) -> List[BankAccountEntity]:
         storage = self._get_legal_entity_storage(legal_entity_id)
         return [acc for acc in storage.values() if acc.bank_code == bank_code]
 
     async def get_by_currency(
         self, currency: str, legal_entity_id: UUID
-    ) -> list[BankAccountEntity]:
+    ) -> List[BankAccountEntity]:
         storage = self._get_legal_entity_storage(legal_entity_id)
         return [acc for acc in storage.values() if acc.currency == currency]
 
     async def get_by_status(
         self, status: BankAccountStatus, legal_entity_id: UUID
-    ) -> list[BankAccountEntity]:
+    ) -> List[BankAccountEntity]:
         storage = self._get_legal_entity_storage(legal_entity_id)
         return [acc for acc in storage.values() if acc.status == status]
 
-    async def get_all(self, legal_entity_id: UUID) -> list[BankAccountEntity]:
+    async def get_all(self, legal_entity_id: UUID) -> List[BankAccountEntity]:
         storage = self._get_legal_entity_storage(legal_entity_id)
         return list(storage.values())
 
-    async def get_active(self, legal_entity_id: UUID) -> list[BankAccountEntity]:
+    async def get_active(self, legal_entity_id: UUID) -> List[BankAccountEntity]:
         return [acc for acc in await self.get_all(legal_entity_id) if acc.is_active()]
 
     async def exists(self, account_id: UUID, legal_entity_id: UUID) -> bool:
@@ -1331,7 +1332,7 @@ class BankAccountRepository:
 
     async def list(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
-    ) -> list[BankAccountEntity]:
+    ) -> List[BankAccountEntity]:
         accounts = await self.get_all(legal_entity_id)
         return accounts[offset : offset + limit]
 
@@ -1340,7 +1341,7 @@ class BankAccountRepository:
         legal_entity_id: UUID,
         page: int = 1,
         per_page: int = 20,
-    ) -> tuple[list[BankAccountEntity], int]:
+    ) -> tuple[List[BankAccountEntity], int]:
         accounts = await self.get_all(legal_entity_id)
         total = len(accounts)
         start = (page - 1) * per_page
@@ -1351,8 +1352,8 @@ class BankAccountRepository:
         self,
         legal_entity_id: UUID,
         query: str,
-        fields: list[str] | None = None,
-    ) -> list[BankAccountEntity]:
+        fields: List[str] | None = None,
+    ) -> List[BankAccountEntity]:
         if fields is None:
             fields = ["account_number", "account_name", "bank_name"]
 

@@ -278,6 +278,7 @@ class AuditStoryBuilder:
     """
 
     _instance: AuditStoryBuilder | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> AuditStoryBuilder:
         if cls._instance is None:
@@ -806,10 +807,10 @@ Cerita audit ini menyediakan rekaman lengkap dan terverifikasi dari sejarah kaus
     # ------------------------------------------------------------------------
     def get_statistics(self) -> dict[str, Any]:
         total = len(self._stories)
-        by_status = {}
+        by_status: dict[str, int] = {}
         for s in self._stories:
             by_status[s.status.value] = by_status.get(s.status.value, 0) + 1
-        by_format = {}
+        by_format: dict[str, int] = {}
         for s in self._stories:
             by_format[s.format.value] = by_format.get(s.format.value, 0) + 1
         return {

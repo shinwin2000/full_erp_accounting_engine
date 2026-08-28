@@ -75,6 +75,7 @@ class CausalChainBuilder:
     """
 
     _instance: CausalChainBuilder | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> CausalChainBuilder:
         if cls._instance is None:
@@ -108,9 +109,9 @@ class CausalChainBuilder:
         Membangun rantai dari intent ke economic event.
         """
         start_time = datetime.now(UTC)
-        errors = []
-        warnings = []
-        nodes = []
+        errors: list[str] = []
+        warnings: list[str] = []
+        nodes: list[CausalNode] = []
 
         try:
             # Cari atau buat node intent
@@ -197,9 +198,9 @@ class CausalChainBuilder:
         Membangun rantai dari economic event ke journal entry.
         """
         start_time = datetime.now(UTC)
-        errors = []
-        warnings = []
-        nodes = []
+        errors: list[str] = []
+        warnings: list[str] = []
+        nodes: list[CausalNode] = []
 
         try:
             # Cari atau buat node event
@@ -285,9 +286,9 @@ class CausalChainBuilder:
         Membangun rantai lengkap: intent → event → journal.
         """
         start_time = datetime.now(UTC)
-        all_nodes = []
-        errors = []
-        warnings = []
+        all_nodes: list[CausalNode] = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         # Step 1: intent → event
         result1 = self.build_from_intent_to_event(intent_id, event_id, created_by, metadata)
@@ -330,8 +331,8 @@ class CausalChainBuilder:
         Membangun rantai reversal dari journal asli ke reversal journal.
         """
         start_time = datetime.now(UTC)
-        errors = []
-        nodes = []
+        errors: list[str] = []
+        nodes: list[CausalNode] = []
 
         try:
             # Cari node journal asli
@@ -421,8 +422,8 @@ class CausalChainBuilder:
         Membangun rantai penyesuaian dari event asli ke adjustment event.
         """
         start_time = datetime.now(UTC)
-        errors = []
-        nodes = []
+        errors: list[str] = []
+        nodes: list[CausalNode] = []
 
         try:
             original_node = self._node_service.get_node_by_entity(
@@ -662,7 +663,7 @@ class CausalChainBuilder:
         if total_builds == 0:
             return {"total_builds": 0}
 
-        by_status = {}
+        by_status: dict[str, int] = {}
         avg_duration = 0.0
         for h in self._build_history:
             status = h["status"]

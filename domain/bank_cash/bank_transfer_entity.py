@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -131,7 +131,7 @@ class TransferSignature:
     signed_by: str
 
     @classmethod
-    def create(cls, transfer: BankTransferEntity, signed_by: str) -> Self:
+    def create(cls, transfer: BankTransferEntity, signed_by: str) -> TransferSignature:
         data = f"{transfer.transfer_id}{transfer.version}{transfer.amount}{transfer.transfer_date}"
         hash_value = hashlib.sha3_256(data.encode()).hexdigest()
         return cls(
@@ -282,11 +282,11 @@ class BankTransferEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: UUID) -> Self:
+    def create(self, created_by: UUID) -> BankTransferEntity:
         self._record_audit("CREATE", str(created_by), {"amount": str(self.amount)})
         return self
 
-    def update(self, updated_by: UUID, **kwargs) -> Self:
+    def update(self, updated_by: UUID, **kwargs) -> BankTransferEntity:
         if self.status not in (
             TransferStatus.DRAFT,
             TransferStatus.FAILED,
@@ -310,7 +310,7 @@ class BankTransferEntity:
         new_transfer._record_audit("UPDATE", str(updated_by), {"changes": kwargs})
         return new_transfer
 
-    def delete(self, deleted_by: UUID, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: UUID, reason: str | None = None) -> BankTransferEntity:
         if self.status in (TransferStatus.COMPLETED, TransferStatus.PROCESSING):
             raise ValueError(f"Cannot delete transfer in status {self.status.value}")
 
@@ -321,7 +321,7 @@ class BankTransferEntity:
         new_transfer._record_audit("DELETE", str(deleted_by), {"reason": reason})
         return new_transfer
 
-    def restore(self, restored_by: UUID) -> Self:
+    def restore(self, restored_by: UUID) -> BankTransferEntity:
         if self.status != TransferStatus.CANCELLED:
             raise ValueError(f"Cannot restore transfer in status {self.status.value}")
 
@@ -332,7 +332,7 @@ class BankTransferEntity:
         new_transfer._record_audit("RESTORE", str(restored_by), {})
         return new_transfer
 
-    def activate(self, activated_by: UUID) -> Self:
+    def activate(self, activated_by: UUID) -> BankTransferEntity:
         if self.status != TransferStatus.DRAFT:
             raise ValueError(f"Cannot activate transfer in status {self.status.value}")
 
@@ -345,7 +345,7 @@ class BankTransferEntity:
         new_transfer._record_audit("ACTIVATE", str(activated_by), {})
         return new_transfer
 
-    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> BankTransferEntity:
         if self.status != TransferStatus.SUBMITTED:
             raise ValueError(f"Cannot deactivate transfer in status {self.status.value}")
 
@@ -356,7 +356,7 @@ class BankTransferEntity:
         new_transfer._record_audit("DEACTIVATE", str(deactivated_by), {"reason": reason})
         return new_transfer
 
-    def lock(self, locked_by: UUID, reason: str) -> Self:
+    def lock(self, locked_by: UUID, reason: str) -> BankTransferEntity:
         new_transfer = self._copy()
         new_transfer.approval_history.append(
             {
@@ -371,7 +371,7 @@ class BankTransferEntity:
         new_transfer._record_audit("LOCK", str(locked_by), {"reason": reason})
         return new_transfer
 
-    def unlock(self, unlocked_by: UUID) -> Self:
+    def unlock(self, unlocked_by: UUID) -> BankTransferEntity:
         new_transfer = self._copy()
         new_transfer.approval_history.append(
             {
@@ -471,7 +471,7 @@ class BankTransferEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> BankTransferEntity:
         # Handle both old "fee" and new "fee_config"
         fee_data = data.get("fee", {})
         if isinstance(fee_data, dict):
@@ -554,7 +554,7 @@ class BankTransferEntity:
             else None,
         )
 
-    def clone(self) -> Self:
+    def clone(self) -> BankTransferEntity:
         new_id = uuid4()
         cloned = self._copy()
         object.__setattr__(cloned, "transfer_id", new_id)
@@ -581,7 +581,7 @@ class BankTransferEntity:
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: UUID) -> Self:
+    def touch(self, touched_by: UUID) -> BankTransferEntity:
         new_transfer = self._copy()
         new_transfer.updated_at = datetime.now(UTC)
         new_transfer.version = self.version + 1
@@ -648,7 +648,7 @@ class BankTransferEntity:
 
     # ==================== Workflow Actions ====================
 
-    def submit(self, submitted_by: UUID) -> Self:
+    def submit(self, submitted_by: UUID) -> BankTransferEntity:
         if not self.can_submit():
             raise ValueError(f"Cannot submit transfer in status {self.status.value}")
 
@@ -661,7 +661,7 @@ class BankTransferEntity:
         new_transfer._record_audit("SUBMIT", str(submitted_by), {})
         return new_transfer
 
-    def approve(self, level: int, approved_by: UUID, comment: str | None = None) -> Self:
+    def approve(self, level: int, approved_by: UUID, comment: str | None = None) -> BankTransferEntity:
         if not self.can_approve(level):
             raise ValueError(f"Cannot approve at level {level} in status {self.status.value}")
 
@@ -699,7 +699,7 @@ class BankTransferEntity:
         )
         return new_transfer
 
-    def reject(self, rejected_by: UUID, reason: str) -> Self:
+    def reject(self, rejected_by: UUID, reason: str) -> BankTransferEntity:
         if not self.can_reject():
             raise ValueError(f"Cannot reject transfer in status {self.status.value}")
 
@@ -725,7 +725,7 @@ class BankTransferEntity:
         new_transfer._record_audit("REJECT", str(rejected_by), {"reason": reason})
         return new_transfer
 
-    def process(self, processed_by: UUID) -> Self:
+    def process(self, processed_by: UUID) -> BankTransferEntity:
         if not self.can_process():
             raise ValueError(f"Cannot process transfer in status {self.status.value}")
 
@@ -738,7 +738,7 @@ class BankTransferEntity:
         new_transfer._record_audit("PROCESS", str(processed_by), {})
         return new_transfer
 
-    def complete(self, completed_by: UUID, reference: str | None = None) -> Self:
+    def complete(self, completed_by: UUID, reference: str | None = None) -> BankTransferEntity:
         if self.status != TransferStatus.PROCESSING:
             raise ValueError(f"Cannot complete transfer in status {self.status.value}")
 
@@ -756,7 +756,7 @@ class BankTransferEntity:
         new_transfer._record_audit("COMPLETE", str(completed_by), {"reference": reference})
         return new_transfer
 
-    def fail(self, failed_by: UUID, reason: str, failure_code: str | None = None) -> Self:
+    def fail(self, failed_by: UUID, reason: str, failure_code: str | None = None) -> BankTransferEntity:
         if self.status not in (
             TransferStatus.SUBMITTED,
             TransferStatus.PENDING,
@@ -773,7 +773,7 @@ class BankTransferEntity:
         new_transfer._record_audit("FAIL", str(failed_by), {"reason": reason, "code": failure_code})
         return new_transfer
 
-    def cancel(self, cancelled_by: UUID, reason: str) -> Self:
+    def cancel(self, cancelled_by: UUID, reason: str) -> BankTransferEntity:
         if not self.can_cancel():
             raise ValueError(f"Cannot cancel transfer in status {self.status.value}")
 
@@ -785,7 +785,7 @@ class BankTransferEntity:
         new_transfer._record_audit("CANCEL", str(cancelled_by), {"reason": reason})
         return new_transfer
 
-    def reverse(self, reversed_by: UUID, reason: str) -> Self:
+    def reverse(self, reversed_by: UUID, reason: str) -> BankTransferEntity:
         if not self.can_reverse():
             raise ValueError(f"Cannot reverse transfer in status {self.status.value}")
 
@@ -833,7 +833,7 @@ class BankTransferEntity:
 
     # ==================== 2FA Methods ====================
 
-    def require_two_factor(self, required_by: UUID) -> Self:
+    def require_two_factor(self, required_by: UUID) -> BankTransferEntity:
         new_transfer = self._copy()
         new_transfer.requires_two_factor = True
         new_transfer.updated_at = datetime.now(UTC)
@@ -841,7 +841,7 @@ class BankTransferEntity:
         new_transfer._record_audit("REQUIRE_2FA", str(required_by), {})
         return new_transfer
 
-    def verify_two_factor(self, verified_by: UUID) -> Self:
+    def verify_two_factor(self, verified_by: UUID) -> BankTransferEntity:
         if not self.requires_two_factor:
             raise ValueError("Transfer does not require two-factor verification")
 
@@ -856,7 +856,7 @@ class BankTransferEntity:
 
     # ==================== Signing Methods ====================
 
-    def sign(self, signed_by: str) -> Self:
+    def sign(self, signed_by: str) -> BankTransferEntity:
         new_transfer = self._copy()
         new_transfer.signature = TransferSignature.create(self, signed_by)
         new_transfer.updated_at = datetime.now(UTC)
@@ -871,7 +871,7 @@ class BankTransferEntity:
 
     # ==================== Scheduling Methods ====================
 
-    def schedule(self, scheduled_date: date, scheduled_by: UUID) -> Self:
+    def schedule(self, scheduled_date: date, scheduled_by: UUID) -> BankTransferEntity:
         if scheduled_date < date.today():
             raise ValueError("Scheduled date cannot be in the past")
 
@@ -889,11 +889,11 @@ class BankTransferEntity:
         return self.scheduled_date is not None and self.status == TransferStatus.PENDING
 
     def is_due(self) -> bool:
-        return self.is_scheduled() and self.scheduled_date <= date.today()
+        return self.is_scheduled() and self.scheduled_date is not None and self.scheduled_date <= date.today()
 
     # ==================== Private Helpers ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> BankTransferEntity:
         return BankTransferEntity(
             transfer_id=self.transfer_id,
             transfer_number=self.transfer_number,

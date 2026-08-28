@@ -259,7 +259,8 @@ class BankCashInvariantEnforcer:
         """Menegakkan invariant saat pembuatan transaksi bank."""
         result = InvariantResult(True)
         result.merge(self._invariants.validate_transaction_amount(transaction))
-        if transaction.is_debit():
+        # Debit transaction is outflow (withdrawal)
+        if transaction.is_outflow:
             result.merge(self._invariants.validate_sufficient_funds(account, transaction.amount))
         return result
 

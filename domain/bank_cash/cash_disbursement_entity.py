@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: cash_disbursement_entity.py
@@ -6,6 +7,7 @@ Responsibility: Entitas pengeluaran kas (cash disbursement) dengan workflow appr
                pembayaran, pembatalan, integrasi ke cash book/petty cash,
                audit trail, validasi budget, approval matrix, dan notifikasi.
 """
+# ruff: noqa: UP006, UP035
 
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, List
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -171,7 +173,7 @@ class DisbursementSignature:
     signed_by: str
 
     @classmethod
-    def create(cls, disbursement: CashDisbursementEntity, signed_by: str) -> Self:
+    def create(cls, disbursement: CashDisbursementEntity, signed_by: str) -> DisbursementSignature:
         data = f"{disbursement.disbursement_id}{disbursement.version}{disbursement.amount}{disbursement.disbursement_date}"
         hash_value = hashlib.sha3_256(data.encode()).hexdigest()
         return cls(
@@ -286,19 +288,19 @@ class CashDisbursementEntity:
     swift_code: str | None = None
 
     # Alokasi
-    allocations: list[PaymentAllocation] = field(default_factory=list)
+    allocations: List[PaymentAllocation] = field(default_factory=list)
     paid_amount: Decimal = Decimal(0)
     paid_date: datetime | None = None
     paid_by: str | None = None
 
     # Tax
-    tax_withholdings: list[TaxWithholdingInfo] = field(default_factory=list)
+    tax_withholdings: List[TaxWithholdingInfo] = field(default_factory=list)
     total_tax_withheld: Decimal = Decimal(0)
 
     # Approval (multi-level)
     approval_level_required: int = 1
     current_approval_level: int = 0
-    approval_history: list[ApprovalHistoryEntry] = field(default_factory=list)
+    approval_history: List[ApprovalHistoryEntry] = field(default_factory=list)
     submitted_by: str | None = None
     submitted_at: datetime | None = None
     approved_by: str | None = None
@@ -319,8 +321,8 @@ class CashDisbursementEntity:
     activity_id: UUID | None = None
 
     # Dokumentasi
-    attachment_urls: list[str] = field(default_factory=list)
-    supporting_documents: list[str] = field(default_factory=list)
+    attachment_urls: List[str] = field(default_factory=list)
+    supporting_documents: List[str] = field(default_factory=list)
     description: str = ""
     notes: str | None = None
     internal_notes: str | None = None
@@ -344,7 +346,7 @@ class CashDisbursementEntity:
     signature: DisbursementSignature | None = None
 
     # Tracking
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
+    _audit_trail: ClassVar[List[dict[str, Any]]] = []
 
     def __post_init__(self) -> None:
         self._validate()
@@ -371,7 +373,7 @@ class CashDisbursementEntity:
             raise ValueError(f"Invalid status: {self.status}")
 
         # Validate tax withholding total
-        total_tax = sum(t.tax_amount for t in self.tax_withholdings)
+        total_tax = sum((t.tax_amount for t in self.tax_withholdings), Decimal(0))
         if total_tax > self.amount:
             raise ValueError(f"Total tax withheld {total_tax} exceeds amount {self.amount}")
 
@@ -392,11 +394,11 @@ class CashDisbursementEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: str) -> Self:
+    def create(self, created_by: str) -> CashDisbursementEntity:
         self._record_audit("CREATE", created_by, {"amount": str(self.amount)})
         return self
 
-    def update(self, updated_by: str, **kwargs) -> Self:
+    def update(self, updated_by: str, **kwargs) -> CashDisbursementEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot update disbursement in status {self.status.value}")
 
@@ -416,7 +418,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_disbursement
 
-    def delete(self, deleted_by: str, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: str, reason: str | None = None) -> CashDisbursementEntity:
         if self.status in (CashDisbursementStatus.PAID, CashDisbursementStatus.PROCESSING):
             raise ValueError(f"Cannot delete disbursement in status {self.status.value}")
 
@@ -428,7 +430,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("DELETE", deleted_by, {"reason": reason})
         return new_disbursement
 
-    def restore(self, restored_by: str) -> Self:
+    def restore(self, restored_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.CANCELLED:
             raise ValueError(f"Cannot restore disbursement in status {self.status.value}")
 
@@ -440,7 +442,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("RESTORE", restored_by, {})
         return new_disbursement
 
-    def activate(self, activated_by: str) -> Self:
+    def activate(self, activated_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.DRAFT:
             raise ValueError(f"Cannot activate disbursement in status {self.status.value}")
 
@@ -453,7 +455,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("ACTIVATE", activated_by, {})
         return new_disbursement
 
-    def deactivate(self, deactivated_by: str, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: str, reason: str | None = None) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.SUBMITTED:
             raise ValueError(f"Cannot deactivate disbursement in status {self.status.value}")
 
@@ -466,7 +468,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("DEACTIVATE", deactivated_by, {"reason": reason})
         return new_disbursement
 
-    def lock(self, locked_by: str, reason: str) -> Self:
+    def lock(self, locked_by: str, reason: str) -> CashDisbursementEntity:
         new_disbursement = self._copy()
         new_disbursement.status = CashDisbursementStatus.ON_HOLD
         new_disbursement.hold_reason = reason
@@ -477,7 +479,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("LOCK", locked_by, {"reason": reason})
         return new_disbursement
 
-    def unlock(self, unlocked_by: str) -> Self:
+    def unlock(self, unlocked_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.ON_HOLD:
             raise ValueError(f"Cannot unlock disbursement in status {self.status.value}")
 
@@ -511,6 +513,7 @@ class CashDisbursementEntity:
 
         if (
             self.status == CashDisbursementStatus.PENDING_APPROVAL
+            and self.submitted_at is not None
             and (datetime.now(UTC) - self.submitted_at).days > 7
         ):
             warnings.append("Disbursement has been pending approval for over 7 days")
@@ -598,7 +601,7 @@ class CashDisbursementEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> CashDisbursementEntity:
         # Parse supplier_bank_account if present
         supplier_bank_account = None
         if data.get("supplier_bank_account"):
@@ -730,7 +733,7 @@ class CashDisbursementEntity:
             else None,
         )
 
-    def clone(self) -> Self:
+    def clone(self) -> CashDisbursementEntity:
         new_id = uuid4()
         cloned = self._copy()
         object.__setattr__(cloned, "disbursement_id", new_id)
@@ -766,10 +769,10 @@ class CashDisbursementEntity:
     def get_version(self) -> int:
         return self.version
 
-    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+    def audit_trail(self, limit: int = 100) -> List[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: str) -> Self:
+    def touch(self, touched_by: str) -> CashDisbursementEntity:
         new_disbursement = self._copy()
         new_disbursement.updated_at = datetime.now(UTC)
         new_disbursement.version = self.version + 1
@@ -871,7 +874,7 @@ class CashDisbursementEntity:
 
     # ==================== WORKFLOW ACTIONS ====================
 
-    def submit(self, submitted_by: str) -> Self:
+    def submit(self, submitted_by: str) -> CashDisbursementEntity:
         if not self.can_submit():
             raise ValueError(f"Cannot submit disbursement in status {self.status.value}")
 
@@ -896,7 +899,7 @@ class CashDisbursementEntity:
         approver_id: UUID,
         approver_name: str,
         comment: str | None = None,
-    ) -> Self:
+    ) -> CashDisbursementEntity:
         if not self.can_approve(level):
             raise ValueError(f"Cannot approve at level {level} in status {self.status.value}")
 
@@ -936,7 +939,7 @@ class CashDisbursementEntity:
         )
         return new_disbursement
 
-    def reject(self, rejected_by: str, reason: str) -> Self:
+    def reject(self, rejected_by: str, reason: str) -> CashDisbursementEntity:
         if not self.can_reject():
             raise ValueError(f"Cannot reject disbursement in status {self.status.value}")
 
@@ -964,7 +967,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("REJECT", rejected_by, {"reason": reason})
         return new_disbursement
 
-    def hold(self, held_by: str, reason: str) -> Self:
+    def hold(self, held_by: str, reason: str) -> CashDisbursementEntity:
         if not self.can_hold():
             raise ValueError(f"Cannot hold disbursement in status {self.status.value}")
 
@@ -978,7 +981,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("HOLD", held_by, {"reason": reason})
         return new_disbursement
 
-    def release_hold(self, released_by: str) -> Self:
+    def release_hold(self, released_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.ON_HOLD:
             raise ValueError(f"Cannot release hold on disbursement in status {self.status.value}")
 
@@ -992,7 +995,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("RELEASE_HOLD", released_by, {})
         return new_disbursement
 
-    def mark_ready_for_payment(self, marked_by: str) -> Self:
+    def mark_ready_for_payment(self, marked_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.APPROVED:
             raise ValueError(f"Cannot mark ready for payment in status {self.status.value}")
 
@@ -1003,7 +1006,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("READY_FOR_PAYMENT", marked_by, {})
         return new_disbursement
 
-    def mark_processing(self, processed_by: str) -> Self:
+    def mark_processing(self, processed_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.READY_FOR_PAYMENT:
             raise ValueError(f"Cannot mark processing in status {self.status.value}")
 
@@ -1020,7 +1023,7 @@ class CashDisbursementEntity:
         paid_amount: Decimal | None = None,
         paid_date: datetime | None = None,
         payment_reference: str | None = None,
-    ) -> Self:
+    ) -> CashDisbursementEntity:
         if not self.can_pay():
             raise ValueError(f"Cannot pay disbursement in status {self.status.value}")
 
@@ -1070,20 +1073,19 @@ class CashDisbursementEntity:
         )
         return new_disbursement
 
-    def mark_failed(self, failed_by: str, reason: str, failure_code: str | None = None) -> Self:
+    def mark_failed(self, failed_by: str, reason: str, failure_code: str | None = None) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.PROCESSING:
             raise ValueError(f"Cannot mark failed in status {self.status.value}")
 
         new_disbursement = self._copy()
         new_disbursement.status = CashDisbursementStatus.FAILED
-        new_disbursement.failure_reason = reason
-        new_disbursement.failure_code = failure_code
+        new_disbursement.notes = f"{new_disbursement.notes or ''} [FAILED] {reason} (code: {failure_code})"
         new_disbursement.updated_at = datetime.now(UTC)
         new_disbursement.version = self.version + 1
         new_disbursement._record_audit("FAIL", failed_by, {"reason": reason, "code": failure_code})
         return new_disbursement
 
-    def cancel(self, cancelled_by: str, reason: str) -> Self:
+    def cancel(self, cancelled_by: str, reason: str) -> CashDisbursementEntity:
         if not self.can_cancel():
             raise ValueError(f"Cannot cancel disbursement in status {self.status.value}")
 
@@ -1099,7 +1101,7 @@ class CashDisbursementEntity:
 
     def add_tax_withholding(
         self, tax_type: str, tax_rate: Decimal, tax_amount: Decimal, tax_id: str | None = None
-    ) -> Self:
+    ) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.DRAFT:
             raise ValueError(f"Cannot add tax withholding in status {self.status.value}")
 
@@ -1111,7 +1113,7 @@ class CashDisbursementEntity:
         )
 
         new_withholdings = [*self.tax_withholdings, tax_withholding]
-        new_total_tax = sum(t.tax_amount for t in new_withholdings)
+        new_total_tax = sum((t.tax_amount for t in new_withholdings), Decimal(0))
 
         if new_total_tax > self.amount:
             raise ValueError(f"Total tax withheld {new_total_tax} exceeds amount {self.amount}")
@@ -1126,7 +1128,7 @@ class CashDisbursementEntity:
         )
         return new_disbursement
 
-    def remove_tax_withholding(self, tax_index: int, removed_by: str) -> Self:
+    def remove_tax_withholding(self, tax_index: int, removed_by: str) -> CashDisbursementEntity:
         if self.status != CashDisbursementStatus.DRAFT:
             raise ValueError(f"Cannot remove tax withholding in status {self.status.value}")
 
@@ -1136,7 +1138,7 @@ class CashDisbursementEntity:
         new_withholdings = (
             self.tax_withholdings[:tax_index] + self.tax_withholdings[tax_index + 1 :]
         )
-        new_total_tax = sum(t.tax_amount for t in new_withholdings)
+        new_total_tax = sum((t.tax_amount for t in new_withholdings), Decimal(0))
 
         new_disbursement = self._copy()
         new_disbursement.tax_withholdings = new_withholdings
@@ -1148,7 +1150,7 @@ class CashDisbursementEntity:
 
     # ==================== UPDATE METHODS ====================
 
-    def update_description(self, new_description: str, updated_by: str) -> Self:
+    def update_description(self, new_description: str, updated_by: str) -> CashDisbursementEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot edit disbursement in status {self.status.value}")
 
@@ -1159,7 +1161,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("UPDATE_DESCRIPTION", updated_by, {})
         return new_disbursement
 
-    def update_amount(self, new_amount: Decimal, updated_by: str, reason: str) -> Self:
+    def update_amount(self, new_amount: Decimal, updated_by: str, reason: str) -> CashDisbursementEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot edit amount in status {self.status.value}")
 
@@ -1186,7 +1188,7 @@ class CashDisbursementEntity:
         new_disbursement = self._copy()
         new_disbursement.amount = new_amount
         new_disbursement.tax_withholdings = new_withholdings
-        new_disbursement.total_tax_withheld = sum(t.tax_amount for t in new_withholdings)
+        new_disbursement.total_tax_withheld = sum((t.tax_amount for t in new_withholdings), Decimal(0))
         new_disbursement.description = f"{self.description}\n[AMOUNT CHANGE] from {self.amount} to {new_amount}. Reason: {reason}"
         new_disbursement.updated_at = datetime.now(UTC)
         new_disbursement.version = self.version + 1
@@ -1201,7 +1203,7 @@ class CashDisbursementEntity:
         invoice_number: str,
         allocated_amount: Decimal,
         remaining_invoice: Decimal,
-    ) -> Self:
+    ) -> CashDisbursementEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot add allocation in status {self.status.value}")
 
@@ -1235,7 +1237,7 @@ class CashDisbursementEntity:
         )
         return new_disbursement
 
-    def remove_allocation(self, allocation_id: UUID, removed_by: str) -> Self:
+    def remove_allocation(self, allocation_id: UUID, removed_by: str) -> CashDisbursementEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot remove allocation in status {self.status.value}")
 
@@ -1252,7 +1254,7 @@ class CashDisbursementEntity:
         )
         return new_disbursement
 
-    def attach_file(self, file_url: str, uploaded_by: str, is_supporting: bool = False) -> Self:
+    def attach_file(self, file_url: str, uploaded_by: str, is_supporting: bool = False) -> CashDisbursementEntity:
         if is_supporting:
             new_attachments = [*self.supporting_documents, file_url]
             new_disbursement = self._copy()
@@ -1271,7 +1273,7 @@ class CashDisbursementEntity:
 
     def remove_attachment(
         self, file_url: str, removed_by: str, is_supporting: bool = False
-    ) -> Self:
+    ) -> CashDisbursementEntity:
         if is_supporting:
             new_attachments = [f for f in self.supporting_documents if f != file_url]
             new_disbursement = self._copy()
@@ -1286,7 +1288,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("REMOVE_ATTACHMENT", removed_by, {"file_url": file_url})
         return new_disbursement
 
-    def mark_urgent(self, urgent_by: str, reason: str) -> Self:
+    def mark_urgent(self, urgent_by: str, reason: str) -> CashDisbursementEntity:
         new_disbursement = self._copy()
         new_disbursement.is_urgent = True
         new_disbursement.urgency_reason = reason
@@ -1295,7 +1297,7 @@ class CashDisbursementEntity:
         new_disbursement._record_audit("MARK_URGENT", urgent_by, {"reason": reason})
         return new_disbursement
 
-    def unmark_urgent(self, unmarked_by: str) -> Self:
+    def unmark_urgent(self, unmarked_by: str) -> CashDisbursementEntity:
         new_disbursement = self._copy()
         new_disbursement.is_urgent = False
         new_disbursement.urgency_reason = None
@@ -1338,7 +1340,7 @@ class CashDisbursementEntity:
             },
         }
 
-    def sign(self, signed_by: str) -> Self:
+    def sign(self, signed_by: str) -> CashDisbursementEntity:
         new_disbursement = self._copy()
         new_disbursement.signature = DisbursementSignature.create(self, signed_by)
         new_disbursement.updated_at = datetime.now(UTC)
@@ -1353,7 +1355,7 @@ class CashDisbursementEntity:
 
     # ==================== PRIVATE HELPERS ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> CashDisbursementEntity:
         return CashDisbursementEntity(
             disbursement_id=self.disbursement_id,
             disbursement_number=self.disbursement_number,
@@ -1479,7 +1481,7 @@ class CashDisbursementRepository:
         legal_entity_id: UUID,
         from_date: datetime | None = None,
         to_date: datetime | None = None,
-    ) -> list[CashDisbursementEntity]:
+    ) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         result = [d for d in storage.values() if d.supplier_id == supplier_id]
         if from_date:
@@ -1491,19 +1493,19 @@ class CashDisbursementRepository:
 
     async def get_by_invoice(
         self, invoice_id: UUID, legal_entity_id: UUID
-    ) -> list[CashDisbursementEntity]:
+    ) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         return [d for d in storage.values() if d.invoice_id == invoice_id]
 
     async def get_by_status(
         self, status: CashDisbursementStatus, legal_entity_id: UUID
-    ) -> list[CashDisbursementEntity]:
+    ) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         return [d for d in storage.values() if d.status == status]
 
     async def get_pending_approval(
         self, legal_entity_id: UUID, approver_level: int | None = None
-    ) -> list[CashDisbursementEntity]:
+    ) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         result = [
             d for d in storage.values() if d.status == CashDisbursementStatus.PENDING_APPROVAL
@@ -1517,13 +1519,13 @@ class CashDisbursementRepository:
         legal_entity_id: UUID,
         start_date: datetime,
         end_date: datetime,
-    ) -> list[CashDisbursementEntity]:
+    ) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         result = [d for d in storage.values() if start_date <= d.disbursement_date <= end_date]
         result.sort(key=lambda x: x.disbursement_date)
         return result
 
-    async def get_urgent(self, legal_entity_id: UUID) -> list[CashDisbursementEntity]:
+    async def get_urgent(self, legal_entity_id: UUID) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         return [
             d
@@ -1543,7 +1545,7 @@ class CashDisbursementRepository:
         ]
         if year:
             result = [d for d in result if d.disbursement_date.year == year]
-        total = sum(d.amount for d in result)
+        total = sum((d.amount for d in result), Decimal(0))
         return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
     async def count(self, legal_entity_id: UUID) -> int:
@@ -1552,12 +1554,12 @@ class CashDisbursementRepository:
 
     async def list(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
-    ) -> list[CashDisbursementEntity]:
+    ) -> List[CashDisbursementEntity]:
         disbursements = await self.get_all(legal_entity_id)
         disbursements.sort(key=lambda x: x.disbursement_date, reverse=True)
         return disbursements[offset : offset + limit]
 
-    async def get_all(self, legal_entity_id: UUID) -> list[CashDisbursementEntity]:
+    async def get_all(self, legal_entity_id: UUID) -> List[CashDisbursementEntity]:
         storage = self._get_storage(legal_entity_id)
         return list(storage.values())
 

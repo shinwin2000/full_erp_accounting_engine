@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -284,11 +284,11 @@ class CashBookEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: str) -> Self:
+    def create(self, created_by: str) -> CashBookEntity:
         self._record_audit("CREATE", created_by, {"code": self.cash_book_code})
         return self
 
-    def update(self, updated_by: str, **kwargs) -> Self:
+    def update(self, updated_by: str, **kwargs) -> CashBookEntity:
         if self.status != CashBookStatus.ACTIVE:
             raise ValueError(f"Cannot update cash book in status {self.status.value}")
 
@@ -309,7 +309,7 @@ class CashBookEntity:
         new_cb._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_cb
 
-    def delete(self, deleted_by: str, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: str, reason: str | None = None) -> CashBookEntity:
         if self.current_balance != 0:
             raise ValueError(
                 f"Cannot delete cash book with non-zero balance: {self.current_balance}"
@@ -325,7 +325,7 @@ class CashBookEntity:
         new_cb._record_audit("DELETE", deleted_by, {"reason": reason})
         return new_cb
 
-    def restore(self, restored_by: str) -> Self:
+    def restore(self, restored_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.CLOSED:
             raise ValueError(f"Cannot restore cash book in status {self.status.value}")
 
@@ -339,7 +339,7 @@ class CashBookEntity:
         new_cb._record_audit("RESTORE", restored_by, {})
         return new_cb
 
-    def activate(self, activated_by: str) -> Self:
+    def activate(self, activated_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.PENDING_ACTIVATION:
             raise ValueError(f"Cannot activate cash book in status {self.status.value}")
 
@@ -351,7 +351,7 @@ class CashBookEntity:
         new_cb._record_audit("ACTIVATE", activated_by, {})
         return new_cb
 
-    def deactivate(self, deactivated_by: str, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: str, reason: str | None = None) -> CashBookEntity:
         if self.status != CashBookStatus.ACTIVE:
             raise ValueError(f"Cannot deactivate cash book in status {self.status.value}")
 
@@ -366,7 +366,7 @@ class CashBookEntity:
         new_cb._record_audit("DEACTIVATE", deactivated_by, {"reason": reason})
         return new_cb
 
-    def lock(self, locked_by: str, reason: str) -> Self:
+    def lock(self, locked_by: str, reason: str) -> CashBookEntity:
         if self.status != CashBookStatus.ACTIVE:
             raise ValueError(f"Cannot lock cash book in status {self.status.value}")
 
@@ -380,7 +380,7 @@ class CashBookEntity:
         new_cb._record_audit("LOCK", locked_by, {"reason": reason})
         return new_cb
 
-    def unlock(self, unlocked_by: str) -> Self:
+    def unlock(self, unlocked_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.FROZEN:
             raise ValueError(f"Cannot unlock cash book in status {self.status.value}")
 
@@ -426,7 +426,7 @@ class CashBookEntity:
         }
 
     def to_dict(self, include_transactions: bool = False) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "cash_book_id": str(self.cash_book_id),
             "cash_book_code": self.cash_book_code,
             "cash_book_name": self.cash_book_name,
@@ -466,7 +466,7 @@ class CashBookEntity:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> CashBookEntity:
         return cls(
             cash_book_id=UUID(data["cash_book_id"]),
             cash_book_code=data["cash_book_code"],
@@ -510,7 +510,7 @@ class CashBookEntity:
             total_credit=Decimal(data.get("total_credit", "0")),
         )
 
-    def clone(self) -> Self:
+    def clone(self) -> CashBookEntity:
         new_id = uuid4()
         cloned = self._copy()
         object.__setattr__(cloned, "cash_book_id", new_id)
@@ -546,7 +546,7 @@ class CashBookEntity:
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: str) -> Self:
+    def touch(self, touched_by: str) -> CashBookEntity:
         new_cb = self._copy()
         new_cb.updated_at = datetime.now(UTC)
         new_cb.version = self.version + 1
@@ -649,7 +649,7 @@ class CashBookEntity:
         created_by: str,
         reference: str | None = None,
         force: bool = False,
-    ) -> Self:
+    ) -> CashBookEntity:
         if not self.can_transact():
             raise ValueError(f"Cannot add receipt to cash book in status {self.status.value}")
 
@@ -698,7 +698,7 @@ class CashBookEntity:
         created_by: str,
         references: list[str] | None = None,
         force: bool = False,
-    ) -> Self:
+    ) -> CashBookEntity:
         if not amounts:
             raise ValueError("Amounts list cannot be empty")
         if references and len(references) != len(amounts):
@@ -718,7 +718,7 @@ class CashBookEntity:
         created_by: str,
         reference: str | None = None,
         force: bool = False,
-    ) -> Self:
+    ) -> CashBookEntity:
         if not self.can_transact():
             raise ValueError(f"Cannot add disbursement to cash book in status {self.status.value}")
 
@@ -770,7 +770,7 @@ class CashBookEntity:
         created_by: str,
         references: list[str] | None = None,
         force: bool = False,
-    ) -> Self:
+    ) -> CashBookEntity:
         if not amounts:
             raise ValueError("Amounts list cannot be empty")
         if references and len(references) != len(amounts):
@@ -790,7 +790,7 @@ class CashBookEntity:
         description: str,
         created_by: str,
         reference: str | None = None,
-    ) -> Self:
+    ) -> CashBookEntity:
         return self.add_receipt(
             amount, f"{description} (from {from_cash_book_id})", created_by, reference
         )
@@ -802,7 +802,7 @@ class CashBookEntity:
         description: str,
         created_by: str,
         reference: str | None = None,
-    ) -> Self:
+    ) -> CashBookEntity:
         return self.add_disbursement(
             amount, f"{description} (to {to_cash_book_id})", created_by, reference
         )
@@ -813,7 +813,7 @@ class CashBookEntity:
         reason: str,
         adjusted_by: str,
         force: bool = False,
-    ) -> Self:
+    ) -> CashBookEntity:
         if not self.can_transact():
             raise ValueError(f"Cannot adjust cash book in status {self.status.value}")
         if adjustment_amount == 0:
@@ -862,7 +862,7 @@ class CashBookEntity:
 
     # ==================== APPROVAL METHODS (ACC-051 FIX) ====================
 
-    def approve_transaction(self, transaction_id: UUID, approved_by: str) -> Self:
+    def approve_transaction(self, transaction_id: UUID, approved_by: str) -> CashBookEntity:
         """
         Approve a pending transaction.
 
@@ -913,7 +913,7 @@ class CashBookEntity:
         )
         return new_cb
 
-    def approve_transaction_batch(self, transaction_ids: list[UUID], approved_by: str) -> Self:
+    def approve_transaction_batch(self, transaction_ids: list[UUID], approved_by: str) -> CashBookEntity:
         """
         Approve multiple pending transactions.
 
@@ -927,7 +927,7 @@ class CashBookEntity:
             result = result.approve_transaction(tx_id, approved_by)
         return result
 
-    def approve_all_pending(self, approved_by: str) -> Self:
+    def approve_all_pending(self, approved_by: str) -> CashBookEntity:
         """
         Approve all pending transactions.
 
@@ -944,7 +944,7 @@ class CashBookEntity:
 
     # ==================== CLOSING & ARCHIVING ====================
 
-    def close_daily(self, closing_date: date, closed_by: str, approve: bool = False) -> Self:
+    def close_daily(self, closing_date: date, closed_by: str, approve: bool = False) -> CashBookEntity:
         if not self.can_close():
             raise ValueError(f"Cannot close cash book in status {self.status.value}")
 
@@ -983,7 +983,7 @@ class CashBookEntity:
         new_cb._record_audit("CLOSE_DAILY", closed_by, {"date": closing_date.isoformat()})
         return new_cb
 
-    def freeze(self, frozen_by: str, reason: str) -> Self:
+    def freeze(self, frozen_by: str, reason: str) -> CashBookEntity:
         if self.status != CashBookStatus.ACTIVE:
             raise ValueError(f"Cannot freeze cash book in status {self.status.value}")
 
@@ -997,7 +997,7 @@ class CashBookEntity:
         new_cb._record_audit("FREEZE", frozen_by, {"reason": reason})
         return new_cb
 
-    def unfreeze(self, unfrozen_by: str) -> Self:
+    def unfreeze(self, unfrozen_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.FROZEN:
             raise ValueError(f"Cannot unfreeze cash book in status {self.status.value}")
 
@@ -1011,7 +1011,7 @@ class CashBookEntity:
         new_cb._record_audit("UNFREEZE", unfrozen_by, {})
         return new_cb
 
-    def close_permanent(self, closed_by: str) -> Self:
+    def close_permanent(self, closed_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.ACTIVE:
             raise ValueError(f"Cannot close cash book in status {self.status.value}")
         if self.current_balance != 0:
@@ -1029,7 +1029,7 @@ class CashBookEntity:
         new_cb._record_audit("CLOSE_PERMANENT", closed_by, {})
         return new_cb
 
-    def archive(self, archived_by: str) -> Self:
+    def archive(self, archived_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.CLOSED:
             raise ValueError(f"Cannot archive cash book in status {self.status.value}")
 
@@ -1043,7 +1043,7 @@ class CashBookEntity:
         new_cb._record_audit("ARCHIVE", archived_by, {})
         return new_cb
 
-    def unarchive(self, unarchived_by: str) -> Self:
+    def unarchive(self, unarchived_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.ARCHIVED:
             raise ValueError(f"Cannot unarchive cash book in status {self.status.value}")
 
@@ -1057,7 +1057,7 @@ class CashBookEntity:
         new_cb._record_audit("UNARCHIVE", unarchived_by, {})
         return new_cb
 
-    def reset_daily(self, new_opening_balance: Decimal, reset_by: str) -> Self:
+    def reset_daily(self, new_opening_balance: Decimal, reset_by: str) -> CashBookEntity:
         if self.status != CashBookStatus.ACTIVE:
             raise ValueError(f"Cannot reset cash book in status {self.status.value}")
 
@@ -1078,7 +1078,7 @@ class CashBookEntity:
         new_cb._record_audit("RESET_DAILY", reset_by, {"new_opening_balance": str(new_opening)})
         return new_cb
 
-    def reset_daily_counters(self, reset_by: str) -> Self:
+    def reset_daily_counters(self, reset_by: str) -> CashBookEntity:
         """Reset daily transaction counters."""
         new_cb = self._copy()
         new_cb.today_receipts = Decimal("0.00")
@@ -1138,7 +1138,7 @@ class CashBookEntity:
                 return all(t.reversal_of != transaction_id for t in self.transactions)
         return False
 
-    def reverse_transaction(self, transaction_id: UUID, reversed_by: str, reason: str) -> Self:
+    def reverse_transaction(self, transaction_id: UUID, reversed_by: str, reason: str) -> CashBookEntity:
         """Reverse a previous transaction."""
         original_tx = None
         for tx in self.transactions:
@@ -1199,7 +1199,7 @@ class CashBookEntity:
 
     # ==================== PRIVATE HELPERS ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> CashBookEntity:
         return CashBookEntity(
             cash_book_id=self.cash_book_id,
             cash_book_code=self.cash_book_code,

@@ -74,6 +74,7 @@ class IntercompanyTransaction:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: str = "system"
+    updated_by: str | None = None
     version: int = 1
 
     # Untuk kompatibilitas mode test (string entities)
@@ -235,6 +236,7 @@ class IntercompanyTransaction:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "created_by": self.created_by,
+            "updated_by": self.updated_by,
             "version": self.version,
         }
 
@@ -262,6 +264,7 @@ class IntercompanyTransaction:
             if data.get("updated_at")
             else datetime.now(UTC),
             created_by=data.get("created_by", "system"),
+            updated_by=data.get("updated_by"),
             version=data.get("version", 1),
         )
 
@@ -275,6 +278,7 @@ class IntercompanyTransaction:
         cloned.eliminated_by = None
         cloned.created_at = datetime.now(UTC)
         cloned.updated_at = datetime.now(UTC)
+        cloned.updated_by = None
         cloned.version = 1
         cloned._record_audit("CLONE", self.created_by, {"source": str(self.id)})
         return cloned
@@ -347,6 +351,7 @@ class IntercompanyTransaction:
             created_at=self.created_at,
             updated_at=self.updated_at,
             created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
             from_entity=self.from_entity,
             to_entity=self.to_entity,

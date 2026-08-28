@@ -246,7 +246,7 @@ class AssetExistenceValidator:
             logger.warning(
                 "Asset registry port tidak disuntikkan secara eksplisit, mengaktifkan fallback in-memory registry."
             )
-            self._asset_registry = _FallbackAssetRegistryPort()
+            self._asset_registry: AssetRegistryPort = _FallbackAssetRegistryPort()
         else:
             self._asset_registry = asset_registry
 

@@ -218,6 +218,7 @@ class CausalNodeService:
     """
 
     _instance: CausalNodeService | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> CausalNodeService:
         if cls._instance is None:
@@ -470,9 +471,9 @@ class CausalNodeService:
     # ------------------------------------------------------------------------
     def get_chain(self, start_node_id: UUID, direction: str = "forward") -> list[CausalNode]:
         chain = []
-        current_id = start_node_id
+        current_id: UUID | None = start_node_id
         if direction == "forward":
-            while current_id:
+            while current_id is not None:
                 if current_id in self._nodes:
                     node = self._nodes[current_id]
                 else:
@@ -480,7 +481,7 @@ class CausalNodeService:
                 chain.append(node)
                 current_id = node.next_node_id
         else:
-            while current_id:
+            while current_id is not None:
                 if current_id in self._nodes:
                     node = self._nodes[current_id]
                 else:

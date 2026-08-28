@@ -112,6 +112,7 @@ class WhyQueryEngine:
     """
 
     _instance: WhyQueryEngine | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> WhyQueryEngine:
         if cls._instance is None:
@@ -437,19 +438,19 @@ class WhyQueryEngine:
             if causes:
                 lines.append("UPSTREAM CAUSES (by distance):")
                 # Group by distance
-                by_distance = {}
+                by_distance_en: dict[int, list[dict[str, Any]]] = {}
                 for c in causes:
                     dist = c["distance"]
-                    by_distance.setdefault(dist, []).append(c)
-                for dist in sorted(by_distance.keys()):
+                    by_distance_en.setdefault(dist, []).append(c)
+                for dist in sorted(by_distance_en.keys()):
                     lines.append(f"\nDistance {dist} (direct cause if 1):")
-                    for c in by_distance[dist][:5]:
+                    for c in by_distance_en[dist][:5]:
                         lines.append(
                             f"  - {c['entity_type']} {c['entity_id'][:12]}... ({c['node_type']}) "
                             f"by {c['created_by']} at {c['timestamp'][:19]}"
                         )
-                        if len(by_distance[dist]) > 5:
-                            lines.append(f"    ... and {len(by_distance[dist]) - 5} more")
+                        if len(by_distance_en[dist]) > 5:
+                            lines.append(f"    ... and {len(by_distance_en[dist]) - 5} more")
 
             if root_causes:
                 lines.extend(["", "ROOT CAUSES (ultimate sources):"])
@@ -486,12 +487,12 @@ class WhyQueryEngine:
             ]
             if causes:
                 lines.append("PENYEBAB UPSTREAM (berdasarkan jarak):")
-                by_distance = {}
+                by_distance_id: dict[int, list[dict[str, Any]]] = {}
                 for c in causes:
-                    by_distance.setdefault(c["distance"], []).append(c)
-                for dist in sorted(by_distance.keys()):
+                    by_distance_id.setdefault(c["distance"], []).append(c)
+                for dist in sorted(by_distance_id.keys()):
                     lines.append(f"\nJarak {dist}:")
-                    for c in by_distance[dist][:5]:
+                    for c in by_distance_id[dist][:5]:
                         lines.append(
                             f"  - {c['entity_type']} {c['entity_id'][:12]}... ({c['node_type']})"
                         )
@@ -582,8 +583,8 @@ class WhyQueryEngine:
         if total == 0:
             return {"total_queries": 0, "cache_size": len(self._cache)}
 
-        by_status = {}
-        by_depth = {}
+        by_status: dict[str, int] = {}
+        by_depth: dict[str, int] = {}
         total_time = 0.0
         total_causes = 0
         for q in self._query_history:

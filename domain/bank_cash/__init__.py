@@ -101,7 +101,7 @@ from .cash_disbursement_entity import (
 )
 
 # ==================== Cash Receipt ====================
-from .cash_receipt_entity import (
+from .cash_receipt_entity import (  # type: ignore
     CashReceiptEntity,
     CashReceiptRepository,
     CashReceiptStatus,

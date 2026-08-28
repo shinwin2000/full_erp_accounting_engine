@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
 from domain.bank_cash.bank_account_entity import (
@@ -113,7 +113,7 @@ class BankAggregate:
         legal_entity_id: UUID,
         bank_id: UUID | None = None,
         created_by: str = "system",
-    ) -> Self:
+    ) -> BankAggregate:
         """Factory method untuk membuat aggregate baru."""
         return cls(
             bank_id=bank_id or uuid4(),
@@ -136,7 +136,7 @@ class BankAggregate:
         version: int,
         is_closed: bool = False,
         is_archived: bool = False,
-    ) -> Self:
+    ) -> BankAggregate:
         """Reconstruct aggregate from event stream."""
         instance = cls(
             bank_id=bank_id,
@@ -154,7 +154,7 @@ class BankAggregate:
 
     # ==================== ENTITY DASAR METHODS (Aggregate) ====================
 
-    def add_child(self, account: BankAccountEntity) -> Self:
+    def add_child(self, account: BankAccountEntity) -> BankAggregate:
         """Add a bank account as child entity."""
         if account.account_id in self.accounts:
             raise ValueError(f"Account {account.account_id} already exists")
@@ -169,7 +169,7 @@ class BankAggregate:
         self.register_event({"type": "ACCOUNT_ADDED", "account_id": str(account.account_id)})
         return new_agg
 
-    def remove_child(self, account_id: UUID) -> Self:
+    def remove_child(self, account_id: UUID) -> BankAggregate:
         """Remove a bank account (if balance zero and no pending transactions)."""
         self._validate_account_exists(account_id)
         account = self.accounts[account_id]
@@ -215,7 +215,7 @@ class BankAggregate:
         """Check if aggregate can be posted (closed period, etc.)."""
         return not self.is_closed and not self.is_archived
 
-    def post(self, posted_by: str) -> Self:
+    def post(self, posted_by: str) -> BankAggregate:
         """Post the aggregate (finalize)."""
         if not self.can_post():
             raise ValueError("Cannot post: aggregate is closed or archived")
@@ -230,7 +230,7 @@ class BankAggregate:
         """Check if aggregate can be approved (e.g., reconciliation approved)."""
         return True  # Implementation can add logic
 
-    def approve(self, approved_by: str) -> Self:
+    def approve(self, approved_by: str) -> BankAggregate:
         if not self.can_approve():
             raise ValueError("Cannot approve aggregate")
         self.register_event({"type": "APPROVED", "approved_by": approved_by})
@@ -239,7 +239,7 @@ class BankAggregate:
     def can_reject(self) -> bool:
         return True
 
-    def reject(self, rejected_by: str, reason: str) -> Self:
+    def reject(self, rejected_by: str, reason: str) -> BankAggregate:
         if not self.can_reject():
             raise ValueError("Cannot reject aggregate")
         self.register_event({"type": "REJECTED", "rejected_by": rejected_by, "reason": reason})
@@ -248,7 +248,7 @@ class BankAggregate:
     def can_cancel(self) -> bool:
         return not self.is_closed
 
-    def cancel(self, cancelled_by: str, reason: str) -> Self:
+    def cancel(self, cancelled_by: str, reason: str) -> BankAggregate:
         if not self.can_cancel():
             raise ValueError("Cannot cancel aggregate")
         new_agg = self._copy()
@@ -261,7 +261,7 @@ class BankAggregate:
     def can_reverse(self) -> bool:
         return self.is_closed and not self.is_archived
 
-    def reverse(self, reversed_by: str, reason: str) -> Self:
+    def reverse(self, reversed_by: str, reason: str) -> BankAggregate:
         if not self.can_reverse():
             raise ValueError("Cannot reverse aggregate")
         new_agg = self._copy()
@@ -271,7 +271,7 @@ class BankAggregate:
         self.register_event({"type": "REVERSED", "reversed_by": reversed_by, "reason": reason})
         return new_agg
 
-    def close(self, closed_by: str) -> Self:
+    def close(self, closed_by: str) -> BankAggregate:
         if self.is_closed:
             raise ValueError("Aggregate already closed")
         new_agg = self._copy()
@@ -281,7 +281,7 @@ class BankAggregate:
         self.register_event({"type": "CLOSED", "closed_by": closed_by})
         return new_agg
 
-    def reopen(self, reopened_by: str) -> Self:
+    def reopen(self, reopened_by: str) -> BankAggregate:
         if not self.is_closed:
             raise ValueError("Aggregate is not closed")
         new_agg = self._copy()
@@ -291,7 +291,7 @@ class BankAggregate:
         self.register_event({"type": "REOPENED", "reopened_by": reopened_by})
         return new_agg
 
-    def archive(self, archived_by: str) -> Self:
+    def archive(self, archived_by: str) -> BankAggregate:
         if not self.is_closed:
             raise ValueError("Cannot archive open aggregate")
         new_agg = self._copy()
@@ -301,7 +301,7 @@ class BankAggregate:
         self.register_event({"type": "ARCHIVED", "archived_by": archived_by})
         return new_agg
 
-    def unarchive(self, unarchived_by: str) -> Self:
+    def unarchive(self, unarchived_by: str) -> BankAggregate:
         if not self.is_archived:
             raise ValueError("Aggregate is not archived")
         new_agg = self._copy()
@@ -357,10 +357,10 @@ class BankAggregate:
 
     # ==================== ACCOUNT MANAGEMENT ====================
 
-    def add_account(self, account: BankAccountEntity) -> Self:
+    def add_account(self, account: BankAccountEntity) -> BankAggregate:
         return self.add_child(account)
 
-    def update_account(self, account: BankAccountEntity) -> Self:
+    def update_account(self, account: BankAccountEntity) -> BankAggregate:
         self._validate_account_exists(account.account_id)
         new_accounts = self.accounts.copy()
         new_accounts[account.account_id] = account
@@ -398,7 +398,7 @@ class BankAggregate:
         description: str,
         created_by: str | UUID,
         reference: str | None = None,
-    ) -> Self:
+    ) -> BankAggregate:
         self._validate_account_exists(account_id)
         self._validate_positive_amount(amount)
         account = self.accounts[account_id]
@@ -444,7 +444,7 @@ class BankAggregate:
         description: str,
         created_by: str | UUID,
         reference: str | None = None,
-    ) -> Self:
+    ) -> BankAggregate:
         self._validate_account_exists(account_id)
         self._validate_positive_amount(amount)
         account = self.accounts[account_id]
@@ -492,7 +492,7 @@ class BankAggregate:
         description: str,
         created_by: str | UUID,
         reference: str | None = None,
-    ) -> Self:
+    ) -> BankAggregate:
         self._validate_account_exists(from_account_id)
         self._validate_account_exists(to_account_id)
         if from_account_id == to_account_id:
@@ -563,7 +563,7 @@ class BankAggregate:
 
     # ==================== TRANSACTION MANAGEMENT ====================
 
-    def add_transaction(self, transaction: BankTransactionEntity) -> Self:
+    def add_transaction(self, transaction: BankTransactionEntity) -> BankAggregate:
         self._validate_account_exists(transaction.bank_account_id)
         account = self.accounts[transaction.bank_account_id]
         if transaction.is_outflow and not account.can_withdraw(transaction.amount):
@@ -586,7 +586,7 @@ class BankAggregate:
         )
         return new_agg
 
-    def clear_transaction(self, transaction_id: UUID, cleared_by: str) -> Self:
+    def clear_transaction(self, transaction_id: UUID, cleared_by: str) -> BankAggregate:
         idx = next(
             (i for i, t in enumerate(self.transactions) if t.transaction_id == transaction_id), None
         )
@@ -606,7 +606,7 @@ class BankAggregate:
         self.register_event({"type": "TRANSACTION_CLEARED", "transaction_id": str(transaction_id)})
         return new_agg
 
-    def reconcile_transaction(self, transaction_id: UUID, reconciled_by: UUID | str) -> Self:
+    def reconcile_transaction(self, transaction_id: UUID, reconciled_by: UUID | str) -> BankAggregate:
         """Mark a transaction as reconciled (bank reconciliation)."""
         idx = next(
             (i for i, t in enumerate(self.transactions) if t.transaction_id == transaction_id), None
@@ -638,7 +638,7 @@ class BankAggregate:
 
         return new_agg
 
-    def cancel_transaction(self, transaction_id: UUID, cancelled_by: UUID | str, reason: str) -> Self:
+    def cancel_transaction(self, transaction_id: UUID, cancelled_by: UUID | str, reason: str) -> BankAggregate:
         idx = next(
             (i for i, t in enumerate(self.transactions) if t.transaction_id == transaction_id), None
         )
@@ -774,7 +774,7 @@ class BankAggregate:
         statement_date: datetime,
         statement_transactions: list[dict[str, Any]],
         reconciled_by: str | UUID,
-    ) -> tuple[Self, ReconciliationResult]:
+    ) -> tuple[BankAggregate, ReconciliationResult]:
         """Perform bank reconciliation."""
         self._validate_account_exists(account_id)
 
@@ -917,7 +917,7 @@ class BankAggregate:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> BankAggregate:
         return cls(
             bank_id=UUID(data["bank_id"]),
             legal_entity_id=UUID(data["legal_entity_id"]),
@@ -928,7 +928,7 @@ class BankAggregate:
             is_archived=data.get("is_archived", False),
         )
 
-    def _copy(self) -> Self:
+    def _copy(self) -> BankAggregate:
         return BankAggregate(
             bank_id=self.bank_id,
             legal_entity_id=self.legal_entity_id,

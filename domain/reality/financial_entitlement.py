@@ -15,6 +15,7 @@ Dependencies:
 
 Audit: Setiap perubahan status entitlement dictat.
 """
+# ruff: noqa: UP006, UP035
 
 from __future__ import annotations
 
@@ -318,6 +319,7 @@ class FinancialEntitlementService:
 
     _instance: FinancialEntitlementService | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> FinancialEntitlementService:
         if cls._instance is None:
@@ -458,7 +460,12 @@ class FinancialEntitlementService:
 
     def get_entitlements_by_customer(self, customer_id: UUID) -> list[FinancialEntitlement]:
         entitlement_ids = self._storage.get_by_customer(customer_id)
-        return [self.get_entitlement(eid) for eid in entitlement_ids if self.get_entitlement(eid)]
+        result: list[FinancialEntitlement] = []
+        for eid in entitlement_ids:
+            ent = self.get_entitlement(eid)
+            if ent is not None:
+                result.append(ent)
+        return result
 
     def get_aging_summary(self, legal_entity_id: UUID) -> dict[str, Decimal]:
         today = datetime.now(UTC)
@@ -514,8 +521,8 @@ class FinancialEntitlementService:
         total = len(all_ents)
         if total == 0:
             return {"total_entitlements": 0}
-        by_status = {}
-        by_risk = {}
+        by_status: dict[str, int] = {}
+        by_risk: dict[str, int] = {}
         for e in all_ents:
             by_status[e.status.name] = by_status.get(e.status.name, 0) + 1
             by_risk[e.risk.value] = by_risk.get(e.risk.value, 0) + 1

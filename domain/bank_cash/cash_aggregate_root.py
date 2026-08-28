@@ -22,7 +22,7 @@ from domain.bank_cash.cash_disbursement_entity import (
     CashDisbursementStatus,
     CashDisbursementType,
 )
-from domain.bank_cash.cash_receipt_entity import (
+from domain.bank_cash.cash_receipt_entity import (  # type: ignore
     CashReceiptEntity,
     CashReceiptStatus,
     CashReceiptType,

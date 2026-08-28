@@ -5,6 +5,7 @@ Layer: Domain / Bank & Cash
 Responsibility: Entitas penerimaan kas (cash receipt) dengan workflow,
                validasi, integrasi ke invoice, dan audit trail.
 """
+# ruff: noqa: UP006, UP035
 
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, List
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ class ReceiptSignature:
     signed_by: str
 
     @classmethod
-    def create(cls, receipt: CashReceiptEntity, signed_by: str) -> Self:
+    def create(cls, receipt: CashReceiptEntity, signed_by: str) -> ReceiptSignature:
         data = f"{receipt.receipt_id}{receipt.version}{receipt.amount}{receipt.receipt_date}"
         hash_value = hashlib.sha3_256(data.encode()).hexdigest()
         return cls(
@@ -185,7 +186,7 @@ class CashReceiptEntity:
     qris_transaction_id: str | None = None
 
     # Alokasi
-    allocations: list[ReceiptAllocation] = field(default_factory=list)
+    allocations: List[ReceiptAllocation] = field(default_factory=list)
     confirmed_amount: Decimal = Decimal(0)
     confirmed_date: datetime | None = None
 
@@ -201,7 +202,7 @@ class CashReceiptEntity:
     rejection_reason: str | None = None
 
     # Dokumentasi
-    attachment_urls: list[str] = field(default_factory=list)
+    attachment_urls: List[str] = field(default_factory=list)
     description: str = ""
     notes: str | None = None
     received_by: str = ""
@@ -220,7 +221,7 @@ class CashReceiptEntity:
     signature: ReceiptSignature | None = None
 
     # Tracking
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
+    _audit_trail: ClassVar[List[dict[str, Any]]] = []
 
     def __post_init__(self) -> None:
         self._validate()
@@ -263,11 +264,11 @@ class CashReceiptEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: str) -> Self:
+    def create(self, created_by: str) -> CashReceiptEntity:
         self._record_audit("CREATE", created_by, {"amount": str(self.amount)})
         return self
 
-    def update(self, updated_by: str, **kwargs) -> Self:
+    def update(self, updated_by: str, **kwargs) -> CashReceiptEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot update receipt in status {self.status.value}")
 
@@ -287,7 +288,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("UPDATE", updated_by, {"changes": kwargs})
         return new_receipt
 
-    def delete(self, deleted_by: str, reason: str | None = None) -> Self:
+    def delete(self, deleted_by: str, reason: str | None = None) -> CashReceiptEntity:
         if self.status in (CashReceiptStatus.CONFIRMED, CashReceiptStatus.PARTIALLY_CONFIRMED):
             raise ValueError(f"Cannot delete confirmed receipt in status {self.status.value}")
 
@@ -302,7 +303,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("DELETE", deleted_by, {"reason": reason})
         return new_receipt
 
-    def restore(self, restored_by: str) -> Self:
+    def restore(self, restored_by: str) -> CashReceiptEntity:
         if self.status != CashReceiptStatus.CANCELLED:
             raise ValueError(f"Cannot restore receipt in status {self.status.value}")
 
@@ -317,7 +318,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("RESTORE", restored_by, {})
         return new_receipt
 
-    def activate(self, activated_by: str) -> Self:
+    def activate(self, activated_by: str) -> CashReceiptEntity:
         if self.status != CashReceiptStatus.DRAFT:
             raise ValueError(f"Cannot activate receipt in status {self.status.value}")
 
@@ -330,7 +331,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("ACTIVATE", activated_by, {})
         return new_receipt
 
-    def deactivate(self, deactivated_by: str, reason: str | None = None) -> Self:
+    def deactivate(self, deactivated_by: str, reason: str | None = None) -> CashReceiptEntity:
         if self.status != CashReceiptStatus.SUBMITTED:
             raise ValueError(f"Cannot deactivate receipt in status {self.status.value}")
 
@@ -343,7 +344,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("DEACTIVATE", deactivated_by, {"reason": reason})
         return new_receipt
 
-    def lock(self, locked_by: str, reason: str) -> Self:
+    def lock(self, locked_by: str, reason: str) -> CashReceiptEntity:
         new_receipt = self._copy()
         new_receipt.requires_verification = True
         new_receipt.updated_at = datetime.now(UTC)
@@ -351,7 +352,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("LOCK", locked_by, {"reason": reason})
         return new_receipt
 
-    def unlock(self, unlocked_by: str) -> Self:
+    def unlock(self, unlocked_by: str) -> CashReceiptEntity:
         new_receipt = self._copy()
         new_receipt.requires_verification = False
         new_receipt.updated_at = datetime.now(UTC)
@@ -374,6 +375,7 @@ class CashReceiptEntity:
 
         if (
             self.status == CashReceiptStatus.SUBMITTED
+            and self.submitted_at is not None
             and (datetime.now(UTC) - self.submitted_at).days > 7
         ):
             warnings.append("Receipt has been pending verification for over 7 days")
@@ -437,7 +439,7 @@ class CashReceiptEntity:
             "rejection_reason": self.rejection_reason,
             "allocation_summary": self.get_allocation_summary(),
             "payment_summary": self.get_payment_summary(),
-            "attachments": self.attachment_urls,
+            "attachment_urls": self.attachment_urls,
             "description": self.description,
             "notes": self.notes,
             "received_by": self.received_by,
@@ -453,7 +455,7 @@ class CashReceiptEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
+    def from_dict(cls, data: dict[str, Any]) -> CashReceiptEntity:
         return cls(
             receipt_id=UUID(data["receipt_id"]),
             receipt_number=data["receipt_number"],
@@ -500,7 +502,7 @@ class CashReceiptEntity:
             if data.get("rejected_at")
             else None,
             rejection_reason=data.get("rejection_reason"),
-            attachments=data.get("attachment_urls", []),
+            attachment_urls=data.get("attachment_urls", []),
             description=data.get("description", ""),
             notes=data.get("notes"),
             received_by=data.get("received_by", ""),
@@ -522,7 +524,7 @@ class CashReceiptEntity:
             else None,
         )
 
-    def clone(self) -> Self:
+    def clone(self) -> CashReceiptEntity:
         new_id = uuid4()
         cloned = self._copy()
         object.__setattr__(cloned, "receipt_id", new_id)
@@ -551,10 +553,10 @@ class CashReceiptEntity:
     def get_version(self) -> int:
         return self.version
 
-    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+    def audit_trail(self, limit: int = 100) -> List[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: str) -> Self:
+    def touch(self, touched_by: str) -> CashReceiptEntity:
         new_receipt = self._copy()
         new_receipt.updated_at = datetime.now(UTC)
         new_receipt.version = self.version + 1
@@ -618,7 +620,7 @@ class CashReceiptEntity:
 
     # ==================== WORKFLOW ACTIONS ====================
 
-    def submit(self, submitted_by: str) -> Self:
+    def submit(self, submitted_by: str) -> CashReceiptEntity:
         if not self.can_submit():
             raise ValueError(f"Cannot submit receipt in status {self.status.value}")
 
@@ -631,7 +633,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("SUBMIT", submitted_by, {})
         return new_receipt
 
-    def verify(self, verified_by: str, notes: str | None = None) -> Self:
+    def verify(self, verified_by: str, notes: str | None = None) -> CashReceiptEntity:
         if not self.can_verify():
             raise ValueError(f"Cannot verify receipt in status {self.status.value}")
 
@@ -650,7 +652,7 @@ class CashReceiptEntity:
         confirmed_by: str,
         confirmed_amount: Decimal | None = None,
         confirmed_date: datetime | None = None,
-    ) -> Self:
+    ) -> CashReceiptEntity:
         if not self.can_confirm():
             raise ValueError(f"Cannot confirm receipt in status {self.status.value}")
 
@@ -699,7 +701,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("CONFIRM", confirmed_by, {"amount": str(amount_to_confirm)})
         return new_receipt
 
-    def reject(self, rejected_by: str, reason: str) -> Self:
+    def reject(self, rejected_by: str, reason: str) -> CashReceiptEntity:
         if not self.can_reject():
             raise ValueError(f"Cannot reject receipt in status {self.status.value}")
 
@@ -713,7 +715,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("REJECT", rejected_by, {"reason": reason})
         return new_receipt
 
-    def cancel(self, cancelled_by: str, reason: str) -> Self:
+    def cancel(self, cancelled_by: str, reason: str) -> CashReceiptEntity:
         if not self.can_cancel():
             raise ValueError(f"Cannot cancel receipt in status {self.status.value}")
 
@@ -729,7 +731,7 @@ class CashReceiptEntity:
 
     # ==================== UPDATE METHODS ====================
 
-    def update_description(self, new_description: str, updated_by: str) -> Self:
+    def update_description(self, new_description: str, updated_by: str) -> CashReceiptEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot edit receipt in status {self.status.value}")
 
@@ -740,7 +742,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("UPDATE_DESCRIPTION", updated_by, {})
         return new_receipt
 
-    def update_amount(self, new_amount: Decimal, updated_by: str, reason: str) -> Self:
+    def update_amount(self, new_amount: Decimal, updated_by: str, reason: str) -> CashReceiptEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot edit amount in status {self.status.value}")
 
@@ -762,7 +764,7 @@ class CashReceiptEntity:
         )
         return new_receipt
 
-    def update_payment_method(self, new_method: PaymentMethod, updated_by: str) -> Self:
+    def update_payment_method(self, new_method: PaymentMethod, updated_by: str) -> CashReceiptEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot edit payment method in status {self.status.value}")
 
@@ -781,7 +783,7 @@ class CashReceiptEntity:
         invoice_number: str,
         allocated_amount: Decimal,
         remaining_invoice: Decimal,
-    ) -> Self:
+    ) -> CashReceiptEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot add allocation in status {self.status.value}")
 
@@ -815,7 +817,7 @@ class CashReceiptEntity:
         )
         return new_receipt
 
-    def remove_allocation(self, allocation_id: UUID, updated_by: str) -> Self:
+    def remove_allocation(self, allocation_id: UUID, updated_by: str) -> CashReceiptEntity:
         if not self.can_edit():
             raise ValueError(f"Cannot remove allocation in status {self.status.value}")
 
@@ -832,7 +834,7 @@ class CashReceiptEntity:
         )
         return new_receipt
 
-    def attach_file(self, file_url: str, uploaded_by: str) -> Self:
+    def attach_file(self, file_url: str, uploaded_by: str) -> CashReceiptEntity:
         new_attachments = [*self.attachment_urls, file_url]
         new_receipt = self._copy()
         new_receipt.attachment_urls = new_attachments
@@ -841,7 +843,7 @@ class CashReceiptEntity:
         new_receipt._record_audit("ATTACH_FILE", uploaded_by, {"file_url": file_url})
         return new_receipt
 
-    def remove_attachment(self, file_url: str, removed_by: str) -> Self:
+    def remove_attachment(self, file_url: str, removed_by: str) -> CashReceiptEntity:
         new_attachments = [f for f in self.attachment_urls if f != file_url]
         new_receipt = self._copy()
         new_receipt.attachment_urls = new_attachments
@@ -887,7 +889,7 @@ class CashReceiptEntity:
             "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
         }
 
-    def sign(self, signed_by: str) -> Self:
+    def sign(self, signed_by: str) -> CashReceiptEntity:
         new_receipt = self._copy()
         new_receipt.signature = ReceiptSignature.create(self, signed_by)
         new_receipt.updated_at = datetime.now(UTC)
@@ -902,7 +904,7 @@ class CashReceiptEntity:
 
     # ==================== PRIVATE HELPERS ====================
 
-    def _copy(self) -> Self:
+    def _copy(self) -> CashReceiptEntity:
         return CashReceiptEntity(
             receipt_id=self.receipt_id,
             receipt_number=self.receipt_number,
@@ -1006,7 +1008,7 @@ class CashReceiptRepository:
         legal_entity_id: UUID,
         from_date: datetime | None = None,
         to_date: datetime | None = None,
-    ) -> list[CashReceiptEntity]:
+    ) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         result = [r for r in storage.values() if r.customer_id == customer_id]
         if from_date:
@@ -1018,7 +1020,7 @@ class CashReceiptRepository:
 
     async def get_by_invoice(
         self, invoice_id: UUID, legal_entity_id: UUID
-    ) -> list[CashReceiptEntity]:
+    ) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         return [r for r in storage.values() if r.invoice_id == invoice_id]
 
@@ -1028,7 +1030,7 @@ class CashReceiptRepository:
         legal_entity_id: UUID,
         from_date: datetime | None = None,
         to_date: datetime | None = None,
-    ) -> list[CashReceiptEntity]:
+    ) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         result = [r for r in storage.values() if r.cash_book_id == cash_book_id]
         if from_date:
@@ -1039,11 +1041,11 @@ class CashReceiptRepository:
 
     async def get_by_status(
         self, status: CashReceiptStatus, legal_entity_id: UUID
-    ) -> list[CashReceiptEntity]:
+    ) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         return [r for r in storage.values() if r.status == status]
 
-    async def get_pending_verification(self, legal_entity_id: UUID) -> list[CashReceiptEntity]:
+    async def get_pending_verification(self, legal_entity_id: UUID) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         return [r for r in storage.values() if r.status == CashReceiptStatus.PENDING_VERIFICATION]
 
@@ -1052,7 +1054,7 @@ class CashReceiptRepository:
         legal_entity_id: UUID,
         start_date: datetime,
         end_date: datetime,
-    ) -> list[CashReceiptEntity]:
+    ) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         result = [r for r in storage.values() if start_date <= r.receipt_date <= end_date]
         result.sort(key=lambda x: x.receipt_date)
@@ -1067,7 +1069,8 @@ class CashReceiptRepository:
     ) -> Decimal:
         receipts = await self.get_by_customer(customer_id, legal_entity_id, from_date, to_date)
         total = sum(
-            r.confirmed_amount for r in receipts if r.is_confirmed() or r.is_partially_confirmed()
+            (r.confirmed_amount for r in receipts if r.is_confirmed() or r.is_partially_confirmed()),
+            Decimal(0)
         )
         return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
@@ -1077,12 +1080,12 @@ class CashReceiptRepository:
 
     async def list(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
-    ) -> list[CashReceiptEntity]:
+    ) -> List[CashReceiptEntity]:
         receipts = await self.get_all(legal_entity_id)
         receipts.sort(key=lambda x: x.receipt_date, reverse=True)
         return receipts[offset : offset + limit]
 
-    async def get_all(self, legal_entity_id: UUID) -> list[CashReceiptEntity]:
+    async def get_all(self, legal_entity_id: UUID) -> List[CashReceiptEntity]:
         storage = self._get_storage(legal_entity_id)
         return list(storage.values())
 

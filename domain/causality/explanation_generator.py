@@ -155,6 +155,7 @@ class ExplanationGenerator:
     """
 
     _instance: ExplanationGenerator | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> ExplanationGenerator:
         if cls._instance is None:
@@ -466,11 +467,11 @@ class ExplanationGenerator:
         total = len(self._history)
         if total == 0:
             return {"total_explanations": 0}
-        by_level = {}
+        by_level: dict[str, int] = {}
         for exp in self._history:
             level = exp.level
             by_level[level] = by_level.get(level, 0) + 1
-        by_lang = {}
+        by_lang: dict[str, int] = {}
         for exp in self._history:
             lang = exp.language
             by_lang[lang] = by_lang.get(lang, 0) + 1

@@ -424,7 +424,7 @@ class PettyCashFundEntity:
         }
 
     def to_dict(self, include_transactions: bool = False) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "petty_cash_id": str(self.petty_cash_id),
             "petty_cash_code": self.petty_cash_code,
             "petty_cash_name": self.petty_cash_name,

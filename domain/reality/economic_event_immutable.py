@@ -237,6 +237,7 @@ class EconomicEventService:
 
     _instance: EconomicEventService | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> EconomicEventService:
         if cls._instance is None:
@@ -429,8 +430,8 @@ class EconomicEventService:
     def get_statistics(self) -> dict[str, Any]:
         with self._lock:
             total = len(self._events)
-            by_status = {}
-            by_type = {}
+            by_status: dict[str, int] = {}
+            by_type: dict[str, int] = {}
             for e in self._events.values():
                 by_status[e.status.name] = by_status.get(e.status.name, 0) + 1
                 by_type[e.event_type.name] = by_type.get(e.event_type.name, 0) + 1

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Any, Self
+from typing import Any
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ class ReconciliationResult:
             "gl_difference": str(self.gl_difference) if self.gl_difference is not None else None,
         }
 
-    def approve(self, approved_by: str) -> Self:
+    def approve(self, approved_by: str) -> ReconciliationResult:
         return ReconciliationResult(
             reconciliation_id=self.reconciliation_id,
             account_id=self.account_id,
@@ -248,7 +248,7 @@ class BankReconciliationEngine:
         matched = []
         book_only = []
         bank_only = []
-        adjustments = []
+        adjustments: list[ReconciliationItem] = []
         matched_book_ids: set[UUID] = set()
 
         # Match statement transactions
@@ -311,7 +311,7 @@ class BankReconciliationEngine:
                                     confidence = (
                                         0.7
                                         - (date_diff * 0.05)
-                                        - (abs(book_amount - abs_amount) / abs_amount * 0.2)
+                                        - (abs(book_amount - abs_amount) / abs_amount * Decimal("0.2"))
                                     )
                                     confidence = max(0.5, min(0.85, confidence))
                                     break
@@ -319,6 +319,7 @@ class BankReconciliationEngine:
                         break
 
             if matched_tx:
+                method_name = match_method.value if match_method else "unknown"
                 matched.append(
                     ReconciliationItem(
                         transaction_id=matched_tx.transaction_id,
@@ -326,7 +327,7 @@ class BankReconciliationEngine:
                         date=tx_date,
                         amount=amount,
                         type=ReconciledItemType.MATCHED,
-                        description=f"Matched: {desc} (method: {match_method.value}, confidence: {confidence:.2f})",
+                        description=f"Matched: {desc} (method: {method_name}, confidence: {confidence:.2f})",
                         confidence_score=confidence,
                         matched_with=str(matched_tx.transaction_id),
                     )
@@ -448,7 +449,7 @@ class BankReconciliationEngine:
         if abs(result.difference) <= self.tolerance:
             return None
 
-        adj = {
+        adj: dict[str, Any] = {
             "reconciliation_id": str(result.reconciliation_id),
             "date": result.statement_date.isoformat(),
             "description": f"Bank reconciliation adjustment as of {result.statement_date.date()}",
@@ -556,9 +557,9 @@ class BankReconciliationEngine:
 
         book_ref = getattr(book_tx, "reference_number", None) or getattr(book_tx, "reference", None)
         stmt_ref = statement_tx.get("reference_number", "") or statement_tx.get("reference", "")
-        if book_ref and stmt_ref and book_ref == stmt_ref:
-            score += 0.3
-        elif (book_ref and stmt_ref and book_ref in stmt_ref) or stmt_ref in book_ref:
+
+        # Gabungkan nested if menjadi satu kondisi
+        if book_ref and stmt_ref and (book_ref in stmt_ref or stmt_ref in book_ref):
             score += 0.15
 
         tx_date = book_tx.transaction_date.date()

@@ -122,6 +122,7 @@ class CausalityTracker:
     """
 
     _instance: CausalityTracker | None = None
+    _initialized: bool = False
 
     def __new__(cls) -> CausalityTracker:
         if cls._instance is None:
@@ -332,9 +333,9 @@ class CausalityTracker:
         """
         Mendapatkan semua entitas yang dipengaruhi (downstream) dengan path info.
         """
-        result = []
-        visited = set()
-        queue = deque([(entity_id, 0, [])])  # (node, depth, path_relationships)
+        result: list[tuple[UUID, int, list[CausalRelationship]]] = []
+        visited: set[UUID] = set()
+        queue: deque[tuple[UUID, int, list[CausalRelationship]]] = deque([(entity_id, 0, [])])
         while queue:
             current, depth, path = queue.popleft()
             if depth >= max_depth:
@@ -360,9 +361,9 @@ class CausalityTracker:
         """
         Mendapatkan semua entitas yang mempengaruhi (upstream) dengan path info.
         """
-        result = []
-        visited = set()
-        queue = deque([(entity_id, 0, [])])
+        result: list[tuple[UUID, int, list[CausalRelationship]]] = []
+        visited: set[UUID] = set()
+        queue: deque[tuple[UUID, int, list[CausalRelationship]]] = deque([(entity_id, 0, [])])
         while queue:
             current, depth, path = queue.popleft()
             if depth >= max_depth:
@@ -391,8 +392,8 @@ class CausalityTracker:
         if source_id == target_id:
             return PathResult(path=[source_id], length=0, relationships=[], total_strength=1.0)
 
-        visited = set()
-        queue = deque([(source_id, [source_id], [])])  # (node, path, relationships)
+        visited: set[UUID] = set()
+        queue: deque[tuple[UUID, list[UUID], list[CausalRelationship]]] = deque([(source_id, [source_id], [])])
         while queue:
             current, path, rel_path = queue.popleft()
             if len(path) > max_depth:
@@ -427,8 +428,8 @@ class CausalityTracker:
         """
         Mencari semua jalur kausal antara source dan target (DFS terbatas).
         """
-        paths = []
-        stack = [(source_id, [source_id], [])]
+        paths: list[PathResult] = []
+        stack: list[tuple[UUID, list[UUID], list[CausalRelationship]]] = [(source_id, [source_id], [])]
 
         while stack and len(paths) < max_paths:
             current, path, rel_path = stack.pop()
@@ -465,8 +466,8 @@ class CausalityTracker:
         """
         Mendapatkan semua entitas yang dapat dijangkau dari start_id.
         """
-        visited = set()
-        queue = deque([(start_id, 0)])
+        visited: set[UUID] = set()
+        queue: deque[tuple[UUID, int]] = deque([(start_id, 0)])
         while queue:
             current, depth = queue.popleft()
             if depth >= max_depth:
@@ -490,9 +491,9 @@ class CausalityTracker:
         """
         Mendeteksi semua siklus dalam graf kausalitas.
         """
-        cycles = []
-        visited = set()
-        rec_stack = set()
+        cycles: list[list[UUID]] = []
+        visited: set[UUID] = set()
+        rec_stack: set[UUID] = set()
 
         def dfs(node_id: UUID, path: list[UUID]) -> None:
             visited.add(node_id)
@@ -607,9 +608,9 @@ class CausalityTracker:
         """
         Mendapatkan subgraph adjacency list dari root_id.
         """
-        subgraph = {}
-        visited = set()
-        queue = deque([(root_id, 0)])
+        subgraph: dict[UUID, list[UUID]] = {}
+        visited: set[UUID] = set()
+        queue: deque[tuple[UUID, int]] = deque([(root_id, 0)])
         while queue:
             current, depth = queue.popleft()
             if depth >= max_depth:

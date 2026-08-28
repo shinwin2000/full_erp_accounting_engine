@@ -8,7 +8,7 @@ Responsibility: Perhitungan kepentingan non-pengendali (NCI).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Any
 from uuid import UUID
 
@@ -73,7 +73,7 @@ class NonControllingInterestCalculator:
             nci_amount = Decimal("0")
         else:
             nci_amount = child_equity * (Decimal("1") - ownership_percentage)
-        nci_amount = nci_amount.quantize(Decimal("0"), rounding=Decimal("ROUND_HALF_EVEN"))
+        nci_amount = nci_amount.quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
 
         return NCICalculationResult(
             parent_id=parent_id,
@@ -90,7 +90,7 @@ class NonControllingInterestCalculator:
         total = Decimal("0")
         for _, ownership, equity in subsidiaries:
             total += equity * (Decimal("1") - ownership)
-        return total.quantize(Decimal("0"), rounding=Decimal("ROUND_HALF_EVEN"))
+        return total.quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
 
     async def calculate_nci_batch(
         self, parent_id: UUID, subsidiaries: list[tuple[UUID, Decimal, Decimal]]

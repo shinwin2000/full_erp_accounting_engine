@@ -149,7 +149,10 @@ class ConsolidationGroup:
 
     @property
     def total_intercompany_revenue(self) -> Decimal:
-        return sum(t.amount for t in self.intercompany_transactions if not t.is_eliminated)
+        return sum(
+            (t.amount for t in self.intercompany_transactions if not t.is_eliminated),
+            Decimal(0),
+        )
 
     @property
     def total_equity(self) -> Decimal:
@@ -495,7 +498,7 @@ class ConsolidationGroup:
             ConsolidationCompleted(
                 consolidation_id=self.group_id,
                 group_entity_id=self.parent.legal_entity_id if self.parent else UUID(int=0),
-                period_end_date=self.period,
+                period_end_date=self.period or date.today(),
                 total_eliminations=self.total_eliminations,
                 total_nci=self.total_nci,
                 user_id=UUID(int=0),
