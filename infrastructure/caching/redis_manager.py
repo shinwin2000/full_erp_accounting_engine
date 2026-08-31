@@ -257,7 +257,7 @@ class RedisManager:
     async def set(self, key: str, value: Any, ttl_seconds: int | None = None) -> bool:
         client = await self.get_client()
         try:
-            if not isinstance(value, (str, bytes)):
+            if not isinstance(value, str | bytes):
                 value = json.dumps(value, default=str)
             if ttl_seconds:
                 await client.setex(key, ttl_seconds, value)
@@ -350,7 +350,7 @@ class RedisManager:
     async def hset(self, key: str, field: str, value: Any) -> int:
         client = await self.get_client()
         try:
-            if not isinstance(value, (str, bytes)):
+            if not isinstance(value, str | bytes):
                 value = json.dumps(value, default=str)
             return await client.hset(key, field, value)
         except RedisError as e:

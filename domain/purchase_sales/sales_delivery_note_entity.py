@@ -185,7 +185,7 @@ class SalesDeliveryNoteEntity:
     @property
     def total_amount(self) -> Decimal:
         """Total value of all items."""
-        return sum(item.total_amount for item in self.items)
+        return sum((item.total_amount for item in self.items), Decimal(0))
 
     # ------------------------------------------------------------------------
     # Item management (return new instance)

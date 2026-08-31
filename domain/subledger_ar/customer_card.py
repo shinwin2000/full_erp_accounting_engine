@@ -612,7 +612,7 @@ class CustomerCardRepository:
     async def count(self, legal_entity_id: UUID) -> int:
         raise NotImplementedError
 
-    async def list(
+    async def list_all(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[CustomerCard]:
         return await self.get_all_by_legal_entity(legal_entity_id, limit, offset)
@@ -621,7 +621,7 @@ class CustomerCardRepository:
         self, legal_entity_id: UUID, page: int = 1, per_page: int = 20
     ) -> tuple[list[CustomerCard], int]:
         offset = (page - 1) * per_page
-        items = await self.list(legal_entity_id, limit=per_page, offset=offset)
+        items = await self.list_all(legal_entity_id, limit=per_page, offset=offset)
         total = await self.count(legal_entity_id)
         return items, total
 

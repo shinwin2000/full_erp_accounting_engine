@@ -235,8 +235,11 @@ class TaxRateVO:
             }
         )
 
+        # Convert to Decimal to satisfy PercentageVO.of type hint
+        rate_decimal = Decimal(str(rate_percent))
+
         return cls(
-            rate=PercentageVO.of(rate_percent),
+            rate=PercentageVO.of(rate_decimal),
             tax_type=TaxType.VAT,
             effective_date=effective_date,
             expiry_date=expiry_date,
@@ -272,8 +275,10 @@ class TaxRateVO:
             }
         )
 
+        rate_decimal = Decimal(str(rate_percent))
+
         return cls(
-            rate=PercentageVO.of(rate_percent),
+            rate=PercentageVO.of(rate_decimal),
             tax_type=TaxType.INCOME_TAX,
             effective_date=effective_date,
             expiry_date=expiry_date,
@@ -309,8 +314,10 @@ class TaxRateVO:
             }
         )
 
+        rate_decimal = Decimal(str(rate_percent))
+
         return cls(
-            rate=PercentageVO.of(rate_percent),
+            rate=PercentageVO.of(rate_decimal),
             tax_type=TaxType.WITHHOLDING,
             effective_date=effective_date,
             expiry_date=expiry_date,

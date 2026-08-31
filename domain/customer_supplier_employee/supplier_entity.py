@@ -478,8 +478,9 @@ class SupplierEntity:
             self.postal_code,
             self.country,
         ]
-        parts = [p for p in parts if p]
-        return ", ".join(parts) if parts else None
+        # Filter out None and empty strings
+        filtered = [p for p in parts if p]
+        return ", ".join(filtered) if filtered else None
 
     @property
     def should_withhold_tax(self) -> bool:
@@ -893,7 +894,7 @@ class SupplierEntity:
     # ------------------------------------------------------------------------
 
     def to_dict(self, include_withholding_details: bool = True) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "supplier_id": str(self.supplier_id),
             "legal_entity_id": str(self.legal_entity_id),
             "supplier_code": self.supplier_code,

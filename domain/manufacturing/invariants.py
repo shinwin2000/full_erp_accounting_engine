@@ -19,9 +19,11 @@ Audit: Every invariant violation is logged.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from domain.manufacturing.bill_of_materials_entity import BillOfMaterialsEntity, BOMStatus
 from domain.manufacturing.work_in_process_entity import WorkInProcessEntity
@@ -534,8 +536,8 @@ class ManufacturingInvariantEnforcer:
 
     def __init__(
         self,
-        material_availability_checker: callable | None = None,
-        bom_validator: callable | None = None,
+        material_availability_checker: Callable[[str, Decimal], Awaitable[tuple[Decimal, InvariantResult]]] | None = None,
+        bom_validator: Callable[[UUID], Awaitable[BillOfMaterialsEntity | None]] | None = None,
     ):
         """
         Initialize the enforcer.

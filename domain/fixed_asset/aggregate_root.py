@@ -416,19 +416,24 @@ class FixedAssetCollection:
 
     def get_total_cost(self) -> Decimal:
         return sum(
-            a.acquisition_cost for a in self.assets.values() if a.status != AssetStatus.DISPOSED
+            (a.acquisition_cost for a in self.assets.values() if a.status != AssetStatus.DISPOSED),
+            Decimal(0),
         )
 
     def get_total_accumulated_depreciation(self) -> Decimal:
         return sum(
-            a.accumulated_depreciation
-            for a in self.assets.values()
-            if a.status != AssetStatus.DISPOSED
+            (
+                a.accumulated_depreciation
+                for a in self.assets.values()
+                if a.status != AssetStatus.DISPOSED
+            ),
+            Decimal(0),
         )
 
     def get_total_nbv(self) -> Decimal:
         return sum(
-            a.net_book_value for a in self.assets.values() if a.status != AssetStatus.DISPOSED
+            (a.net_book_value for a in self.assets.values() if a.status != AssetStatus.DISPOSED),
+            Decimal(0),
         )
 
     def get_revaluations_for_asset(self, asset_id: UUID) -> list[RevaluationEntity]:
@@ -561,8 +566,10 @@ class FixedAssetCollection:
         asset = self.assets.get(asset_id)
         if not asset:
             raise ValueError(f"Asset {asset_id} not found")
+        # Ensure approved_by is not None by using a default UUID if needed
+        approved_by = revaluation.approved_by or UUID(int=0)
         updated_asset = asset.apply_revaluation(
-            revaluation.new_value, revaluation.revaluation_method.value, revaluation.approved_by
+            revaluation.new_value, revaluation.revaluation_method.value, approved_by
         )
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
@@ -577,7 +584,7 @@ class FixedAssetCollection:
                 new_value=revaluation.new_value,
                 revaluation_surplus=updated_asset.revaluation_surplus,
                 revaluation_method=revaluation.revaluation_method.value,
-                approved_by=str(revaluation.approved_by) if revaluation.approved_by else "",
+                approved_by=str(approved_by),
             )
         )
         return FixedAssetCollection(
@@ -600,12 +607,14 @@ class FixedAssetCollection:
             raise ValueError(f"Asset {asset_id} not found")
         if asset.is_disposed:
             raise ValueError(f"Asset {asset.asset_code} is already disposed")
+        # Ensure disposed_by is not None
+        disposed_by = getattr(disposal, "disposed_by", None) or UUID(int=0)
         updated_asset = asset.dispose(
             disposal.disposal_date,
             disposal.disposal_type.value,
             disposal.proceeds,
             disposal.reason,
-            disposal.disposed_by,
+            disposed_by,
         )
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
@@ -620,7 +629,7 @@ class FixedAssetCollection:
                 disposal_type=disposal.disposal_type.value,
                 proceeds=disposal.proceeds,
                 gain_loss=disposal.gain_loss,
-                disposed_by=str(disposal.disposed_by) if disposal.disposed_by else "system",
+                disposed_by=str(disposed_by),
             )
         )
         return FixedAssetCollection(
@@ -654,7 +663,7 @@ class FixedAssetCollection:
                 asset=updated_asset,
                 transfer_type=transfer.transfer_type.value,
                 destination=transfer.destination,
-                transferred_by=str(transfer.completed_by) if transfer.completed_by else "system",
+                transferred_by=str(transfer.completed_by or UUID(int=0)),
             )
         )
         return FixedAssetCollection(

@@ -135,6 +135,14 @@ class AssetAlreadyDisposedError(IntangibleAssetError):
 # ============================================================================
 
 
+def _parse_amortization_method(value: str) -> AmortizationMethod:
+    """Parse string to AmortizationMethod enum."""
+    for method in AmortizationMethod:
+        if method.value == value.lower():
+            return method
+    return AmortizationMethod.STRAIGHT_LINE
+
+
 def _validate_asset_code(code: str) -> str:
     if not code or not isinstance(code, str):
         raise InvalidAssetCodeError("Asset code must be a non-empty string")
@@ -237,6 +245,7 @@ def _validate_currency(currency: str) -> str:
 @dataclass
 class IntangibleAssetEntity:
     asset_id: UUID
+    legal_entity_id: UUID  # Added missing field
     asset_code: str
     asset_name: str
     asset_type: IntangibleAssetType
@@ -270,6 +279,10 @@ class IntangibleAssetEntity:
         self._take_snapshot()
 
     def _validate(self) -> None:
+        # Validate legal_entity_id
+        if not isinstance(self.legal_entity_id, UUID):
+            raise IntangibleAssetError(f"Invalid legal_entity_id: {self.legal_entity_id}")
+
         # Validate asset_code
         normalized_code = _validate_asset_code(self.asset_code)
         if normalized_code != self.asset_code:
@@ -448,7 +461,7 @@ class IntangibleAssetEntity:
 
         data = self.to_dict()
         for key, value in kwargs.items():
-            if key not in ("asset_id", "created_at", "created_by", "version"):
+            if key not in ("asset_id", "legal_entity_id", "created_at", "created_by", "version"):
                 data[key] = value
 
         new_asset = self.from_dict(data)
@@ -541,6 +554,7 @@ class IntangibleAssetEntity:
     def to_dict(self) -> dict[str, Any]:
         return {
             "asset_id": str(self.asset_id),
+            "legal_entity_id": str(self.legal_entity_id),
             "asset_code": self.asset_code,
             "asset_name": self.asset_name,
             "asset_type": self.asset_type.value,
@@ -582,10 +596,7 @@ class IntangibleAssetEntity:
             IntangibleAssetStatus.from_string(data.get("status", "active"))
             or IntangibleAssetStatus.ACTIVE
         )
-        amortization_method = (
-            AmortizationMethod.from_string(data["amortization_method"])
-            or AmortizationMethod.STRAIGHT_LINE
-        )
+        amortization_method = _parse_amortization_method(data.get("amortization_method", "straight_line"))
         acquisition_date = datetime.fromisoformat(data["acquisition_date"])
         expiry_date = (
             datetime.fromisoformat(data["expiry_date"]) if data.get("expiry_date") else None
@@ -599,6 +610,7 @@ class IntangibleAssetEntity:
         updated_at = datetime.fromisoformat(data["updated_at"])
         return cls(
             asset_id=UUID(data["asset_id"]),
+            legal_entity_id=UUID(data["legal_entity_id"]),
             asset_code=data["asset_code"],
             asset_name=data["asset_name"],
             asset_type=asset_type,
@@ -630,6 +642,7 @@ class IntangibleAssetEntity:
         now = datetime.now(UTC)
         cloned = IntangibleAssetEntity(
             asset_id=new_id,
+            legal_entity_id=self.legal_entity_id,
             asset_code=new_code_str,
             asset_name=f"{self.asset_name} (COPY)",
             asset_type=self.asset_type,
@@ -708,6 +721,7 @@ class IntangibleAssetEntity:
 
         new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
+            legal_entity_id=self.legal_entity_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
             asset_type=self.asset_type,
@@ -763,6 +777,7 @@ class IntangibleAssetEntity:
 
         new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
+            legal_entity_id=self.legal_entity_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
             asset_type=self.asset_type,
@@ -811,6 +826,7 @@ class IntangibleAssetEntity:
 
         new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
+            legal_entity_id=self.legal_entity_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
             asset_type=self.asset_type,
@@ -856,6 +872,7 @@ class IntangibleAssetEntity:
 
         new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
+            legal_entity_id=self.legal_entity_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
             asset_type=self.asset_type,
@@ -915,6 +932,7 @@ class IntangibleAssetEntity:
     def _copy(self) -> IntangibleAssetEntity:
         return IntangibleAssetEntity(
             asset_id=self.asset_id,
+            legal_entity_id=self.legal_entity_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
             asset_type=self.asset_type,

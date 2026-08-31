@@ -237,7 +237,7 @@ class PurchaseOrderEntity:
     @property
     def total_amount(self) -> Decimal:
         """Total PO amount (sum of all items' total_amount)."""
-        return sum(item.total_amount for item in self.items)
+        return sum((item.total_amount for item in self.items), Decimal(0))
 
     @property
     def total_received_amount(self) -> Decimal:

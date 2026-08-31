@@ -724,7 +724,7 @@ class CapitalWithdrawalRepository:
         return len(storage)
 
     @classmethod
-    async def list(
+    async def list_all(
         cls, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[CapitalWithdrawalEntity]:
         withdrawals = await cls.get_all(legal_entity_id)
@@ -750,7 +750,7 @@ class CapitalWithdrawalRepository:
         query_lower = query.lower()
         results = []
         for w in withdrawals:
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(w, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(w)

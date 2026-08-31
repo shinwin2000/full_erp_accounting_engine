@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class BackgroundTaskMonitor:
         self._cancellation_flags: dict[str, bool] = {}
 
     def register_task(
-        self, task: asyncio.Task, name: str = None, metadata: dict[str, Any] = None
+        self, task: asyncio.Task, name: str | None = None, metadata: dict[str, Any] | None = None
     ) -> str:
         """
         Mendaftarkan task ke monitor.
@@ -55,7 +55,7 @@ class BackgroundTaskMonitor:
             "task": task,
             "name": name or task.get_name(),
             "status": "running",
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.UTC),
             "metadata": metadata or {},
         }
         self._cancellation_flags[task_id] = False
@@ -153,7 +153,7 @@ async def revoke_task(task_id: str) -> bool:
     return await monitor.revoke_task(task_id)
 
 
-def register_task(task: asyncio.Task, name: str = None, metadata: dict[str, Any] = None) -> str:
+def register_task(task: asyncio.Task, name: str | None = None, metadata: dict[str, Any] | None = None) -> str:
     """
     Helper untuk mendaftarkan task dari kode lain (misalnya saat membuat background process).
     """

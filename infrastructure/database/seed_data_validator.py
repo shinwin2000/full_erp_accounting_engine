@@ -165,7 +165,7 @@ class MinMaxRule(ValidationRule):
         value = record.get(self.field)
         if value is None:
             return []
-        if not isinstance(value, (int, float, Decimal)):
+        if not isinstance(value, int | float | Decimal):
             return [f"Field '{self.field}' must be numeric for range validation"]
 
         if self.min_val is not None and value < self.min_val:
@@ -483,16 +483,7 @@ class SeedDataValidator:
         errors = []
         schema = self.get_schema(table_name)
 
-        # Create a copy of unique checks for this validation run
-        local_uniques = {}
-
-        for rule in schema:
-            if isinstance(rule, UniqueRule) and unique_checks is not None:
-                # Use provided unique checks
-                if rule.field not in unique_checks:
-                    unique_checks[rule.field] = set()
-                # We'll handle uniqueness separately
-                pass
+        # We don't need local_uniques; uniqueness is handled in validate_dataset
 
         for rule in schema:
             rule_errors = rule.validate(record)
@@ -731,3 +722,4 @@ __all__ = [
 
 if __name__ == "__main__":
     cli()
+    

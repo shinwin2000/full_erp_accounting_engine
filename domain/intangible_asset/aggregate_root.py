@@ -608,6 +608,7 @@ class IntangibleAsset:
 
         updated_asset = IntangibleAssetEntity(
             asset_id=asset.asset_id,
+            legal_entity_id=asset.legal_entity_id,
             asset_code=asset.asset_code,
             asset_name=asset.asset_name,
             asset_type=asset.asset_type,
@@ -715,19 +716,20 @@ class IntangibleAsset:
 
     def get_total_cost(self) -> Decimal:
         return sum(
-            a.cost for a in self.assets.values() if a.status != IntangibleAssetStatus.DISPOSED
+            (a.cost for a in self.assets.values() if a.status != IntangibleAssetStatus.DISPOSED),
+            Decimal('0')
         )
 
     def get_total_accumulated_amortization(self) -> Decimal:
         return sum(
-            a.accumulated_amortization
-            for a in self.assets.values()
-            if a.status != IntangibleAssetStatus.DISPOSED
+            (a.accumulated_amortization for a in self.assets.values() if a.status != IntangibleAssetStatus.DISPOSED),
+            Decimal('0')
         )
 
     def get_total_nbv(self) -> Decimal:
         return sum(
-            a.nbv for a in self.assets.values() if a.status != IntangibleAssetStatus.DISPOSED
+            (a.nbv for a in self.assets.values() if a.status != IntangibleAssetStatus.DISPOSED),
+            Decimal('0')
         )
 
     def get_total_impairment(self) -> Decimal:

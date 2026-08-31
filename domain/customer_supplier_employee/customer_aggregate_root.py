@@ -257,7 +257,7 @@ class CustomerAggregate:
         if self.aggregate_id != self.legal_entity_id:
             errors.append("Aggregate ID should match legal entity ID")
         # Check duplicate emails across customers
-        emails = {}
+        emails: dict[str, str] = {}
         for cust in self.customers.values():
             if cust.email:
                 if cust.email in emails:
@@ -937,7 +937,7 @@ class CustomerAggregateRepository:
         return len(cls._storage)
 
     @classmethod
-    async def list(cls, limit: int = 100, offset: int = 0) -> list[CustomerAggregate]:
+    async def list_all(cls, limit: int = 100, offset: int = 0) -> list[CustomerAggregate]:
         aggregates = list(cls._storage.values())
         return aggregates[offset : offset + limit]
 

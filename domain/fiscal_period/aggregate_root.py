@@ -163,9 +163,10 @@ class AccountingPeriod:
 # ============================================================================
 
 
-def _normalize_datetime(dt: datetime | None) -> datetime | None:
+def _normalize_datetime(dt: datetime | None) -> datetime:
+    """Ensure datetime is UTC and not None."""
     if dt is None:
-        return None
+        return datetime.now(UTC)
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
@@ -257,14 +258,14 @@ class FiscalPeriod:
         self._start_date = _normalize_datetime(start_date)
         self._end_date = _normalize_datetime(end_date)
         self._status = status
-        self._opened_at = _normalize_datetime(opened_at)
+        self._opened_at = _normalize_datetime(opened_at) if opened_at else None
         self._opened_by = opened_by
-        self._closed_at = _normalize_datetime(closed_at)
+        self._closed_at = _normalize_datetime(closed_at) if closed_at else None
         self._closed_by = closed_by
-        self._locked_at = _normalize_datetime(locked_at)
+        self._locked_at = _normalize_datetime(locked_at) if locked_at else None
         self._locked_by = locked_by
-        self._created_at = _normalize_datetime(created_at) or datetime.now(UTC)
-        self._updated_at = _normalize_datetime(updated_at) or datetime.now(UTC)
+        self._created_at = _normalize_datetime(created_at)
+        self._updated_at = _normalize_datetime(updated_at)
         self._created_by = created_by
         self._updated_by = updated_by
         self._version = version
@@ -275,8 +276,6 @@ class FiscalPeriod:
         self._record_audit("CREATE", created_by, {})
 
     def _validate(self) -> None:
-        if self._start_date is None or self._end_date is None:
-            return
         if self._start_date >= self._end_date:
             raise InvalidDateRangeError(
                 f"Start date {self._start_date} must be before end date {self._end_date}"
@@ -536,6 +535,11 @@ class FiscalPeriod:
                 return datetime.fromisoformat(val)
             return val
 
+        start_dt = parse_dt("start_date")
+        end_dt = parse_dt("end_date")
+        if start_dt is None or end_dt is None:
+            raise FiscalPeriodError("start_date and end_date are required")
+
         return cls(
             period_id=UUID(data["period_id"])
             if isinstance(data["period_id"], str)
@@ -546,8 +550,8 @@ class FiscalPeriod:
             period_type=period_type,
             period_number=data["period_number"],
             year=data["year"],
-            start_date=parse_dt("start_date"),
-            end_date=parse_dt("end_date"),
+            start_date=start_dt,
+            end_date=end_dt,
             status=status,
             opened_at=parse_dt("opened_at"),
             opened_by=data.get("opened_by"),
@@ -1080,7 +1084,7 @@ class FiscalPeriodRepository:
         return len(storage)
 
     @classmethod
-    async def list(
+    async def list_periods(
         cls, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[FiscalPeriod]:
         periods = await cls.get_all(legal_entity_id)
@@ -1104,7 +1108,7 @@ class FiscalPeriodRepository:
             fields = ["period", "year"]
         periods = await cls.get_all(legal_entity_id)
         query_lower = query.lower()
-        results = []
+        results: list[FiscalPeriod] = []
         for p in periods:
             for field in fields:
                 if field == "period":

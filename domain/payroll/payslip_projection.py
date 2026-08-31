@@ -137,11 +137,11 @@ class PayslipProjection:
 
     def get_total_allowances(self) -> Decimal:
         """Sum of all allowances."""
-        return sum(c.amount for c in self.allowances)
+        return sum((c.amount for c in self.allowances), Decimal(0))
 
     def get_total_deductions(self) -> Decimal:
         """Sum of all deductions (absolute values)."""
-        return sum(abs(c.amount) for c in self.deductions)
+        return sum((abs(c.amount) for c in self.deductions), Decimal(0))
 
     def get_component_summary(self) -> dict[str, Decimal]:
         """Return dictionary of component names to amounts."""

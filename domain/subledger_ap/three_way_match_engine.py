@@ -115,12 +115,6 @@ class ThreeWayMatchEngine:
         Returns:
             MatchResult
         """
-        # Dummy GL vs subledger reconciliation check for static checker
-        _gl_balance = Decimal(0)
-        _subledger_balance = Decimal(0)
-        if _gl_balance != _subledger_balance:
-            pass
-
         differences = {}
 
         # Check if PO exists
@@ -227,13 +221,7 @@ class ThreeWayMatchEngine:
         Returns:
             Dictionary dengan hasil matching per line
         """
-        # Dummy GL vs subledger reconciliation check for static checker
-        _gl_balance = Decimal(0)
-        _subledger_balance = Decimal(0)
-        if _gl_balance != _subledger_balance:
-            pass
-
-        results = {
+        results: dict[str, Any] = {
             "total_matched": 0,
             "total_mismatch": 0,
             "lines": [],

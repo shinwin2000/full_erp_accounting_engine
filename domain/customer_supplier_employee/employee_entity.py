@@ -430,9 +430,11 @@ class EmployeeEntity:
             employee_type=employee_type,
             gender=gender,
             ptkp_status=ptkp_status,
-            bpjs_health=EmployeeBPJSEnrollmentVO(bpjs_type=BPJSType.HEALTH, is_active=False),
+            bpjs_health=EmployeeBPJSEnrollmentVO(
+                membership_number="", bpjs_type=BPJSType.HEALTH, is_active=False
+            ),
             bpjs_employment=EmployeeBPJSEnrollmentVO(
-                bpjs_type=BPJSType.EMPLOYMENT, is_active=False
+                membership_number="", bpjs_type=BPJSType.EMPLOYMENT, is_active=False
             ),
             basic_salary=basic_salary,
             join_date=join_date,
@@ -467,14 +469,16 @@ class EmployeeEntity:
         if isinstance(bpjs_health, dict):
             bpjs_health = EmployeeBPJSEnrollmentVO.from_dict(bpjs_health)
         else:
-            bpjs_health = EmployeeBPJSEnrollmentVO(bpjs_type=BPJSType.HEALTH, is_active=False)
+            bpjs_health = EmployeeBPJSEnrollmentVO(
+                membership_number="", bpjs_type=BPJSType.HEALTH, is_active=False
+            )
 
         bpjs_employment = data.get("bpjs_employment")
         if isinstance(bpjs_employment, dict):
             bpjs_employment = EmployeeBPJSEnrollmentVO.from_dict(bpjs_employment)
         else:
             bpjs_employment = EmployeeBPJSEnrollmentVO(
-                bpjs_type=BPJSType.EMPLOYMENT, is_active=False
+                membership_number="", bpjs_type=BPJSType.EMPLOYMENT, is_active=False
             )
 
         join_date = data["join_date"]
@@ -559,18 +563,24 @@ class EmployeeEntity:
         return self.status == EmployeeStatus.ACTIVE
 
     @property
-    def can_process_payroll(self) -> bool:
-        return self.status.can_process_payroll()
-
-    @property
     def full_address(self) -> str | None:
-        parts = [self.address, self.city, self.province, self.postal_code]
-        parts = [p for p in parts if p]
-        return ", ".join(parts) if parts else None
+        parts = [
+            self.address,
+            self.city,
+            self.province,
+            self.postal_code,
+        ]
+        # Filter out None and empty strings, then join
+        filtered = [p for p in parts if p]
+        return ", ".join(filtered) if filtered else None
 
     # ------------------------------------------------------------------------
     # Core Business Logic
     # ------------------------------------------------------------------------
+
+    def can_process_payroll(self) -> bool:
+        """Can this employee be included in payroll processing?"""
+        return self.status.can_process_payroll()
 
     def resign(self, resign_date: date, reason: str, updated_by: str) -> EmployeeEntity:
         """Mark employee as resigned."""
@@ -701,14 +711,16 @@ class EmployeeEntity:
             raise ValueError(f"Cannot reactivate employee with status {self.status.value}")
         if reactivation_date is None:
             reactivation_date = date.today()
-        if reactivation_date <= self.resign_date:
+        if self.resign_date is not None and reactivation_date <= self.resign_date:
             raise ValueError("Reactivation date must be after resignation/termination date")
 
         # Reactivate BPJS enrollments? Usually new enrollments needed
         # For simplicity, we set them as inactive and caller must re-enroll
-        new_bpjs_health = EmployeeBPJSEnrollmentVO(bpjs_type=BPJSType.HEALTH, is_active=False)
+        new_bpjs_health = EmployeeBPJSEnrollmentVO(
+            membership_number="", bpjs_type=BPJSType.HEALTH, is_active=False
+        )
         new_bpjs_employment = EmployeeBPJSEnrollmentVO(
-            bpjs_type=BPJSType.EMPLOYMENT, is_active=False
+            membership_number="", bpjs_type=BPJSType.EMPLOYMENT, is_active=False
         )
 
         return EmployeeEntity(
@@ -883,7 +895,6 @@ class EmployeeEntity:
         """Update basic salary. Effective_date can be stored in notes."""
         if new_salary <= 0:
             raise ValueError(f"Salary must be positive: {new_salary}")
-        # Removed unused notes_suffix variable (F841 fix)
         return EmployeeEntity(
             employee_id=self.employee_id,
             legal_entity_id=self.legal_entity_id,
@@ -1023,7 +1034,7 @@ class EmployeeEntity:
         self, include_ptkp_details: bool = True, include_bpjs_details: bool = True
     ) -> dict[str, Any]:
         """Convert to JSON-serializable dictionary."""
-        result = {
+        result: dict[str, Any] = {
             "employee_id": str(self.employee_id),
             "legal_entity_id": str(self.legal_entity_id),
             "employee_number": self.employee_number,

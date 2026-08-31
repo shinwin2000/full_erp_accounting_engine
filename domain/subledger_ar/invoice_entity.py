@@ -153,11 +153,11 @@ class InvoiceLineEntity:
             id=new_id,
             description=self.description,
             quantity=self.quantity,
-            unit_price=self.unit_price.clone(),
+            unit_price=Money(self.unit_price.amount, self.unit_price.currency),
             tax_rate=self.tax_rate,
             discount_percent=self.discount_percent,
             account_code=self.account_code,
-            total_amount=self.total_amount.clone(),
+            total_amount=Money(self.total_amount.amount, self.total_amount.currency),
         )
         cloned._version = self._version + 1
         cloned._record_audit("CLONE", "system", {"source": str(self.id)})
@@ -629,7 +629,7 @@ class InvoiceRepository:
     async def count(self, legal_entity_id: UUID) -> int:
         raise NotImplementedError
 
-    async def list(
+    async def list_all(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[InvoiceEntity]:
         raise NotImplementedError
@@ -637,7 +637,10 @@ class InvoiceRepository:
     async def paginate(
         self, legal_entity_id: UUID, page: int = 1, per_page: int = 20
     ) -> tuple[list[InvoiceEntity], int]:
-        raise NotImplementedError
+        offset = (page - 1) * per_page
+        items = await self.list_all(legal_entity_id, limit=per_page, offset=offset)
+        total = await self.count(legal_entity_id)
+        return items, total
 
 
 # === 5. EXPORTS ===

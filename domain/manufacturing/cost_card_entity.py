@@ -100,9 +100,15 @@ class CostEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CostEntry:
+        # Ensure cost_element is never None
+        cost_element_raw = data.get("cost_element", "material")
+        cost_element = CostElement.from_string(cost_element_raw)
+        if cost_element is None:
+            cost_element = CostElement.MATERIAL
+
         return cls(
             entry_id=UUID(data["entry_id"]),
-            cost_element=CostElement.from_string(data["cost_element"]),
+            cost_element=cost_element,
             amount=Decimal(data["amount"]),
             quantity=Decimal(data["quantity"]),
             unit_cost=Decimal(data["unit_cost"]),
@@ -606,6 +612,12 @@ class CostCardEntity:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CostCardEntity:
         entries = [CostEntry.from_dict(e) for e in data.get("entries", [])]
+        # Ensure status is never None
+        status_raw = data.get("status", "open")
+        status = CostCardStatus.from_string(status_raw)
+        if status is None:
+            status = CostCardStatus.OPEN
+
         return cls(
             cost_card_id=UUID(data["cost_card_id"]),
             work_order_id=UUID(data["work_order_id"]),
@@ -620,7 +632,7 @@ class CostCardEntity:
             overhead_cost=Decimal(data["overhead_cost"]),
             total_cost=Decimal(data["total_cost"]),
             unit_cost=Decimal(data["unit_cost"]),
-            status=CostCardStatus.from_string(data["status"]),
+            status=status,
             entries=entries,
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),

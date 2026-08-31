@@ -8,7 +8,7 @@ Responsibility: Value object untuk entri biaya pada project.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -53,8 +53,8 @@ class CostEntryVO:
     description: str = ""
     entry_date: date = field(default_factory=date.today)
     id: UUID = field(default_factory=uuid4)
-    # ===== PERBAIKAN: gunakan timezone UTC =====
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.UTC))
+    # ===== PERBAIKAN: gunakan timezone.utc =====
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: UUID | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -69,7 +69,7 @@ class CostEntryVO:
         # Pastikan created_at timezone-aware
         if self.created_at.tzinfo is None:
             # Jika tidak ada timezone, set ke UTC
-            object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=timezone.UTC))
+            object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Konversi ke dictionary."""
@@ -95,15 +95,15 @@ class CostEntryVO:
         except ValueError:
             cost_type = CostType.OTHER
 
-        # ===== PERBAIKAN: gunakan timezone UTC untuk fallback =====
+        # ===== PERBAIKAN: gunakan timezone.utc untuk fallback =====
         created_at = None
         if "created_at" in data:
             try:
                 created_at = datetime.fromisoformat(data["created_at"])
             except (ValueError, TypeError):
-                created_at = datetime.now(timezone.UTC)
+                created_at = datetime.now(UTC)
         else:
-            created_at = datetime.now(timezone.UTC)
+            created_at = datetime.now(UTC)
 
         return cls(
             project_id=UUID(data["project_id"]),

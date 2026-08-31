@@ -261,17 +261,8 @@ class HashChainLinkVO:
         if idempotency_key:
             cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
             if cached is not None:
-                # Reconstruct from cached data
-                return cls(
-                    previous_hash=cached.get("previous_hash"),
-                    current_hash=cached.get("current_hash"),
-                    timestamp=datetime.fromisoformat(cached["timestamp"])
-                    if isinstance(cached.get("timestamp"), str)
-                    else cached.get("timestamp"),
-                    data_hash=cached.get("data_hash"),
-                    version=cached.get("version"),
-                    metadata=cached.get("metadata"),
-                )
+                # Use from_dict to safely reconstruct
+                return cls.from_dict(cached)
 
         if timestamp is None:
             timestamp = datetime.now(UTC)
@@ -339,16 +330,8 @@ class HashChainLinkVO:
         if idempotency_key:
             cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
             if cached is not None:
-                return cls(
-                    previous_hash=cached.get("previous_hash"),
-                    current_hash=cached.get("current_hash"),
-                    timestamp=datetime.fromisoformat(cached["timestamp"])
-                    if isinstance(cached.get("timestamp"), str)
-                    else cached.get("timestamp"),
-                    data_hash=cached.get("data_hash"),
-                    version=cached.get("version"),
-                    metadata=cached.get("metadata"),
-                )
+                # Use from_dict to safely reconstruct
+                return cls.from_dict(cached)
 
         if timestamp is None:
             timestamp = datetime.now(UTC)

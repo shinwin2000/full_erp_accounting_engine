@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import logging
 from datetime import UTC, date, datetime
@@ -25,13 +26,14 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-# Optional compression
-try:
-    from infrastructure.caching.compression_lz4 import CompressionLZ4
+# Optional compression - use importlib to check availability without importing unused module
+COMPRESSION_AVAILABLE = importlib.util.find_spec("infrastructure.caching.compression_lz4") is not None
 
-    COMPRESSION_AVAILABLE = True
-except ImportError:
-    COMPRESSION_AVAILABLE = False
+if COMPRESSION_AVAILABLE:
+    try:
+        from infrastructure.caching.compression_lz4 import CompressionLZ4  # noqa: F401
+    except ImportError:
+        COMPRESSION_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +136,9 @@ class CustomJSONDecoder(json.JSONDecoder):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(object_hook=self.object_hook, *args, **kwargs)
+        # Move object_hook to kwargs, not as positional after *args
+        kwargs["object_hook"] = self.object_hook
+        super().__init__(*args, **kwargs)
 
     def object_hook(self, obj: dict[str, Any]) -> Any:
         # Check for type marker

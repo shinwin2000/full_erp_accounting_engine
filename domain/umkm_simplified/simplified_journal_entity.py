@@ -407,7 +407,7 @@ class SimplifiedJournalRepository:
     async def count(self, legal_entity_id: UUID) -> int:
         raise NotImplementedError
 
-    async def list(
+    async def list_all(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[SimplifiedJournalEntity]:
         raise NotImplementedError

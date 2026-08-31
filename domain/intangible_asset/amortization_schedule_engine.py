@@ -23,6 +23,19 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Helper: Parse amortization method from string
+# ============================================================================
+
+
+def _parse_amortization_method(value: str) -> AmortizationMethod:
+    """Convert string to AmortizationMethod enum, fallback to STRAIGHT_LINE."""
+    for method in AmortizationMethod:
+        if method.value == value.lower():
+            return method
+    return AmortizationMethod.STRAIGHT_LINE
+
+
+# ============================================================================
 # Value Objects
 # ============================================================================
 
@@ -97,10 +110,7 @@ class AmortizationSchedule:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AmortizationSchedule:
-        amortization_method = (
-            AmortizationMethod.from_string(data["amortization_method"])
-            or AmortizationMethod.STRAIGHT_LINE
-        )
+        amortization_method = _parse_amortization_method(data["amortization_method"])
         entries = [AmortizationEntry.from_dict(e) for e in data.get("entries", [])]
         return cls(
             asset_id=UUID(data["asset_id"]),
@@ -610,7 +620,15 @@ class AmortizationScheduleEngine:
         if as_of_date < asset.acquisition_date:
             return Decimal("0")
 
-        schedule = self.calculate_amortization(asset, as_of_date)
+        # Get the full schedule up to the as_of_date
+        if asset.amortization_method == AmortizationMethod.STRAIGHT_LINE:
+            schedule = self.calculate_straight_line(asset, end_date=as_of_date)
+        elif asset.amortization_method == AmortizationMethod.DECLINING_BALANCE:
+            schedule = self.calculate_declining_balance(asset, end_date=as_of_date)
+        else:
+            # For units of production or unknown, fallback to straight line
+            schedule = self.calculate_straight_line(asset, end_date=as_of_date)
+
         total = Decimal("0")
         for entry in schedule.entries:
             if entry.period_end <= as_of_date:
@@ -629,7 +647,7 @@ class AmortizationScheduleEngine:
         asset: IntangibleAssetEntity,
     ) -> Decimal:
         """Get monthly amortization amount (straight line)."""
-        if not asset.is_amortizable or asset.has_indefinite_life:
+        if asset.has_indefinite_life or asset.useful_life_years <= 0:
             return Decimal("0")
 
         annual = asset.amortizable_amount / Decimal(asset.useful_life_years)
@@ -642,7 +660,10 @@ class AmortizationScheduleEngine:
         year: int,
     ) -> Decimal:
         """Get amortization amount for a specific year."""
-        schedule = self.calculate_amortization(asset)
+        if asset.has_indefinite_life or asset.useful_life_years <= 0:
+            return Decimal("0")
+
+        schedule = self.calculate_straight_line(asset)  # we need a schedule, not total
         for entry in schedule.entries:
             if entry.period == year:
                 return entry.amortization_amount

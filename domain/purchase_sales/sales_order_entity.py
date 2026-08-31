@@ -221,7 +221,7 @@ class SalesOrderEntity:
     @property
     def total_amount(self) -> Decimal:
         """Total SO amount (sum of all items' total_amount)."""
-        return sum(item.total_amount for item in self.items)
+        return sum((item.total_amount for item in self.items), Decimal(0))
 
     @property
     def total_delivered_amount(self) -> Decimal:

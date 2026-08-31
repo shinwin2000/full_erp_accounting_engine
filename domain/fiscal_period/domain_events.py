@@ -476,6 +476,10 @@ class PeriodStatusChangedEvent(DomainEvent):
         actual_new_status = new_status or kwargs.get("new_status")
         actual_changed_by = changed_by or kwargs.get("changed_by") or "system"
 
+        # Ensure old_status and new_status are provided
+        if actual_old_status is None or actual_new_status is None:
+            raise ValueError("old_status and new_status are required for PeriodStatusChangedEvent")
+
         event_data = {
             "old_status": actual_old_status.value
             if hasattr(actual_old_status, "value")
@@ -552,7 +556,6 @@ def deserialize_domain_event(json_str: str) -> DomainEvent:
         DomainEvent: Objek event.
     """
     data = json.loads(json_str)
-    # Langsung return dari from_dict, tidak perlu variabel event_type
     return DomainEvent.from_dict(data)
 
 

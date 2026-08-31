@@ -275,7 +275,7 @@ class AgingSummary:
         if current:
             new_buckets[bucket_type] = current.add(AgingBucketVO(bucket_type, amount, currency))
         new_total = self.total_outstanding + amount
-        new_provision = sum(b.get_provision_amount() for b in new_buckets.values())
+        new_provision = sum((b.get_provision_amount() for b in new_buckets.values()), Decimal("0"))
         return AgingSummary(
             as_of_date=self.as_of_date,
             buckets=new_buckets,

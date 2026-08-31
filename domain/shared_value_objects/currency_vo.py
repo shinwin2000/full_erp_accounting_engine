@@ -71,6 +71,12 @@ class CurrencyCode(Enum):
     HKD = "HKD"  # Hong Kong Dollar
     TWD = "TWD"  # New Taiwan Dollar
 
+    # Added currencies for three-decimal support
+    KWD = "KWD"  # Kuwaiti Dinar
+    BHD = "BHD"  # Bahraini Dinar
+    OMR = "OMR"  # Omani Rial
+    JOD = "JOD"  # Jordanian Dinar
+
     @classmethod
     def from_string(cls, code: str) -> CurrencyCode | None:
         """Parse currency code from string (case-insensitive)."""
@@ -148,6 +154,10 @@ class CurrencyVO:
             CurrencyCode.PLN: "Polish Zloty",
             CurrencyCode.HKD: "Hong Kong Dollar",
             CurrencyCode.TWD: "New Taiwan Dollar",
+            CurrencyCode.KWD: "Kuwaiti Dinar",
+            CurrencyCode.BHD: "Bahraini Dinar",
+            CurrencyCode.OMR: "Omani Rial",
+            CurrencyCode.JOD: "Jordanian Dinar",
         }
         return names.get(self.code, self.code.value)
 
@@ -185,6 +195,10 @@ class CurrencyVO:
             CurrencyCode.PLN: "zł",
             CurrencyCode.HKD: "HK$",
             CurrencyCode.TWD: "NT$",
+            CurrencyCode.KWD: "KD",
+            CurrencyCode.BHD: "BD",
+            CurrencyCode.OMR: "OMR",
+            CurrencyCode.JOD: "JD",
         }
         return symbols.get(self.code, self.code.value)
 
@@ -222,6 +236,10 @@ class CurrencyVO:
             CurrencyCode.PLN: 985,
             CurrencyCode.HKD: 344,
             CurrencyCode.TWD: 901,
+            CurrencyCode.KWD: 414,
+            CurrencyCode.BHD: 48,
+            CurrencyCode.OMR: 512,
+            CurrencyCode.JOD: 400,
         }
         return numeric.get(self.code, 0)
 
@@ -229,7 +247,6 @@ class CurrencyVO:
     def decimal_places(self) -> int:
         """Number of decimal places for this currency (0, 2, or 3)."""
         # Most currencies use 2 decimals
-        # JPY, KRW, VND, IDR use 0 (though IDR historically 0, but we keep 2 for compatibility)
         zero_decimal = {CurrencyCode.JPY, CurrencyCode.KRW, CurrencyCode.VND}
         three_decimal = {CurrencyCode.KWD, CurrencyCode.BHD, CurrencyCode.OMR, CurrencyCode.JOD}
         if self.code in zero_decimal:
@@ -273,6 +290,10 @@ class CurrencyVO:
             CurrencyCode.PLN: "grosz",
             CurrencyCode.HKD: "cent",
             CurrencyCode.TWD: "cent",
+            CurrencyCode.KWD: "fils",
+            CurrencyCode.BHD: "fils",
+            CurrencyCode.OMR: "baisa",
+            CurrencyCode.JOD: "piastre",
         }
         return minor_names.get(self.code, "cent")
 
@@ -385,8 +406,11 @@ class CurrencyVO:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CurrencyVO:
-        """Reconstruct from dict."""
-        return cls.from_code(data["code"])
+        """Reconstruct from dict. Raises ValueError if code is invalid."""
+        currency = cls.from_code(data["code"])
+        if currency is None:
+            raise ValueError(f"Invalid currency code: {data['code']}")
+        return currency
 
     # ------------------------------------------------------------------------
     # Dunder methods

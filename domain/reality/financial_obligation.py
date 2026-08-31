@@ -385,7 +385,8 @@ class FinancialObligationService:
 
     def get_total_outstanding(self, legal_entity_id: UUID) -> Money:
         total = sum(
-            ob.outstanding_amount.amount for ob in self.get_outstanding_obligations(legal_entity_id)
+            (ob.outstanding_amount.amount for ob in self.get_outstanding_obligations(legal_entity_id)),
+            Decimal(0)
         )
         return Money(total, "IDR")
 

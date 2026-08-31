@@ -495,8 +495,8 @@ class FinancialEntitlementService:
 
     def get_total_outstanding(self, legal_entity_id: UUID) -> Money:
         total = sum(
-            ent.outstanding_amount.amount
-            for ent in self.get_outstanding_entitlements(legal_entity_id)
+            (ent.outstanding_amount.amount for ent in self.get_outstanding_entitlements(legal_entity_id)),
+            Decimal(0)
         )
         return Money(total, "IDR")
 

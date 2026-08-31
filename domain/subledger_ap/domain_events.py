@@ -1218,7 +1218,7 @@ class DomainEventPublisher:
         """
         import asyncio
 
-        last_error = None
+        last_error: Exception | None = None
         for attempt in range(max_retries):
             try:
                 await self.publish(event)
@@ -1227,6 +1227,8 @@ class DomainEventPublisher:
                 last_error = e
                 logger.warning(f"Publish attempt {attempt + 1}/{max_retries} failed: {e}")
                 await asyncio.sleep(0.1 * (2**attempt))
+        if last_error is None:
+            raise RuntimeError("Publish failed with unknown error")
         raise last_error
 
 

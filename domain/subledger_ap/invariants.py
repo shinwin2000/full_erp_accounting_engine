@@ -18,7 +18,9 @@ Audit: Setiap pelanggaran invariant dictat.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from decimal import Decimal
+from uuid import UUID
 
 from domain.subledger_ap.invoice_entity import APInvoiceEntity, APInvoiceStatus
 from domain.subledger_ap.payment_entity import APPaymentEntity
@@ -162,12 +164,6 @@ class APInvariants:
         """
         Aturan: Invoice harus match dengan PO dan GRN.
         """
-        # Dummy GL vs subledger reconciliation check for static checker
-        _gl_balance = Decimal(0)
-        _subledger_balance = Decimal(0)
-        if _gl_balance != _subledger_balance:
-            pass
-
         result = InvariantResult(True)
 
         po_diff = abs(invoice_amount - po_amount)
@@ -196,8 +192,8 @@ class APInvariantEnforcer:
 
     def __init__(
         self,
-        invoice_number_checker: callable,
-        three_way_match_checker: callable,
+        invoice_number_checker: Callable[[UUID], set[str]],
+        three_way_match_checker: Callable[[], bool],  # unused but kept for signature
     ):
         self._invoice_number_checker = invoice_number_checker
         self._three_way_match_checker = three_way_match_checker
@@ -213,8 +209,8 @@ class APInvariantEnforcer:
         # Amount validation
         result.merge(self._invariants.validate_invoice_amount(invoice))
 
-        # Duplicate invoice number
-        existing_numbers = await self._invoice_number_checker(invoice.vendor_id)
+        # Duplicate invoice number - synchronous call, no await
+        existing_numbers = self._invoice_number_checker(invoice.vendor_id)
         result.merge(
             self._invariants.validate_duplicate_invoice_number(
                 invoice.invoice_number, existing_numbers
@@ -258,12 +254,6 @@ class APInvariantEnforcer:
         grn_amount: Decimal,
     ) -> InvariantResult:
         """Menegakkan invariant 3-way match."""
-        # Dummy GL vs subledger reconciliation check for static checker
-        _gl_balance = Decimal(0)
-        _subledger_balance = Decimal(0)
-        if _gl_balance != _subledger_balance:
-            pass
-
         return self._invariants.validate_three_way_match(invoice_amount, po_amount, grn_amount)
 
     def enforce_negative_balance(self, balance: Decimal, account_name: str) -> InvariantResult:

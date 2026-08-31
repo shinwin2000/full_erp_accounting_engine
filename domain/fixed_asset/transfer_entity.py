@@ -596,6 +596,11 @@ class TransferEntity:
                 return datetime.fromisoformat(val)
             return val
 
+        # Ensure transfer_date is present and not None
+        transfer_date = parse_date("transfer_date")
+        if transfer_date is None:
+            raise TransferError("transfer_date is required")
+
         return cls(
             transfer_id=UUID(data["transfer_id"])
             if isinstance(data["transfer_id"], str)
@@ -605,7 +610,7 @@ class TransferEntity:
             else data["asset_id"],
             asset_code=data["asset_code"],
             asset_name=data["asset_name"],
-            transfer_date=parse_date("transfer_date"),
+            transfer_date=transfer_date,
             transfer_type=transfer_type,
             source=data["source"],
             destination=data["destination"],
@@ -958,8 +963,8 @@ def is_transfer_allowed(asset: FixedAsset) -> tuple[bool, str]:
 def get_transfer_summary(transfers: list[TransferEntity]) -> dict[str, Any]:
     """Get summary statistics for a list of transfers."""
     total = len(transfers)
-    by_status = {}
-    by_type = {}
+    by_status: dict[str, int] = {}
+    by_type: dict[str, int] = {}
     for t in transfers:
         by_status[t.status.value] = by_status.get(t.status.value, 0) + 1
         by_type[t.transfer_type.value] = by_type.get(t.transfer_type.value, 0) + 1

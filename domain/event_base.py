@@ -33,7 +33,7 @@ class DomainEvent:
 
     def to_dict(self) -> dict[str, Any]:
         """Konversi event ke dictionary untuk serialisasi."""
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in self.__dict__.items():
             if not key.startswith("_"):
                 if isinstance(value, UUID):
@@ -41,7 +41,8 @@ class DomainEvent:
                 elif isinstance(value, datetime):
                     result[key] = value.isoformat()
                 elif isinstance(value, Decimal):
-                    result[key] = float(value)
+                    # Preserve precision by converting to string
+                    result[key] = str(value)
                 else:
                     result[key] = value
         return result

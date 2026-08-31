@@ -101,6 +101,10 @@ class CreateBankAccountRequest:
     currency_code: str = "IDR"
     account_type: str = "CHECKING"
     opening_balance: Decimal = Decimal("0")
+    opening_balance_date: date | None = None
+    gl_account_id: UUID | None = None
+    is_active: bool = True
+    is_default: bool = False
     reconciliation_date: date | None = None
 
 
@@ -109,21 +113,36 @@ class UpdateBankAccountRequest:
     account_name: str | None = None
     branch: str | None = None
     status: str | None = None
+    is_active: bool | None = None
+    is_default: bool | None = None
+    gl_account_id: UUID | None = None
 
 
 @dataclass(kw_only=True)
 class BankAccountResponse:
     id: UUID
+    legal_entity_id: UUID | None
     account_name: str
     account_number: str
     bank_name: str
+    bank_code: str
+    branch: str | None
     currency_code: str
+    account_type: str
     current_balance: Decimal
     available_balance: Decimal
+    opening_balance: Decimal
+    opening_balance_date: date | None
+    gl_account_id: UUID | None
     last_reconciliation_date: date | None
     status: str | None = None
+    is_active: bool = True
+    is_default: bool = False
     is_locked: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_by: UUID | None = None
+    updated_at: datetime | None = None
+    version: int = 1
 
 
 @dataclass(kw_only=True)
@@ -369,8 +388,8 @@ class BankCashService:
         """Create a new bank account."""
         self._check_authority(user_id, "create_bank_account")
 
-        existing = await self._bank_repo.find_account_by_number(
-            request.legal_entity_id, request.account_number
+        existing = await self._bank_repo.get_bank_account_by_number(
+            request.account_number, request.legal_entity_id
         )
         if existing:
             raise BankCashServiceError(
@@ -378,30 +397,30 @@ class BankCashService:
             )
 
         bank_account = BankAccount(
-            id=uuid4(),
+            account_id=uuid4(),
             legal_entity_id=request.legal_entity_id,
             account_name=request.account_name,
             account_number=request.account_number,
             bank_name=request.bank_name,
             bank_code=request.bank_code,
-            branch=request.branch,
-            currency=Currency(request.currency_code),
+            branch_name=request.branch,
+            currency=request.currency_code,
             account_type=BankAccountType(request.account_type),
             current_balance=request.opening_balance,
             available_balance=request.opening_balance,
             status=BankAccountStatus.ACTIVE,
             opening_balance=request.opening_balance,
-            last_reconciliation_date=request.reconciliation_date,
-            is_locked=False,
+            opening_balance_date=request.opening_balance_date or request.reconciliation_date or date.today(),
+            gl_account_id=request.gl_account_id,
+            is_active=request.is_active,
+            is_default=request.is_default,
+            last_reconciled_date=request.reconciliation_date,
             created_by=user_id,
             created_at=datetime.now(UTC),
             updated_at=None,
         )
 
-        aggregate = BankAggregate(bank_account=bank_account, version=0)
-        aggregate.create(user_id)
-
-        await self._bank_repo.save_bank_account(aggregate)
+        await self._bank_repo.add_bank_account(bank_account)
         if self._uow:
             await self._uow.commit()
 
@@ -410,18 +429,27 @@ class BankCashService:
         # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = BankAccountCreatedEvent(
-                aggregate_id=bank_account.id,
+                aggregate_id=bank_account.account_id,
                 aggregate_version=1,
-                legal_entity_id=bank_account.legal_entity_id,
+                account_id=bank_account.account_id,
                 account_number=bank_account.account_number,
+                account_name=bank_account.account_name,
+                account_type=(
+                    bank_account.account_type.value
+                    if hasattr(bank_account.account_type, "value")
+                    else bank_account.account_type
+                ),
                 bank_name=bank_account.bank_name,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                currency=bank_account.currency,
+                initial_balance=bank_account.opening_balance,
+                created_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Bank account {bank_account.account_number} created", correlation_id)
 
         self._record_audit("create_bank_account", {
-            "account_id": str(bank_account.id),
+            "account_id": str(bank_account.account_id),
             "account_number": bank_account.account_number,
             "user_id": str(user_id),
         })
@@ -444,25 +472,37 @@ class BankCashService:
         """Update bank account details."""
         self._check_authority(user_id, "update_bank_account")
 
-        agg = await self._bank_repo.get_bank_account_by_id(account_id)
-        if not agg:
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
             raise BankAccountNotFoundError(f"Bank account {account_id} not found")
 
-        bank_account = agg.bank_account
         changes = {}
 
         if request.account_name and request.account_name != bank_account.account_name:
             changes["account_name"] = {"old": bank_account.account_name, "new": request.account_name}
             bank_account.account_name = request.account_name
 
-        if request.branch is not None and request.branch != bank_account.branch:
-            changes["branch"] = {"old": bank_account.branch, "new": request.branch}
-            bank_account.branch = request.branch
+        if request.branch is not None and request.branch != bank_account.branch_name:
+            changes["branch"] = {"old": bank_account.branch_name, "new": request.branch}
+            bank_account.branch_name = request.branch
+
+        if request.is_active is not None and request.is_active != bank_account.is_active:
+            changes["is_active"] = {"old": bank_account.is_active, "new": request.is_active}
+            bank_account.is_active = request.is_active
+
+        if request.is_default is not None and request.is_default != bank_account.is_default:
+            changes["is_default"] = {"old": bank_account.is_default, "new": request.is_default}
+            bank_account.is_default = request.is_default
+
+        if request.gl_account_id is not None and request.gl_account_id != bank_account.gl_account_id:
+            changes["gl_account_id"] = {"old": bank_account.gl_account_id, "new": request.gl_account_id}
+            bank_account.gl_account_id = request.gl_account_id
 
         if request.status:
             new_status = BankAccountStatus(request.status)
             if new_status != bank_account.status and new_status == BankAccountStatus.ACTIVE:
                 bank_account.status = new_status
+                changes["status"] = {"new": new_status.value}
 
         if not changes:
             return self._to_bank_account_response(bank_account)
@@ -470,7 +510,7 @@ class BankCashService:
         bank_account.updated_at = datetime.now(UTC)
         bank_account.updated_by = user_id
 
-        await self._bank_repo.save_bank_account(agg)
+        await self._bank_repo.update_bank_account(bank_account)
         if self._uow:
             await self._uow.commit()
 
@@ -479,12 +519,13 @@ class BankCashService:
         # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = BankAccountUpdatedEvent(
-                aggregate_id=bank_account.id,
-                aggregate_version=agg.version,
-                account_number=bank_account.account_number,
+                aggregate_id=bank_account.account_id,
+                aggregate_version=bank_account.version,
+                account_id=bank_account.account_id,
                 changes=changes,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                updated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Bank account {bank_account.account_number} updated", correlation_id)
 
@@ -494,6 +535,72 @@ class BankCashService:
             "user_id": str(user_id),
         })
 
+        return self._to_bank_account_response(bank_account)
+
+    @audit
+    async def activate_bank_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> BankAccountResponse:
+        """Aktifkan kembali rekening bank (is_active=True)."""
+        self._check_authority(user_id, "update_bank_account")
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
+            raise BankAccountNotFoundError(f"Bank account {account_id} not found")
+        bank_account.is_active = True
+        bank_account.updated_at = datetime.now(UTC)
+        bank_account.updated_by = user_id
+        await self._bank_repo.update_bank_account(bank_account)
+        if self._uow:
+            await self._uow.commit()
+        return self._to_bank_account_response(bank_account)
+
+    @audit
+    async def deactivate_bank_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        reason: str | None = None,
+        correlation_id: str | None = None,
+    ) -> BankAccountResponse:
+        """Nonaktifkan sementara rekening bank (is_active=False) — tidak permanen
+        seperti close_bank_account, yang mengubah status jadi CLOSED."""
+        self._check_authority(user_id, "update_bank_account")
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
+            raise BankAccountNotFoundError(f"Bank account {account_id} not found")
+        bank_account.is_active = False
+        bank_account.updated_at = datetime.now(UTC)
+        bank_account.updated_by = user_id
+        await self._bank_repo.update_bank_account(bank_account)
+        if self._uow:
+            await self._uow.commit()
+        return self._to_bank_account_response(bank_account)
+
+    @audit
+    async def unlock_bank_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> BankAccountResponse:
+        """Buka blokir rekening bank yang sebelumnya di-block."""
+        self._check_authority(user_id, "block_bank_account")
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
+            raise BankAccountNotFoundError(f"Bank account {account_id} not found")
+        bank_account.is_locked = False
+        bank_account.locked_at = None
+        bank_account.locked_by = None
+        bank_account.lock_reason = None
+        if bank_account.status == BankAccountStatus.BLOCKED:
+            bank_account.status = BankAccountStatus.ACTIVE
+        bank_account.updated_at = datetime.now(UTC)
+        await self._bank_repo.update_bank_account(bank_account)
+        if self._uow:
+            await self._uow.commit()
         return self._to_bank_account_response(bank_account)
 
     @audit
@@ -507,11 +614,10 @@ class BankCashService:
         """Block a bank account."""
         self._check_authority(user_id, "block_bank_account")
 
-        agg = await self._bank_repo.get_bank_account_by_id(account_id)
-        if not agg:
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
             raise BankAccountNotFoundError(f"Bank account {account_id} not found")
 
-        bank_account = agg.bank_account
         if bank_account.status == BankAccountStatus.CLOSED:
             raise BankAccountClosedError("Cannot block a closed account")
 
@@ -522,7 +628,7 @@ class BankCashService:
         bank_account.status = BankAccountStatus.BLOCKED
         bank_account.updated_at = datetime.now(UTC)
 
-        await self._bank_repo.save_bank_account(agg)
+        await self._bank_repo.update_bank_account(bank_account)
         if self._uow:
             await self._uow.commit()
 
@@ -531,12 +637,13 @@ class BankCashService:
         # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = BankAccountBlockedEvent(
-                aggregate_id=bank_account.id,
-                aggregate_version=agg.version,
-                account_number=bank_account.account_number,
+                aggregate_id=bank_account.account_id,
+                aggregate_version=bank_account.version,
+                account_id=bank_account.account_id,
                 reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                blocked_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Bank account {bank_account.account_number} blocked", correlation_id)
 
@@ -559,11 +666,10 @@ class BankCashService:
         """Close a bank account."""
         self._check_authority(user_id, "close_bank_account")
 
-        agg = await self._bank_repo.get_bank_account_by_id(account_id)
-        if not agg:
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
             raise BankAccountNotFoundError(f"Bank account {account_id} not found")
 
-        bank_account = agg.bank_account
         if bank_account.current_balance != 0:
             raise BankCashServiceError(
                 f"Cannot close account with balance {bank_account.current_balance}"
@@ -575,7 +681,7 @@ class BankCashService:
         bank_account.close_reason = reason
         bank_account.updated_at = datetime.now(UTC)
 
-        await self._bank_repo.save_bank_account(agg)
+        await self._bank_repo.update_bank_account(bank_account)
         if self._uow:
             await self._uow.commit()
 
@@ -584,12 +690,12 @@ class BankCashService:
         # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = BankAccountClosedEvent(
-                aggregate_id=bank_account.id,
-                aggregate_version=agg.version,
-                account_number=bank_account.account_number,
-                reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                aggregate_id=bank_account.account_id,
+                aggregate_version=bank_account.version,
+                account_id=bank_account.account_id,
+                closed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Bank account {bank_account.account_number} closed", correlation_id)
 
@@ -602,26 +708,30 @@ class BankCashService:
         return self._to_bank_account_response(bank_account)
 
     async def get_bank_account(self, account_id: UUID) -> BankAccountResponse:
-        agg = await self._bank_repo.get_bank_account_by_id(account_id)
-        if not agg:
+        bank_account = await self._bank_repo.get_bank_account_by_id(account_id)
+        if not bank_account:
             raise BankAccountNotFoundError(f"Bank account {account_id} not found")
-        return self._to_bank_account_response(agg.bank_account)
+        return self._to_bank_account_response(bank_account)
 
     async def list_bank_accounts(
         self,
         legal_entity_id: UUID,
         status: str | None = None,
+        account_type: str | None = None,
         currency: str | None = None,
+        is_active: bool | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[BankAccountResponse]:
         accounts = await self._bank_repo.list_bank_accounts(
             legal_entity_id=legal_entity_id,
-            is_active=None,  # ambil semua, filter status/currency di Python di bawah
+            is_active=is_active,  # repo sudah bisa filter langsung by is_active
         )
-        responses = [self._to_bank_account_response(acc.bank_account) for acc in accounts]
+        responses = [self._to_bank_account_response(acc) for acc in accounts]
         if status is not None:
             responses = [r for r in responses if r.status == status]
+        if account_type is not None:
+            responses = [r for r in responses if r.account_type == account_type]
         if currency is not None:
             responses = [r for r in responses if r.currency_code == currency]
         return responses[offset: offset + limit]
@@ -644,7 +754,7 @@ class BankCashService:
             legal_entity_id=legal_entity_id,
             is_active=True,
         )
-        responses = [self._to_bank_account_response(acc.bank_account) for acc in accounts]
+        responses = [self._to_bank_account_response(acc) for acc in accounts]
         return [
             DailyCashPositionDTO(
                 account_type="BANK",
@@ -667,13 +777,12 @@ class BankCashService:
         """Record a bank transaction."""
         self._check_authority(user_id, "record_transaction")
 
-        bank_agg = await self._bank_repo.get_bank_account_by_id(request.bank_account_id)
-        if not bank_agg:
+        bank_account = await self._bank_repo.get_bank_account_by_id(request.bank_account_id)
+        if not bank_account:
             raise BankAccountNotFoundError(
                 f"Bank account {request.bank_account_id} not found"
             )
 
-        bank_account = bank_agg.bank_account
         if bank_account.status != BankAccountStatus.ACTIVE:
             raise BankCashServiceError("Bank account is not active")
 
@@ -695,9 +804,12 @@ class BankCashService:
                     f"Insufficient funds: balance={bank_account.available_balance}, requested={request.amount}"
                 )
 
+        transaction_number = await self._bank_repo.get_next_transaction_number()
+
         transaction = BankTransaction(
-            id=uuid4(),
+            transaction_id=uuid4(),
             legal_entity_id=request.legal_entity_id,
+            transaction_number=transaction_number,
             bank_account_id=request.bank_account_id,
             transaction_date=request.transaction_date,
             amount=request.amount,
@@ -723,8 +835,8 @@ class BankCashService:
         bank_account.updated_at = datetime.now(UTC)
         transaction.status = TransactionStatus.COMPLETED
 
-        await self._bank_repo.save_bank_account(bank_agg)
-        await self._bank_repo.save_transaction(transaction)
+        await self._bank_repo.update_bank_account(bank_account)
+        await self._bank_repo.add_bank_transaction(transaction)
         if self._uow:
             await self._uow.commit()
 
@@ -733,18 +845,22 @@ class BankCashService:
         # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = BankTransactionRecordedEvent(
-                aggregate_id=transaction.id,
+                aggregate_id=transaction.transaction_id,
                 aggregate_version=1,
-                bank_account_id=request.bank_account_id,
+                transaction_id=transaction.transaction_id,
+                account_id=request.bank_account_id,
                 amount=request.amount,
+                currency=bank_account.currency,
                 transaction_type=tx_type.value,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                recorded_by=str(user_id),
+                reference_number=request.reference_number,
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Transaction {request.amount} recorded", correlation_id)
 
         self._record_audit("record_transaction", {
-            "transaction_id": str(transaction.id),
+            "transaction_id": str(transaction.transaction_id),
             "bank_account_id": str(request.bank_account_id),
             "amount": str(request.amount),
             "type": tx_type.value,
@@ -766,14 +882,13 @@ class BankCashService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[BankTransactionResponse]:
-        transactions = await self._bank_repo.list_transactions(
+        transactions = await self._bank_repo.get_bank_transactions_by_account(
             bank_account_id=bank_account_id,
-            from_date=from_date,
-            to_date=to_date,
+            start_date=from_date,
+            end_date=to_date,
             limit=limit,
-            offset=offset,
         )
-        return [self._to_transaction_response(tx) for tx in transactions]
+        return [self._to_transaction_response(tx) for tx in transactions[offset: offset + limit]]
 
     # ========================================================================
     # Bank Reconciliation
@@ -794,13 +909,12 @@ class BankCashService:
 
         self._stats["reconciliations"] += 1
 
-        bank_agg = await self._bank_repo.get_bank_account_by_id(request.bank_account_id)
-        if not bank_agg:
+        bank_account = await self._bank_repo.get_bank_account_by_id(request.bank_account_id)
+        if not bank_account:
             raise BankAccountNotFoundError(
                 f"Bank account {request.bank_account_id} not found"
             )
 
-        bank_account = bank_agg.bank_account
         system_balance = bank_account.current_balance
 
         transactions = await self._bank_repo.list_unreconciled_transactions(
@@ -828,15 +942,16 @@ class BankCashService:
                 event = BankTransactionClearedEvent(
                     aggregate_id=tx_id,
                     aggregate_version=1,
-                    bank_account_id=request.bank_account_id,
-                    user_id=request.user_id,
-                    occurred_at=datetime.now(UTC),
+                    transaction_id=tx_id,
+                    cleared_by=str(request.user_id),
+                    user_id=str(request.user_id),
+                    correlation_id=correlation_id,
                 )
                 await self._publish_event(event, f"Transaction {tx_id} cleared", correlation_id)
 
-        bank_account.last_reconciliation_date = request.statement_date
+        bank_account.last_reconciled_date = request.statement_date
         bank_account.updated_at = datetime.now(UTC)
-        await self._bank_repo.save_bank_account(bank_agg)
+        await self._bank_repo.update_bank_account(bank_account)
 
         reconciliation_id = uuid4()
         await self._bank_repo.save_reconciliation(
@@ -859,11 +974,14 @@ class BankCashService:
             event = BankReconciliationCompletedEvent(
                 aggregate_id=reconciliation_id,
                 aggregate_version=1,
-                bank_account_id=request.bank_account_id,
+                account_id=request.bank_account_id,
                 statement_date=request.statement_date,
-                is_matched=result.is_matched,
-                user_id=request.user_id,
-                occurred_at=datetime.now(UTC),
+                statement_balance=request.statement_ending_balance,
+                book_balance=system_balance,
+                difference=result.difference,
+                reconciled_by=str(request.user_id),
+                user_id=str(request.user_id),
+                correlation_id=correlation_id,
             )
             await self._publish_event(event, f"Reconciliation {reconciliation_id} completed", correlation_id)
 
@@ -1946,22 +2064,34 @@ class BankCashService:
 
     def _to_bank_account_response(self, account: BankAccount) -> BankAccountResponse:
         return BankAccountResponse(
-            id=account.id,
+            id=account.account_id,
+            legal_entity_id=account.legal_entity_id,
             account_name=account.account_name,
             account_number=account.account_number,
             bank_name=account.bank_name,
-            currency_code=account.currency.code,
+            bank_code=account.bank_code,
+            branch=account.branch_name,
+            currency_code=account.currency,
+            account_type=account.account_type.value if hasattr(account.account_type, "value") else account.account_type,
             current_balance=account.current_balance,
             available_balance=account.available_balance,
-            status=account.status.value,
+            opening_balance=account.opening_balance,
+            opening_balance_date=account.opening_balance_date,
+            gl_account_id=account.gl_account_id,
+            status=account.status.value if hasattr(account.status, "value") else account.status,
+            is_active=account.is_active,
+            is_default=account.is_default,
             is_locked=account.is_locked,
-            last_reconciliation_date=account.last_reconciliation_date,
+            last_reconciliation_date=account.last_reconciled_date,
             created_at=account.created_at,
+            created_by=account.created_by,
+            updated_at=account.updated_at,
+            version=account.version,
         )
 
     def _to_transaction_response(self, tx: BankTransaction) -> BankTransactionResponse:
         return BankTransactionResponse(
-            id=tx.id,
+            id=tx.transaction_id,
             bank_account_id=tx.bank_account_id,
             transaction_date=tx.transaction_date,
             amount=tx.amount,

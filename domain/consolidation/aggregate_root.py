@@ -186,7 +186,11 @@ class ConsolidationGroup:
         for key, value in kwargs.items():
             if key not in ("group_id", "created_at", "created_by", "version"):
                 data[key] = value
-        new_group = self.from_dict(data)
+        new_group = self.from_dict(
+            data,
+            parent_company=self.parent,
+            subsidiaries=self.subsidiaries,
+        )
         new_group.updated_at = datetime.now(UTC)
         new_group.updated_by = updated_by
         new_group.version = self.version + 1
@@ -303,14 +307,25 @@ class ConsolidationGroup:
         parent_company: Company | None = None,
         subsidiaries: list[Company] | None = None,
     ) -> ConsolidationGroup:
+        """
+        Reconstruct ConsolidationGroup from dictionary.
+        parent_company and subsidiaries must be provided; they are not reconstructed from IDs.
+        """
+        if parent_company is None:
+            raise ValueError(
+                "parent_company is required for ConsolidationGroup.from_dict. "
+                "Provide a fully loaded Company instance."
+            )
+
+        if subsidiaries is None:
+            subsidiaries = []
+
         group = cls(
             group_id=UUID(data["group_id"]),
             group_code=data["group_code"],
             group_name=data["group_name"],
-            parent=parent_company or Company(id=UUID(data.get("parent_id", "")))
-            if data.get("parent_id")
-            else None,
-            subsidiaries=subsidiaries or [],
+            parent=parent_company,
+            subsidiaries=subsidiaries,
             period=date.fromisoformat(data["period"]) if data.get("period") else None,
             status=ConsolidationStatus(data["status"]),
             description=data.get("description", ""),

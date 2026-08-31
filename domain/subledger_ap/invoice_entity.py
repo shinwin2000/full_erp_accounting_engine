@@ -232,8 +232,8 @@ class APInvoiceEntity:
 
     def add_line(self, line: APInvoiceLine, added_by: str) -> APInvoiceEntity:
         new_lines = [*self.lines, line]
-        # Recalculate totals from lines
-        new_amount = sum(ln.line_total for ln in new_lines)
+        # Recalculate totals from lines with Decimal start value
+        new_amount = sum((ln.line_total for ln in new_lines), Decimal("0"))
         self._record_audit("line_added", added_by, {"line_id": str(line.id)})
         return APInvoiceEntity(
             invoice_id=self.invoice_id,
@@ -267,7 +267,7 @@ class APInvoiceEntity:
         if not line_to_remove:
             raise ValueError(f"Line {line_id} not found")
         new_lines = [ln for ln in self.lines if ln.id != line_id]
-        new_amount = sum(ln.line_total for ln in new_lines)
+        new_amount = sum((ln.line_total for ln in new_lines), Decimal("0"))
         self._record_audit("line_removed", removed_by, {"line_id": str(line_id)})
         return APInvoiceEntity(
             invoice_id=self.invoice_id,

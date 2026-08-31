@@ -309,12 +309,6 @@ class EmployeeBPJSEnrollmentVO:
             enrollment_date = date.today()
         # Calculate default contributions based on health class if not provided
         if employee_contribution is None:
-            # Employee pays 1% of premium? Actually premium is split: employee 1%, employer 4%?
-            # Standard: total premium = health_class.monthly_premium()
-            # For class 1: total 150k, employee 30k, employer 120k
-            # For class 2: total 100k, employee 20k, employer 80k
-            # For class 3: total 42k, employee 35k? Wait, government subsidizes.
-            # Simplified: employee pays 50% of premium (except class 3 with subsidy)
             total = health_class.monthly_premium()
             if health_class == BPJSHealthClass.CLASS_3:
                 employee = Decimal("35000")  # Fixed for class 3
@@ -324,14 +318,27 @@ class EmployeeBPJSEnrollmentVO:
                 employer = total * Decimal("0.5")
             employee_contribution = employee
             employer_contribution = employer
+        else:
+            # Ensure they are Decimal
+            if not isinstance(employee_contribution, Decimal):
+                employee_contribution = Decimal(str(employee_contribution))
+            if employer_contribution is None:
+                employer_contribution = Decimal("0")
+            elif not isinstance(employer_contribution, Decimal):
+                employer_contribution = Decimal(str(employer_contribution))
+
+        # Ensure they are not None (fallback to 0)
+        emp_contrib = employee_contribution if employee_contribution is not None else Decimal("0")
+        er_contrib = employer_contribution if employer_contribution is not None else Decimal("0")
+
         return cls(
             bpjs_type=BPJSType.HEALTH,
             membership_number=membership_number,
             is_active=True,
             enrollment_date=enrollment_date,
             health_class=health_class,
-            employee_contribution=employee_contribution,
-            employer_contribution=employer_contribution,
+            employee_contribution=emp_contrib,
+            employer_contribution=er_contrib,
             notes=notes,
         )
 

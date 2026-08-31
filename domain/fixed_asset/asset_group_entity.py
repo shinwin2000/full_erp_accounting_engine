@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -196,14 +197,14 @@ def _validate_description(desc: str | None) -> str | None:
 def _detect_cycle(
     group_id: UUID,
     new_parent_id: UUID | None,
-    get_parent_func: callable,
+    get_parent_func: Callable[[UUID], UUID | None],
 ) -> bool:
     """Detect if moving group to new_parent would create a cycle."""
     if new_parent_id is None:
         return False
     # Traverse up from new_parent
-    current = new_parent_id
-    visited = set()
+    current: UUID | None = new_parent_id
+    visited: set[UUID] = set()
     while current is not None and current not in visited:
         if current == group_id:
             return True
@@ -521,7 +522,10 @@ class AssetGroupEntity:
         )
 
     def change_parent(
-        self, new_parent_id: UUID | None, updated_by: str, get_parent_func: callable | None = None
+        self,
+        new_parent_id: UUID | None,
+        updated_by: str,
+        get_parent_func: Callable[[UUID], UUID | None] | None = None,
     ) -> AssetGroupEntity:
         """Change parent group (validates no cycle)."""
         if new_parent_id == self.group_id:
@@ -758,13 +762,13 @@ class AssetGroupSummary:
     ) -> AssetGroupSummary:
         """Calculate summary from a list of assets."""
         count = len(assets)
-        total_cost = sum(a.acquisition_cost for a in assets)
-        total_dep = sum(a.accumulated_depreciation for a in assets)
-        total_nbv = sum(a.net_book_value for a in assets)
+        total_cost = sum((a.acquisition_cost for a in assets), Decimal(0))
+        total_dep = sum((a.accumulated_depreciation for a in assets), Decimal(0))
+        total_nbv = sum((a.net_book_value for a in assets), Decimal(0))
 
         # Optional breakdowns
-        type_breakdown = {}
-        status_breakdown = {}
+        type_breakdown: dict[str, int] = {}
+        status_breakdown: dict[str, int] = {}
         for a in assets:
             type_key = a.asset_type.value
             type_breakdown[type_key] = type_breakdown.get(type_key, 0) + 1
@@ -780,8 +784,8 @@ class AssetGroupSummary:
             total_accumulated_depreciation=total_dep,
             total_nbv=total_nbv,
             currency=currency,
-            asset_type_breakdown=type_breakdown,
-            status_breakdown=status_breakdown,
+            asset_type_breakdown=type_breakdown if type_breakdown else None,
+            status_breakdown=status_breakdown if status_breakdown else None,
         )
 
 
@@ -860,12 +864,14 @@ class AssetGroupService:
     ) -> list[AssetGroupEntity]:
         """Get hierarchical list of groups."""
         if root_group_id:
-            groups = [await self._group_repo.get_by_id(root_group_id, legal_entity_id)]
-            if not groups[0]:
+            group = await self._group_repo.get_by_id(root_group_id, legal_entity_id)
+            if group is None:
                 return []
+            return [group]
         else:
             groups = await self._group_repo.get_root_groups(legal_entity_id)
-        return groups
+            # Filter out any None values if the repository returns Optional
+            return [g for g in groups if g is not None]
 
 
 # ============================================================================

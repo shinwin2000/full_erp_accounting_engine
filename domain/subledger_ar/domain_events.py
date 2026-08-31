@@ -828,7 +828,7 @@ class DomainEventPublisher:
         Returns:
             dict: Statistik dengan total dan breakdown per tipe event.
         """
-        by_type = {}
+        by_type: dict[str, int] = {}
         for event in cls._published_events:
             by_type[event.event_type.value] = by_type.get(event.event_type.value, 0) + 1
         return {

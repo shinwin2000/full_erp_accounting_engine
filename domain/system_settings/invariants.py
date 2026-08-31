@@ -222,7 +222,8 @@ class SystemSettingsInvariantEnforcer:
         data_type: SettingDataType,
     ) -> InvariantResult:
         """Menegakkan invariant saat pembuatan definisi pengaturan."""
-        existing_keys = await self._keys_provider()
+        # The provider is synchronous, so call it without await.
+        existing_keys = self._keys_provider()
         return self._invariants.validate_on_create(
             key=key,
             data_type=data_type,

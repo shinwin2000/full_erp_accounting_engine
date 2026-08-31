@@ -170,7 +170,7 @@ class TaxInvariants:
 
 # === 3. TAX INVARIANT ENFORCER ===
 class TaxInvariantEnforcer:
-    def __init__(self, faktur_number_checker: Callable | None = None):
+    def __init__(self, faktur_number_checker: Callable[[], set[str]] | None = None):
         self._faktur_number_checker = faktur_number_checker or (lambda: set())
         self._invariants = TaxInvariants()
         self._version = 1
@@ -207,7 +207,8 @@ class TaxInvariantEnforcer:
         result.merge(self._invariants.validate_npwp_format(npwp_pembeli))
         result.merge(self._invariants.validate_nsfp_format(nsfp))
         result.merge(self._invariants.validate_tax_amount(dpp, ppn))
-        existing_numbers = await self._faktur_number_checker()
+        # Call the checker synchronously (no await)
+        existing_numbers = self._faktur_number_checker()
         result.merge(
             self._invariants.validate_faktur_unique_number(faktur_number, existing_numbers)
         )

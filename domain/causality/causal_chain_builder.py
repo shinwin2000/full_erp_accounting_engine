@@ -10,6 +10,7 @@ Responsibility: Membangun rantai kausalitas dari intent, economic event, hingga 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -26,12 +27,12 @@ from domain.causality.causal_node import (
 try:
     from domain.intent.immutable_record import get_immutable_intent_record_service
 except ImportError:
-    get_immutable_intent_record_service = None
+    get_immutable_intent_record_service = None  # type: ignore
 
 try:
     from domain.reality.economic_event_immutable import get_economic_event_service
 except ImportError:
-    get_economic_event_service = None
+    get_economic_event_service = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +89,13 @@ class CausalChainBuilder:
             return
         self._initialized = True
         self._node_service = get_causal_node_service()
-        self._intent_service = (
-            get_immutable_intent_record_service() if get_immutable_intent_record_service else None
+        # Type hints for optional services
+        self._intent_service: Callable[[], Any] | None = (
+            get_immutable_intent_record_service if get_immutable_intent_record_service is not None else None
         )
-        self._event_service = get_economic_event_service() if get_economic_event_service else None
+        self._event_service: Callable[[], Any] | None = (
+            get_economic_event_service if get_economic_event_service is not None else None
+        )
         self._build_history: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------------

@@ -286,7 +286,7 @@ class EmployeeSalaryStructureVO:
             else None,
             bank_code=self.bank_code.strip().upper() if self.bank_code else None,
             effective_date=self.effective_date,
-            notes=self.notes.strip() if self.notes else None,
+            notes=self.notes.strip(),  # Always a string, not optional
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             created_by=self.created_by,

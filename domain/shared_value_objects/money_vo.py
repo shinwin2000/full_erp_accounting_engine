@@ -187,6 +187,14 @@ class Money:
         object.__setattr__(self, "amount", quantized)
 
     # ------------------------------------------------------------------------
+    # Helper to get normalized currency string
+    # ------------------------------------------------------------------------
+
+    def _currency_str(self) -> str:
+        """Return normalized currency code as a string."""
+        return self.currency if isinstance(self.currency, str) else self.currency.value
+
+    # ------------------------------------------------------------------------
     # Factory methods
     # ------------------------------------------------------------------------
 
@@ -238,7 +246,7 @@ class Money:
     @property
     def decimal_places(self) -> int:
         """Number of decimal places for this currency."""
-        return _get_currency_decimal_places(self.currency)
+        return _get_currency_decimal_places(self._currency_str())
 
     @property
     def minor_units(self) -> int:
@@ -492,6 +500,7 @@ class Money:
         Returns:
             Formatted string like "Rp 1.500.000,00" or "1,500.00 USD"
         """
+        currency_str = self._currency_str()
         decimal_places = self.decimal_places
         if decimal_places == 0:
             formatted_number = f"{int(self.amount):,}".replace(",", thousands_separator)
@@ -513,15 +522,15 @@ class Money:
             "SGD": "S$",
             "MYR": "RM",
         }
-        symbol = symbols.get(self.currency, self.currency)
+        symbol = symbols.get(currency_str, currency_str)
 
         if include_currency:
-            if self.currency == "IDR":
+            if currency_str == "IDR":
                 return f"{symbol} {formatted_number}"
             else:
                 return f"{symbol}{formatted_number}"
         else:
-            return f"{formatted_number} {self.currency}"
+            return f"{formatted_number} {currency_str}"
 
     def __str__(self) -> str:
         return self.format()
@@ -582,12 +591,14 @@ def sum_money(money_list: list[Money]) -> Money:
     if not money_list:
         return Money.zero("USD")
     currency = money_list[0].currency
+    # Normalize currency for comparison
+    norm_currency = _normalize_currency(currency)
     total = Decimal("0")
     for m in money_list:
-        if m.currency != currency:
-            raise CurrencyMismatchError(f"Currency mismatch: {m.currency} vs {currency}")
+        if _normalize_currency(m.currency) != norm_currency:
+            raise CurrencyMismatchError(f"Currency mismatch: {m.currency} vs {norm_currency}")
         total += m.amount
-    return Money(total, currency)
+    return Money(total, norm_currency)
 
 
 def average_money(money_list: list[Money]) -> Money:

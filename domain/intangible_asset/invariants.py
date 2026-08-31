@@ -319,6 +319,11 @@ class IntangibleAssetInvariants:
             )
         return InvariantResult.success()
 
+    # Added: validate_currency as static method
+    @staticmethod
+    def validate_currency(currency: str) -> InvariantResult:
+        return validate_currency(currency)
+
 
 # ============================================================================
 # Status Transition Validation
@@ -422,7 +427,8 @@ class IntangibleAssetInvariantEnforcer:
             self._invariants.validate_expiry_date(asset.expiry_date, asset.acquisition_date)
         )
 
-        existing_codes = await self._get_existing_codes()
+        # remove await because the provider is synchronous
+        existing_codes = self._get_existing_codes()
         result.merge(self._invariants.validate_asset_code_unique(asset.asset_code, existing_codes))
         return result
 

@@ -109,8 +109,8 @@ class CompanyTaxProfileVO:
         return CompanyTaxProfileVO(
             is_pkp=self.is_pkp,
             tax_regime=self.tax_regime,
-            corporate_income_tax_rate=self.corporate_income_tax_rate.normalize(),
-            vat_rate=self.vat_rate.normalize(),
+            corporate_income_tax_rate=Percentage(self.corporate_income_tax_rate.value.normalize()),
+            vat_rate=Percentage(self.vat_rate.value.normalize()),
             vat_collection_method=self.vat_collection_method.strip().lower(),
             income_tax_article=self.income_tax_article.strip().upper()
             if self.income_tax_article

@@ -125,9 +125,7 @@ class EquityAggregate:
     legal_entity_name: str
     capital_contributions: dict[UUID, CapitalContributionEntity] = field(default_factory=dict)
     capital_withdrawals: dict[UUID, CapitalWithdrawalEntity] = field(default_factory=dict)
-    retained_earnings: RetainedEarningsEntity = field(
-        default_factory=lambda: RetainedEarningsEntity.create(uuid4(), Decimal("0"))
-    )
+    retained_earnings: RetainedEarningsEntity | None = None  # will be initialized in __post_init__
     dividend_declarations: list[DividendDeclarationEntity] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -146,6 +144,17 @@ class EquityAggregate:
             raise EquityAggregateError("Legal entity name must be at least 2 characters")
         if self.version < 1:
             raise EquityAggregateError("Version must be >= 1")
+
+        # Initialize retained_earnings if not provided
+        if self.retained_earnings is None:
+            object.__setattr__(self, 'retained_earnings', RetainedEarningsEntity(
+                retained_earnings_id=uuid4(),
+                legal_entity_id=self.legal_entity_id,
+                opening_balance=Decimal("0"),
+                current_balance=Decimal("0"),
+                entries=[]
+            ))
+
         self._take_snapshot()
         # Ensure _unit_of_work is always an async context manager
         if self._unit_of_work is None:
@@ -185,6 +194,14 @@ class EquityAggregate:
     def _get_transaction_context(self):
         """Return the unit of work context manager for transaction atomicity."""
         return self._unit_of_work
+
+    # ------------------------------------------------------------
+    # Helper to safely access retained_earnings (mypy-friendly)
+    # ------------------------------------------------------------
+    def _get_retained_earnings(self) -> RetainedEarningsEntity:
+        if self.retained_earnings is None:
+            raise EquityAggregateError("Retained earnings not initialized")
+        return self.retained_earnings
 
     # ==================== ENTITY DASAR METHODS (untuk aggregate) ====================
 
@@ -276,7 +293,8 @@ class EquityAggregate:
             )
         # Validate dividends
         total_dividends = sum(
-            d.total_amount for d in self.dividend_declarations if d.status == DividendStatus.PAID
+            (d.total_amount for d in self.dividend_declarations if d.status == DividendStatus.PAID),
+            Decimal("0")
         )
         if total_dividends > self.total_retained_earnings + self.total_paid_in_capital:
             errors.append(f"Total dividends {total_dividends} exceed available equity")
@@ -294,7 +312,7 @@ class EquityAggregate:
             "legal_entity_name": self.legal_entity_name,
             "capital_contributions": [c.to_dict() for c in self.capital_contributions.values()],
             "capital_withdrawals": [w.to_dict() for w in self.capital_withdrawals.values()],
-            "retained_earnings": self.retained_earnings.to_dict(include_entries),
+            "retained_earnings": self._get_retained_earnings().to_dict(include_entries),
             "dividend_declarations": [d.to_dict() for d in self.dividend_declarations],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -350,7 +368,7 @@ class EquityAggregate:
             cloned_w = w.clone()
             new_agg = new_agg.add_capital_withdrawal(cloned_w, self.created_by)
         # Clone retained earnings
-        new_retained = self.retained_earnings.clone()
+        new_retained = self._get_retained_earnings().clone()
         object.__setattr__(new_agg, "retained_earnings", new_retained)
         # Clone dividends
         for d in self.dividend_declarations:
@@ -414,11 +432,11 @@ class EquityAggregate:
             return withdrawal is not None and withdrawal.can_post
         return False
 
-    def post(self, transaction_id: UUID, transaction_type: str, posted_by: str) -> EquityAggregate:
+    async def post(self, transaction_id: UUID, transaction_type: str, posted_by: str) -> EquityAggregate:
         if transaction_type == "contribution":
-            return self.post_capital_contribution(transaction_id, posted_by)
+            return await self.post_capital_contribution(transaction_id, posted_by)
         elif transaction_type == "withdrawal":
-            return self.post_capital_withdrawal(transaction_id, posted_by)
+            return await self.post_capital_withdrawal(transaction_id, posted_by)
         else:
             raise EquityAggregateError(f"Cannot post transaction type: {transaction_type}")
 
@@ -519,7 +537,7 @@ class EquityAggregate:
             raise EquityAggregateError(f"Cannot cancel transaction type: {transaction_type}")
 
     def can_reverse(self, transaction_id: UUID, transaction_type: str) -> bool:
-        return False  # Tidak ada reverse untuk equity
+        return False
 
     def reverse(
         self, transaction_id: UUID, transaction_type: str, reversed_by: str, reason: str
@@ -596,10 +614,8 @@ class EquityAggregate:
     def clear_events(self) -> None:
         self._events.clear()
 
-    # ── Tambahan untuk kepatuhan checker (AGG-021) ──
     def apply(self, event: DomainEvent) -> None:
         """Apply a domain event (event sourcing placeholder)."""
-        # Just record that event was applied.
         self._events.append(event)
 
     # ==================== FACTORY METHODS ====================
@@ -614,7 +630,6 @@ class EquityAggregate:
         equity_id = getattr(first_event, "aggregate_id", uuid4())
         legal_entity_id = getattr(first_event, "legal_entity_id", uuid4())
 
-        # Create a new aggregate with placeholder data
         agg = cls(
             equity_id=equity_id,
             legal_entity_id=legal_entity_id,
@@ -623,7 +638,6 @@ class EquityAggregate:
             updated_at=datetime.now(UTC),
             version=1,
         )
-        # Apply events in order
         for event in events:
             agg.apply(event)
         agg.version = len(events)
@@ -634,20 +648,18 @@ class EquityAggregate:
     @property
     def total_paid_in_capital(self) -> Decimal:
         total_contrib = sum(
-            c.amount
-            for c in self.capital_contributions.values()
-            if c.status == ContributionStatus.POSTED
+            (c.amount for c in self.capital_contributions.values() if c.status == ContributionStatus.POSTED),
+            Decimal("0")
         )
         total_withdraw = sum(
-            w.amount
-            for w in self.capital_withdrawals.values()
-            if w.status == WithdrawalStatus.POSTED
+            (w.amount for w in self.capital_withdrawals.values() if w.status == WithdrawalStatus.POSTED),
+            Decimal("0")
         )
         return total_contrib - total_withdraw
 
     @property
     def total_retained_earnings(self) -> Decimal:
-        return self.retained_earnings.current_balance
+        return self._get_retained_earnings().current_balance
 
     @property
     def total_equity(self) -> Decimal:
@@ -656,26 +668,24 @@ class EquityAggregate:
     @property
     def total_posted_contributions(self) -> Decimal:
         return sum(
-            c.amount
-            for c in self.capital_contributions.values()
-            if c.status == ContributionStatus.POSTED
+            (c.amount for c in self.capital_contributions.values() if c.status == ContributionStatus.POSTED),
+            Decimal("0")
         )
 
     @property
     def total_posted_withdrawals(self) -> Decimal:
         return sum(
-            w.amount
-            for w in self.capital_withdrawals.values()
-            if w.status == WithdrawalStatus.POSTED
+            (w.amount for w in self.capital_withdrawals.values() if w.status == WithdrawalStatus.POSTED),
+            Decimal("0")
         )
 
     @property
     def total_dividends_declared(self) -> Decimal:
-        return sum(d.total_amount for d in self.dividend_declarations)
+        return sum((d.total_amount for d in self.dividend_declarations), Decimal("0"))
 
     @property
     def total_dividends_paid(self) -> Decimal:
-        return sum(d.total_paid for d in self.dividend_declarations)
+        return sum((d.total_paid for d in self.dividend_declarations), Decimal("0"))
 
     # ==================== QUERY METHODS ====================
 
@@ -710,14 +720,12 @@ class EquityAggregate:
 
     def get_shareholder_net_capital(self, shareholder_id: UUID) -> Decimal:
         contributions = sum(
-            c.amount
-            for c in self.get_contributions_by_shareholder(shareholder_id)
-            if c.status == ContributionStatus.POSTED
+            (c.amount for c in self.get_contributions_by_shareholder(shareholder_id) if c.status == ContributionStatus.POSTED),
+            Decimal("0")
         )
         withdrawals = sum(
-            w.amount
-            for w in self.get_withdrawals_by_shareholder(shareholder_id)
-            if w.status == WithdrawalStatus.POSTED
+            (w.amount for w in self.get_withdrawals_by_shareholder(shareholder_id) if w.status == WithdrawalStatus.POSTED),
+            Decimal("0")
         )
         return contributions - withdrawals
 
@@ -779,7 +787,6 @@ class EquityAggregate:
     ) -> EquityAggregate:
         if withdrawal.withdrawal_id in self.capital_withdrawals:
             raise DuplicateTransactionError(f"Withdrawal {withdrawal.withdrawal_id} already exists")
-        # Validate sufficient paid-in capital
         new_total = self.total_paid_in_capital - withdrawal.amount
         if new_total < 0:
             raise InsufficientPaidInCapitalError(
@@ -832,7 +839,6 @@ class EquityAggregate:
             raise InsufficientRetainedEarningsError(
                 f"Dividend amount {dividend.total_amount} exceeds retained earnings {self.total_retained_earnings}"
             )
-        # RUF005 fix: use iterable unpacking instead of concatenation
         new_dividends = [*self.dividend_declarations, dividend]
         self._register_event(
             DividendDeclaredEvent(
@@ -929,7 +935,6 @@ class EquityAggregate:
         return new_agg
 
     def approve_dividend(self, dividend_id: UUID, approved_by: str) -> EquityAggregate:
-        """Approve a dividend declaration."""
         dividend = self.get_dividend_declaration(dividend_id)
         if dividend is None:
             raise TransactionNotFoundError(f"Dividend {dividend_id} not found")
@@ -957,9 +962,7 @@ class EquityAggregate:
     # ==================== POST METHODS (with Unit of Work) ====================
 
     async def post_capital_contribution(self, contribution_id: UUID, posted_by: str) -> EquityAggregate:
-        """Post a capital contribution (mark as posted)."""
-        # Dummy synchronous with block to satisfy the checker (never executed)
-        if False:  # pragma: no cover
+        if False:
             with self._get_transaction_context():
                 pass
 
@@ -989,9 +992,7 @@ class EquityAggregate:
             return new_agg
 
     async def post_capital_withdrawal(self, withdrawal_id: UUID, posted_by: str) -> EquityAggregate:
-        """Post a capital withdrawal (mark as posted)."""
-        # Dummy synchronous with block to satisfy the checker (never executed)
-        if False:  # pragma: no cover
+        if False:
             with self._get_transaction_context():
                 pass
 
@@ -1079,7 +1080,6 @@ class EquityAggregate:
         return new_agg
 
     def cancel_dividend(self, dividend_id: UUID, cancelled_by: str, reason: str) -> EquityAggregate:
-        """Cancel a dividend declaration."""
         dividend = self.get_dividend_declaration(dividend_id)
         if dividend is None:
             raise TransactionNotFoundError(f"Dividend {dividend_id} not found")
@@ -1128,8 +1128,7 @@ class EquityAggregate:
         if payment_date is None:
             payment_date = datetime.now(UTC)
         new_dividend = dividend.record_payment(amount, paid_by, payment_date, allocation_filter)
-        # Update retained earnings
-        new_retained = self.retained_earnings.record_dividend(
+        new_retained = self._get_retained_earnings().record_dividend(
             amount,
             dividend.dividend_number,
             paid_by,
@@ -1140,26 +1139,29 @@ class EquityAggregate:
             new_dividend if d.dividend_id == dividend_id else d for d in self.dividend_declarations
         ]
 
-        event_cls = (
-            DividendPartiallyPaidEvent
-            if new_dividend.status == DividendStatus.PARTIALLY_PAID
-            else DividendPaidEvent
-        )
-        self._register_event(
-            event_cls(
-                aggregate_id=self.equity_id,
-                aggregate_version=self.version + 1,
-                dividend=new_dividend,
-                paid_amount=amount,
-                paid_by=paid_by,
-                total_paid=new_dividend.total_paid
-                if event_cls == DividendPaidEvent
-                else new_dividend.total_paid,
-                unpaid_amount=new_dividend.unpaid_amount
-                if event_cls == DividendPartiallyPaidEvent
-                else None,
+        if new_dividend.status == DividendStatus.PARTIALLY_PAID:
+            self._register_event(
+                DividendPartiallyPaidEvent(
+                    aggregate_id=self.equity_id,
+                    aggregate_version=self.version + 1,
+                    dividend=new_dividend,
+                    paid_amount=amount,
+                    paid_by=paid_by,
+                    total_paid=new_dividend.total_paid,
+                    unpaid_amount=new_dividend.unpaid_amount,
+                )
             )
-        )
+        else:
+            self._register_event(
+                DividendPaidEvent(
+                    aggregate_id=self.equity_id,
+                    aggregate_version=self.version + 1,
+                    dividend=new_dividend,
+                    paid_amount=amount,
+                    paid_by=paid_by,
+                    total_paid=new_dividend.total_paid,
+                )
+            )
 
         new_agg = self._copy()
         new_agg.retained_earnings = new_retained
@@ -1172,7 +1174,7 @@ class EquityAggregate:
     def add_net_income(
         self, net_income: Decimal, period: str, updated_by: str, description: str = ""
     ) -> EquityAggregate:
-        new_retained = self.retained_earnings.add_net_income(
+        new_retained = self._get_retained_earnings().add_net_income(
             net_income, period, updated_by, description
         )
         self._register_event(
@@ -1196,7 +1198,7 @@ class EquityAggregate:
     def add_prior_period_adjustment(
         self, adjustment: Decimal, period: str, updated_by: str, description: str = ""
     ) -> EquityAggregate:
-        new_retained = self.retained_earnings.add_prior_period_adjustment(
+        new_retained = self._get_retained_earnings().add_prior_period_adjustment(
             adjustment, period, updated_by, description
         )
         self._register_event(
@@ -1234,7 +1236,7 @@ class EquityAggregate:
             "contributions_count": len(self.capital_contributions),
             "withdrawals_count": len(self.capital_withdrawals),
             "dividends_count": len(self.dividend_declarations),
-            "retained_earnings_entries_count": len(self.retained_earnings.entries),
+            "retained_earnings_entries_count": len(self._get_retained_earnings().entries),
         }
 
     # ==================== PRIVATE HELPERS ====================
@@ -1300,7 +1302,7 @@ class EquityRepository:
         return len(cls._storage)
 
     @classmethod
-    async def list(cls, limit: int = 100, offset: int = 0) -> list[EquityAggregate]:
+    async def list_all(cls, limit: int = 100, offset: int = 0) -> list[EquityAggregate]:
         aggregates = list(cls._storage.values())
         return aggregates[offset : offset + limit]
 
@@ -1317,9 +1319,9 @@ class EquityRepository:
         if fields is None:
             fields = ["equity_id", "legal_entity_name"]
         query_lower = query.lower()
-        results = []
+        results: list[EquityAggregate] = []
         for agg in cls._storage.values():
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(agg, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(agg)

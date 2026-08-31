@@ -21,11 +21,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Domain
+from domain.bank_cash.bank_account_entity import BankAccountEntity, BankAccountStatus, BankAccountType
 from domain.bank_cash.bank_aggregate_root import (
-    BankAccountAggregate,
-    BankAccountStatus,
     BankReconciliation,
     BankTransaction,
+    BankTransactionStatus,
     BankTransactionType,
 )
 from domain.bank_cash.cash_aggregate_root import CashBookAggregate, PettyCashFund
@@ -124,65 +124,63 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # HELPER MAPPING METHODS - BANK ACCOUNT
     # ========================================================================
 
-    def _to_domain_bank_account(self, table: BankAccountTable) -> BankAccountAggregate:
-        status_map = {
-            "active": BankAccountStatus.ACTIVE,
-            "inactive": BankAccountStatus.INACTIVE,
-            "suspended": BankAccountStatus.SUSPENDED,
-            "closed": BankAccountStatus.CLOSED,
-        }
-
-        return BankAccountAggregate(
-            id=table.id,
+    def _to_domain_bank_account(self, table: BankAccountTable) -> BankAccountEntity:
+        return BankAccountEntity(
+            account_id=table.id,
             account_number=table.account_number,
             bank_name=table.bank_name,
             bank_code=table.bank_code,
             account_name=table.account_name,
-            currency_code=table.currency_code,
-            account_type=table.account_type,
-            current_balance=Money(amount=table.current_balance, currency=table.currency_code),
-            available_balance=Money(amount=table.available_balance, currency=table.currency_code),
+            account_type=BankAccountType(table.account_type),
+            branch_name=None,  # tidak ada kolom `branch` di tabel bank_account saat ini
+            currency=table.currency_code,
+            current_balance=table.current_balance,
+            available_balance=table.available_balance,
             gl_account_id=table.gl_account_id,
             is_active=table.is_active,
             is_default=table.is_default,
-            status=status_map.get(table.status, BankAccountStatus.ACTIVE),
-            opening_balance=Money(amount=table.opening_balance, currency=table.currency_code),
+            status=BankAccountStatus(table.status),
+            opening_balance=table.opening_balance,
             opening_balance_date=table.opening_balance_date,
-            last_reconciliation_date=table.last_reconciliation_date,
+            last_reconciled_date=table.last_reconciliation_date,
             created_at=table.created_at,
             updated_at=table.updated_at,
             created_by=table.created_by,
             version=table.version,
             legal_entity_id=table.legal_entity_id,
+            deleted_at=table.deleted_at,
         )
 
-    async def _to_orm_bank_account(self, aggregate: BankAccountAggregate) -> BankAccountTable:
+    async def _to_orm_bank_account(self, account: BankAccountEntity) -> BankAccountTable:
         status_str = (
-            aggregate.status.value if hasattr(aggregate.status, "value") else str(aggregate.status)
+            account.status.value if hasattr(account.status, "value") else str(account.status)
+        )
+        account_type_str = (
+            account.account_type.value if hasattr(account.account_type, "value") else str(account.account_type)
         )
 
         return BankAccountTable(
-            id=aggregate.id,
-            account_number=aggregate.account_number,
-            bank_name=aggregate.bank_name,
-            bank_code=aggregate.bank_code,
-            account_name=aggregate.account_name,
-            currency_code=aggregate.currency_code,
-            account_type=aggregate.account_type,
-            current_balance=aggregate.current_balance.amount,
-            available_balance=aggregate.available_balance.amount,
-            gl_account_id=aggregate.gl_account_id,
-            is_active=aggregate.is_active,
-            is_default=aggregate.is_default,
+            id=account.account_id,
+            account_number=account.account_number,
+            bank_name=account.bank_name,
+            bank_code=account.bank_code,
+            account_name=account.account_name,
+            currency_code=account.currency,
+            account_type=account_type_str,
+            current_balance=account.current_balance,
+            available_balance=account.available_balance,
+            gl_account_id=account.gl_account_id,
+            is_active=account.is_active,
+            is_default=account.is_default,
             status=status_str,
-            opening_balance=aggregate.opening_balance.amount,
-            opening_balance_date=aggregate.opening_balance_date,
-            last_reconciliation_date=aggregate.last_reconciliation_date,
-            created_at=aggregate.created_at,
+            opening_balance=account.opening_balance,
+            opening_balance_date=account.opening_balance_date,
+            last_reconciliation_date=account.last_reconciled_date,
+            created_at=account.created_at,
             updated_at=datetime.utcnow(),
-            created_by=aggregate.created_by,
-            version=aggregate.version,
-            legal_entity_id=aggregate.legal_entity_id,
+            created_by=account.created_by,
+            version=account.version,
+            legal_entity_id=account.legal_entity_id,
         )
 
     # ========================================================================
@@ -190,32 +188,28 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # ========================================================================
 
     def _to_domain_transaction(self, table: BankTransactionTable) -> BankTransaction:
-        type_map = {
-            "deposit": BankTransactionType.DEPOSIT,
-            "withdrawal": BankTransactionType.WITHDRAWAL,
-            "transfer_in": BankTransactionType.TRANSFER_IN,
-            "transfer_out": BankTransactionType.TRANSFER_OUT,
-            "bank_charge": BankTransactionType.BANK_CHARGE,
-            "interest": BankTransactionType.INTEREST,
-        }
-
         return BankTransaction(
-            id=table.id,
+            transaction_id=table.id,
+            legal_entity_id=table.legal_entity_id,
             transaction_number=table.transaction_number,
             bank_account_id=table.bank_account_id,
             transaction_date=table.transaction_date,
-            transaction_type=type_map.get(table.transaction_type, BankTransactionType.DEPOSIT),
-            amount=Money(amount=table.amount, currency=table.currency_code),
+            transaction_type=BankTransactionType(table.transaction_type),
+            amount=table.amount,
             description=table.description,
             reference_number=table.reference_number,
             counterparty_account=table.counterparty_account,
             counterparty_name=table.counterparty_name,
             journal_id=table.journal_id,
-            status=table.status,
+            status=BankTransactionStatus(table.status),
             is_reconciled=table.is_reconciled,
             reconciliation_id=table.reconciliation_id,
             created_at=table.created_at,
             created_by=table.created_by,
+            updated_at=table.updated_at,
+            version=table.version,
+            deleted_at=table.deleted_at,
+            reconciled_at=None,
         )
 
     async def _to_orm_transaction(self, transaction: BankTransaction) -> BankTransactionTable:
@@ -224,21 +218,25 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
             if hasattr(transaction.transaction_type, "value")
             else str(transaction.transaction_type)
         )
+        status_str = (
+            transaction.status.value if hasattr(transaction.status, "value") else str(transaction.status)
+        )
 
         return BankTransactionTable(
-            id=transaction.id,
+            id=transaction.transaction_id,
+            legal_entity_id=transaction.legal_entity_id,
             transaction_number=transaction.transaction_number,
             bank_account_id=transaction.bank_account_id,
             transaction_date=transaction.transaction_date,
             transaction_type=type_str,
-            amount=transaction.amount.amount,
-            currency_code=transaction.amount.currency,
+            amount=transaction.amount,
+            currency_code="IDR",
             description=transaction.description,
             reference_number=transaction.reference_number,
             counterparty_account=transaction.counterparty_account,
             counterparty_name=transaction.counterparty_name,
             journal_id=transaction.journal_id,
-            status=transaction.status,
+            status=status_str,
             is_reconciled=transaction.is_reconciled,
             reconciliation_id=transaction.reconciliation_id,
             created_at=transaction.created_at,
@@ -269,7 +267,7 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # BANK ACCOUNT METHODS (Implementasi Internal)
     # ========================================================================
 
-    async def add_bank_account(self, account: BankAccountAggregate) -> None:
+    async def add_bank_account(self, account: BankAccountEntity) -> None:
         try:
             exists = await self.exists_by_account_number(
                 account.account_number, account.legal_entity_id
@@ -293,7 +291,7 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
             await self.session.rollback()
             raise BankCashRepositoryError(f"Failed to add bank account: {e}") from e
 
-    async def get_bank_account_by_id(self, account_id: UUID) -> BankAccountAggregate | None:
+    async def get_bank_account_by_id(self, account_id: UUID) -> BankAccountEntity | None:
         try:
             stmt = select(BankAccountTable).where(
                 BankAccountTable.id == account_id, BankAccountTable.deleted_at.is_(None)
@@ -309,7 +307,7 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
 
     async def get_bank_account_by_number(
         self, account_number: str, legal_entity_id: UUID
-    ) -> BankAccountAggregate | None:
+    ) -> BankAccountEntity | None:
         try:
             stmt = select(BankAccountTable).where(
                 BankAccountTable.account_number == account_number,
@@ -325,14 +323,14 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to get bank account: {e}") from e
 
-    async def update_bank_account(self, account: BankAccountAggregate) -> None:
+    async def update_bank_account(self, account: BankAccountEntity) -> None:
         try:
-            stmt = select(BankAccountTable.version).where(BankAccountTable.id == account.id)
+            stmt = select(BankAccountTable.version).where(BankAccountTable.id == account.account_id)
             result = await self.session.execute(stmt)
             current_version = result.scalar_one_or_none()
 
             if current_version is None:
-                raise BankAccountNotFoundError(f"Bank account {account.id} not found")
+                raise BankAccountNotFoundError(f"Bank account {account.account_id} not found")
 
             if current_version != account.version:
                 raise OptimisticLockError(
@@ -370,7 +368,7 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
 
     async def list_bank_accounts(
         self, legal_entity_id: UUID, is_active: bool | None = True
-    ) -> list[BankAccountAggregate]:
+    ) -> list[BankAccountEntity]:
         try:
             conditions = [
                 BankAccountTable.legal_entity_id == legal_entity_id,
@@ -833,15 +831,15 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # FORWARDING METHODS UNTUK BANKACCOUNTREPOSITORYPORT (INTERFACE)
     # ========================================================================
 
-    async def add(self, bank_account: BankAccountAggregate) -> None:
+    async def add(self, bank_account: BankAccountEntity) -> None:
         """Forward ke add_bank_account."""
         await self.add_bank_account(bank_account)
 
-    async def get_by_id(self, account_id: UUID) -> BankAccountAggregate | None:
+    async def get_by_id(self, account_id: UUID) -> BankAccountEntity | None:
         """Forward ke get_bank_account_by_id."""
         return await self.get_bank_account_by_id(account_id)
 
-    async def get_by_account_number(self, account_number: str, bank_code: str) -> BankAccountAggregate | None:
+    async def get_by_account_number(self, account_number: str, bank_code: str) -> BankAccountEntity | None:
         """Forward ke get_bank_account_by_number dengan bank_code."""
         try:
             stmt = select(BankAccountTable).where(
@@ -858,7 +856,7 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
             logger.error("Failed to get bank account by number: %s", e)
             return None
 
-    async def update(self, bank_account: BankAccountAggregate) -> None:
+    async def update(self, bank_account: BankAccountEntity) -> None:
         """Forward ke update_bank_account."""
         await self.update_bank_account(bank_account)
 
@@ -866,7 +864,7 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
         """Forward ke delete_bank_account."""
         return await self.delete_bank_account(account_id)
 
-    async def find_by_legal_entity(self, legal_entity_id: UUID) -> list[BankAccountAggregate]:
+    async def find_by_legal_entity(self, legal_entity_id: UUID) -> list[BankAccountEntity]:
         """Forward ke list_bank_accounts."""
         return await self.list_bank_accounts(legal_entity_id)
 

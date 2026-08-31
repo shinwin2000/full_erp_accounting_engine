@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: signature_vo.py
@@ -328,7 +329,8 @@ class SignatureVO:
     @property
     def algorithm_type(self) -> str:
         """Return the type of algorithm ('hmac' or 'rsa')."""
-        return SUPPORTED_ALGORITHMS.get(self.algorithm, {}).get("type", "unknown")
+        algo_info = SUPPORTED_ALGORITHMS.get(self.algorithm, {})
+        return str(algo_info.get("type", "unknown"))
 
     # ------------------------------------------------------------------------
     # Verification

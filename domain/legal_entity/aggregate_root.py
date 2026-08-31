@@ -730,7 +730,7 @@ class LegalEntity:
             legal_name=data["legal_name"],
             entity_type=LegalEntityType.from_string(data["entity_type"]),
             status=LegalEntityStatus.from_string(data["status"]),
-            npwp=NPWP.from_string(data["npwp"]),
+            npwp=NPWP(data["npwp"]),  # fixed: use NPWP constructor instead of from_string
             tax_profile=CompanyTaxProfileVO(
                 is_pkp=data["tax_profile"]["is_pkp"],
                 tax_regime=TaxRegime.from_string(data["tax_profile"]["tax_regime"]),

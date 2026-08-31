@@ -186,6 +186,7 @@ class CapitalContributionEntity:
     created_by: str = "system"
     updated_by: str = "system"
     version: int = 1
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
@@ -368,8 +369,6 @@ class CapitalContributionEntity:
     def lock(self, locked_by: str, reason: str) -> CapitalContributionEntity:
         # Locking is not a standard status; we use metadata instead
         new_entity = self._copy()
-        if new_entity.metadata is None:
-            object.__setattr__(new_entity, "metadata", {})
         new_entity.metadata["locked_by"] = locked_by
         new_entity.metadata["locked_at"] = datetime.now(UTC).isoformat()
         new_entity.metadata["lock_reason"] = reason
@@ -381,10 +380,9 @@ class CapitalContributionEntity:
 
     def unlock(self, unlocked_by: str) -> CapitalContributionEntity:
         new_entity = self._copy()
-        if new_entity.metadata:
-            new_entity.metadata.pop("locked_by", None)
-            new_entity.metadata.pop("locked_at", None)
-            new_entity.metadata.pop("lock_reason", None)
+        new_entity.metadata.pop("locked_by", None)
+        new_entity.metadata.pop("locked_at", None)
+        new_entity.metadata.pop("lock_reason", None)
         new_entity.updated_at = datetime.now(UTC)
         new_entity.updated_by = unlocked_by
         new_entity.version = self.version + 1
@@ -439,6 +437,7 @@ class CapitalContributionEntity:
             "created_by": self.created_by,
             "updated_by": self.updated_by,
             "version": self.version,
+            "metadata": self.metadata,
         }
 
     @classmethod
@@ -488,6 +487,7 @@ class CapitalContributionEntity:
             created_by=data.get("created_by", "system"),
             updated_by=data.get("updated_by", "system"),
             version=data.get("version", 1),
+            metadata=data.get("metadata", {}),
         )
 
     def clone(self, new_number: str | None = None) -> CapitalContributionEntity:
@@ -675,6 +675,7 @@ class CapitalContributionEntity:
             created_by=self.created_by,
             updated_by=self.updated_by,
             version=self.version,
+            metadata=self.metadata.copy(),
         )
 
 
@@ -753,7 +754,7 @@ class CapitalContributionRepository:
         return len(storage)
 
     @classmethod
-    async def list(
+    async def list_all(
         cls, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[CapitalContributionEntity]:
         contributions = await cls.get_all(legal_entity_id)
@@ -779,7 +780,7 @@ class CapitalContributionRepository:
         query_lower = query.lower()
         results = []
         for c in contributions:
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(c, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(c)

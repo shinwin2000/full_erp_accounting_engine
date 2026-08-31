@@ -495,7 +495,7 @@ class DividendDeclarationEntity:
         }
 
     def to_dict(self, include_allocations: bool = True) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "dividend_id": str(self.dividend_id),
             "legal_entity_id": str(self.legal_entity_id),
             "dividend_number": self.dividend_number,
@@ -581,7 +581,6 @@ class DividendDeclarationEntity:
         new_id = uuid4()
         new_number_str = new_number or f"{self.dividend_number}_COPY"
         now = datetime.now(UTC)
-        # C416 fix: use list() instead of list comprehension
         cloned = DividendDeclarationEntity(
             dividend_id=new_id,
             legal_entity_id=self.legal_entity_id,
@@ -633,7 +632,7 @@ class DividendDeclarationEntity:
 
     @property
     def total_paid(self) -> Decimal:
-        return sum(a.paid_amount for a in self.allocations)
+        return sum((a.paid_amount for a in self.allocations), Decimal("0"))
 
     @property
     def unpaid_amount(self) -> Decimal:
@@ -793,7 +792,6 @@ class DividendDeclarationEntity:
     # ==================== PRIVATE HELPERS ====================
 
     def _copy(self) -> DividendDeclarationEntity:
-        # C416 fix: use list() instead of list comprehension
         return DividendDeclarationEntity(
             dividend_id=self.dividend_id,
             legal_entity_id=self.legal_entity_id,
@@ -900,7 +898,7 @@ class DividendDeclarationRepository:
         return len(storage)
 
     @classmethod
-    async def list(
+    async def list_all(
         cls, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[DividendDeclarationEntity]:
         dividends = await cls.get_all(legal_entity_id)
@@ -926,7 +924,7 @@ class DividendDeclarationRepository:
         query_lower = query.lower()
         results = []
         for d in dividends:
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(d, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(d)

@@ -45,6 +45,10 @@ class CustomerStatus(Enum):
     def can_receive_payment(self) -> bool:
         return self in (CustomerStatus.ACTIVE, CustomerStatus.BLOCKED, CustomerStatus.SUSPENDED)
 
+    def can_modify(self) -> bool:
+        """Indicates if customer data can be modified in this status."""
+        return self in (CustomerStatus.ACTIVE, CustomerStatus.DRAFT, CustomerStatus.SUSPENDED)
+
     def display_name(self) -> str:
         names = {
             CustomerStatus.ACTIVE: "Aktif",
@@ -137,7 +141,9 @@ class CustomerEntity:
     postal_code: str | None = None
     country: str = "Indonesia"
     website: str | None = None
-    credit_limit: CustomerCreditLimitVO = field(default_factory=CustomerCreditLimitVO)
+    credit_limit: CustomerCreditLimitVO = field(
+        default_factory=lambda: CustomerCreditLimitVO(Decimal("0"), "IDR")
+    )
     outstanding_balance: Decimal = Decimal("0")
     total_purchases: Decimal = Decimal("0")
     last_purchase_date: date | None = None
@@ -369,7 +375,7 @@ class CustomerEntity:
         if isinstance(credit_limit, dict):
             credit_limit = CustomerCreditLimitVO.from_dict(credit_limit)
         elif credit_limit is None:
-            credit_limit = CustomerCreditLimitVO()
+            credit_limit = CustomerCreditLimitVO(Decimal("0"), "IDR")
         return cls(
             customer_id=UUID(data["customer_id"]),
             legal_entity_id=UUID(data["legal_entity_id"]),
@@ -438,7 +444,7 @@ class CustomerEntity:
             postal_code=self.postal_code,
             country=self.country,
             website=self.website,
-            credit_limit=CustomerCreditLimitVO.zero(),
+            credit_limit=CustomerCreditLimitVO(Decimal("0"), "IDR"),
             outstanding_balance=Decimal(0),
             total_purchases=Decimal(0),
             last_purchase_date=None,
@@ -644,8 +650,6 @@ class CustomerEntity:
             }
         )
 
-    # Duplicate deactivate method removed (F811 fix)
-
     def update_credit_hold(
         self, credit_hold: bool, updated_by: str, reason: str | None = None
     ) -> CustomerEntity:
@@ -791,7 +795,7 @@ class CustomerEntityRepository:
         return len(storage)
 
     @classmethod
-    async def list(
+    async def list_all(
         cls, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[CustomerEntity]:
         customers = await cls.get_all(legal_entity_id)
@@ -817,7 +821,7 @@ class CustomerEntityRepository:
         query_lower = query.lower()
         results = []
         for cust in customers:
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(cust, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(cust)

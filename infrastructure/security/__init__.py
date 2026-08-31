@@ -10,47 +10,47 @@ from __future__ import annotations
 # API Key Validator
 # ============================================================================
 try:
-    from .api_key_validator import APIKeyValidator, validate_api_key
+    from .api_key_validator import APIKeyValidator, validate_api_key  # type: ignore[attr-defined]
 except ImportError:
-    APIKeyValidator = None
+    APIKeyValidator = None  # type: ignore[assignment]
     validate_api_key = None
 
 # ============================================================================
 # Audit Log Security Events
 # ============================================================================
 try:
-    from .audit_log_security_events import SecurityAuditLogger, log_security_event
+    from .audit_log_security_events import SecurityAuditLogger, log_security_event  # type: ignore[attr-defined]
 except ImportError:
-    SecurityAuditLogger = None
+    SecurityAuditLogger = None  # type: ignore[assignment]
     log_security_event = None
 
 # ============================================================================
 # Authority Matrix
 # ============================================================================
 try:
-    from .authority_matrix import AuthorityMatrix, get_authority_matrix
+    from .authority_matrix import AuthorityMatrix, get_authority_matrix  # type: ignore[attr-defined]
 except ImportError:
-    AuthorityMatrix = None
+    AuthorityMatrix = None  # type: ignore[assignment]
     get_authority_matrix = None
 
 # ============================================================================
 # Digital Signature
 # ============================================================================
 try:
-    from .digital_signature_verifier import DigitalSignatureVerifier, verify_signature
+    from .digital_signature_verifier import DigitalSignatureVerifier, verify_signature  # type: ignore[attr-defined]
 except ImportError:
-    DigitalSignatureVerifier = None
+    DigitalSignatureVerifier = None  # type: ignore[assignment]
     verify_signature = None
 
 try:
-    from .digital_signer_rsa_pss import (
+    from .digital_signer_rsa_pss import (  # type: ignore[attr-defined]
         DigitalSignerRSA_PSS,
         generate_rsa_keypair,
         sign_data,
         verify_signature_rsa,
     )
 except ImportError:
-    DigitalSignerRSA_PSS = None
+    DigitalSignerRSA_PSS = None  # type: ignore[assignment]
     generate_rsa_keypair = None
     sign_data = None
     verify_signature_rsa = None
@@ -59,20 +59,19 @@ except ImportError:
 # Field Encryption / Decryption
 # ============================================================================
 try:
-    from .field_decryption_service import FieldDecryptionService, decrypt_field
+    from .field_decryption_service import FieldDecryptionService, decrypt_field  # type: ignore[attr-defined]
 except ImportError:
-    FieldDecryptionService = None
+    FieldDecryptionService = None  # type: ignore[assignment]
     decrypt_field = None
 
-# 🔥 PERBAIKAN: typo 'ases' menjadi 'aes'
 try:
-    from .field_encryption_aes256_gcm import (  # <-- typo diperbaiki
+    from .field_encryption_aes256_gcm import (  # type: ignore[attr-defined]
         FieldEncryptionAES256GCM,
         decrypt_field_aes,
         encrypt_field,
     )
 except ImportError:
-    FieldEncryptionAES256GCM = None
+    FieldEncryptionAES256GCM = None  # type: ignore[assignment]
     encrypt_field = None
     decrypt_field_aes = None
 
@@ -80,13 +79,13 @@ except ImportError:
 # Hashing
 # ============================================================================
 try:
-    from .hashing_service_sha3_256 import (
+    from .hashing_service_sha3_256 import (  # type: ignore[attr-defined]
         HashingServiceSHA3_256,
         hash_data,
         verify_hash,
     )
 except ImportError:
-    HashingServiceSHA3_256 = None
+    HashingServiceSHA3_256 = None  # type: ignore[assignment]
     hash_data = None
     verify_hash = None
 
@@ -94,32 +93,32 @@ except ImportError:
 # HSM (Hardware Security Module)
 # ============================================================================
 try:
-    from .hsm_pkcs11_signing_adapter import HSMSigner, sign_with_hsm
+    from .hsm_pkcs11_signing_adapter import HSMSigner, sign_with_hsm  # type: ignore[attr-defined]
 except ImportError:
-    HSMSigner = None
+    HSMSigner = None  # type: ignore[assignment]
     sign_with_hsm = None
 
 # ============================================================================
 # JWT (Issuer, Validator, Revocation)
 # ============================================================================
 try:
-    from .jwt_issuer import JWTIssuer, issue_jwt, issue_refresh_token
+    from .jwt_issuer import JWTIssuer, issue_jwt, issue_refresh_token  # type: ignore[attr-defined]
 except ImportError:
-    JWTIssuer = None
+    JWTIssuer = None  # type: ignore[assignment]
     issue_jwt = None
     issue_refresh_token = None
 
 try:
-    from .jwt_validator import JWTValidator, decode_jwt, validate_jwt
+    from .jwt_validator import JWTValidator, decode_jwt, validate_jwt  # type: ignore[attr-defined]
 except ImportError:
-    JWTValidator = None
+    JWTValidator = None  # type: ignore[assignment]
     validate_jwt = None
     decode_jwt = None
 
 try:
-    from .jwt_revocation_list import JWTRevocationList, is_token_revoked, revoke_token
+    from .jwt_revocation_list import JWTRevocationList, is_token_revoked, revoke_token  # type: ignore[attr-defined]
 except ImportError:
-    JWTRevocationList = None
+    JWTRevocationList = None  # type: ignore[assignment]
     revoke_token = None
     is_token_revoked = None
 
@@ -127,70 +126,70 @@ except ImportError:
 # Key Management & Rotation
 # ============================================================================
 try:
-    from .key_management import KeyManager, get_key_manager
+    from .key_management import KeyManager, get_key_manager  # type: ignore[attr-defined]
 except ImportError:
-    KeyManager = None
+    KeyManager = None  # type: ignore[assignment]
     get_key_manager = None
 
 try:
-    from .key_rotation_scheduler_vault import (
+    from .key_rotation_scheduler_vault import (  # type: ignore[attr-defined]
         KeyRotationSchedulerVault,
         rotate_keys,
         schedule_key_rotation,
     )
 except ImportError:
-    KeyRotationSchedulerVault = None
+    KeyRotationSchedulerVault = None  # type: ignore[assignment]
     schedule_key_rotation = None
     rotate_keys = None
 
 try:
-    from .securitykey_management_vault import KeyManagementVault, get_vault_client
+    from .securitykey_management_vault import KeyManagementVault, get_vault_client  # type: ignore[attr-defined]
 except ImportError:
-    KeyManagementVault = None
+    KeyManagementVault = None  # type: ignore[assignment]
     get_vault_client = None
 
 try:
-    from .vault_dynamic_secret_provider import (
+    from .vault_dynamic_secret_provider import (  # type: ignore[attr-defined]
         VaultDynamicSecretProvider,
         get_dynamic_secret,
     )
 except ImportError:
-    VaultDynamicSecretProvider = None
+    VaultDynamicSecretProvider = None  # type: ignore[assignment]
     get_dynamic_secret = None
 
 # ============================================================================
 # mTLS
 # ============================================================================
 try:
-    from .mtls_certificate_loader import (
+    from .mtls_certificate_loader import (  # type: ignore[attr-defined]
         MTLSClientCertificateLoader,
         load_mtls_certificate,
     )
 except ImportError:
-    MTLSClientCertificateLoader = None
+    MTLSClientCertificateLoader = None  # type: ignore[assignment]
     load_mtls_certificate = None
 
 try:
-    from .mtls_certificate_renewer import (
+    from .mtls_certificate_renewer import (  # type: ignore[attr-defined]
         MTLSClientCertificateRenewer,
         renew_certificate,
     )
 except ImportError:
-    MTLSClientCertificateRenewer = None
+    MTLSClientCertificateRenewer = None  # type: ignore[assignment]
     renew_certificate = None
 
 # ============================================================================
 # RBAC (Role-Based Access Control)
 # ============================================================================
 try:
-    from .rbac_enforcer_unified import (
+    from .rbac_enforcer_unified import (  # type: ignore[attr-defined]
         RBACEnforcerUnified,
         authorize,
         get_user_roles,
         has_permission,
     )
 except ImportError:
-    RBACEnforcerUnified = None
+    RBACEnforcerUnified = None  # type: ignore[assignment]
     authorize = None
     has_permission = None
     get_user_roles = None
@@ -199,13 +198,13 @@ except ImportError:
 # SoD (Separation of Duties)
 # ============================================================================
 try:
-    from .sod_constraint_checker import (
+    from .sod_constraint_checker import (  # type: ignore[attr-defined]
         SODConstraintChecker,
         check_sod_conflict,
         get_sod_violations,
     )
 except ImportError:
-    SODConstraintChecker = None
+    SODConstraintChecker = None  # type: ignore[assignment]
     check_sod_conflict = None
     get_sod_violations = None
 
@@ -213,7 +212,7 @@ except ImportError:
 # Exceptions
 # ============================================================================
 try:
-    from .security_exceptions import (
+    from .security_exceptions import (  # type: ignore[attr-defined]
         AuthenticationError,
         AuthorizationError,
         CertificateError,
@@ -223,13 +222,13 @@ try:
         SecurityError,
     )
 except ImportError:
-    SecurityError = Exception
-    AuthenticationError = Exception
-    AuthorizationError = Exception
-    EncryptionError = Exception
-    JWTError = Exception
-    KeyManagementError = Exception
-    CertificateError = Exception
+    SecurityError = Exception  # type: ignore[assignment]
+    AuthenticationError = Exception  # type: ignore[assignment]
+    AuthorizationError = Exception  # type: ignore[assignment]
+    EncryptionError = Exception  # type: ignore[assignment]
+    JWTError = Exception  # type: ignore[assignment]
+    KeyManagementError = Exception  # type: ignore[assignment]
+    CertificateError = Exception  # type: ignore[assignment]
 
 # ============================================================================
 # __all__ export

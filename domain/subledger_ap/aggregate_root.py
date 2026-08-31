@@ -761,11 +761,16 @@ class APSubledger:
 
     @classmethod
     def create(cls, legal_entity_id: UUID, created_by: str) -> APSubledger:
-        return cls(
+        now = datetime.now(UTC)
+        instance = cls(
             ap_id=uuid4(),
             legal_entity_id=legal_entity_id,
-            created_by=created_by,
+            created_at=now,
+            updated_at=now,
+            version=1,
         )
+        instance._record_audit("CREATE", {"created_by": created_by})
+        return instance
 
 
 APAggregate = APSubledger

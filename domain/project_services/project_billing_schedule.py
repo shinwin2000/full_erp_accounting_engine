@@ -150,7 +150,7 @@ class ProjectBillingSchedule:
         milestones: list[BillingMilestone],
         created_by: str,
     ) -> ProjectBillingSchedule:
-        total = sum(m.amount for m in milestones)
+        total = sum((m.amount for m in milestones), Decimal("0"))
         instance = cls(
             schedule_id=uuid4(),
             project_id=project_id,
@@ -166,7 +166,7 @@ class ProjectBillingSchedule:
 
     def add_milestone(self, milestone: BillingMilestone, added_by: str) -> ProjectBillingSchedule:
         new_milestones = [*self.milestones, milestone]
-        new_total = sum(m.amount for m in new_milestones)
+        new_total = sum((m.amount for m in new_milestones), Decimal("0"))
         self._record_audit(
             "milestone_added",
             added_by,
@@ -195,7 +195,7 @@ class ProjectBillingSchedule:
         if not milestone_to_remove:
             raise ValueError(f"Milestone {milestone_id} not found")
         new_milestones = [m for m in self.milestones if m.milestone_id != milestone_id]
-        new_total = sum(m.amount for m in new_milestones)
+        new_total = sum((m.amount for m in new_milestones), Decimal("0"))
         self._record_audit(
             "milestone_removed", removed_by, {"milestone_name": milestone_to_remove.milestone_name}
         )
@@ -372,11 +372,7 @@ class ProjectBillingSchedule:
 
     def get_upcoming_billing(self, days_ahead: int = 30) -> list[BillingMilestone]:
         today = datetime.now(UTC)
-        cutoff = (
-            today.replace(day=today.day + days_ahead)
-            if today.day + days_ahead <= 31
-            else today + timedelta(days=days_ahead)
-        )
+        cutoff = today + timedelta(days=days_ahead)
         return [
             m
             for m in self.milestones

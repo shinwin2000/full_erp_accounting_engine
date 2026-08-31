@@ -247,28 +247,36 @@ class FixedAssetInvariants:
     @staticmethod
     def validate_useful_life(years: int, asset_type: AssetType) -> InvariantResult:
         """Validate useful life (positive for depreciable assets, zero for land)."""
+        result = InvariantResult()
         if asset_type == AssetType.LAND:
             if years != 0:
-                return InvariantResult.warning(
-                    "Land typically has zero useful life (not depreciable)"
-                )
-            return InvariantResult.success()
+                result.add_warning("Land typically has zero useful life (not depreciable)")
+            return result
         if years <= 0:
             return InvariantResult.failure(
                 f"Useful life must be positive for depreciable assets: {years}"
             )
         if years > 100:
-            return InvariantResult.warning(f"Useful life {years} years is unusually long")
-        return InvariantResult.success()
+            result.add_warning(f"Useful life {years} years is unusually long")
+        return result
 
     @staticmethod
     def validate_depreciation_method(
-        method: DepreciationMethod, asset_type: AssetType
+        method: DepreciationMethod | str, asset_type: AssetType
     ) -> InvariantResult:
         """Validate depreciation method (land should not have a method)."""
+        # Convert string to enum if needed
+        if isinstance(method, str):
+            try:
+                method = DepreciationMethod(method)
+            except ValueError:
+                return InvariantResult.failure(f"Invalid depreciation method: {method}")
+
         if asset_type == AssetType.LAND:
             if method != DepreciationMethod.STRAIGHT_LINE:
-                return InvariantResult.warning("Land is not depreciable; method will be ignored")
+                result = InvariantResult()
+                result.add_warning("Land is not depreciable; method will be ignored")
+                return result
             return InvariantResult.success()
         if not isinstance(method, DepreciationMethod):
             return InvariantResult.failure(f"Invalid depreciation method: {method}")
@@ -377,7 +385,9 @@ class FixedAssetInvariants:
         if abs(new_value - asset.net_book_value) / max(
             asset.net_book_value, Decimal("1")
         ) < Decimal("0.01"):
-            return InvariantResult.warning("Revaluation change is less than 1% of NBV")
+            result = InvariantResult()
+            result.add_warning("Revaluation change is less than 1% of NBV")
+            return result
         return InvariantResult.success()
 
     @staticmethod
@@ -503,8 +513,8 @@ class FixedAssetInvariantEnforcer:
         )
         result.merge(self._invariants.validate_currency(asset.currency))
 
-        # Uniqueness check
-        existing_codes = await self._get_existing_codes()
+        # Uniqueness check - synchronous call, no await
+        existing_codes = self._get_existing_codes()
         result.merge(self._invariants.validate_asset_unique_code(asset.asset_code, existing_codes))
 
         return result
@@ -550,7 +560,7 @@ class FixedAssetInvariantEnforcer:
 
         # If code changed, check uniqueness
         if old_asset and asset.asset_code != old_asset.asset_code:
-            existing_codes = await self._get_existing_codes()
+            existing_codes = self._get_existing_codes()
             if old_asset.asset_code in existing_codes:
                 existing_codes.discard(old_asset.asset_code)
             result.merge(
@@ -634,9 +644,16 @@ class FixedAssetInvariantsValidator:
     @staticmethod
     def validate_depreciation_method(asset: FixedAsset) -> None:
         """Check depreciation method."""
-        valid_methods = [m.value for m in DepreciationMethod]
-        if asset.depreciation_method.value not in valid_methods:
-            raise ValueError(f"Invalid depreciation method: {asset.depreciation_method}")
+        # asset.depreciation_method may be a string or enum
+        method = asset.depreciation_method
+        if isinstance(method, str):
+            # Try to convert to enum
+            try:
+                DepreciationMethod(method)
+            except ValueError:
+                raise ValueError(f"Invalid depreciation method: {method}")
+        elif not isinstance(method, DepreciationMethod):
+            raise ValueError(f"Invalid depreciation method: {method}")
 
     @staticmethod
     def validate_depreciation_amount(asset: FixedAsset, amount: Decimal) -> None:

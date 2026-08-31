@@ -411,19 +411,19 @@ class RetainedEarningsEntity:
 
     @property
     def total_net_income(self) -> Decimal:
-        return sum(e.net_income for e in self.entries if e.net_income > 0)
+        return sum((e.net_income for e in self.entries if e.net_income > 0), Decimal("0"))
 
     @property
     def total_net_loss(self) -> Decimal:
-        return sum(abs(e.net_income) for e in self.entries if e.net_income < 0)
+        return sum((abs(e.net_income) for e in self.entries if e.net_income < 0), Decimal("0"))
 
     @property
     def total_dividends(self) -> Decimal:
-        return sum(e.dividends for e in self.entries)
+        return sum((e.dividends for e in self.entries), Decimal("0"))
 
     @property
     def total_adjustments(self) -> Decimal:
-        return sum(e.adjustment for e in self.entries)
+        return sum((e.adjustment for e in self.entries), Decimal("0"))
 
     @property
     def net_change_period(self) -> Decimal:
@@ -669,7 +669,7 @@ class RetainedEarningsRepository:
         return len(cls._storage)
 
     @classmethod
-    async def list(cls, limit: int = 100, offset: int = 0) -> list[RetainedEarningsEntity]:
+    async def list_all(cls, limit: int = 100, offset: int = 0) -> list[RetainedEarningsEntity]:
         entities = list(cls._storage.values())
         return entities[offset : offset + limit]
 
@@ -692,7 +692,7 @@ class RetainedEarningsRepository:
         query_lower = query.lower()
         results = []
         for re in cls._storage.values():
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(re, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(re)

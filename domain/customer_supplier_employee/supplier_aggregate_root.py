@@ -295,7 +295,8 @@ class SupplierAggregate:
             version=1,
         )
         for supp in self.suppliers.values():
-            cloned_supp = supp.clone()
+            # Clone using from_dict/to_dict because SupplierEntity.clone() may not exist
+            cloned_supp = SupplierEntity.from_dict(supp.to_dict())
             new_agg = new_agg.add_supplier(cloned_supp, "system")
         new_agg._record_audit("CLONE", "system", {"source": str(self.aggregate_id)})
         return new_agg
@@ -812,7 +813,7 @@ class SupplierAggregateRepository:
         return len(cls._storage)
 
     @classmethod
-    async def list(cls, limit: int = 100, offset: int = 0) -> list[SupplierAggregate]:
+    async def list_all(cls, limit: int = 100, offset: int = 0) -> list[SupplierAggregate]:
         aggregates = list(cls._storage.values())
         return aggregates[offset : offset + limit]
 
@@ -833,7 +834,7 @@ class SupplierAggregateRepository:
         query_lower = query.lower()
         results = []
         for agg in cls._storage.values():
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(agg, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(agg)

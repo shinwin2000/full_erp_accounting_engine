@@ -624,7 +624,7 @@ def sum_credit_limits(limits: list[CustomerCreditLimitVO]) -> CustomerCreditLimi
     if not limits:
         return CustomerCreditLimitVO.zero()
     first = limits[0]
-    total_amount = sum(limit.amount for limit in limits)
+    total_amount = sum((limit.amount for limit in limits), Decimal("0"))
     # Take the earliest effective date and latest expiry
     effective = min(limit.effective_date for limit in limits)
     expiry = (

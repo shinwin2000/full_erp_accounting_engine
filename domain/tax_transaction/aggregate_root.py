@@ -596,6 +596,7 @@ class SPTSubmission:
     submitted_by: UUID | None = None
     submitted_at: datetime | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
     legal_entity_id: UUID | None = None
 
@@ -769,6 +770,8 @@ class SPTSubmission:
             "approval_date": self.approval_date.isoformat() if self.approval_date else None,
             "rejection_reason": self.rejection_reason,
             "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
             "version": self.version,
         }
 
@@ -796,6 +799,9 @@ class SPTSubmission:
             created_at=datetime.fromisoformat(
                 data.get("created_at", datetime.now(UTC).isoformat())
             ),
+            updated_at=datetime.fromisoformat(
+                data.get("updated_at", datetime.now(UTC).isoformat())
+            ),
             version=data.get("version", 1),
             legal_entity_id=UUID(data["legal_entity_id"]) if data.get("legal_entity_id") else None,
         )
@@ -813,6 +819,7 @@ class SPTSubmission:
         cloned.submitted_by = None
         cloned.submitted_at = None
         cloned.created_at = now
+        cloned.updated_at = now
         cloned.version = 1
         cloned._events = []
         cloned._audit_trail = []
@@ -835,6 +842,7 @@ class SPTSubmission:
 
     def touch(self, touched_by: str) -> SPTSubmission:
         new = self._copy()
+        new.updated_at = datetime.now(UTC)
         new.version += 1
         new._record_audit("TOUCH", touched_by, {})
         return new
@@ -856,6 +864,7 @@ class SPTSubmission:
             submitted_by=self.submitted_by,
             submitted_at=self.submitted_at,
             created_at=self.created_at,
+            updated_at=self.updated_at,
             version=self.version,
             legal_entity_id=self.legal_entity_id,
         )
@@ -1047,6 +1056,8 @@ class Bupot:
             "pph_dipotong": str(self.pph_dipotong),
             "status": self.status,
             "coretax_id": self.coretax_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
             "version": self.version,
         }
 
@@ -1107,6 +1118,7 @@ class Bupot:
 
     def touch(self, touched_by: str) -> Bupot:
         new = self._copy()
+        new.updated_at = datetime.now(UTC)
         new.version += 1
         new._record_audit("TOUCH", touched_by, {})
         return new

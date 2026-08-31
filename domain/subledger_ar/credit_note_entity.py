@@ -451,7 +451,7 @@ class CreditNoteRepository:
     async def count(self, legal_entity_id: UUID) -> int:
         raise NotImplementedError
 
-    async def list(
+    async def list_all(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[CreditNoteEntity]:
         raise NotImplementedError
@@ -459,7 +459,10 @@ class CreditNoteRepository:
     async def paginate(
         self, legal_entity_id: UUID, page: int = 1, per_page: int = 20
     ) -> tuple[list[CreditNoteEntity], int]:
-        raise NotImplementedError
+        offset = (page - 1) * per_page
+        items = await self.list_all(legal_entity_id, limit=per_page, offset=offset)
+        total = await self.count(legal_entity_id)
+        return items, total
 
 
 # === 4. EXPORTS ===

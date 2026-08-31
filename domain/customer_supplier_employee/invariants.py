@@ -19,6 +19,7 @@ Audit: Setiap pelanggaran invariant dictat.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -188,11 +189,11 @@ class MasterDataInvariantEnforcer:
 
     def __init__(
         self,
-        customer_code_checker: callable,
-        supplier_code_checker: callable,
-        employee_number_checker: callable,
-        email_checker: callable,
-        tax_id_checker: callable,
+        customer_code_checker: Callable[[], set[str]],
+        supplier_code_checker: Callable[[], set[str]],
+        employee_number_checker: Callable[[], set[str]],
+        email_checker: Callable[[], set[str]],
+        tax_id_checker: Callable[[], set[str]],
     ):
         self._customer_code_checker = customer_code_checker
         self._supplier_code_checker = supplier_code_checker
@@ -210,13 +211,13 @@ class MasterDataInvariantEnforcer:
         credit_limit: Decimal,
     ) -> InvariantResult:
         result = InvariantResult(True)
-        existing_codes = await self._customer_code_checker()
+        existing_codes = self._customer_code_checker()  # synchronous, no await
         result.merge(
             self._customer_invariants.validate_customer_code_unique(customer_code, existing_codes)
         )
 
         if email:
-            existing_emails = await self._email_checker()
+            existing_emails = self._email_checker()  # synchronous, no await
             result.merge(self._customer_invariants.validate_email_unique(email, existing_emails))
 
         result.merge(self._customer_invariants.validate_credit_limit(credit_limit))
@@ -229,13 +230,13 @@ class MasterDataInvariantEnforcer:
         payment_terms_days: int,
     ) -> InvariantResult:
         result = InvariantResult(True)
-        existing_codes = await self._supplier_code_checker()
+        existing_codes = self._supplier_code_checker()  # synchronous, no await
         result.merge(
             self._supplier_invariants.validate_supplier_code_unique(supplier_code, existing_codes)
         )
 
         if tax_id:
-            existing_tax_ids = await self._tax_id_checker()
+            existing_tax_ids = self._tax_id_checker()  # synchronous, no await
             result.merge(self._supplier_invariants.validate_tax_id_unique(tax_id, existing_tax_ids))
 
         result.merge(self._supplier_invariants.validate_payment_terms(payment_terms_days))
@@ -252,7 +253,7 @@ class MasterDataInvariantEnforcer:
     ) -> InvariantResult:
         result = InvariantResult(True)
 
-        existing_numbers = await self._employee_number_checker()
+        existing_numbers = self._employee_number_checker()  # synchronous, no await
         result.merge(
             self._employee_invariants.validate_employee_number_unique(
                 employee_number, existing_numbers
@@ -260,11 +261,11 @@ class MasterDataInvariantEnforcer:
         )
 
         if email:
-            existing_emails = await self._email_checker()
+            existing_emails = self._email_checker()  # synchronous, no await
             result.merge(self._customer_invariants.validate_email_unique(email, existing_emails))
 
         if tax_id:
-            existing_tax_ids = await self._tax_id_checker()
+            existing_tax_ids = self._tax_id_checker()  # synchronous, no await
             result.merge(self._supplier_invariants.validate_tax_id_unique(tax_id, existing_tax_ids))
 
         result.merge(self._employee_invariants.validate_birth_date(birth_date, join_date))

@@ -315,13 +315,12 @@ class TrialBalanceCube:
     def clone(self) -> TrialBalanceCube:
         new_id = uuid4()
         now = datetime.now(UTC)
-        # C416 fix: use list() instead of list comprehension
         cloned = TrialBalanceCube(
             cube_id=new_id,
             legal_entity_id=self.legal_entity_id,
             period_start=self.period_start,
             period_end=self.period_end,
-            accounts=list(self.accounts),  # Shallow copy of immutable accounts
+            accounts=list(self.accounts),
             description=f"Cloned from {self.cube_id}",
             created_at=now,
             created_by=self.created_by,
@@ -354,22 +353,23 @@ class TrialBalanceCube:
     # ==================== QUERY METHODS ====================
 
     def total_opening_debit(self) -> Decimal:
-        return sum(acc.opening_debit for acc in self.accounts)
+        # Provide a Decimal start value to avoid int return when list is empty
+        return sum((acc.opening_debit for acc in self.accounts), Decimal('0'))
 
     def total_opening_credit(self) -> Decimal:
-        return sum(acc.opening_credit for acc in self.accounts)
+        return sum((acc.opening_credit for acc in self.accounts), Decimal('0'))
 
     def total_movement_debit(self) -> Decimal:
-        return sum(acc.movement_debit for acc in self.accounts)
+        return sum((acc.movement_debit for acc in self.accounts), Decimal('0'))
 
     def total_movement_credit(self) -> Decimal:
-        return sum(acc.movement_credit for acc in self.accounts)
+        return sum((acc.movement_credit for acc in self.accounts), Decimal('0'))
 
     def total_closing_debit(self) -> Decimal:
-        return sum(acc.closing_debit for acc in self.accounts)
+        return sum((acc.closing_debit for acc in self.accounts), Decimal('0'))
 
     def total_closing_credit(self) -> Decimal:
-        return sum(acc.closing_credit for acc in self.accounts)
+        return sum((acc.closing_credit for acc in self.accounts), Decimal('0'))
 
     def is_balanced(self) -> bool:
         return self.total_closing_debit() == self.total_closing_credit()

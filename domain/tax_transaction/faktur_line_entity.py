@@ -10,6 +10,7 @@ Perbaikan presisi:
   - Properti 'discount' disediakan untuk kompatibilitas API (mengembalikan Money).
   - Semua metode internal diperbarui menggunakan discount_amount dan discount_currency.
   - Urutan field diperbaiki untuk memenuhi aturan dataclass (non-default fields sebelum default fields).
+  - Perbaikan method clone() menggunakan konstruktor Money langsung karena Money tidak memiliki clone().
 """
 
 from __future__ import annotations
@@ -107,10 +108,10 @@ class FakturLineEntity:
             line_id=new_id,
             description=self.description,
             quantity=self.quantity,
-            unit_price=self.unit_price.clone(),
-            dpp=self.dpp.clone(),
-            ppn=self.ppn.clone(),
-            ppn_bm=self.ppn_bm.clone() if self.ppn_bm else None,
+            unit_price=Money(self.unit_price.amount, self.unit_price.currency),
+            dpp=Money(self.dpp.amount, self.dpp.currency),
+            ppn=Money(self.ppn.amount, self.ppn.currency),
+            ppn_bm=Money(self.ppn_bm.amount, self.ppn_bm.currency) if self.ppn_bm else None,
             discount_amount=self.discount_amount,
             discount_currency=self.discount_currency,
             tax_rate=self.tax_rate,

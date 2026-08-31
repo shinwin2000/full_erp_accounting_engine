@@ -311,10 +311,11 @@ class PayrollRunEntity:
         if self.status != PayrollRunStatus.DRAFT:
             raise ValueError(f"Cannot calculate payroll in status {self.status.value}")
 
-        total_gross = sum(e.gross_salary for e in self.employees)
-        total_deductions = sum(e.deductions for e in self.employees)
-        total_tax = sum(e.tax for e in self.employees)
-        total_net = sum(e.net_salary for e in self.employees)
+        # Gunakan Decimal(0) sebagai initial value untuk memastikan tipe Decimal
+        total_gross = sum((e.gross_salary for e in self.employees), Decimal(0))
+        total_deductions = sum((e.deductions for e in self.employees), Decimal(0))
+        total_tax = sum((e.tax for e in self.employees), Decimal(0))
+        total_net = sum((e.net_salary for e in self.employees), Decimal(0))
 
         return PayrollRunEntity(
             run_id=self.run_id,

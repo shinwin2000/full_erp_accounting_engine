@@ -271,7 +271,7 @@ class EconomicEventService:
         """Membuat economic event baru."""
         # Extract amount and currency from Money if provided
         amount_decimal = amount.amount if amount is not None else Decimal(0)
-        currency = amount.currency if amount is not None else ""
+        currency = str(amount.currency) if amount is not None else ""  # Ensure string
 
         event = EconomicEvent(
             event_id=uuid4(),

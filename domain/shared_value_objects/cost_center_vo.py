@@ -368,7 +368,7 @@ class CostCenterVO:
 # ============================================================================
 
 
-def build_cost_center_hierarchy(cost_centers: list[CostCenterVO]) -> dict[str, list[CostCenterVO]]:
+def build_cost_center_hierarchy(cost_centers: list[CostCenterVO]) -> dict[str | None, list[CostCenterVO]]:
     """
     Build a hierarchy mapping from parent_code to list of children.
     Returns a dictionary where keys are parent codes (None for roots) and values are lists.

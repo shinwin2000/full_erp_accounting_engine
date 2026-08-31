@@ -357,6 +357,14 @@ async def get_async_session_direct() -> AsyncSession:
     return await factory.get_session()
 
 
+# Alias for convenience
+async def get_session() -> AsyncSession:
+    """
+    Get a single AsyncSession instance directly (alias for get_async_session_direct).
+    """
+    return await get_async_session_direct()
+
+
 async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency for read-only database session.

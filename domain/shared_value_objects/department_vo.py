@@ -473,15 +473,11 @@ class DepartmentVO:
 # ============================================================================
 
 
-def build_department_tree(departments: list[DepartmentVO]) -> dict[str, list[DepartmentVO]]:
+def build_department_tree(departments: list[DepartmentVO]) -> dict[int, list[DepartmentVO]]:
     """
-    Build a tree structure from a flat list of departments.
-    This assumes that parent-child relationships are encoded in the code prefix
-    or that there is a parent_code field (not present here). For simplicity,
-    we return a mapping by level.
-
-    For real hierarchy, departments should have a parent_code field.
-    This helper groups departments by level.
+    Build a tree structure from a flat list of departments grouped by level.
+    Returns a dictionary mapping level (int) to list of departments at that level.
+    For a true hierarchical tree, a parent_code field would be needed.
     """
     tree: dict[int, list[DepartmentVO]] = {}
     for dept in departments:

@@ -16,7 +16,6 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from domain.project_services.cost_entry_vo import CostType
 from domain.project_services.domain_events import (
     DomainEvent,
     ProjectActivatedEvent,
@@ -27,6 +26,7 @@ from domain.project_services.domain_events import (
 )
 from domain.project_services.project_billing_schedule import ProjectBillingSchedule
 from domain.project_services.project_cost_tracker import CostEntry, ProjectCostTracker
+from domain.project_services.project_cost_tracker import CostType as TrackerCostType
 from domain.project_services.project_entity import ProjectEntity, ProjectStatus
 from domain.project_services.project_revenue_recognizer import ProjectRevenueRecognizer
 from domain.project_services.retainer_contract_entity import RetainerContractEntity
@@ -47,6 +47,8 @@ class ProjectAggregate:
     retainer_contracts: dict[UUID, RetainerContractEntity] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_by: str = "system"
+    updated_by: str = "system"
     version: int = 1
     _events: list[DomainEvent] = field(default_factory=list, repr=False)
     _audit_trail: list[dict] = field(default_factory=list, repr=False)
@@ -60,6 +62,10 @@ class ProjectAggregate:
             raise ValueError(f"Version must be >= 1: {self.version}")
         if self.created_at.tzinfo is None or self.updated_at.tzinfo is None:
             raise ValueError("Timestamps must be timezone-aware")
+        if not self.created_by or len(self.created_by.strip()) < 1:
+            self.created_by = "system"
+        if not self.updated_by or len(self.updated_by.strip()) < 1:
+            self.updated_by = "system"
 
     # ==================== PROPERTIES ====================
 
@@ -220,6 +226,7 @@ class ProjectAggregate:
 
     def touch(self, user_id: str) -> None:
         self.updated_at = datetime.now(UTC)
+        self.updated_by = user_id
         self._record_audit("touched", {"user_id": user_id})
 
     # ==================== CLONE ====================
@@ -235,6 +242,8 @@ class ProjectAggregate:
             billing_schedules=self.billing_schedules.copy(),
             time_entries=self.time_entries.copy(),
             retainer_contracts=self.retainer_contracts.copy(),
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=1,
         )
 
@@ -256,7 +265,8 @@ class ProjectAggregate:
         new_cost_trackers = self.cost_trackers.copy()
         new_cost_trackers[project.project_id] = cost_tracker
 
-        revenue_recognizer = ProjectRevenueRecognizer.create(project)
+        # type ignore: mypy sees ProjectEntity from different import paths; they are actually the same
+        revenue_recognizer = ProjectRevenueRecognizer.create(project)  # type: ignore[arg-type]
         new_revenue_recognizers = self.revenue_recognizers.copy()
         new_revenue_recognizers[project.project_id] = revenue_recognizer
 
@@ -275,6 +285,7 @@ class ProjectAggregate:
             "created_by": created_by,
         })
         self.increment_version()
+        self.updated_by = created_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -286,6 +297,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -302,6 +315,7 @@ class ProjectAggregate:
             "project_updated", {"project_id": str(project.project_id), "updated_by": updated_by}
         )
         self.increment_version()
+        self.updated_by = updated_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -313,6 +327,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -329,6 +345,7 @@ class ProjectAggregate:
             "project_removed", {"project_id": str(project_id), "removed_by": removed_by}
         )
         self.increment_version()
+        self.updated_by = removed_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -340,6 +357,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -363,13 +382,13 @@ class ProjectAggregate:
             )
         )
 
-        # ── AUDIT TRAIL ──
         self._record_audit("activate_project", {
             "project_id": str(project_id),
             "project_code": project.project_code,
             "activated_by": activated_by,
         })
         self.increment_version()
+        self.updated_by = activated_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -381,6 +400,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -412,6 +433,7 @@ class ProjectAggregate:
             "actual_end_date": (actual_end_date or datetime.now(UTC)).isoformat(),
         })
         self.increment_version()
+        self.updated_by = completed_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -423,6 +445,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -442,6 +466,7 @@ class ProjectAggregate:
             {"project_id": str(project_id), "reason": reason, "cancelled_by": cancelled_by},
         )
         self.increment_version()
+        self.updated_by = cancelled_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -453,6 +478,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -492,6 +519,7 @@ class ProjectAggregate:
             {"project_id": str(project_id), "amount": str(cost_entry.amount), "added_by": added_by},
         )
         self.increment_version()
+        self.updated_by = added_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -503,6 +531,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -534,9 +564,8 @@ class ProjectAggregate:
                 f"Revenue recognizer or cost tracker for project {project_id} not found"
             )
 
-        recognized = revenue_recognizer.recognize_revenue(
-            project, cost_tracker, as_of_date, recognized_by
-        )
+        # type ignore: mypy sees ProjectEntity from different import paths; they are actually the same
+        recognized = revenue_recognizer.recognize_revenue(project, cost_tracker, as_of_date, recognized_by)  # type: ignore[arg-type]
 
         new_revenue_recognizers = self.revenue_recognizers.copy()
         new_revenue_recognizers[project_id] = recognized
@@ -552,7 +581,7 @@ class ProjectAggregate:
                 recognized_revenue=recognized.total_recognized_revenue,
                 recognized_cost=recognized.total_recognized_cost,
                 recognized_profit=recognized.total_recognized_profit,
-                cumulative_percentage=recognized.cumulative_percentage,
+                cumulative_percentage=Decimal(str(recognized.cumulative_percentage)),
                 recognized_by=recognized_by,
             )
         )
@@ -562,6 +591,7 @@ class ProjectAggregate:
             "amount": str(recognized.total_recognized_revenue),
         })
         self.increment_version()
+        self.updated_by = recognized_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -573,6 +603,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -598,10 +630,9 @@ class ProjectAggregate:
         if time_entry.project_id not in self.projects:
             raise ValueError(f"Project {time_entry.project_id} not found")
 
-        # Removed unused variable new_time_entries
         cost_entry = CostEntry(
             entry_id=time_entry.entry_id,
-            cost_type=CostType.LABOR,
+            cost_type=TrackerCostType.LABOR,
             amount=time_entry.billable_amount,
             quantity=time_entry.hours,
             unit_rate=time_entry.hourly_rate,
@@ -651,6 +682,7 @@ class ProjectAggregate:
             "billing_schedule_added", {"project_id": str(project_id), "added_by": added_by}
         )
         self.increment_version()
+        self.updated_by = added_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -662,6 +694,8 @@ class ProjectAggregate:
             retainer_contracts=self.retainer_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -683,6 +717,7 @@ class ProjectAggregate:
             {"contract_id": str(contract.contract_id), "added_by": added_by},
         )
         self.increment_version()
+        self.updated_by = added_by
         return ProjectAggregate(
             project_id=self.project_id,
             legal_entity_id=self.legal_entity_id,
@@ -694,6 +729,8 @@ class ProjectAggregate:
             retainer_contracts=new_contracts,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            created_by=self.created_by,
+            updated_by=self.updated_by,
             version=self.version,
         )
 
@@ -718,16 +755,23 @@ class ProjectAggregate:
             "total_retainer_contracts": len(self.retainer_contracts),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "created_by": self.created_by,
+            "updated_by": self.updated_by,
             "version": self.version,
             "is_locked": self._is_locked,
         }
 
     @classmethod
     def create(cls, legal_entity_id: UUID, created_by: str) -> ProjectAggregate:
+        now = datetime.now(UTC)
         return cls(
             project_id=uuid4(),
             legal_entity_id=legal_entity_id,
+            created_at=now,
+            updated_at=now,
             created_by=created_by,
+            updated_by=created_by,
+            version=1,
         )
 
 

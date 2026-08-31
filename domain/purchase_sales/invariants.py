@@ -23,7 +23,7 @@ Audit: Every invariant violation is logged.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -399,12 +399,12 @@ class PurchaseSalesInvariantEnforcer:
 
     def __init__(
         self,
-        po_number_checker: Callable[[], set[str]] | None = None,
-        so_number_checker: Callable[[], set[str]] | None = None,
-        purchase_invoice_number_checker: Callable[[], set[str]] | None = None,
-        sales_invoice_number_checker: Callable[[], set[str]] | None = None,
-        grn_number_checker: Callable[[], set[str]] | None = None,
-        delivery_number_checker: Callable[[], set[str]] | None = None,
+        po_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
+        so_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
+        purchase_invoice_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
+        sales_invoice_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
+        grn_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
+        delivery_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
     ):
         self._po_number_checker = po_number_checker
         self._so_number_checker = so_number_checker

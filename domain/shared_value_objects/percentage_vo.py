@@ -415,7 +415,7 @@ def average_percentage(percentages: list[PercentageVO]) -> PercentageVO:
     if not percentages:
         raise PercentageError("Cannot average empty list")
     total = sum(p.value for p in percentages)
-    avg = total / len(percentages)
+    avg = total / Decimal(len(percentages))  # Ensure Decimal division
     return PercentageVO(avg)
 
 

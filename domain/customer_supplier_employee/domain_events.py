@@ -666,13 +666,19 @@ class EmployeePTKPUpdatedEvent(DomainEvent):
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ):
+        # Use attribute access instead of method calls
+        old_status_code = old_ptkp.status_code if hasattr(old_ptkp, "status_code") else str(old_ptkp)
+        old_ptkp_amount = old_ptkp.amount if hasattr(old_ptkp, "amount") else 0
+        new_status_code = new_ptkp.status_code if hasattr(new_ptkp, "status_code") else str(new_ptkp)
+        new_ptkp_amount = new_ptkp.amount if hasattr(new_ptkp, "amount") else 0
+
         event_data = {
             "employee_id": str(employee_id),
             "employee_number": employee_number,
-            "old_ptkp_status": old_ptkp.get_status_code(),
-            "old_ptkp_amount": old_ptkp.get_ptkp_amount(),
-            "new_ptkp_status": new_ptkp.get_status_code(),
-            "new_ptkp_amount": new_ptkp.get_ptkp_amount(),
+            "old_ptkp_status": old_status_code,
+            "old_ptkp_amount": old_ptkp_amount,
+            "new_ptkp_status": new_status_code,
+            "new_ptkp_amount": new_ptkp_amount,
             "updated_by": updated_by,
         }
         super().__init__(

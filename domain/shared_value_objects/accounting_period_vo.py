@@ -705,9 +705,29 @@ class AccountingPeriodVO:
 
     def __lt__(self, other: AccountingPeriodVO) -> bool:
         """Compare periods chronologically."""
+        if not isinstance(other, AccountingPeriodVO):
+            return NotImplemented
         if self.fiscal_year != other.fiscal_year:
             return self.fiscal_year < other.fiscal_year
         return self.period_number < other.period_number
+
+    def __le__(self, other: AccountingPeriodVO) -> bool:
+        """Less than or equal to another period."""
+        if not isinstance(other, AccountingPeriodVO):
+            return NotImplemented
+        return self < other or self == other
+
+    def __gt__(self, other: AccountingPeriodVO) -> bool:
+        """Greater than another period."""
+        if not isinstance(other, AccountingPeriodVO):
+            return NotImplemented
+        return not (self < other or self == other)
+
+    def __ge__(self, other: AccountingPeriodVO) -> bool:
+        """Greater than or equal to another period."""
+        if not isinstance(other, AccountingPeriodVO):
+            return NotImplemented
+        return self > other or self == other
 
 
 # ============================================================================

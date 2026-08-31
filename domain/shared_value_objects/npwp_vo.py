@@ -305,7 +305,7 @@ class NPWP:
             "formatted": self.formatted(),
             "tax_office_code": self.tax_office_code(),
             "entity_code": self.entity_code(),
-            "is_head_office": self.is_head_office(),
+            "is_head_office": str(self.is_head_office()),  # Convert bool to str
         }
 
     @classmethod

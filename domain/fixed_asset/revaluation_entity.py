@@ -504,6 +504,10 @@ class RevaluationEntity:
                 return datetime.fromisoformat(val)
             return val
 
+        revaluation_date = parse_date("revaluation_date")
+        if revaluation_date is None:
+            raise RevaluationError("revaluation_date is required")
+
         return cls(
             revaluation_id=UUID(data["revaluation_id"])
             if isinstance(data["revaluation_id"], str)
@@ -513,7 +517,7 @@ class RevaluationEntity:
             else data["asset_id"],
             asset_code=data["asset_code"],
             asset_name=data["asset_name"],
-            revaluation_date=parse_date("revaluation_date"),
+            revaluation_date=revaluation_date,
             old_value=Decimal(str(data["old_value"])),
             new_value=Decimal(str(data["new_value"])),
             revaluation_type=revaluation_type
@@ -907,7 +911,7 @@ __all__ = [
     "AssetRevaluation",
     "InvalidRevaluationValueError",
     "InvalidStatusTransitionError",
-    "Revaluation",  # added for repository compatibility
+    "Revaluation",
     "RevaluationAlreadyPostedError",
     "RevaluationEntity",
     "RevaluationError",

@@ -601,7 +601,7 @@ ExchangeRate = ExchangeRateVO
 
 
 def get_cross_rate(
-    rate1: ExchangeRateVO, rate2: ExchangeRateVO, target_currency: CurrencyVO
+    rate1: ExchangeRateVO, rate2: ExchangeRateVO, _target_currency: CurrencyVO
 ) -> ExchangeRateVO:
     """
     Calculate cross exchange rate from two rates that share a common currency.
@@ -611,35 +611,28 @@ def get_cross_rate(
         rate2: EUR -> USD
         result: IDR -> EUR (cross rate)
     """
-    # Ensure rates share a common currency
-    common = None
+    # Case 1: Both rates share the same base currency
     if rate1.from_currency == rate2.from_currency:
-        common = rate1.from_currency
-        # rate1: common -> X, rate2: common -> Y
-        # cross: X -> Y = rate2 / rate1
-        if common == rate1.from_currency:
-            cross_rate = rate2.rate / rate1.rate
-            return ExchangeRateVO.create(rate1.to_currency, rate2.to_currency, cross_rate)
-    elif rate1.from_currency == rate2.to_currency:
-        common = rate1.from_currency
-        # rate1: common -> X, rate2: Y -> common
-        # cross: X -> Y = 1 / (rate1 * rate2)
+        cross_rate = rate2.rate / rate1.rate
+        return ExchangeRateVO.create(rate1.to_currency, rate2.to_currency, cross_rate)
+
+    # Case 2: rate1's base == rate2's quote
+    if rate1.from_currency == rate2.to_currency:
         cross_rate = Decimal(1) / (rate1.rate * rate2.rate)
         return ExchangeRateVO.create(rate1.to_currency, rate2.from_currency, cross_rate)
-    elif rate1.to_currency == rate2.from_currency:
-        common = rate1.to_currency
-        # rate1: X -> common, rate2: common -> Y
-        # cross: X -> Y = rate1 * rate2
+
+    # Case 3: rate1's quote == rate2's base
+    if rate1.to_currency == rate2.from_currency:
         cross_rate = rate1.rate * rate2.rate
         return ExchangeRateVO.create(rate1.from_currency, rate2.to_currency, cross_rate)
-    elif rate1.to_currency == rate2.to_currency:
-        common = rate1.to_currency
-        # rate1: X -> common, rate2: Y -> common
-        # cross: X -> Y = rate1 / rate2
+
+    # Case 4: Both rates share the same quote currency
+    if rate1.to_currency == rate2.to_currency:
         cross_rate = rate1.rate / rate2.rate
         return ExchangeRateVO.create(rate1.from_currency, rate2.from_currency, cross_rate)
-    else:
-        raise ValueError("No common currency found between the two exchange rates")
+
+    # No common currency found
+    raise ValueError("No common currency found between the two exchange rates")
 
 
 def average_rate(rates: list[ExchangeRateVO]) -> ExchangeRateVO:

@@ -131,7 +131,7 @@ class BOMItem:
             scrap_percentage=self.scrap_percentage.quantize(Decimal("0.01")),
             cost_element=self.cost_element,
             sub_bom_id=self.sub_bom_id,
-            notes=self.notes.strip() if self.notes else None,
+            notes=self.notes.strip() if self.notes else "",  # ensure str, not None
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -152,6 +152,12 @@ class BOMItem:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BOMItem:
+        # Ensure cost_element is never None
+        cost_element_raw = data.get("cost_element", "material")
+        cost_element = CostElement.from_string(cost_element_raw)
+        if cost_element is None:
+            cost_element = CostElement.MATERIAL
+
         return cls(
             item_id=UUID(data["item_id"]) if data.get("item_id") else uuid4(),
             item_code=data["item_code"],
@@ -160,7 +166,7 @@ class BOMItem:
             unit_of_measure=data["unit_of_measure"],
             unit_cost=Decimal(data["unit_cost"]),
             scrap_percentage=Decimal(data.get("scrap_percentage", "0")),
-            cost_element=CostElement.from_string(data.get("cost_element", "material")),
+            cost_element=cost_element,
             sub_bom_id=UUID(data["sub_bom_id"]) if data.get("sub_bom_id") else None,
             notes=data.get("notes", ""),
         )

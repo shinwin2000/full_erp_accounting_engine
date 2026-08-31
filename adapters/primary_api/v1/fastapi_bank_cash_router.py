@@ -58,6 +58,11 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
+from application.service_layer.service_bank_cash import (
+    BankAccountNotFoundError,
+    CreateBankAccountRequest,
+    UpdateBankAccountRequest,
+)
 from domain.shared_value_objects.enums import TransactionType
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
 
@@ -192,6 +197,7 @@ class BankAccountCreateSchema(BaseModel):
     account_name: str = Field(..., min_length=3, max_length=200)
     bank_name: str = Field(..., max_length=100)
     bank_code: str = Field(..., max_length=10)
+    branch: str | None = Field(None, max_length=100)
     currency_code: str = Field("IDR", min_length=3, max_length=3)
     account_type: BankAccountType = Field(BankAccountType.CHECKING)
     opening_balance: Decimal = Field(0, decimal_places=2)
@@ -199,12 +205,6 @@ class BankAccountCreateSchema(BaseModel):
     gl_account_id: UUID | None = None
     is_active: bool = True
     is_default: bool = False
-    bank_address: str | None = None
-    swift_code: str | None = None
-    iban: str | None = None
-    notes: str | None = None
-    daily_limit: Decimal | None = None
-    transaction_limit: Decimal | None = None
 
     @field_validator("account_number")
     @classmethod
@@ -224,44 +224,45 @@ class BankAccountCreateSchema(BaseModel):
 class BankAccountUpdateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     account_name: str | None = None
+    branch: str | None = None
     is_active: bool | None = None
     is_default: bool | None = None
-    bank_address: str | None = None
-    notes: str | None = None
-    daily_limit: Decimal | None = None
-    transaction_limit: Decimal | None = None
+    gl_account_id: UUID | None = None
     status: BankAccountStatus | None = None
 
 
 class BankAccountResponseSchema(BaseModel):
+    """
+    CATATAN: field `bank_address`, `swift_code`, `iban`, `daily_limit`,
+    `transaction_limit`, `notes`, `created_by_name`, `updated_by` yang
+    sebelumnya ada di schema ini SENGAJA DIHAPUS karena tidak pernah benar-
+    benar tersimpan di database (tidak ada kolomnya) — API sebelumnya
+    menerima/menampilkan field-field ini tapi datanya selalu hilang diam-
+    diam. Kalau field-field ini memang dibutuhkan, perlu migration baru
+    untuk menambah kolomnya di tabel `bank_account` dulu.
+    """
     model_config = ConfigDict(from_attributes=True)
     id: UUID
+    legal_entity_id: UUID | None = None
     account_number: str
     account_name: str
     bank_name: str
     bank_code: str
+    branch: str | None = None
     currency_code: str
     account_type: BankAccountType
     current_balance: Decimal
     available_balance: Decimal
     opening_balance: Decimal
-    opening_balance_date: date
+    opening_balance_date: date | None
     gl_account_id: UUID | None
     status: BankAccountStatus
     is_active: bool
     is_default: bool
     is_locked: bool = False
-    bank_address: str | None
-    swift_code: str | None
-    iban: str | None
-    daily_limit: Decimal | None
-    transaction_limit: Decimal | None
-    notes: str | None
     created_at: datetime
-    created_by: UUID
-    created_by_name: str | None = None
-    updated_at: datetime
-    updated_by: UUID | None = None
+    created_by: UUID | None = None
+    updated_at: datetime | None = None
     version: int = 1
 
 
@@ -648,57 +649,25 @@ async def create_bank_account(
 
     try:
         result = await service.create_bank_account(
-            legal_entity_id=legal_entity_id,
-            account_number=request.account_number,
-            account_name=request.account_name,
-            bank_name=request.bank_name,
-            bank_code=request.bank_code,
-            currency_code=request.currency_code,
-            account_type=request.account_type.value,
-            opening_balance=request.opening_balance,
-            opening_balance_date=request.opening_balance_date,
-            gl_account_id=request.gl_account_id,
-            is_active=request.is_active,
-            is_default=request.is_default,
-            bank_address=request.bank_address,
-            swift_code=request.swift_code,
-            iban=request.iban,
-            notes=request.notes,
-            daily_limit=request.daily_limit,
-            transaction_limit=request.transaction_limit,
-            created_by=current_user.user_id,
+            request=CreateBankAccountRequest(
+                legal_entity_id=legal_entity_id,
+                account_name=request.account_name,
+                account_number=request.account_number,
+                bank_name=request.bank_name,
+                bank_code=request.bank_code,
+                branch=request.branch,
+                currency_code=request.currency_code,
+                account_type=request.account_type.value,
+                opening_balance=request.opening_balance,
+                opening_balance_date=request.opening_balance_date,
+                gl_account_id=request.gl_account_id,
+                is_active=request.is_active,
+                is_default=request.is_default,
+            ),
+            user_id=current_user.user_id,
         )
 
-        response = BankAccountResponseSchema(
-            id=result.id,
-            account_number=result.account_number,
-            account_name=result.account_name,
-            bank_name=result.bank_name,
-            bank_code=result.bank_code,
-            currency_code=result.currency_code,
-            account_type=BankAccountType(result.account_type),
-            current_balance=result.current_balance,
-            available_balance=result.available_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_account_id=result.gl_account_id,
-            status=BankAccountStatus(result.status),
-            is_active=result.is_active,
-            is_default=result.is_default,
-            is_locked=result.is_locked,
-            bank_address=result.bank_address,
-            swift_code=result.swift_code,
-            iban=result.iban,
-            daily_limit=result.daily_limit,
-            transaction_limit=result.transaction_limit,
-            notes=result.notes,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            updated_by=result.updated_by,
-            version=result.version,
-        )
+        response = BankAccountResponseSchema.model_validate(result)
 
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
@@ -732,39 +701,7 @@ async def list_bank_accounts(
             currency=currency,
             is_active=is_active,
         )
-        return [
-            BankAccountResponseSchema(
-                id=a.id,
-                account_number=a.account_number,
-                account_name=a.account_name,
-                bank_name=a.bank_name,
-                bank_code=a.bank_code,
-                currency_code=a.currency_code,
-                account_type=BankAccountType(a.account_type),
-                current_balance=a.current_balance,
-                available_balance=a.available_balance,
-                opening_balance=a.opening_balance,
-                opening_balance_date=a.opening_balance_date,
-                gl_account_id=a.gl_account_id,
-                status=BankAccountStatus(a.status),
-                is_active=a.is_active,
-                is_default=a.is_default,
-                is_locked=a.is_locked,
-                bank_address=a.bank_address,
-                swift_code=a.swift_code,
-                iban=a.iban,
-                daily_limit=a.daily_limit,
-                transaction_limit=a.transaction_limit,
-                notes=a.notes,
-                created_at=a.created_at,
-                created_by=a.created_by,
-                created_by_name=a.created_by_name,
-                updated_at=a.updated_at,
-                updated_by=a.updated_by,
-                version=a.version,
-            )
-            for a in accounts
-        ]
+        return [BankAccountResponseSchema.model_validate(a) for a in accounts]
     except Exception as e:
         logger.exception(f"Failed to list bank accounts: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -783,39 +720,10 @@ async def get_bank_account(
     service: Any = Depends(get_bank_cash_service),
 ) -> BankAccountResponseSchema:
     try:
-        account = await service.get_bank_account(account_id, legal_entity_id)
-        if not account:
-            raise HTTPException(status_code=404, detail="Bank account not found")
-        return BankAccountResponseSchema(
-            id=account.id,
-            account_number=account.account_number,
-            account_name=account.account_name,
-            bank_name=account.bank_name,
-            bank_code=account.bank_code,
-            currency_code=account.currency_code,
-            account_type=BankAccountType(account.account_type),
-            current_balance=account.current_balance,
-            available_balance=account.available_balance,
-            opening_balance=account.opening_balance,
-            opening_balance_date=account.opening_balance_date,
-            gl_account_id=account.gl_account_id,
-            status=BankAccountStatus(account.status),
-            is_active=account.is_active,
-            is_default=account.is_default,
-            is_locked=account.is_locked,
-            bank_address=account.bank_address,
-            swift_code=account.swift_code,
-            iban=account.iban,
-            daily_limit=account.daily_limit,
-            transaction_limit=account.transaction_limit,
-            notes=account.notes,
-            created_at=account.created_at,
-            created_by=account.created_by,
-            created_by_name=account.created_by_name,
-            updated_at=account.updated_at,
-            updated_by=account.updated_by,
-            version=account.version,
-        )
+        account = await service.get_bank_account(account_id)
+        return BankAccountResponseSchema.model_validate(account)
+    except BankAccountNotFoundError:
+        raise HTTPException(status_code=404, detail="Bank account not found")
     except HTTPException:
         raise
     except Exception as e:
@@ -848,53 +756,23 @@ async def update_bank_account(
     try:
         result = await service.update_bank_account(
             account_id=account_id,
-            legal_entity_id=legal_entity_id,
-            account_name=request.account_name,
-            is_active=request.is_active,
-            is_default=request.is_default,
-            bank_address=request.bank_address,
-            notes=request.notes,
-            daily_limit=request.daily_limit,
-            transaction_limit=request.transaction_limit,
-            status=request.status.value if request.status else None,
-            updated_by=current_user.user_id,
+            request=UpdateBankAccountRequest(
+                account_name=request.account_name,
+                branch=request.branch,
+                is_active=request.is_active,
+                is_default=request.is_default,
+                gl_account_id=request.gl_account_id,
+                status=request.status.value if request.status else None,
+            ),
+            user_id=current_user.user_id,
         )
-        if not result:
-            raise HTTPException(status_code=404, detail="Bank account not found")
 
-        response = BankAccountResponseSchema(
-            id=result.id,
-            account_number=result.account_number,
-            account_name=result.account_name,
-            bank_name=result.bank_name,
-            bank_code=result.bank_code,
-            currency_code=result.currency_code,
-            account_type=BankAccountType(result.account_type),
-            current_balance=result.current_balance,
-            available_balance=result.available_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_account_id=result.gl_account_id,
-            status=BankAccountStatus(result.status),
-            is_active=result.is_active,
-            is_default=result.is_default,
-            is_locked=result.is_locked,
-            bank_address=result.bank_address,
-            swift_code=result.swift_code,
-            iban=result.iban,
-            daily_limit=result.daily_limit,
-            transaction_limit=result.transaction_limit,
-            notes=result.notes,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            updated_by=result.updated_by,
-            version=result.version,
-        )
+        response = BankAccountResponseSchema.model_validate(result)
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
         return response
+    except BankAccountNotFoundError:
+        raise HTTPException(status_code=404, detail="Bank account not found")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
@@ -922,16 +800,14 @@ async def deactivate_bank_account(
     try:
         if permanent:
             result = await service.close_bank_account(
-                account_id, legal_entity_id, current_user.user_id, reason
+                account_id, reason, current_user.user_id
             )
             action = "closed"
         else:
             result = await service.deactivate_bank_account(
-                account_id, legal_entity_id, current_user.user_id, reason
+                account_id, current_user.user_id, reason
             )
             action = "deactivated"
-        if not result:
-            raise HTTPException(status_code=404, detail="Bank account not found")
         return {
             "account_id": str(account_id),
             "account_number": result.account_number,
@@ -939,6 +815,8 @@ async def deactivate_bank_account(
             "status": result.status,
             "message": f"Bank account {action} successfully",
         }
+    except BankAccountNotFoundError:
+        raise HTTPException(status_code=404, detail="Bank account not found")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -961,40 +839,11 @@ async def activate_bank_account(
 ) -> BankAccountResponseSchema:
     try:
         result = await service.activate_bank_account(
-            account_id, legal_entity_id, current_user.user_id
+            account_id, current_user.user_id
         )
-        if not result:
-            raise HTTPException(status_code=404, detail="Bank account not found")
-        return BankAccountResponseSchema(
-            id=result.id,
-            account_number=result.account_number,
-            account_name=result.account_name,
-            bank_name=result.bank_name,
-            bank_code=result.bank_code,
-            currency_code=result.currency_code,
-            account_type=BankAccountType(result.account_type),
-            current_balance=result.current_balance,
-            available_balance=result.available_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_account_id=result.gl_account_id,
-            status=BankAccountStatus(result.status),
-            is_active=result.is_active,
-            is_default=result.is_default,
-            is_locked=result.is_locked,
-            bank_address=result.bank_address,
-            swift_code=result.swift_code,
-            iban=result.iban,
-            daily_limit=result.daily_limit,
-            transaction_limit=result.transaction_limit,
-            notes=result.notes,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            updated_by=result.updated_by,
-            version=result.version,
-        )
+        return BankAccountResponseSchema.model_validate(result)
+    except BankAccountNotFoundError:
+        raise HTTPException(status_code=404, detail="Bank account not found")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1017,41 +866,12 @@ async def lock_bank_account(
     service: Any = Depends(get_bank_cash_service),
 ) -> BankAccountResponseSchema:
     try:
-        result = await service.lock_bank_account(
-            account_id, legal_entity_id, current_user.user_id, reason
+        result = await service.block_bank_account(
+            account_id, reason, current_user.user_id
         )
-        if not result:
-            raise HTTPException(status_code=404, detail="Bank account not found")
-        return BankAccountResponseSchema(
-            id=result.id,
-            account_number=result.account_number,
-            account_name=result.account_name,
-            bank_name=result.bank_name,
-            bank_code=result.bank_code,
-            currency_code=result.currency_code,
-            account_type=BankAccountType(result.account_type),
-            current_balance=result.current_balance,
-            available_balance=result.available_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_account_id=result.gl_account_id,
-            status=BankAccountStatus(result.status),
-            is_active=result.is_active,
-            is_default=result.is_default,
-            is_locked=True,
-            bank_address=result.bank_address,
-            swift_code=result.swift_code,
-            iban=result.iban,
-            daily_limit=result.daily_limit,
-            transaction_limit=result.transaction_limit,
-            notes=result.notes,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            updated_by=result.updated_by,
-            version=result.version,
-        )
+        return BankAccountResponseSchema.model_validate(result)
+    except BankAccountNotFoundError:
+        raise HTTPException(status_code=404, detail="Bank account not found")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1074,40 +894,11 @@ async def unlock_bank_account(
 ) -> BankAccountResponseSchema:
     try:
         result = await service.unlock_bank_account(
-            account_id, legal_entity_id, current_user.user_id
+            account_id, current_user.user_id
         )
-        if not result:
-            raise HTTPException(status_code=404, detail="Bank account not found")
-        return BankAccountResponseSchema(
-            id=result.id,
-            account_number=result.account_number,
-            account_name=result.account_name,
-            bank_name=result.bank_name,
-            bank_code=result.bank_code,
-            currency_code=result.currency_code,
-            account_type=BankAccountType(result.account_type),
-            current_balance=result.current_balance,
-            available_balance=result.available_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_account_id=result.gl_account_id,
-            status=BankAccountStatus(result.status),
-            is_active=result.is_active,
-            is_default=result.is_default,
-            is_locked=False,
-            bank_address=result.bank_address,
-            swift_code=result.swift_code,
-            iban=result.iban,
-            daily_limit=result.daily_limit,
-            transaction_limit=result.transaction_limit,
-            notes=result.notes,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            updated_by=result.updated_by,
-            version=result.version,
-        )
+        return BankAccountResponseSchema.model_validate(result)
+    except BankAccountNotFoundError:
+        raise HTTPException(status_code=404, detail="Bank account not found")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

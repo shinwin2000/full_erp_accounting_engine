@@ -299,7 +299,7 @@ class OverheadAllocationEngine:
             # For ABC, we need custom basis values
             if custom_basis_values:
                 # Sum of all custom driver quantities (or use specific)
-                return sum(custom_basis_values.values())
+                return sum(custom_basis_values.values(), Decimal(0))
             return Decimal(0)
 
         else:
@@ -339,7 +339,7 @@ class OverheadAllocationEngine:
             logger.warning(f"No active allocation rates found for date {as_of_date}")
             rates = []
 
-        allocations = {}
+        allocations: dict[OverheadPool, Decimal] = {}
         total_allocated = Decimal(0)
         primary_basis = AllocationBasis.UNITS_PRODUCED
 
@@ -478,7 +478,7 @@ class OverheadAllocationEngine:
             raise ValueError(f"Work order {work_order.work_order_number} has no completed units")
 
         as_of_date = as_of_date or datetime.now(UTC)
-        allocations = {}
+        allocations: dict[OverheadPool, Decimal] = {}
         total_allocated = Decimal(0)
 
         for driver, quantity in cost_drivers.items():
@@ -523,7 +523,7 @@ class OverheadAllocationEngine:
 
     def get_allocation_summary_by_pool(self) -> dict[OverheadPool, Decimal]:
         """Aggregate allocated amounts by overhead pool."""
-        summary = {}
+        summary: dict[OverheadPool, Decimal] = {}
         for result in self._allocation_results:
             for pool, amount in result.allocations.items():
                 summary[pool] = summary.get(pool, Decimal(0)) + amount

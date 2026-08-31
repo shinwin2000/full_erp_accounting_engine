@@ -818,13 +818,13 @@ class PayrollAggregate:
         period_month: int,
         created_by: str,
     ) -> PayrollAggregate:
+        # created_by is intentionally unused - kept for API compatibility
         return cls(
             payroll_id=uuid4(),
             legal_entity_id=legal_entity_id,
             period=period,
             period_year=period_year,
             period_month=period_month,
-            created_by=created_by,
         )
 
 

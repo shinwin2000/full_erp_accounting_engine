@@ -393,7 +393,8 @@ class FixedAsset:
     updated_at: datetime | None = None
     updated_by: UUID | None = None
     version: int = 1
-    metadata: dict = field(default_factory=dict)  # <-- ADDED for lock/unlock
+    metadata: dict = field(default_factory=dict)
+    _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         # Validate asset_code
@@ -553,7 +554,8 @@ class FixedAsset:
             if self.depreciable_amount > 0
             else 0
         )
-        return max(0, self.useful_life_years * (1 - proportion_depreciated))
+        # FIX: convert to float to satisfy type hint
+        return max(0.0, float(self.useful_life_years) * (1.0 - float(proportion_depreciated)))
 
     @property
     def book_value_after_revaluation(self) -> Decimal:
@@ -646,6 +648,11 @@ class FixedAsset:
                 return datetime.fromisoformat(val)
             return val
 
+        # acquisition_date is mandatory
+        acquisition_date_val = parse_date("acquisition_date")
+        if acquisition_date_val is None:
+            raise FixedAssetError("acquisition_date is required")
+
         return cls(
             id=UUID(data["id"]) if isinstance(data["id"], str) else data["id"],
             legal_entity_id=UUID(data["legal_entity_id"])
@@ -656,7 +663,7 @@ class FixedAsset:
             description=data.get("description"),
             asset_type=asset_type,
             status=status,
-            acquisition_date=parse_date("acquisition_date"),
+            acquisition_date=acquisition_date_val,
             acquisition_cost=Decimal(str(data["acquisition_cost"])),
             salvage_value=Decimal(str(data.get("salvage_value", 0))),
             useful_life_years=data.get("useful_life_years", 0),
@@ -1470,7 +1477,7 @@ class FixedAsset:
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get audit trail entries."""
-        return getattr(self, "_audit_trail", [])[-limit:]
+        return self._audit_trail[-limit:]
 
     def touch(self, touched_by: UUID) -> FixedAsset:
         """Update timestamp without changing data."""
@@ -1511,8 +1518,6 @@ class FixedAsset:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
         """Record audit entry."""
-        if not hasattr(self, "_audit_trail"):
-            object.__setattr__(self, "_audit_trail", [])
         entry = {
             "action": action,
             "performed_by": performed_by,

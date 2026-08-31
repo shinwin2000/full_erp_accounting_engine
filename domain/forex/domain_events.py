@@ -33,12 +33,10 @@ class ForexRateUpdatedEvent(DomainEvent):
         updated_by: str,
         **kwargs
     ):
-        super().__init__(
-            event_type=ForexEventType.RATE_UPDATED.value,
-            aggregate_id=aggregate_id,
-            aggregate_version=aggregate_version,
-            **kwargs
-        )
+        super().__init__()
+        self.event_type = ForexEventType.RATE_UPDATED.value
+        self.aggregate_id = aggregate_id
+        self.aggregate_version = aggregate_version
         self.currency_pair = currency_pair
         self.old_rate = old_rate
         self.new_rate = new_rate
@@ -68,12 +66,10 @@ class ForexTransactionRecordedEvent(DomainEvent):
         recorded_by: str,
         **kwargs
     ):
-        super().__init__(
-            event_type=ForexEventType.TRANSACTION_RECORDED.value,
-            aggregate_id=aggregate_id,
-            aggregate_version=aggregate_version,
-            **kwargs
-        )
+        super().__init__()
+        self.event_type = ForexEventType.TRANSACTION_RECORDED.value
+        self.aggregate_id = aggregate_id
+        self.aggregate_version = aggregate_version
         self.transaction_id = transaction_id
         self.from_currency = from_currency
         self.to_currency = to_currency
@@ -107,12 +103,10 @@ class ForexRevaluationCompletedEvent(DomainEvent):
         completed_by: str,
         **kwargs
     ):
-        super().__init__(
-            event_type=ForexEventType.REVALUATION_COMPLETED.value,
-            aggregate_id=aggregate_id,
-            aggregate_version=aggregate_version,
-            **kwargs
-        )
+        super().__init__()
+        self.event_type = ForexEventType.REVALUATION_COMPLETED.value
+        self.aggregate_id = aggregate_id
+        self.aggregate_version = aggregate_version
         self.revaluation_id = revaluation_id
         self.account_id = account_id
         self.old_value = old_value
@@ -145,12 +139,10 @@ class ForexTransactionExecutedEvent(DomainEvent):
         executed_by: str,
         **kwargs
     ):
-        super().__init__(
-            event_type="forex_transaction_executed",
-            aggregate_id=aggregate_id,
-            aggregate_version=aggregate_version,
-            **kwargs
-        )
+        super().__init__()
+        self.event_type = "forex_transaction_executed"
+        self.aggregate_id = aggregate_id
+        self.aggregate_version = aggregate_version
         self.transaction_id = transaction_id
         self.currency_pair = currency_pair
         self.amount = amount

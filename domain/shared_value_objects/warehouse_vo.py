@@ -350,7 +350,7 @@ class WarehouseVO:
 
     def to_dict(self, include_metadata: bool = True) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
-        result = {
+        result: dict[str, Any] = {
             "code": self.code,
             "name": self.name,
             "display_name": self.display_name,

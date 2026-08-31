@@ -15,7 +15,7 @@ for a specific legal entity. It enforces business invariants such as:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -211,6 +211,31 @@ class ARSubledger:
             created_at=kwargs.get("created_at", self.created_at),
             updated_at=kwargs.get("updated_at", datetime.now(UTC)),
             version=kwargs.get("version", self.version + 1),
+        )
+
+    def _rebuild_customer_card(self, customer_id: UUID) -> CustomerCard | None:
+        """
+        Rebuild a customer card from remaining invoices.
+        Returns None if the customer has no remaining invoices.
+        """
+        remaining_invoices = [inv for inv in self.invoices.values() if inv.customer_id == customer_id]
+        if not remaining_invoices:
+            return None
+
+        new_balance = sum((inv.amount - inv.paid_amount for inv in remaining_invoices), Decimal("0"))
+
+        old_card = self.customer_cards.get(customer_id)
+        if old_card:
+            return replace(old_card, outstanding_balance=new_balance)
+
+        # If no existing card but there are remaining invoices, create a new card from the first invoice.
+        first_inv = remaining_invoices[0]
+        return CustomerCard(
+            customer_id=customer_id,
+            customer_name=first_inv.customer_name,
+            legal_entity_id=self.legal_entity_id,
+            currency=first_inv.currency,
+            outstanding_balance=new_balance,
         )
 
     # ==================== BUSINESS METHODS ====================
@@ -446,14 +471,15 @@ class ARSubledger:
 
         new_invoices = {k: v for k, v in self.invoices.items() if k != invoice_id}
 
-        # Also remove from customer card
-        customer_card = self.customer_cards.get(invoice.customer_id)
-        if customer_card:
-            new_card = customer_card.remove_invoice(invoice_id)
-            new_cards = self.customer_cards.copy()
-            new_cards[invoice.customer_id] = new_card
+        # Rebuild customer card from remaining invoices
+        customer_id = invoice.customer_id
+        new_cards = self.customer_cards.copy()
+        rebuilt_card = self._rebuild_customer_card(customer_id)
+        if rebuilt_card:
+            new_cards[customer_id] = rebuilt_card
         else:
-            new_cards = self.customer_cards
+            # No remaining invoices for this customer, remove the card
+            new_cards.pop(customer_id, None)
 
         self._record_audit("DELETE_INVOICE", deleted_by, {"invoice_id": str(invoice_id)})
         logger.info("Invoice %s deleted from AR subledger %s", invoice_id, self.ar_id)
@@ -464,7 +490,7 @@ class ARSubledger:
 
     def get_total_outstanding(self) -> Decimal:
         """Get the total outstanding balance across all customers."""
-        return sum(card.outstanding_balance for card in self.customer_cards.values())
+        return sum((card.outstanding_balance for card in self.customer_cards.values()), Decimal("0"))
 
     def get_customer_outstanding(self, customer_id: UUID) -> Decimal:
         """Get the outstanding balance for a specific customer."""
@@ -799,7 +825,7 @@ class ARSubledgerRepository:
         """Count all AR subledgers."""
         raise NotImplementedError
 
-    async def list(self, limit: int = 100, offset: int = 0) -> list[ARSubledger]:
+    async def list_all(self, limit: int = 100, offset: int = 0) -> list[ARSubledger]:
         """List AR subledgers with pagination."""
         raise NotImplementedError
 

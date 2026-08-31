@@ -254,33 +254,33 @@ class InvalidationPatternError(CacheInvalidationError):
 # ============================================================================
 
 __all__ = [
+    "CacheExpiredError",
+    # Cache invalidation
+    "CacheInvalidationError",
+    "CacheMissError",
+    # Cache operations
+    "CacheOperationError",
+    # Cache warmer
+    "CacheWarmerError",
     # Base
     "CachingError",
-    # Connection
-    "RedisManagerError",
-    "RedisConnectionError",
-    "RedisOperationError",
-    # Serialization
-    "SerializationError",
-    "SerializationVersionError",
-    "SerializationTypeError",
     # Compression
     "CompressionError",
     "DecompressionError",
-    "UnsupportedAlgorithmError",
+    "InvalidNamespaceError",
+    "InvalidationPatternError",
     # Namespace
     "NamespaceError",
-    "InvalidNamespaceError",
     "NamespaceMismatchError",
-    # Cache operations
-    "CacheOperationError",
-    "CacheMissError",
-    "CacheExpiredError",
-    # Cache warmer
-    "CacheWarmerError",
-    "WarmingJobNotFoundError",
+    "RedisConnectionError",
+    # Connection
+    "RedisManagerError",
+    "RedisOperationError",
+    # Serialization
+    "SerializationError",
+    "SerializationTypeError",
+    "SerializationVersionError",
+    "UnsupportedAlgorithmError",
     "WarmingJobFailedError",
-    # Cache invalidation
-    "CacheInvalidationError",
-    "InvalidationPatternError",
+    "WarmingJobNotFoundError",
 ]

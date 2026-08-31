@@ -188,7 +188,7 @@ class PurchaseReturnEntity:
         if self.completed_at and self.completed_at.tzinfo is None:
             raise ValueError("completed_at must be timezone-aware")
         # Validate total amount matches items sum
-        items_total = sum(item.total_amount for item in self.items)
+        items_total = sum((item.total_amount for item in self.items), Decimal(0))
         if abs(self.total_amount - items_total) > Decimal("0.01"):
             raise ValueError(
                 f"Total amount {self.total_amount} does not match items total {items_total}"
@@ -201,7 +201,7 @@ class PurchaseReturnEntity:
     def add_item(self, item: PurchaseReturnItem, added_by: str) -> PurchaseReturnEntity:
         """Add an item to the return."""
         new_items = [*list(self.items), item]
-        new_total = sum(i.total_amount for i in new_items)
+        new_total = sum((i.total_amount for i in new_items), Decimal(0))
         return PurchaseReturnEntity(
             return_id=self.return_id,
             return_number=self.return_number,
@@ -228,7 +228,7 @@ class PurchaseReturnEntity:
     def remove_item(self, item_id: UUID, removed_by: str) -> PurchaseReturnEntity:
         """Remove an item from the return."""
         new_items = [i for i in self.items if i.item_id != item_id]
-        new_total = sum(i.total_amount for i in new_items)
+        new_total = sum((i.total_amount for i in new_items), Decimal(0))
         return PurchaseReturnEntity(
             return_id=self.return_id,
             return_number=self.return_number,

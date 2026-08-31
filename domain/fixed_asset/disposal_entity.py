@@ -318,6 +318,8 @@ class DisposalEntity:
         reason: Reason for disposal
         notes: Additional notes
         created_by, created_at, updated_by, updated_at, version
+        metadata: Additional metadata for extensibility
+        _audit_trail: Internal audit trail (not part of business state)
     """
 
     # ========== Mandatory Fields ==========
@@ -351,6 +353,8 @@ class DisposalEntity:
     created_by: UUID = field(default_factory=uuid4)
     updated_by: UUID = field(default_factory=uuid4)
     version: int = 1
+    metadata: dict[str, Any] = field(default_factory=dict, repr=False)
+    _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         """Validate disposal data."""
@@ -759,6 +763,10 @@ class DisposalEntity:
                 return datetime.fromisoformat(val)
             return val
 
+        disposal_date_val = parse_date("disposal_date")
+        if disposal_date_val is None:
+            raise DisposalError("disposal_date is required")
+
         return cls(
             disposal_id=UUID(data["disposal_id"])
             if isinstance(data["disposal_id"], str)
@@ -768,7 +776,7 @@ class DisposalEntity:
             else data["asset_id"],
             asset_code=data["asset_code"],
             asset_name=data["asset_name"],
-            disposal_date=parse_date("disposal_date"),
+            disposal_date=disposal_date_val,
             disposal_type=disposal_type,
             proceeds=Decimal(str(data["proceeds"])),
             nbv_at_disposal=Decimal(str(data["nbv_at_disposal"])),
@@ -796,6 +804,7 @@ class DisposalEntity:
             if isinstance(data["updated_by"], str)
             else data["updated_by"],
             version=data.get("version", 1),
+            metadata=data.get("metadata", {}),
         )
 
     # ------------------------------------------------------------------------
@@ -1036,6 +1045,7 @@ class DisposalEntity:
             "can_approve": self.can_approve,
             "can_complete": self.can_complete,
             "can_cancel": self.can_cancel,
+            "metadata": self.metadata,
         }
 
     def to_db_record(self) -> dict[str, Any]:
@@ -1075,8 +1085,6 @@ class DisposalEntity:
 
     def create(self, created_by: UUID) -> DisposalEntity:
         """Record disposal creation."""
-        if not hasattr(self, "_audit_trail"):
-            object.__setattr__(self, "_audit_trail", [])
         entry = {
             "action": "CREATE",
             "performed_by": str(created_by),
@@ -1157,12 +1165,12 @@ class DisposalEntity:
     def lock(self, locked_by: UUID, reason: str) -> DisposalEntity:
         """Lock disposal (prevent modifications)."""
         now = datetime.now(UTC)
-        metadata = getattr(self, "metadata", {}) or {}
-        metadata["locked_by"] = str(locked_by)
-        metadata["locked_at"] = now.isoformat()
-        metadata["lock_reason"] = reason
+        new_metadata = self.metadata.copy()
+        new_metadata["locked_by"] = str(locked_by)
+        new_metadata["locked_at"] = now.isoformat()
+        new_metadata["lock_reason"] = reason
         new_disposal = self._copy()
-        new_disposal.metadata = metadata
+        new_disposal.metadata = new_metadata
         new_disposal.updated_at = now
         new_disposal.updated_by = locked_by
         new_disposal.version = self.version + 1
@@ -1172,12 +1180,12 @@ class DisposalEntity:
     def unlock(self, unlocked_by: UUID) -> DisposalEntity:
         """Unlock disposal."""
         now = datetime.now(UTC)
-        metadata = getattr(self, "metadata", {}) or {}
-        metadata.pop("locked_by", None)
-        metadata.pop("locked_at", None)
-        metadata.pop("lock_reason", None)
+        new_metadata = self.metadata.copy()
+        new_metadata.pop("locked_by", None)
+        new_metadata.pop("locked_at", None)
+        new_metadata.pop("lock_reason", None)
         new_disposal = self._copy()
-        new_disposal.metadata = metadata
+        new_disposal.metadata = new_metadata
         new_disposal.updated_at = now
         new_disposal.updated_by = unlocked_by
         new_disposal.version = self.version + 1
@@ -1248,7 +1256,7 @@ class DisposalEntity:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
-        return getattr(self, "_audit_trail", [])[-limit:]
+        return self._audit_trail[-limit:]
 
     def touch(self, touched_by: UUID) -> DisposalEntity:
         """Touch disposal."""
@@ -1261,8 +1269,6 @@ class DisposalEntity:
         return new_disposal
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
-        if not hasattr(self, "_audit_trail"):
-            object.__setattr__(self, "_audit_trail", [])
         entry = {
             "action": action,
             "performed_by": performed_by,
@@ -1303,6 +1309,7 @@ class DisposalEntity:
             created_by=self.created_by,
             updated_by=self.updated_by,
             version=self.version,
+            metadata=self.metadata.copy(),
         )
 
     # ------------------------------------------------------------------------

@@ -210,23 +210,23 @@ class ProductionRoutingEntity:
 
     def get_total_setup_time(self) -> Decimal:
         """Total setup time across all operations (hours)."""
-        return sum(op.setup_time_hours for op in self.operations)
+        return sum((op.setup_time_hours for op in self.operations), Decimal(0))
 
     def get_total_run_time_per_unit(self) -> Decimal:
         """Total run time per unit across all operations (hours)."""
-        return sum(op.run_time_per_unit_hours for op in self.operations)
+        return sum((op.run_time_per_unit_hours for op in self.operations), Decimal(0))
 
     def get_total_labor_cost(self, quantity: Decimal) -> Decimal:
         """Total labor cost for producing the given quantity."""
-        return sum(op.get_total_labor_cost(quantity) for op in self.operations)
+        return sum((op.get_total_labor_cost(quantity) for op in self.operations), Decimal(0))
 
     def get_total_machine_cost(self, quantity: Decimal) -> Decimal:
         """Total machine cost for producing the given quantity."""
-        return sum(op.get_total_machine_cost(quantity) for op in self.operations)
+        return sum((op.get_total_machine_cost(quantity) for op in self.operations), Decimal(0))
 
     def get_total_routing_cost(self, quantity: Decimal) -> Decimal:
         """Total routing cost (labor + machine + fixed) for the given quantity."""
-        return sum(op.get_total_cost(quantity) for op in self.operations)
+        return sum((op.get_total_cost(quantity) for op in self.operations), Decimal(0))
 
     def get_cost_per_unit(self, quantity: Decimal) -> Decimal:
         """Average routing cost per unit for the given quantity."""

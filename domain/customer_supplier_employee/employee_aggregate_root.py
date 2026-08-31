@@ -313,7 +313,8 @@ class EmployeeAggregate:
             version=1,
         )
         for emp in self.employees.values():
-            cloned_emp = emp.clone()
+            # Clone using from_dict/to_dict because EmployeeEntity.clone() may not exist
+            cloned_emp = EmployeeEntity.from_dict(emp.to_dict())
             new_agg = new_agg.add_employee(cloned_emp, "system")
         new_agg._record_audit("CLONE", "system", {"source": str(self.aggregate_id)})
         return new_agg
@@ -591,11 +592,15 @@ class EmployeeAggregate:
         if employee.tax_id:
             new_by_tax_id[employee.tax_id] = employee.employee_id
 
+        # Use correct fields for EmployeeCreatedEvent
         self._register_event(
             EmployeeCreatedEvent(
                 aggregate_id=self.aggregate_id,
                 aggregate_version=self.version + 1,
-                employee=employee,
+                employee_id=employee.employee_id,
+                employee_code=employee.employee_number,
+                employee_name=employee.full_name,
+                legal_entity_id=employee.legal_entity_id,
                 created_by=created_by,
             )
         )
@@ -821,8 +826,16 @@ class EmployeeAggregate:
             raise EmployeeAggregateError(
                 f"Cannot remove employee with status {employee.status.display_name()}"
             )
-        updated = employee.deactivate(deleted_by)
-        return self.update_employee(updated, deleted_by)
+
+        # Set status to INACTIVE instead of calling missing deactivate()
+        updated_data = employee.to_dict()
+        updated_data["status"] = EmployeeStatus.INACTIVE.value
+        updated_data["updated_at"] = datetime.now(UTC).isoformat()
+        updated_data["updated_by"] = deleted_by
+        updated_data["version"] = employee.version + 1
+        updated_employee = EmployeeEntity.from_dict(updated_data)
+
+        return self.update_employee(updated_employee, deleted_by)
 
     # ==================== STATISTICS ====================
 
@@ -906,7 +919,7 @@ class EmployeeAggregateRepository:
         return len(cls._storage)
 
     @classmethod
-    async def list(cls, limit: int = 100, offset: int = 0) -> list[EmployeeAggregate]:
+    async def list_all(cls, limit: int = 100, offset: int = 0) -> list[EmployeeAggregate]:
         aggregates = list(cls._storage.values())
         return aggregates[offset : offset + limit]
 
@@ -927,7 +940,7 @@ class EmployeeAggregateRepository:
         query_lower = query.lower()
         results = []
         for agg in cls._storage.values():
-            for field_name in fields:  # F402 fix: renamed from 'field' to 'field_name'
+            for field_name in fields:
                 value = getattr(agg, field_name, "")
                 if value and query_lower in str(value).lower():
                     results.append(agg)

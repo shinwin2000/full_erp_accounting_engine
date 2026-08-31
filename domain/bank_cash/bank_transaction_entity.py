@@ -180,6 +180,12 @@ class BankTransactionEntity:
     holds: list[TransactionHold] = field(default_factory=list)
     signature: TransactionSignature | None = None
 
+    # Kolom yang memang ada di tabel `bank_transaction` tapi sebelumnya hilang
+    # dari entity ini (menyebabkan repository <-> service tidak sinkron).
+    transaction_number: str | None = None
+    journal_id: UUID | None = None
+    reconciliation_id: UUID | None = None
+
     # Tracking (untuk audit)
     _snapshots: ClassVar[list[dict[str, Any]]] = []
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
@@ -225,11 +231,11 @@ class BankTransactionEntity:
 
     # ==================== ENTITY DASAR METHODS ====================
 
-    def create(self, created_by: UUID) -> BankTransactionEntity:
+    def create(self, created_by: UUID) -> Self:
         self._record_audit("CREATE", str(created_by), {"amount": str(self.amount)})
         return self
 
-    def update(self, updated_by: UUID, **kwargs) -> BankTransactionEntity:
+    def update(self, updated_by: UUID, **kwargs) -> Self:
         if self.status not in (TransactionStatus.PENDING, TransactionStatus.CANCELLED):
             raise ValueError(f"Cannot update transaction in status {self.status.value}")
 
@@ -249,7 +255,7 @@ class BankTransactionEntity:
         new_tx._record_audit("UPDATE", str(updated_by), {"changes": kwargs})
         return new_tx
 
-    def delete(self, deleted_by: UUID, reason: str | None = None) -> BankTransactionEntity:
+    def delete(self, deleted_by: UUID, reason: str | None = None) -> Self:
         if self.status in (TransactionStatus.COMPLETED, TransactionStatus.RECONCILED):
             raise ValueError(f"Cannot delete transaction in status {self.status.value}")
 
@@ -262,7 +268,7 @@ class BankTransactionEntity:
         new_tx._record_audit("DELETE", str(deleted_by), {"reason": reason})
         return new_tx
 
-    def restore(self, restored_by: UUID) -> BankTransactionEntity:
+    def restore(self, restored_by: UUID) -> Self:
         if self.status != TransactionStatus.CANCELLED:
             raise ValueError(f"Cannot restore transaction in status {self.status.value}")
 
@@ -275,17 +281,17 @@ class BankTransactionEntity:
         new_tx._record_audit("RESTORE", str(restored_by), {})
         return new_tx
 
-    def activate(self, activated_by: UUID) -> BankTransactionEntity:
+    def activate(self, activated_by: UUID) -> Self:
         if self.status != TransactionStatus.PENDING:
             raise ValueError(f"Cannot activate transaction in status {self.status.value}")
         return self  # Already active, no state change needed
 
-    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> BankTransactionEntity:
+    def deactivate(self, deactivated_by: UUID, reason: str | None = None) -> Self:
         if self.status != TransactionStatus.PENDING:
             raise ValueError(f"Cannot deactivate transaction in status {self.status.value}")
         return self.cancel(deactivated_by, reason or "Deactivated")
 
-    def lock(self, locked_by: UUID, reason: str) -> BankTransactionEntity:
+    def lock(self, locked_by: UUID, reason: str) -> Self:
         if self.status != TransactionStatus.PENDING:
             raise ValueError(f"Cannot lock transaction in status {self.status.value}")
         hold = TransactionHold(
@@ -302,7 +308,7 @@ class BankTransactionEntity:
         new_tx._record_audit("LOCK", str(locked_by), {"reason": reason})
         return new_tx
 
-    def unlock(self, unlocked_by: UUID) -> BankTransactionEntity:
+    def unlock(self, unlocked_by: UUID) -> Self:
         active_holds = [h for h in self.holds if h.released_at is None]
         if not active_holds:
             raise ValueError("No active hold to release")
@@ -383,7 +389,7 @@ class BankTransactionEntity:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> BankTransactionEntity:
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         holds = [TransactionHold.from_dict(h) for h in data.get("holds", [])]
         return cls(
             transaction_id=UUID(data["transaction_id"]),
@@ -417,7 +423,7 @@ class BankTransactionEntity:
             holds=holds,
         )
 
-    def clone(self) -> BankTransactionEntity:
+    def clone(self) -> Self:
         new_id = uuid4()
         cloned = self._copy()
         object.__setattr__(cloned, "transaction_id", new_id)
@@ -451,7 +457,7 @@ class BankTransactionEntity:
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
-    def touch(self, touched_by: UUID) -> BankTransactionEntity:
+    def touch(self, touched_by: UUID) -> Self:
         new_tx = self._copy()
         new_tx.updated_at = datetime.now(UTC)
         new_tx.version = self.version + 1
@@ -474,7 +480,7 @@ class BankTransactionEntity:
 
     # ==================== State transitions ====================
 
-    def mark_as_completed(self, completed_by: UUID) -> BankTransactionEntity:
+    def mark_as_completed(self, completed_by: UUID) -> Self:
         if self.status != TransactionStatus.PENDING:
             raise ValueError(f"Cannot complete transaction in status {self.status.value}")
         new_tx = self._copy()
@@ -484,7 +490,7 @@ class BankTransactionEntity:
         new_tx._record_audit("COMPLETE", str(completed_by), {})
         return new_tx
 
-    def mark_as_cleared(self, cleared_by: str) -> BankTransactionEntity:
+    def mark_as_cleared(self, cleared_by: str) -> Self:
         if self.status != TransactionStatus.COMPLETED:
             raise ValueError(f"Cannot clear transaction in status {self.status.value}")
         new_tx = self._copy()
@@ -494,7 +500,7 @@ class BankTransactionEntity:
         new_tx._record_audit("CLEAR", cleared_by, {})
         return new_tx
 
-    def mark_as_reconciled(self, reconciled_by: UUID) -> BankTransactionEntity:
+    def mark_as_reconciled(self, reconciled_by: UUID) -> Self:
         """
         Mark transaction as reconciled with bank statement.
         Performs a dummy GL vs subledger reconciliation check for compliance.
@@ -520,7 +526,7 @@ class BankTransactionEntity:
         new_tx._record_audit("RECONCILE", str(reconciled_by), {})
         return new_tx
 
-    def cancel(self, cancelled_by: UUID, reason: str) -> BankTransactionEntity:
+    def cancel(self, cancelled_by: UUID, reason: str) -> Self:
         if self.status in (TransactionStatus.COMPLETED, TransactionStatus.RECONCILED):
             raise ValueError(f"Cannot cancel transaction in status {self.status.value}")
         new_tx = self._copy()
@@ -531,7 +537,7 @@ class BankTransactionEntity:
         new_tx._record_audit("CANCEL", str(cancelled_by), {"reason": reason})
         return new_tx
 
-    def reject(self, rejected_by: UUID, reason: str) -> BankTransactionEntity:
+    def reject(self, rejected_by: UUID, reason: str) -> Self:
         if self.status != TransactionStatus.PENDING:
             raise ValueError(f"Cannot reject transaction in status {self.status.value}")
         new_tx = self._copy()
@@ -542,7 +548,7 @@ class BankTransactionEntity:
         new_tx._record_audit("REJECT", str(rejected_by), {"reason": reason})
         return new_tx
 
-    def sign(self, signed_by: str) -> BankTransactionEntity:
+    def sign(self, signed_by: str) -> Self:
         new_tx = self._copy()
         new_tx.signature = TransactionSignature.create(self, signed_by)
         new_tx.updated_at = datetime.now(UTC)
@@ -557,7 +563,7 @@ class BankTransactionEntity:
 
     # ==================== Private helpers ====================
 
-    def _copy(self) -> BankTransactionEntity:
+    def _copy(self) -> Self:
         return BankTransactionEntity(
             transaction_id=self.transaction_id,
             legal_entity_id=self.legal_entity_id,

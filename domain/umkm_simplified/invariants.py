@@ -10,7 +10,7 @@ Metode entity dasar untuk InvariantResult dan enforcer.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -141,8 +141,18 @@ class UMKMInvariants:
 
 # === 3. UMKM INVARIANT ENFORCER ===
 class UMKMInvariantEnforcer:
-    def __init__(self, journal_number_checker: Callable | None = None):
-        self._journal_number_checker = journal_number_checker or (lambda: set())
+    def __init__(
+        self,
+        journal_number_checker: Callable[[], Awaitable[set[str]]] | None = None,
+    ):
+        # If no checker provided, use an async default that returns an empty set
+        if journal_number_checker is None:
+            async def default_checker() -> set[str]:
+                return set()
+            self._journal_number_checker = default_checker
+        else:
+            self._journal_number_checker = journal_number_checker  # type: ignore[assignment]
+
         self._invariants = UMKMInvariants()
         self._version = 1
         self._audit_trail: list[dict[str, Any]] = []
@@ -192,11 +202,13 @@ class UMKMInvariantEnforcer:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UMKMInvariantEnforcer:
+        # We cannot reconstruct the checker from dict; use default async checker
         instance = cls()
         instance._version = data.get("version", 1)
         return instance
 
     def clone(self) -> UMKMInvariantEnforcer:
+        # We need to preserve the checker; but cloning with same checker is acceptable
         new = UMKMInvariantEnforcer(self._journal_number_checker)
         new._version = self._version + 1
         return new

@@ -8,6 +8,7 @@ Responsibility: Aturan: Saldo tidak boleh negatif, dll.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -47,7 +48,7 @@ class InvariantResult:
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
-        errors = []
+        errors: list[str] = []
         if not isinstance(self.is_valid, bool):
             errors.append("is_valid must be boolean")
         return {"is_valid": len(errors) == 0, "errors": errors}
@@ -218,7 +219,11 @@ class ARInvariants:
 class ARInvariantEnforcer:
     """Enforcer untuk semua invariant AR subledger."""
 
-    def __init__(self, invoice_number_checker: callable, customer_credit_checker: callable):
+    def __init__(
+        self,
+        invoice_number_checker: Callable[[], set[str]],
+        customer_credit_checker: Callable[[UUID, Decimal], InvariantResult],
+    ):
         self._invoice_number_checker = invoice_number_checker
         self._customer_credit_checker = customer_credit_checker
         self._invariants = ARInvariants()
@@ -229,14 +234,14 @@ class ARInvariantEnforcer:
     async def enforce_invoice_create(self, invoice: InvoiceEntity) -> InvariantResult:
         result = InvariantResult(True)
         result.merge(self._invariants.validate_invoice_amount(invoice))
-        existing_numbers = await self._invoice_number_checker()
+        existing_numbers = self._invoice_number_checker()  # no await, synchronous
         result.merge(
             self._invariants.validate_duplicate_invoice_number(
                 invoice.invoice_number, existing_numbers
             )
         )
         if invoice.customer_id:
-            credit_result = await self._customer_credit_checker(invoice.customer_id, invoice.amount)
+            credit_result = self._customer_credit_checker(invoice.customer_id, invoice.amount)  # no await
             if not credit_result.is_valid:
                 result.merge(credit_result)
         self._record_audit(

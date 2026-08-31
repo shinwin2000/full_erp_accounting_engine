@@ -8,6 +8,7 @@ Responsibility: Aturan: Progres tidak boleh > 100%, biaya tidak negatif, dll.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -169,8 +170,8 @@ class RetainerContractInvariants:
 
 
 class ProjectServicesInvariantEnforcer:
-    def __init__(self, project_code_checker: callable | None = None):
-        self._project_code_checker = project_code_checker or (lambda: set())
+    def __init__(self, project_code_checker: Callable[[], set[str]] | None = None):
+        self._project_code_checker: Callable[[], set[str]] = project_code_checker or (lambda: set())
         self._project_invariants = ProjectInvariants()
         self._cost_tracker_invariants = CostTrackerInvariants()
         self._time_entry_invariants = TimeEntryInvariants()
@@ -198,7 +199,7 @@ class ProjectServicesInvariantEnforcer:
         expected_end_date: datetime,
     ) -> InvariantResult:
         result = InvariantResult(True)
-        existing_codes = await self._project_code_checker()
+        existing_codes = self._project_code_checker()  # no await, it's synchronous
         result.merge(
             self._project_invariants.validate_project_code_unique(project_code, existing_codes)
         )
