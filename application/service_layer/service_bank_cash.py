@@ -34,6 +34,11 @@ from domain.bank_cash.bank_transaction_entity import (
 )
 from domain.bank_cash.bank_transfer_entity import BankTransfer, TransferStatus
 from domain.bank_cash.cash_book_entity import CashBook
+
+# CashBookRecord: representasi flat 1 baris tabel `cash_book`, didefinisikan
+# di adapter (bukan domain) karena domain.CashBookAggregate bentuknya beda
+# total (agregat besar, bukan 1 baris) -- lihat catatan di file adapter.
+from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import CashBookRecord
 from domain.bank_cash.cash_disbursement_entity import CashDisbursementEntity as CashDisbursement
 from domain.bank_cash.cash_receipt_entity import CashReceiptEntity as CashReceipt
 from domain.bank_cash.domain_events import (
@@ -111,6 +116,11 @@ class CreateBankAccountRequest:
 @dataclass(kw_only=True)
 class UpdateBankAccountRequest:
     account_name: str | None = None
+    bank_name: str | None = None
+    bank_code: str | None = None
+    currency_code: str | None = None
+    account_type: str | None = None
+    opening_balance_date: date | None = None
     branch: str | None = None
     status: str | None = None
     is_active: bool | None = None
@@ -142,6 +152,23 @@ class BankAccountResponse:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: UUID | None = None
     updated_at: datetime | None = None
+    version: int = 1
+
+
+@dataclass(kw_only=True)
+class CashBookResponse:
+    id: UUID
+    legal_entity_id: UUID
+    currency_code: str
+    current_balance: Decimal
+    opening_balance: Decimal
+    opening_balance_date: date
+    gl_cash_account_id: UUID | None
+    gl_bank_account_id: UUID | None
+    is_closed: bool = False
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    created_by: UUID | None = None
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
 
 
@@ -178,6 +205,26 @@ class BankTransactionResponse:
     is_reconciled: bool
     transaction_type: str | None = None
     status: str | None = None
+    # --- Field tambahan (fix) ---
+    # Sebelumnya dataclass ini tidak punya field-field berikut, padahal
+    # fastapi_bank_cash_router.py (create_bank_transaction) mengakses
+    # semuanya untuk membangun BankTransactionResponseSchema. Tanpa ini,
+    # setelah bug method create_transaction dibetulkan, request akan
+    # tetap gagal (AttributeError berikutnya) saat membangun response.
+    transaction_number: str = ""
+    bank_account_name: str | None = None
+    counterparty_account: str | None = None
+    counterparty_name: str | None = None
+    journal_id: UUID | None = None
+    reconciled_at: datetime | None = None
+    reconciliation_id: UUID | None = None
+    created_at: datetime | None = None
+    created_by: UUID | None = None
+    created_by_name: str | None = None
+    version: int = 1
+    is_reversed: bool = False
+    reversed_at: datetime | None = None
+    reversed_by: UUID | None = None
 
 
 @dataclass(kw_only=True)
@@ -421,7 +468,7 @@ class BankCashService:
         )
 
         await self._bank_repo.add_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["accounts_created"] += 1
@@ -486,6 +533,31 @@ class BankCashService:
             changes["branch"] = {"old": bank_account.branch_name, "new": request.branch}
             bank_account.branch_name = request.branch
 
+        if request.bank_name and request.bank_name != bank_account.bank_name:
+            changes["bank_name"] = {"old": bank_account.bank_name, "new": request.bank_name}
+            bank_account.bank_name = request.bank_name
+
+        if request.bank_code and request.bank_code != bank_account.bank_code:
+            changes["bank_code"] = {"old": bank_account.bank_code, "new": request.bank_code}
+            bank_account.bank_code = request.bank_code
+
+        if request.currency_code and request.currency_code != bank_account.currency:
+            changes["currency_code"] = {"old": bank_account.currency, "new": request.currency_code}
+            bank_account.currency = request.currency_code
+
+        if request.account_type:
+            new_type = BankAccountType(request.account_type)
+            if new_type != bank_account.account_type:
+                changes["account_type"] = {"old": bank_account.account_type.value, "new": new_type.value}
+                bank_account.account_type = new_type
+
+        if request.opening_balance_date is not None and request.opening_balance_date != bank_account.opening_balance_date:
+            changes["opening_balance_date"] = {
+                "old": bank_account.opening_balance_date,
+                "new": request.opening_balance_date,
+            }
+            bank_account.opening_balance_date = request.opening_balance_date
+
         if request.is_active is not None and request.is_active != bank_account.is_active:
             changes["is_active"] = {"old": bank_account.is_active, "new": request.is_active}
             bank_account.is_active = request.is_active
@@ -511,7 +583,7 @@ class BankCashService:
         bank_account.updated_by = user_id
 
         await self._bank_repo.update_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["accounts_updated"] += 1
@@ -553,7 +625,7 @@ class BankCashService:
         bank_account.updated_at = datetime.now(UTC)
         bank_account.updated_by = user_id
         await self._bank_repo.update_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
         return self._to_bank_account_response(bank_account)
 
@@ -575,7 +647,7 @@ class BankCashService:
         bank_account.updated_at = datetime.now(UTC)
         bank_account.updated_by = user_id
         await self._bank_repo.update_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
         return self._to_bank_account_response(bank_account)
 
@@ -599,7 +671,7 @@ class BankCashService:
             bank_account.status = BankAccountStatus.ACTIVE
         bank_account.updated_at = datetime.now(UTC)
         await self._bank_repo.update_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
         return self._to_bank_account_response(bank_account)
 
@@ -629,7 +701,7 @@ class BankCashService:
         bank_account.updated_at = datetime.now(UTC)
 
         await self._bank_repo.update_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["accounts_blocked"] += 1
@@ -682,7 +754,7 @@ class BankCashService:
         bank_account.updated_at = datetime.now(UTC)
 
         await self._bank_repo.update_bank_account(bank_account)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["accounts_closed"] += 1
@@ -837,7 +909,7 @@ class BankCashService:
 
         await self._bank_repo.update_bank_account(bank_account)
         await self._bank_repo.add_bank_transaction(transaction)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["transactions"] += 1
@@ -872,7 +944,194 @@ class BankCashService:
             tx_type.value,
             request.amount
         )
-        return self._to_transaction_response(transaction)
+        return self._to_transaction_response(transaction, bank_account_name=bank_account.account_name)
+
+    async def create_transaction(
+        self,
+        *,
+        legal_entity_id: UUID,
+        bank_account_id: UUID,
+        transaction_date: date,
+        transaction_type: str,
+        amount: Decimal,
+        description: str,
+        created_by: UUID,
+        reference_number: str | None = None,
+        counterparty_account: str | None = None,
+        counterparty_name: str | None = None,
+        transfer_to_account_id: UUID | None = None,
+        post_to_ledger: bool = True,
+        notes: str | None = None,
+        correlation_id: str | None = None,
+    ) -> BankTransactionResponse:
+        """Adapter tipis di atas `record_transaction()`.
+
+        FIX: fastapi_bank_cash_router.py (create_bank_transaction)
+        memanggil `service.create_transaction(...)` dengan kwargs
+        individual, padahal method itu sebelumnya TIDAK PERNAH ada di
+        service ini - hanya `record_transaction(request, user_id, ...)`
+        yang menerima satu objek `BankTransactionRequest`, bukan kwargs
+        terpisah. Akibatnya setiap POST /transactions selalu gagal 500
+        "'BankCashService' object has no attribute 'create_transaction'".
+
+        Catatan: `transfer_to_account_id`, `post_to_ledger`, dan `notes`
+        diterima supaya signature cocok dengan pemanggil, tapi untuk
+        sekarang belum dipakai lagi lebih lanjut (belum ada dukungan
+        posting otomatis ke ledger / transfer antar rekening lewat jalur
+        ini) - sama seperti perilaku sebelumnya yang memang belum
+        pernah berjalan sama sekali.
+        """
+        request = BankTransactionRequest(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=bank_account_id,
+            transaction_date=transaction_date,
+            amount=amount,
+            description=description,
+            transaction_type=transaction_type,
+            reference_number=reference_number,
+            counterparty_name=counterparty_name,
+            counterparty_account=counterparty_account,
+        )
+        return await self.record_transaction(
+            request=request, user_id=created_by, correlation_id=correlation_id
+        )
+
+    async def update_transaction(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        updated_by: UUID,
+        description: str | None = None,
+        reference_number: str | None = None,
+        notes: str | None = None,
+        status: str | None = None,
+    ) -> BankTransactionResponse | None:
+        """Update field non-kritis pada transaksi bank yang sudah ada.
+
+        FIX: fastapi_bank_cash_router.py (update_bank_transaction) memanggil
+        `service.update_transaction(...)`, padahal method ini sebelumnya
+        TIDAK PERNAH ada sama sekali di service ini -> PUT
+        /bank-cash/bank-cash/transactions/{id} selalu gagal 500
+        "'BankCashService' object has no attribute 'update_transaction'".
+
+        Sengaja hanya mengizinkan update field non-kritis (description,
+        reference_number, status) - TIDAK mengizinkan mengubah amount,
+        bank_account_id, atau transaction_type di sini, karena mengoreksi
+        nilai transaksi yang sudah tercatat semestinya lewat mekanisme
+        reversal/jurnal koreksi, bukan update langsung, supaya jejak audit
+        tetap utuh.
+
+        `notes` diterima supaya signature cocok dengan pemanggil (router),
+        tapi belum ada kolom penyimpanannya di tabel bank_transaction saat
+        ini sehingga untuk sekarang diabaikan.
+
+        Return None kalau transaksi tidak ditemukan / bukan milik
+        legal_entity_id ini - router akan menerjemahkannya jadi 404.
+        """
+        self._check_authority(updated_by, "update_transaction")
+
+        transaction = await self._bank_repo.get_bank_transaction_by_id(transaction_id)
+        if not transaction or transaction.legal_entity_id != legal_entity_id:
+            return None
+
+        new_status = TransactionStatus(status) if status else None
+
+        await self._bank_repo.update_bank_transaction_fields(
+            transaction_id,
+            description=description,
+            reference_number=reference_number,
+            status=new_status.value if new_status else None,
+        )
+
+        updated = await self._bank_repo.get_bank_transaction_by_id(transaction_id)
+        bank_account = await self._bank_repo.get_bank_account_by_id(updated.bank_account_id)
+
+        logger.info("Bank transaction updated: %s", updated.transaction_number)
+
+        return self._to_transaction_response(
+            updated,
+            bank_account_name=bank_account.account_name if bank_account else None,
+        )
+
+    # Peta jenis transaksi lawan untuk transaksi penyeimbang (reversal).
+    # Untuk fee/interest/cheque/adjustment tidak ada lawan alami 1:1,
+    # jadi dipetakan ke ADJUSTMENT (entri koreksi umum).
+    _REVERSAL_TYPE_MAP = {
+        TransactionType.DEPOSIT: TransactionType.WITHDRAWAL,
+        TransactionType.WITHDRAWAL: TransactionType.DEPOSIT,
+        TransactionType.TRANSFER_IN: TransactionType.TRANSFER_OUT,
+        TransactionType.TRANSFER_OUT: TransactionType.TRANSFER_IN,
+    }
+
+    async def reverse_transaction(
+        self,
+        transaction_id: UUID,
+        reversed_by: UUID,
+        legal_entity_id: UUID,
+        reason: str,
+        reversal_date: date,
+    ) -> BankTransactionResponse | None:
+        """Membalikkan (reverse) satu transaksi bank yang sudah tercatat.
+
+        FIX: fastapi_bank_cash_router.py (reverse_bank_transaction) memanggil
+        `service.reverse_transaction(...)`, padahal method ini sebelumnya
+        TIDAK PERNAH ada sama sekali di service ini -> POST
+        /bank-cash/bank-cash/transactions/{id}/reverse selalu gagal 500
+        "'BankCashService' object has no attribute 'reverse_transaction'".
+
+        Desain (sengaja TIDAK menghapus baris transaksi asli - demi jejak
+        audit, sama seperti prinsip di update_transaction()):
+        1. Transaksi ASLI ditandai status='cancelled' (tetap ada di
+           database, cuma statusnya berubah).
+        2. Dibuatkan SATU transaksi baru yang menyeimbangkan (jenis
+           kebalikannya, jumlah sama) supaya efek terhadap saldo rekening
+           benar-benar dinetralkan, dengan reference_number menunjuk ke
+           nomor transaksi asli dan keterangan berisi alasan pembalikan.
+
+        Return None kalau transaksi tidak ditemukan / bukan milik
+        legal_entity_id ini - router akan menerjemahkannya jadi 404.
+        """
+        self._check_authority(reversed_by, "reverse_transaction")
+
+        original = await self._bank_repo.get_bank_transaction_by_id(transaction_id)
+        if not original or original.legal_entity_id != legal_entity_id:
+            return None
+
+        if original.status == TransactionStatus.CANCELLED:
+            raise BankCashServiceError("Transaksi ini sudah pernah dibatalkan/dibalik sebelumnya")
+
+        reversal_type = self._REVERSAL_TYPE_MAP.get(
+            original.transaction_type, TransactionType.ADJUSTMENT
+        )
+
+        reversal_request = BankTransactionRequest(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=original.bank_account_id,
+            transaction_date=reversal_date,
+            amount=original.amount,
+            description=f"Pembalikan transaksi {original.transaction_number}: {reason}",
+            transaction_type=reversal_type.value,
+            reference_number=original.transaction_number,
+            counterparty_name=original.counterparty_name,
+            counterparty_account=original.counterparty_account,
+        )
+        await self.record_transaction(request=reversal_request, user_id=reversed_by)
+
+        await self._bank_repo.update_bank_transaction_fields(
+            transaction_id, status=TransactionStatus.CANCELLED.value
+        )
+
+        updated = await self._bank_repo.get_bank_transaction_by_id(transaction_id)
+        bank_account = await self._bank_repo.get_bank_account_by_id(updated.bank_account_id)
+
+        logger.info(
+            "Bank transaction reversed: %s (alasan: %s)", updated.transaction_number, reason
+        )
+
+        return self._to_transaction_response(
+            updated,
+            bank_account_name=bank_account.account_name if bank_account else None,
+        )
 
     async def get_transactions(
         self,
@@ -889,6 +1148,29 @@ class BankCashService:
             limit=limit,
         )
         return [self._to_transaction_response(tx) for tx in transactions[offset: offset + limit]]
+
+    async def list_transactions(
+        self,
+        legal_entity_id: UUID,
+        bank_account_id: UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        transaction_type: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> list[BankTransactionResponse]:
+        transactions = await self._bank_repo.list_transactions_by_legal_entity(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=bank_account_id,
+            start_date=start_date,
+            end_date=end_date,
+            transaction_type=transaction_type,
+            status=status,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return [self._to_transaction_response(tx) for tx in transactions]
 
     # ========================================================================
     # Bank Reconciliation
@@ -967,7 +1249,7 @@ class BankCashService:
             reconciled_by=request.user_id,
         )
 
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         if self._event_publisher:
@@ -1081,7 +1363,7 @@ class BankCashService:
             await self._bank_repo.save_bank_account(from_agg)
             await self._bank_repo.save_bank_account(to_agg)
             await self._bank_repo.save_transfer(transfer)
-            if self._uow:
+            if self._uow and getattr(self._uow, "_is_active", False):
                 await self._uow.commit()
 
             # --- PUBLISH COMPLETED EVENT ---
@@ -1153,7 +1435,7 @@ class BankCashService:
         transfer.cancel_reason = reason
 
         await self._bank_repo.save_transfer(transfer)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH CANCELLED EVENT ---
@@ -1184,44 +1466,90 @@ class BankCashService:
     async def create_cash_book(
         self,
         legal_entity_id: UUID,
-        name: str,
         currency_code: str = "IDR",
         opening_balance: Decimal = Decimal("0"),
+        opening_balance_date: date | None = None,
+        gl_cash_account_id: UUID | None = None,
+        gl_bank_account_id: UUID | None = None,
         user_id: UUID | None = None,
-    ) -> CashBook:
+        correlation_id: str | None = None,
+    ) -> CashBookResponse:
         self._check_authority(user_id, "create_cash_book")
 
-        cash_book = CashBook(
+        existing = await self._bank_repo.get_cash_book(legal_entity_id, currency_code)
+        if existing:
+            raise BankCashServiceError(
+                f"Cash book for currency {currency_code} already exists for this legal entity"
+            )
+
+        cash_book = CashBookRecord(
             id=uuid4(),
             legal_entity_id=legal_entity_id,
-            name=name,
-            currency=Currency(currency_code),
+            currency_code=currency_code,
             current_balance=opening_balance,
             opening_balance=opening_balance,
-            created_by=user_id,
+            opening_balance_date=opening_balance_date or date.today(),
+            gl_cash_account_id=gl_cash_account_id,
+            gl_bank_account_id=gl_bank_account_id,
+            last_updated=datetime.now(UTC),
             created_at=datetime.now(UTC),
-            updated_at=None,
+            created_by=user_id,
+            version=1,
         )
-        await self._bank_repo.save_cash_book(cash_book)
-        if self._uow:
+        await self._bank_repo.add_cash_book(cash_book)
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._record_audit("create_cash_book", {
             "cash_book_id": str(cash_book.id),
-            "name": name,
+            "currency_code": currency_code,
             "user_id": str(user_id) if user_id else None,
         })
 
-        return cash_book
+        return self._to_cash_book_response(cash_book)
+
+    async def list_cash_books(
+        self,
+        legal_entity_id: UUID,
+        status: str | None = None,
+        custodian_id: UUID | None = None,
+    ) -> list[CashBookResponse]:
+        """Daftar cash book untuk satu legal entity. Catatan: `status` dan
+        `custodian_id` belum didukung di level database saat ini (tidak ada
+        kolomnya di tabel `cash_book`), jadi parameter ini diterima tapi
+        diabaikan -- semua cash book milik legal entity ini akan dikembalikan."""
+        cash_books = await self._bank_repo.list_cash_books_by_legal_entity(legal_entity_id)
+        return [self._to_cash_book_response(cb) for cb in cash_books]
+
+    async def get_cash_book_by_id(self, cash_book_id: UUID) -> CashBookResponse | None:
+        cash_book = await self._bank_repo.get_cash_book_by_id(cash_book_id)
+        if not cash_book:
+            return None
+        return self._to_cash_book_response(cash_book)
+
+    async def get_cash_books_by_currency(
+        self, legal_entity_id: UUID, currency_code: str
+    ) -> list[CashBookResponse]:
+        cash_book = await self._bank_repo.get_cash_book(legal_entity_id, currency_code)
+        return [self._to_cash_book_response(cash_book)] if cash_book else []
+
+    async def get_cash_book_balance(
+        self, cash_book_id: UUID, legal_entity_id: UUID, as_of_date: date
+    ) -> Decimal | None:
+        cash_book = await self._bank_repo.get_cash_book_by_id(cash_book_id)
+        if not cash_book or cash_book.legal_entity_id != legal_entity_id:
+            return None
+        return cash_book.current_balance
 
     @audit
     async def update_cash_book(
         self,
         cash_book_id: UUID,
-        name: str | None = None,
+        gl_cash_account_id: UUID | None = None,
+        gl_bank_account_id: UUID | None = None,
         user_id: UUID | None = None,
         correlation_id: str | None = None,
-    ) -> CashBook:
+    ) -> CashBookResponse:
         self._check_authority(user_id, "update_cash_book")
 
         cash_book = await self._bank_repo.get_cash_book_by_id(cash_book_id)
@@ -1229,31 +1557,22 @@ class BankCashService:
             raise CashBookNotFoundError(f"Cash book {cash_book_id} not found")
 
         changes = {}
-        if name and name != cash_book.name:
-            changes["name"] = {"old": cash_book.name, "new": name}
-            cash_book.name = name
+        if gl_cash_account_id is not None and gl_cash_account_id != cash_book.gl_cash_account_id:
+            changes["gl_cash_account_id"] = {"old": cash_book.gl_cash_account_id, "new": gl_cash_account_id}
+            cash_book.gl_cash_account_id = gl_cash_account_id
+
+        if gl_bank_account_id is not None and gl_bank_account_id != cash_book.gl_bank_account_id:
+            changes["gl_bank_account_id"] = {"old": cash_book.gl_bank_account_id, "new": gl_bank_account_id}
+            cash_book.gl_bank_account_id = gl_bank_account_id
 
         if not changes:
-            return cash_book
+            return self._to_cash_book_response(cash_book)
 
-        cash_book.updated_at = datetime.now(UTC)
-        cash_book.updated_by = user_id
+        cash_book.last_updated = datetime.now(UTC)
 
-        await self._bank_repo.save_cash_book(cash_book)
-        if self._uow:
+        await self._bank_repo.update_cash_book(cash_book)
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
-
-        # --- PUBLISH EVENT ---
-        if self._event_publisher:
-            event = CashBookUpdatedEvent(
-                aggregate_id=cash_book_id,
-                aggregate_version=1,
-                cash_book_id=cash_book_id,
-                changes=changes,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
-            )
-            await self._publish_event(event, f"Cash book {cash_book_id} updated", correlation_id)
 
         self._record_audit("update_cash_book", {
             "cash_book_id": str(cash_book_id),
@@ -1261,15 +1580,16 @@ class BankCashService:
             "user_id": str(user_id) if user_id else None,
         })
 
-        return cash_book
+        return self._to_cash_book_response(cash_book)
 
+    @audit
     @audit
     async def close_cash_book(
         self,
         cash_book_id: UUID,
         user_id: UUID,
         correlation_id: str | None = None,
-    ) -> CashBook:
+    ) -> CashBookResponse:
         self._check_authority(user_id, "close_cash_book")
 
         cash_book = await self._bank_repo.get_cash_book_by_id(cash_book_id)
@@ -1284,29 +1604,18 @@ class BankCashService:
         cash_book.is_closed = True
         cash_book.closed_at = datetime.now(UTC)
         cash_book.closed_by = user_id
-        cash_book.updated_at = datetime.now(UTC)
+        cash_book.last_updated = datetime.now(UTC)
 
-        await self._bank_repo.save_cash_book(cash_book)
-        if self._uow:
+        await self._bank_repo.update_cash_book(cash_book)
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
-
-        # --- PUBLISH EVENT ---
-        if self._event_publisher:
-            event = CashBookClosedEvent(
-                aggregate_id=cash_book_id,
-                aggregate_version=1,
-                cash_book_id=cash_book_id,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
-            )
-            await self._publish_event(event, f"Cash book {cash_book_id} closed", correlation_id)
 
         self._record_audit("close_cash_book", {
             "cash_book_id": str(cash_book_id),
             "user_id": str(user_id),
         })
 
-        return cash_book
+        return self._to_cash_book_response(cash_book)
 
     @audit
     async def record_cash_receipt(
@@ -1340,7 +1649,7 @@ class BankCashService:
 
         await self._bank_repo.save_cash_book(cash_book)
         await self._bank_repo.save_cash_receipt(receipt)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["cash_receipts"] += 1
@@ -1384,7 +1693,7 @@ class BankCashService:
         receipt.confirmed_by = user_id
 
         await self._bank_repo.save_cash_receipt(receipt)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1434,7 +1743,7 @@ class BankCashService:
         receipt.cancelled_by = user_id
 
         await self._bank_repo.save_cash_receipt(receipt)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1495,7 +1804,7 @@ class BankCashService:
 
         await self._bank_repo.save_cash_book(cash_book)
         await self._bank_repo.save_cash_disbursement(disbursement)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["cash_disbursements"] += 1
@@ -1539,7 +1848,7 @@ class BankCashService:
         disbursement.approved_by = user_id
 
         await self._bank_repo.save_cash_disbursement(disbursement)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1579,7 +1888,7 @@ class BankCashService:
         disbursement.paid_by = user_id
 
         await self._bank_repo.save_cash_disbursement(disbursement)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1629,7 +1938,7 @@ class BankCashService:
         disbursement.cancelled_by = user_id
 
         await self._bank_repo.save_cash_disbursement(disbursement)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1678,7 +1987,7 @@ class BankCashService:
             last_replenishment_date=None,
         )
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         self._stats["petty_cash_funds"] += 1
@@ -1722,7 +2031,7 @@ class BankCashService:
         fund.updated_by = request.user_id
 
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1767,7 +2076,7 @@ class BankCashService:
         fund.updated_at = datetime.now(UTC)
 
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1813,7 +2122,7 @@ class BankCashService:
         fund.updated_at = datetime.now(UTC)
 
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1855,7 +2164,7 @@ class BankCashService:
         fund.updated_at = datetime.now(UTC)
 
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1903,7 +2212,7 @@ class BankCashService:
         fund.updated_by = request.user_id
 
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -1965,7 +2274,7 @@ class BankCashService:
         fund.last_replenishment_date = date.today()
         fund.updated_at = datetime.now(UTC)
         await self._bank_repo.save_petty_cash_fund(fund)
-        if self._uow:
+        if self._uow and getattr(self._uow, "_is_active", False):
             await self._uow.commit()
 
         # --- PUBLISH EVENT ---
@@ -2062,6 +2371,23 @@ class BankCashService:
     # Private Helpers
     # ========================================================================
 
+    def _to_cash_book_response(self, cash_book: CashBookRecord) -> CashBookResponse:
+        return CashBookResponse(
+            id=cash_book.id,
+            legal_entity_id=cash_book.legal_entity_id,
+            currency_code=cash_book.currency_code,
+            current_balance=cash_book.current_balance,
+            opening_balance=cash_book.opening_balance,
+            opening_balance_date=cash_book.opening_balance_date,
+            gl_cash_account_id=cash_book.gl_cash_account_id,
+            gl_bank_account_id=cash_book.gl_bank_account_id,
+            is_closed=cash_book.is_closed,
+            created_at=cash_book.created_at,
+            created_by=cash_book.created_by,
+            updated_at=cash_book.last_updated,
+            version=cash_book.version,
+        )
+
     def _to_bank_account_response(self, account: BankAccount) -> BankAccountResponse:
         return BankAccountResponse(
             id=account.account_id,
@@ -2089,17 +2415,33 @@ class BankCashService:
             version=account.version,
         )
 
-    def _to_transaction_response(self, tx: BankTransaction) -> BankTransactionResponse:
+    def _to_transaction_response(
+        self, tx: BankTransaction, bank_account_name: str | None = None
+    ) -> BankTransactionResponse:
         return BankTransactionResponse(
             id=tx.transaction_id,
             bank_account_id=tx.bank_account_id,
+            bank_account_name=bank_account_name,
+            transaction_number=tx.transaction_number or "",
             transaction_date=tx.transaction_date,
             amount=tx.amount,
             transaction_type=tx.transaction_type.value,
             description=tx.description,
             reference_number=tx.reference_number,
+            counterparty_account=tx.counterparty_account,
+            counterparty_name=tx.counterparty_name,
+            journal_id=tx.journal_id,
             status=tx.status.value,
             is_reconciled=tx.is_reconciled,
+            reconciled_at=tx.reconciled_at,
+            reconciliation_id=tx.reconciliation_id,
+            created_at=tx.created_at,
+            created_by=tx.created_by,
+            created_by_name=None,
+            version=tx.version,
+            is_reversed=False,
+            reversed_at=None,
+            reversed_by=None,
         )
 
     def get_stats(self) -> dict[str, int]:

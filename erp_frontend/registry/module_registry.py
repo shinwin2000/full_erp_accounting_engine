@@ -37,6 +37,10 @@ class FieldType(str, Enum):
     BOOL = "bool"
     SELECT = "select"
     UUID = "uuid"
+    # Dropdown yang diisi otomatis dari endpoint API lain (mis. memilih
+    # rekening bank untuk field bank_account_id) - lihat atribut
+    # lookup_* di FieldSpec. Berbeda dari SELECT yang pilihannya statis.
+    LOOKUP = "lookup"
 
 
 @dataclass
@@ -50,6 +54,18 @@ class FieldSpec:
     help_text: str = ""
     section: str = ""  # judul grup field (mis. "Identitas", "Kontak & Alamat")
                         # untuk form besar bertab-visual, mengurangi scroll
+    # --- Khusus FieldType.LOOKUP ---
+    # lookup_path: path endpoint API (relatif ke base URL client, mis.
+    #   "/bank-cash/bank-cash/bank-accounts") yang di-GET untuk mengisi
+    #   pilihan dropdown.
+    # lookup_value_field: nama field di tiap record yang jadi VALUE
+    #   sebenarnya dikirim ke backend (biasanya "id").
+    # lookup_label_fields: field-field yang digabung (dipisah " - ")
+    #   jadi teks yang TAMPIL ke user di dropdown, supaya user memilih
+    #   berdasarkan sesuatu yang familiar (mis. no. rekening) bukan UUID.
+    lookup_path: str = ""
+    lookup_value_field: str = "id"
+    lookup_label_fields: tuple = ()
 
     def __post_init__(self):
         if not self.label:
@@ -73,6 +89,12 @@ class ActionSpec:
     # jalan (payments, journals inti, dll).
     needs_reason: bool = False
     reason_min_length: int = 0
+    # Kalau True, "reason" dikirim sebagai JSON body (mis.
+    # {"reason": "..."}) alih-alih query param - dibutuhkan endpoint
+    # seperti POST /transactions/{id}/reverse yang skema request-nya
+    # (BankTransactionReverseSchema) memang mewajibkan JSON body, bukan
+    # query param seperti pola needs_reason yang sudah ada sebelumnya.
+    reason_in_body: bool = False
 
 
 @dataclass
@@ -86,6 +108,13 @@ class ModuleConfig:
     id_field: str = "id"
     columns: list = field(default_factory=list)     # [(field, label)]
     form_fields: list = field(default_factory=list)  # list[FieldSpec]
+    # Opsional: field khusus untuk form "Ubah", kalau berbeda dari form
+    # "+ Baru" (mis. Transaksi Bank/Kas - field jumlah/rekening/tipe
+    # transaksi tidak boleh diedit langsung demi jejak audit, cuma
+    # description/reference_number/status yang boleh). Kalau None
+    # (default), form "Ubah" tetap pakai form_fields seperti biasa -
+    # tidak ada perubahan perilaku untuk modul yang tidak mengisi ini.
+    edit_form_fields: list | None = None
     actions: list = field(default_factory=list)      # list[ActionSpec]
     can_create: bool = True
     can_edit: bool = True
@@ -446,7 +475,10 @@ _reg(ModuleConfig(
 _reg(ModuleConfig(
     key="bank_accounts", label="Rekening Bank & Kas", category="Kas & Bank", icon="🏦",
     base_path="/bank-cash/bank-cash", list_path="/bank-accounts",
-    columns=[("account_number", "No. Rekening"), ("account_name", "Nama Rekening"),
+    # Kolom "id" sengaja ditambahkan (fix) supaya user bisa copy UUID
+    # rekening ini untuk dipakai di form "Transaksi Bank/Kas" (field
+    # bank_account_id di sana wajib diisi UUID rekening yang valid).
+    columns=[("id", "ID"), ("account_number", "No. Rekening"), ("account_name", "Nama Rekening"),
              ("bank_name", "Bank"), ("currency_code", "Mata Uang"), ("opening_balance", "Saldo Awal")],
     form_fields=[
         FieldSpec("account_number", "No. Rekening", required=True),
@@ -469,9 +501,22 @@ _reg(ModuleConfig(
 _reg(ModuleConfig(
     key="bank_transactions", label="Transaksi Bank/Kas", category="Kas & Bank", icon="💵",
     base_path="/bank-cash/bank-cash", list_path="/transactions",
-    columns=[("transaction_date", "Tanggal"), ("amount", "Jumlah"), ("description", "Keterangan")],
+    # PENTING (fix): sebelumnya form_fields modul ini TIDAK menyertakan
+    # `bank_account_id` dan `transaction_type`, padahal keduanya wajib
+    # menurut schema backend `BankTransactionCreateSchema`
+    # (adapters/primary_api/v1/fastapi_bank_cash_router.py). Akibatnya
+    # setiap submit selalu gagal 422 "bank_account_id: Field required;
+    # transaction_type: Field required". Kedua field ditambahkan di
+    # bawah; pilihan `transaction_type` disamakan persis dengan enum
+    # backend (domain/bank_cash/bank_transaction_entity.py: TransactionType).
+    columns=[("transaction_date", "Tanggal"), ("transaction_type", "Tipe"),
+             ("amount", "Jumlah"), ("description", "Keterangan")],
     form_fields=[
+        FieldSpec("bank_account_id", "Rekening Bank (UUID)", FieldType.UUID, required=True),
         FieldSpec("transaction_date", "Tanggal", FieldType.DATE, required=True),
+        FieldSpec("transaction_type", "Tipe Transaksi", FieldType.SELECT,
+                  choices=("deposit", "withdrawal", "transfer_in", "transfer_out",
+                           "fee", "interest", "cheque", "adjustment"), required=True),
         FieldSpec("amount", "Jumlah", FieldType.DECIMAL, required=True),
         FieldSpec("description", "Keterangan", FieldType.TEXTAREA, required=True),
     ],

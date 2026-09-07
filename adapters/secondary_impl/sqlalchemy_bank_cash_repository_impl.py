@@ -12,6 +12,7 @@ Responsibility: Implementasi repository untuk Bank & Cash Management menggunakan
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -28,7 +29,7 @@ from domain.bank_cash.bank_aggregate_root import (
     BankTransactionStatus,
     BankTransactionType,
 )
-from domain.bank_cash.cash_aggregate_root import CashBookAggregate, PettyCashFund
+from domain.bank_cash.cash_aggregate_root import PettyCashFund
 
 # Value objects
 from domain.shared_value_objects.money_vo import Money
@@ -44,6 +45,35 @@ from infrastructure.persistence_orm.petty_cash_fund_table import PettyCashFundTa
 from ports.primary.bank_cash_repository_port import BankAccountRepositoryPort
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CashBookRecord:
+    """Representasi satu baris tabel `cash_book` (1 baris per legal_entity +
+    currency_code). `CashBookAggregate` (alias dari `CashAggregate` di
+    domain/bank_cash/cash_aggregate_root.py) TIDAK dipakai di sini karena
+    bentuknya beda total (dia agregat besar berisi banyak cash book dalam
+    dict, bukan satu baris) -- memakainya di sini menyebabkan TypeError
+    begitu ada data asli untuk dikonversi."""
+
+    id: UUID
+    legal_entity_id: UUID
+    currency_code: str
+    current_balance: Decimal
+    opening_balance: Decimal
+    opening_balance_date: date
+    gl_cash_account_id: UUID | None
+    gl_bank_account_id: UUID | None
+    last_updated: datetime
+    created_at: datetime
+    created_by: UUID | None
+    version: int = 1
+    # Tidak dipersist ke DB (tidak ada kolomnya di tabel `cash_book`) --
+    # hilang setelah restart aplikasi kalau butuh permanen, perlu migration.
+    is_closed: bool = False
+    closed_at: datetime | None = None
+    closed_by: UUID | None = None
+
 
 # ============================================================================
 # CONSTANTS
@@ -247,13 +277,13 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # HELPER MAPPING METHODS - CASH BOOK
     # ========================================================================
 
-    def _to_domain_cash_book(self, table: CashBookTable) -> CashBookAggregate:
-        return CashBookAggregate(
+    def _to_domain_cash_book(self, table: CashBookTable) -> CashBookRecord:
+        return CashBookRecord(
             id=table.id,
             legal_entity_id=table.legal_entity_id,
             currency_code=table.currency_code,
-            current_balance=Money(amount=table.current_balance, currency=table.currency_code),
-            opening_balance=Money(amount=table.opening_balance, currency=table.currency_code),
+            current_balance=table.current_balance,
+            opening_balance=table.opening_balance,
             opening_balance_date=table.opening_balance_date,
             gl_cash_account_id=table.gl_cash_account_id,
             gl_bank_account_id=table.gl_bank_account_id,
@@ -325,23 +355,49 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
 
     async def update_bank_account(self, account: BankAccountEntity) -> None:
         try:
-            stmt = select(BankAccountTable.version).where(BankAccountTable.id == account.account_id)
+            stmt = select(BankAccountTable).where(BankAccountTable.id == account.account_id)
             result = await self.session.execute(stmt)
-            current_version = result.scalar_one_or_none()
+            table = result.scalar_one_or_none()
 
-            if current_version is None:
+            if table is None:
                 raise BankAccountNotFoundError(f"Bank account {account.account_id} not found")
 
-            if current_version != account.version:
+            if table.version != account.version:
                 raise OptimisticLockError(
-                    f"Version mismatch: expected {account.version}, got {current_version}"
+                    f"Version mismatch: expected {account.version}, got {table.version}"
                 )
 
-            table = await self._to_orm_bank_account(account)
-            table.version = account.version + 1
+            status_str = (
+                account.status.value if hasattr(account.status, "value") else str(account.status)
+            )
+            account_type_str = (
+                account.account_type.value if hasattr(account.account_type, "value") else str(account.account_type)
+            )
+
+            # Update field pada objek yang SUDAH ter-attach ke session (bukan
+            # objek baru yang di-merge). Version TIDAK disentuh manual di sini
+            # -- `version_id_col` dari VersionMixin akan otomatis menaikkan
+            # nilainya sendiri saat flush, dan otomatis melempar StaleDataError
+            # kalau ada concurrent update. Menaikkan versi manual + merge()
+            # (kode lama) bentrok dengan mekanisme otomatis ini, menyebabkan
+            # "Version id 'X' on merged state does not match existing version".
+            table.account_number = account.account_number
+            table.bank_name = account.bank_name
+            table.bank_code = account.bank_code
+            table.account_name = account.account_name
+            table.currency_code = account.currency
+            table.account_type = account_type_str
+            table.current_balance = account.current_balance
+            table.available_balance = account.available_balance
+            table.gl_account_id = account.gl_account_id
+            table.is_active = account.is_active
+            table.is_default = account.is_default
+            table.status = status_str
+            table.opening_balance = account.opening_balance
+            table.opening_balance_date = account.opening_balance_date
+            table.last_reconciliation_date = account.last_reconciled_date
             table.updated_at = datetime.utcnow()
 
-            await self.session.merge(table)
             await self.session.flush()
             logger.info("Bank account updated: %s", account.account_number)
 
@@ -492,6 +548,45 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to get transactions: {e}") from e
 
+    async def list_transactions_by_legal_entity(
+        self,
+        legal_entity_id: UUID,
+        bank_account_id: UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        transaction_type: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[BankTransaction]:
+        try:
+            conditions = [BankTransactionTable.legal_entity_id == legal_entity_id]
+            if bank_account_id:
+                conditions.append(BankTransactionTable.bank_account_id == bank_account_id)
+            if start_date:
+                conditions.append(BankTransactionTable.transaction_date >= start_date)
+            if end_date:
+                conditions.append(BankTransactionTable.transaction_date <= end_date)
+            if transaction_type:
+                conditions.append(BankTransactionTable.transaction_type == transaction_type)
+            if status:
+                conditions.append(BankTransactionTable.status == status)
+
+            stmt = (
+                select(BankTransactionTable)
+                .where(and_(*conditions))
+                .order_by(BankTransactionTable.transaction_date.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_domain_transaction(table) for table in tables]
+
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to list transactions: {e}") from e
+
     async def get_balance_before_date(self, bank_account_id: UUID, as_of_date: date) -> Decimal:
         try:
             stmt = select(
@@ -547,6 +642,45 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
 
         except Exception as e:
             raise BankCashRepositoryError(f"Failed to mark transaction: {e}") from e
+
+    async def update_bank_transaction_fields(
+        self,
+        transaction_id: UUID,
+        description: str | None = None,
+        reference_number: str | None = None,
+        status: str | None = None,
+    ) -> None:
+        """Update sebagian field non-kritis pada satu baris bank_transaction.
+
+        FIX: dipakai oleh BankCashService.update_transaction(), yang
+        sebelumnya tidak ada sama sekali di service layer padahal
+        endpoint PUT /bank-cash/bank-cash/transactions/{id} sudah lama
+        memanggilnya (selalu gagal 500 AttributeError). Sengaja hanya
+        mendukung field non-kritis (description, reference_number,
+        status) - amount/bank_account_id/transaction_type TIDAK bisa
+        diubah lewat sini supaya jejak audit transaksi tetap utuh;
+        koreksi nilai transaksi semestinya lewat reversal, bukan update
+        langsung.
+        """
+        try:
+            values = {"updated_at": datetime.utcnow()}
+            if description is not None:
+                values["description"] = description
+            if reference_number is not None:
+                values["reference_number"] = reference_number
+            if status is not None:
+                values["status"] = status
+
+            stmt = (
+                update(BankTransactionTable)
+                .where(BankTransactionTable.id == transaction_id)
+                .values(**values)
+            )
+            await self.session.execute(stmt)
+            await self.session.flush()
+
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to update transaction: {e}") from e
 
     # ========================================================================
     # BANK RECONCILIATION METHODS (Implementasi Internal)
@@ -636,14 +770,14 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     # CASH BOOK METHODS (Implementasi Internal)
     # ========================================================================
 
-    async def add_cash_book(self, cash_book: CashBookAggregate) -> UUID:
+    async def add_cash_book(self, cash_book: CashBookRecord) -> UUID:
         try:
             table = CashBookTable(
                 id=cash_book.id,
                 legal_entity_id=cash_book.legal_entity_id,
                 currency_code=cash_book.currency_code,
-                current_balance=cash_book.current_balance.amount,
-                opening_balance=cash_book.opening_balance.amount,
+                current_balance=cash_book.current_balance,
+                opening_balance=cash_book.opening_balance,
                 opening_balance_date=cash_book.opening_balance_date,
                 gl_cash_account_id=cash_book.gl_cash_account_id,
                 gl_bank_account_id=cash_book.gl_bank_account_id,
@@ -661,9 +795,54 @@ class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
             await self.session.rollback()
             raise BankCashRepositoryError(f"Failed to add cash book: {e}") from e
 
+    async def get_cash_book_by_id(self, cash_book_id: UUID) -> CashBookRecord | None:
+        try:
+            stmt = select(CashBookTable).where(CashBookTable.id == cash_book_id)
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            return self._to_domain_cash_book(table)
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to get cash book: {e}") from e
+
+    async def list_cash_books_by_legal_entity(self, legal_entity_id: UUID) -> list[CashBookRecord]:
+        try:
+            stmt = select(CashBookTable).where(CashBookTable.legal_entity_id == legal_entity_id)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_domain_cash_book(table) for table in tables]
+        except Exception as e:
+            raise BankCashRepositoryError(f"Failed to list cash books: {e}") from e
+
+    async def update_cash_book(self, cash_book: CashBookRecord) -> None:
+        try:
+            stmt = select(CashBookTable).where(CashBookTable.id == cash_book.id)
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if table is None:
+                raise CashBookNotFoundError(f"Cash book {cash_book.id} not found")
+            if table.version != cash_book.version:
+                raise OptimisticLockError(
+                    f"Version mismatch: expected {cash_book.version}, got {table.version}"
+                )
+
+            table.gl_cash_account_id = cash_book.gl_cash_account_id
+            table.gl_bank_account_id = cash_book.gl_bank_account_id
+            table.last_updated = datetime.utcnow()
+            # version TIDAK disentuh manual -- version_id_col yang urus otomatis.
+
+            await self.session.flush()
+            logger.info("Cash book updated: %s", cash_book.id)
+        except (OptimisticLockError, CashBookNotFoundError):
+            raise
+        except Exception as e:
+            await self.session.rollback()
+            raise BankCashRepositoryError(f"Failed to update cash book: {e}") from e
+
     async def get_cash_book(
         self, legal_entity_id: UUID, currency_code: str = DEFAULT_CURRENCY
-    ) -> CashBookAggregate | None:
+    ) -> CashBookRecord | None:
         try:
             stmt = select(CashBookTable).where(
                 CashBookTable.legal_entity_id == legal_entity_id,

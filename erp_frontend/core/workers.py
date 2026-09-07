@@ -60,6 +60,35 @@ def _format_exception(exc: Exception) -> str:
 _pool = QThreadPool.globalInstance()
 _pool.setMaxThreadCount(max(8, _pool.maxThreadCount()))
 
+# ---------------------------------------------------------------------------
+# PENTING - fix untuk bug "RuntimeError: Signal source has been deleted":
+#
+# `run_task()` sebelumnya membuat `_Worker` lalu langsung menyerahkannya ke
+# `_pool.start(worker)` tanpa menyimpan referensi Python-nya di manapun
+# (pemanggil di seluruh app, mis. generic_list_page.py, mengabaikan nilai
+# balik run_task()). QRunnable BUKAN QObject, jadi ia tidak dijaga hidup
+# lewat mekanisme parent-child Qt biasa - satu-satunya yang menjaga objek
+# `_Worker` (dan `self.signals` miliknya) tetap hidup adalah referensi
+# Python. Begitu tidak ada referensi Python yang tersisa, garbage collector
+# CPython bisa menghapus objek tsb SEMENTARA `run()` masih berjalan di
+# background thread. Kalau itu terjadi pas request baru saja
+# selesai/gagal, baris `self.signals.finished.emit(...)` atau
+# `self.signals.error.emit(...)` akan gagal dengan
+# "RuntimeError: Signal source has been deleted" - dan exception itu
+# terjadi DI DALAM except block sehingga callback on_success/on_error
+# TIDAK PERNAH terpanggil. Di GenericListPage, itu berarti
+# `_set_write_buttons_enabled(True)` tidak pernah dipanggil lagi -> semua
+# tombol tulis (Tambah/Ubah/Hapus/Aksi) macet permanen, walau Refresh
+# (yang tidak lewat callback ini) masih terlihat jalan.
+#
+# Perbaikan: simpan referensi setiap worker yang sedang berjalan di set
+# module-level ini sampai ia benar-benar selesai (finished ATAU error),
+# baru dilepas. Ini menjamin objek (dan QObject sinyalnya) tidak akan
+# di-garbage-collect sebelum event selesai/error-nya sempat di-emit dan
+# diproses di main thread.
+# ---------------------------------------------------------------------------
+_active_workers: set[_Worker] = set()
+
 
 def run_task(
     fn: Callable[..., Any],
@@ -70,9 +99,19 @@ def run_task(
 ) -> _Worker:
     """Menjalankan `fn(*args, **kwargs)` di background thread."""
     worker = _Worker(fn, *args, **kwargs)
+    _active_workers.add(worker)
+
+    def _release(_ignored: Any = None) -> None:
+        # Dipanggil setelah finished/error selesai diproses; baru boleh
+        # melepas referensi supaya objek aman di-GC.
+        _active_workers.discard(worker)
+
     if on_success:
         worker.signals.finished.connect(on_success)
     if on_error:
         worker.signals.error.connect(on_error)
+    worker.signals.finished.connect(_release)
+    worker.signals.error.connect(_release)
+
     _pool.start(worker)
     return worker

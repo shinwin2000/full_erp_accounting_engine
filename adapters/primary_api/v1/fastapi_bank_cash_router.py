@@ -60,6 +60,7 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 from application.service_layer.service_bank_cash import (
     BankAccountNotFoundError,
+    CashBookNotFoundError,
     CreateBankAccountRequest,
     UpdateBankAccountRequest,
 )
@@ -147,6 +148,16 @@ class TransactionStatus(str, Enum):
     DRAFT = "draft"
     PENDING = "pending"
     POSTED = "posted"
+    # PENTING (fix): sebelumnya enum ini tidak punya COMPLETED / REJECTED,
+    # padahal domain/bank_cash/bank_transaction_entity.py:TransactionStatus
+    # (yang benar-benar dipakai service_bank_cash.py.record_transaction())
+    # menyetel status jadi 'completed' begitu transaksi selesai dibuat.
+    # Karena enum ini dipakai sebagai tipe field `status` di
+    # BankTransactionResponseSchema, respons apapun dengan status
+    # 'completed' selalu gagal validasi Pydantic -> 422/500 padahal data
+    # sudah tersimpan benar di database.
+    COMPLETED = "completed"
+    REJECTED = "rejected"
     CLEARED = "cleared"
     REVERSED = "reversed"
     CANCELLED = "cancelled"
@@ -224,6 +235,11 @@ class BankAccountCreateSchema(BaseModel):
 class BankAccountUpdateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     account_name: str | None = None
+    bank_name: str | None = None
+    bank_code: str | None = None
+    currency_code: str | None = None
+    account_type: BankAccountType | None = None
+    opening_balance_date: date | None = None
     branch: str | None = None
     is_active: bool | None = None
     is_default: bool | None = None
@@ -364,52 +380,39 @@ class BankReconciliationResponseSchema(BaseModel):
 
 
 class CashBookCreateSchema(BaseModel):
+    """CATATAN: `name`, `location`, `custodian_id`, `min_balance`, `max_balance`
+    dihapus dari schema ini karena tidak ada kolomnya di tabel `cash_book` --
+    menerima field yang datanya selalu hilang diam-diam lebih berbahaya
+    daripada tidak menyediakannya sama sekali."""
     model_config = ConfigDict(from_attributes=True)
-    name: str = Field(..., min_length=3, max_length=100)
     currency_code: str = Field("IDR", min_length=3, max_length=3)
     opening_balance: Decimal = Field(0, decimal_places=2)
     opening_balance_date: date = Field(default_factory=date.today)
-    gl_cash_account_id: UUID
+    gl_cash_account_id: UUID | None = None
     gl_bank_account_id: UUID | None = None
-    location: str | None = None
-    custodian_id: UUID | None = None
-    min_balance: Decimal = Field(0, ge=0, decimal_places=2)
-    max_balance: Decimal | None = None
 
 
 class CashBookResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
-    name: str
+    legal_entity_id: UUID
     currency_code: str
     current_balance: Decimal
     opening_balance: Decimal
     opening_balance_date: date
-    gl_cash_account_id: UUID
+    gl_cash_account_id: UUID | None
     gl_bank_account_id: UUID | None
-    status: CashBookStatus
-    location: str | None
-    custodian_id: UUID | None
-    custodian_name: str | None
-    min_balance: Decimal
-    max_balance: Decimal | None
-    is_locked: bool = False
+    is_closed: bool = False
     created_at: datetime
-    created_by: UUID
-    created_by_name: str | None = None
+    created_by: UUID | None = None
     updated_at: datetime
     version: int = 1
 
 
 class CashBookUpdateSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    name: str | None = None
-    status: CashBookStatus | None = None
-    min_balance: Decimal | None = None
-    max_balance: Decimal | None = None
-    location: str | None = None
-    custodian_id: UUID | None = None
-    is_locked: bool | None = None
+    gl_cash_account_id: UUID | None = None
+    gl_bank_account_id: UUID | None = None
 
 
 class CashTransactionCreateSchema(BaseModel):
@@ -689,7 +692,7 @@ async def create_bank_account(
 async def list_bank_accounts(
     account_type: BankAccountType | None = Query(None),
     currency: str | None = Query(None, min_length=3, max_length=3),
-    is_active: bool | None = Query(None),
+    is_active: bool | None = Query(True),
     _permission: None = Depends(require_permission("bank:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_bank_cash_service),
@@ -758,6 +761,11 @@ async def update_bank_account(
             account_id=account_id,
             request=UpdateBankAccountRequest(
                 account_name=request.account_name,
+                bank_name=request.bank_name,
+                bank_code=request.bank_code,
+                currency_code=request.currency_code,
+                account_type=request.account_type.value if request.account_type else None,
+                opening_balance_date=request.opening_balance_date,
                 branch=request.branch,
                 is_active=request.is_active,
                 is_default=request.is_default,
@@ -1448,40 +1456,14 @@ async def create_cash_book(
     try:
         result = await service.create_cash_book(
             legal_entity_id=legal_entity_id,
-            name=request.name,
             currency_code=request.currency_code,
             opening_balance=request.opening_balance,
             opening_balance_date=request.opening_balance_date,
             gl_cash_account_id=request.gl_cash_account_id,
             gl_bank_account_id=request.gl_bank_account_id,
-            location=request.location,
-            custodian_id=request.custodian_id,
-            min_balance=request.min_balance,
-            max_balance=request.max_balance,
-            created_by=current_user.user_id,
+            user_id=current_user.user_id,
         )
-        response = CashBookResponseSchema(
-            id=result.id,
-            name=result.name,
-            currency_code=result.currency_code,
-            current_balance=result.current_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_cash_account_id=result.gl_cash_account_id,
-            gl_bank_account_id=result.gl_bank_account_id,
-            status=CashBookStatus(result.status),
-            location=result.location,
-            custodian_id=result.custodian_id,
-            custodian_name=result.custodian_name,
-            min_balance=result.min_balance,
-            max_balance=result.max_balance,
-            is_locked=result.is_locked,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            version=result.version,
-        )
+        response = CashBookResponseSchema.model_validate(result)
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
         return response
@@ -1511,31 +1493,7 @@ async def list_cash_books(
             status=status.value if status else None,
             custodian_id=custodian_id,
         )
-        return [
-            CashBookResponseSchema(
-                id=cb.id,
-                name=cb.name,
-                currency_code=cb.currency_code,
-                current_balance=cb.current_balance,
-                opening_balance=cb.opening_balance,
-                opening_balance_date=cb.opening_balance_date,
-                gl_cash_account_id=cb.gl_cash_account_id,
-                gl_bank_account_id=cb.gl_bank_account_id,
-                status=CashBookStatus(cb.status),
-                location=cb.location,
-                custodian_id=cb.custodian_id,
-                custodian_name=cb.custodian_name,
-                min_balance=cb.min_balance,
-                max_balance=cb.max_balance,
-                is_locked=cb.is_locked,
-                created_at=cb.created_at,
-                created_by=cb.created_by,
-                created_by_name=cb.created_by_name,
-                updated_at=cb.updated_at,
-                version=cb.version,
-            )
-            for cb in cash_books
-        ]
+        return [CashBookResponseSchema.model_validate(cb) for cb in cash_books]
     except Exception as e:
         logger.exception(f"Failed to list cash books: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1554,31 +1512,10 @@ async def get_cash_book_by_id(
     service: Any = Depends(get_bank_cash_service),
 ) -> CashBookResponseSchema:
     try:
-        cash_book = await service.get_cash_book_by_id(cash_book_id, legal_entity_id)
+        cash_book = await service.get_cash_book_by_id(cash_book_id)
         if not cash_book:
             raise HTTPException(status_code=404, detail="Cash book not found")
-        return CashBookResponseSchema(
-            id=cash_book.id,
-            name=cash_book.name,
-            currency_code=cash_book.currency_code,
-            current_balance=cash_book.current_balance,
-            opening_balance=cash_book.opening_balance,
-            opening_balance_date=cash_book.opening_balance_date,
-            gl_cash_account_id=cash_book.gl_cash_account_id,
-            gl_bank_account_id=cash_book.gl_bank_account_id,
-            status=CashBookStatus(cash_book.status),
-            location=cash_book.location,
-            custodian_id=cash_book.custodian_id,
-            custodian_name=cash_book.custodian_name,
-            min_balance=cash_book.min_balance,
-            max_balance=cash_book.max_balance,
-            is_locked=cash_book.is_locked,
-            created_at=cash_book.created_at,
-            created_by=cash_book.created_by,
-            created_by_name=cash_book.created_by_name,
-            updated_at=cash_book.updated_at,
-            version=cash_book.version,
-        )
+        return CashBookResponseSchema.model_validate(cash_book)
     except HTTPException:
         raise
     except Exception as e:
@@ -1600,31 +1537,7 @@ async def get_cash_books_by_currency(
 ) -> list[CashBookResponseSchema]:
     try:
         cash_books = await service.get_cash_books_by_currency(legal_entity_id, currency_code)
-        return [
-            CashBookResponseSchema(
-                id=cb.id,
-                name=cb.name,
-                currency_code=cb.currency_code,
-                current_balance=cb.current_balance,
-                opening_balance=cb.opening_balance,
-                opening_balance_date=cb.opening_balance_date,
-                gl_cash_account_id=cb.gl_cash_account_id,
-                gl_bank_account_id=cb.gl_bank_account_id,
-                status=CashBookStatus(cb.status),
-                location=cb.location,
-                custodian_id=cb.custodian_id,
-                custodian_name=cb.custodian_name,
-                min_balance=cb.min_balance,
-                max_balance=cb.max_balance,
-                is_locked=cb.is_locked,
-                created_at=cb.created_at,
-                created_by=cb.created_by,
-                created_by_name=cb.created_by_name,
-                updated_at=cb.updated_at,
-                version=cb.version,
-            )
-            for cb in cash_books
-        ]
+        return [CashBookResponseSchema.model_validate(cb) for cb in cash_books]
     except Exception as e:
         logger.exception(f"Failed to get cash books by currency: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1707,43 +1620,16 @@ async def update_cash_book(
     try:
         result = await service.update_cash_book(
             cash_book_id=cash_book_id,
-            legal_entity_id=legal_entity_id,
-            name=request.name,
-            status=request.status.value if request.status else None,
-            min_balance=request.min_balance,
-            max_balance=request.max_balance,
-            location=request.location,
-            custodian_id=request.custodian_id,
-            is_locked=request.is_locked,
-            updated_by=current_user.user_id,
+            gl_cash_account_id=request.gl_cash_account_id,
+            gl_bank_account_id=request.gl_bank_account_id,
+            user_id=current_user.user_id,
         )
-        if not result:
-            raise HTTPException(status_code=404, detail="Cash book not found")
-        response = CashBookResponseSchema(
-            id=result.id,
-            name=result.name,
-            currency_code=result.currency_code,
-            current_balance=result.current_balance,
-            opening_balance=result.opening_balance,
-            opening_balance_date=result.opening_balance_date,
-            gl_cash_account_id=result.gl_cash_account_id,
-            gl_bank_account_id=result.gl_bank_account_id,
-            status=CashBookStatus(result.status),
-            location=result.location,
-            custodian_id=result.custodian_id,
-            custodian_name=result.custodian_name,
-            min_balance=result.min_balance,
-            max_balance=result.max_balance,
-            is_locked=result.is_locked,
-            created_at=result.created_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_at=result.updated_at,
-            version=result.version,
-        )
+        response = CashBookResponseSchema.model_validate(result)
         if idempotency_key:
             _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
         return response
+    except CashBookNotFoundError:
+        raise HTTPException(status_code=404, detail="Cash book not found")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -2343,37 +2229,25 @@ class CashBookRepositoryAdapter(CashBookRepositoryPort):
         service = await self._get_service()
         result = await service.create_cash_book(
             legal_entity_id=cash_book.get("legal_entity_id"),
-            name=cash_book.get("name"),
             currency_code=cash_book.get("currency_code", "IDR"),
             opening_balance=cash_book.get("opening_balance", 0),
             opening_balance_date=cash_book.get("opening_balance_date", date.today()),
             gl_cash_account_id=cash_book.get("gl_cash_account_id"),
             gl_bank_account_id=cash_book.get("gl_bank_account_id"),
-            location=cash_book.get("location"),
-            custodian_id=cash_book.get("custodian_id"),
-            min_balance=cash_book.get("min_balance", 0),
-            max_balance=cash_book.get("max_balance"),
-            created_by=cash_book.get("created_by"),
+            user_id=cash_book.get("created_by"),
         )
         return {
             "id": result.id,
-            "name": result.name,
+            "legal_entity_id": result.legal_entity_id,
             "currency_code": result.currency_code,
             "current_balance": result.current_balance,
             "opening_balance": result.opening_balance,
             "opening_balance_date": result.opening_balance_date,
             "gl_cash_account_id": result.gl_cash_account_id,
             "gl_bank_account_id": result.gl_bank_account_id,
-            "status": result.status,
-            "location": result.location,
-            "custodian_id": result.custodian_id,
-            "custodian_name": result.custodian_name,
-            "min_balance": result.min_balance,
-            "max_balance": result.max_balance,
-            "is_locked": result.is_locked,
+            "is_closed": result.is_closed,
             "created_at": result.created_at,
             "created_by": result.created_by,
-            "created_by_name": result.created_by_name,
             "updated_at": result.updated_at,
             "version": result.version,
         }
@@ -2391,23 +2265,16 @@ class CashBookRepositoryAdapter(CashBookRepositoryPort):
         return [
             {
                 "id": cb.id,
-                "name": cb.name,
+                "legal_entity_id": cb.legal_entity_id,
                 "currency_code": cb.currency_code,
                 "current_balance": cb.current_balance,
                 "opening_balance": cb.opening_balance,
                 "opening_balance_date": cb.opening_balance_date,
                 "gl_cash_account_id": cb.gl_cash_account_id,
                 "gl_bank_account_id": cb.gl_bank_account_id,
-                "status": cb.status,
-                "location": cb.location,
-                "custodian_id": cb.custodian_id,
-                "custodian_name": cb.custodian_name,
-                "min_balance": cb.min_balance,
-                "max_balance": cb.max_balance,
-                "is_locked": cb.is_locked,
+                "is_closed": cb.is_closed,
                 "created_at": cb.created_at,
                 "created_by": cb.created_by,
-                "created_by_name": cb.created_by_name,
                 "updated_at": cb.updated_at,
                 "version": cb.version,
             }
@@ -2466,35 +2333,22 @@ class CashBookRepositoryAdapter(CashBookRepositoryPort):
         service = await self._get_service()
         result = await service.update_cash_book(
             cash_book_id=cash_book_id,
-            legal_entity_id=data.get("legal_entity_id"),
-            name=data.get("name"),
-            status=data.get("status"),
-            min_balance=data.get("min_balance"),
-            max_balance=data.get("max_balance"),
-            location=data.get("location"),
-            custodian_id=data.get("custodian_id"),
-            is_locked=data.get("is_locked"),
-            updated_by=data.get("updated_by"),
+            gl_cash_account_id=data.get("gl_cash_account_id"),
+            gl_bank_account_id=data.get("gl_bank_account_id"),
+            user_id=data.get("updated_by"),
         )
         response = {
             "id": result.id,
-            "name": result.name,
+            "legal_entity_id": result.legal_entity_id,
             "currency_code": result.currency_code,
             "current_balance": result.current_balance,
             "opening_balance": result.opening_balance,
             "opening_balance_date": result.opening_balance_date,
             "gl_cash_account_id": result.gl_cash_account_id,
             "gl_bank_account_id": result.gl_bank_account_id,
-            "status": result.status,
-            "location": result.location,
-            "custodian_id": result.custodian_id,
-            "custodian_name": result.custodian_name,
-            "min_balance": result.min_balance,
-            "max_balance": result.max_balance,
-            "is_locked": result.is_locked,
+            "is_closed": result.is_closed,
             "created_at": result.created_at,
             "created_by": result.created_by,
-            "created_by_name": result.created_by_name,
             "updated_at": result.updated_at,
             "version": result.version,
         }

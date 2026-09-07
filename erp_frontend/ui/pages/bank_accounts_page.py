@@ -20,8 +20,13 @@ from ui.widgets.generic_list_page import GenericListPage
 
 # ---------------------------------------------------------------------------
 # Kolom tabel daftar Rekening Bank & Kas
+#
+# Kolom "id" ditambahkan (fix) supaya user bisa copy UUID rekening ini
+# untuk dipakai di form "Transaksi Bank/Kas" (field bank_account_id di
+# sana wajib diisi UUID rekening yang valid, bukan No. Rekening).
 # ---------------------------------------------------------------------------
 COLUMNS = [
+    ("id", "ID"),
     ("account_number", "No. Rekening"),
     ("account_name", "Nama Rekening"),
     ("bank_name", "Bank"),

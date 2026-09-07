@@ -356,6 +356,31 @@ class ServiceRegistrar:
             container.register_singleton(ForexRevaluationUseCase, factory=_create_forex_revaluation_use_case)
             logger.info("ForexRevaluationUseCase registered")
 
+            # ----- Registrasi BankReconciliationUseCase (sebelumnya TIDAK
+            # PERNAH terdaftar - endpoint POST
+            # /bank-cash/bank-cash/reconciliations selalu gagal
+            # DependencyNotFoundError, bug dengan pola identik seperti
+            # ForexRevaluationUseCase di atas) -----
+            from application.use_cases.bank_reconciliation import BankReconciliationUseCase
+
+            async def _create_bank_reconciliation_use_case():
+                bank_cash_service = await container.resolve_async(BankCashService)
+                journal_service = await container.resolve_async(_JournalServiceRef)
+                try:
+                    sealed_gate = await container.resolve_async(SealedGate)
+                except Exception:
+                    sealed_gate = None
+                return BankReconciliationUseCase(
+                    bank_cash_service=bank_cash_service,
+                    journal_service=journal_service,
+                    sealed_gate=sealed_gate,
+                )
+
+            container.register_singleton(
+                BankReconciliationUseCase, factory=_create_bank_reconciliation_use_case
+            )
+            logger.info("BankReconciliationUseCase registered")
+
             # ----- Registrasi CapitalService dengan factory yang aman -----
             async def _create_capital_service():
                 try:

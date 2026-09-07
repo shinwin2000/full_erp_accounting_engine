@@ -41,6 +41,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from registry.module_registry import FieldSpec, FieldType
+from core.api_client import api_client
+from core.workers import run_task
+from core.formatting import extract_list
 
 # Field bertipe ini selalu full-width (2 kolom penuh)
 _FULL_WIDTH_TYPES = (FieldType.TEXTAREA,)
@@ -112,10 +115,19 @@ class FormDialog(QDialog):
     ):
         super().__init__(parent)
 
-        # --- Buat dialog sebagai window biasa dengan tombol min, max, close ---
+        # --- Buat dialog sebagai window biasa dengan tombol max, close ---
+        # PENTING: tombol MINIMIZE sengaja TIDAK disertakan di sini.
+        # Kombinasi ApplicationModal + WindowMinimizeButtonHint adalah bug
+        # klasik Qt: kalau dialog ini di-minimize, dialog hilang dari layar
+        # tapi modal grab-nya tetap aktif untuk SELURUH aplikasi, sehingga
+        # window utama (termasuk semua tombol toolbar: Refresh, Hapus,
+        # Tambah, Ubah, menu Aksi) jadi tidak merespons sama sekali —
+        # persis seperti "hang", padahal sebenarnya ada dialog tak terlihat
+        # yang masih mengunci input. Menghapus WindowMinimizeButtonHint
+        # menghilangkan kemungkinan ini sepenuhnya karena tidak ada lagi
+        # cara untuk meng-minimize dialog modal ini.
         self.setWindowFlags(
-            Qt.Window
-            | Qt.WindowMinimizeButtonHint
+            Qt.Dialog
             | Qt.WindowMaximizeButtonHint
             | Qt.WindowCloseButtonHint
         )
@@ -272,6 +284,19 @@ class FormDialog(QDialog):
             w.setChecked(bool(value) if value is not None else False)
             return w
 
+        if spec.type == FieldType.LOOKUP:
+            w = QComboBox()
+            w.setEditable(False)
+            w.setMinimumHeight(_INPUT_MIN_HEIGHT)
+            w.addItem("Memuat...", None)
+            w.setEnabled(False)
+            # Simpan value awal (mis. saat edit) di properti widget; akan
+            # dipakai untuk memilih item yang sesuai setelah data selesai
+            # dimuat dari API (lihat _populate_lookup).
+            w.setProperty("_lookup_initial_value", value)
+            self._populate_lookup(w, spec)
+            return w
+
         if spec.type == FieldType.SELECT:
             w = QComboBox()
             w.setEditable(True)
@@ -335,6 +360,54 @@ class FormDialog(QDialog):
         return w
 
     # ------------------------------------------------------------------
+    def _populate_lookup(self, combo: QComboBox, spec: FieldSpec) -> None:
+        """Isi QComboBox untuk field LOOKUP dengan data dari API secara
+        async (background thread via run_task, tidak memblokir dialog).
+        Teks yang ditampilkan = gabungan lookup_label_fields (mis. no.
+        rekening - nama bank), value yang sebenarnya disimpan sebagai
+        item data (Qt.UserRole) = record[lookup_value_field] (biasanya
+        UUID)."""
+
+        def _on_loaded(payload: Any) -> None:
+            try:
+                combo.clear()
+                rows = extract_list(payload)
+                initial_value = combo.property("_lookup_initial_value")
+                selected_idx = -1
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    val = row.get(spec.lookup_value_field)
+                    if spec.lookup_label_fields:
+                        parts = [str(row.get(f, "")) for f in spec.lookup_label_fields if row.get(f) not in (None, "")]
+                        text = " - ".join(parts) if parts else str(val)
+                    else:
+                        text = str(val)
+                    combo.addItem(text, val)
+                    if initial_value is not None and str(val) == str(initial_value):
+                        selected_idx = combo.count() - 1
+                if combo.count() == 0:
+                    combo.addItem("(tidak ada data)", None)
+                elif selected_idx >= 0:
+                    combo.setCurrentIndex(selected_idx)
+                combo.setEnabled(True)
+            except RuntimeError:
+                # Dialog sudah ditutup/di-destroy sebelum data selesai
+                # dimuat - abaikan saja, tidak ada lagi yang perlu diisi.
+                pass
+
+        def _on_error(message: str) -> None:
+            try:
+                combo.clear()
+                combo.addItem("(gagal memuat, isi manual tidak tersedia)", None)
+                combo.setEnabled(False)
+            except RuntimeError:
+                pass
+
+        run_task(api_client.get, on_success=_on_loaded, on_error=_on_error, path=spec.lookup_path,
+                  params={"page": 1, "page_size": 500, "limit": 500})
+
+    # ------------------------------------------------------------------
     def _on_accept(self) -> None:
         payload, error = self.collect()
         if error:
@@ -371,6 +444,9 @@ def _extract_value(spec: FieldSpec, widget: QWidget) -> Any:
         return text or None
     if spec.type == FieldType.BOOL:
         return widget.isChecked()
+    if spec.type == FieldType.LOOKUP:
+        data = widget.currentData()
+        return data if data not in (None, "") else None
     if spec.type == FieldType.SELECT:
         text = widget.currentText().strip()
         return text or None

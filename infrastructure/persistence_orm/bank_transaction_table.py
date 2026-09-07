@@ -93,6 +93,15 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
 
     # Status and reconciliation
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    # PENTING (fix): sebelumnya ada @property `is_reconciled` lain di
+    # bawah (dekat is_cancelled) yang menghitung ulang dari `status` -
+    # karena namanya sama persis dengan kolom ini dan didefinisikan
+    # belakangan di class yang sama, property itu MENIMPA kolom asli ini
+    # jadi read-only, sehingga setiap insert/update baris transaksi baru
+    # selalu gagal ("property 'is_reconciled' has no setter"), dan method
+    # reconcile() di bawah juga akan gagal saat mencoba menulis ke sini.
+    # Property duplikat itu sudah dihapus - JANGAN tambahkan lagi
+    # property lain dengan nama yang sama dengan kolom mapped_column.
     is_reconciled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reconciliation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
@@ -142,10 +151,6 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     @property
     def is_posted(self) -> bool:
         return self.status == "posted"
-
-    @property
-    def is_reconciled(self) -> bool:
-        return self.status == "reconciled"
 
     @property
     def is_cancelled(self) -> bool:

@@ -235,10 +235,18 @@ class GenericListPage(QWidget):
         if not record:
             QMessageBox.information(self, "Info", "Pilih baris terlebih dahulu.")
             return
-        if not self.config.form_fields:
+        # PENTING (fix): sebagian modul (mis. Transaksi Bank/Kas) sengaja
+        # membatasi field mana yang boleh diubah lewat "Ubah" - berbeda
+        # dari field saat "+ Baru" (mis. jumlah/rekening/tipe transaksi
+        # tidak boleh diedit langsung demi jejak audit). Kalau
+        # `edit_form_fields` diisi di ModuleConfig, pakai itu; kalau
+        # tidak (mayoritas modul lain), tetap pakai `form_fields` seperti
+        # sebelumnya - tidak mengubah perilaku modul yang sudah ada.
+        edit_fields = self.config.edit_form_fields or self.config.form_fields
+        if not edit_fields:
             QMessageBox.information(self, "Info", "Form untuk modul ini belum dikonfigurasi.")
             return
-        dlg = FormDialog(f"Ubah {self.config.label}", self.config.form_fields, initial=record, parent=self)
+        dlg = FormDialog(f"Ubah {self.config.label}", edit_fields, initial=record, parent=self)
         if dlg.exec():
             payload = dlg.result_payload()
             rec_id = record.get(self.config.id_field)
@@ -282,6 +290,7 @@ class GenericListPage(QWidget):
             return
 
         params: dict[str, Any] | None = None
+        json_body: dict[str, Any] | None = None
         if getattr(action, "needs_reason", False):
             from PySide6.QtWidgets import QInputDialog
 
@@ -298,7 +307,10 @@ class GenericListPage(QWidget):
                     f"Alasan minimal {action.reason_min_length} karakter.",
                 )
                 return
-            params = {"reason": reason}
+            if getattr(action, "reason_in_body", False):
+                json_body = {"reason": reason}
+            else:
+                params = {"reason": reason}
         elif action.confirm:
             confirm = QMessageBox.question(self, "Konfirmasi", f"Jalankan aksi '{action.label}'?")
             if confirm != QMessageBox.Yes:
@@ -314,6 +326,7 @@ class GenericListPage(QWidget):
             method=action.method,
             path=path,
             params=params,
+            json_body=json_body,
         )
 
     def _after_write(self, message: str) -> None:

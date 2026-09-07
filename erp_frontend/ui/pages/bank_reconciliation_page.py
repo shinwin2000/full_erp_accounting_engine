@@ -51,6 +51,64 @@ from PySide6.QtWidgets import (
 BASE = "/bank-cash/bank-cash"
 
 
+class LookupCombo(QComboBox):
+    """ComboBox yang mengisi dirinya sendiri secara async dari endpoint API
+    (pola sama seperti FieldType.LOOKUP di form_dialog.py), dipakai untuk
+    field UUID (rekening bank, custodian/karyawan, akun COA) di halaman
+    ini supaya user MEMILIH dari daftar bernama, bukan mengetik UUID
+    manual - sebelumnya semua field ini QLineEdit polos yang gampang
+    salah ketik dan tidak ada cara melihat pilihan yang valid."""
+
+    def __init__(
+        self,
+        path: str,
+        value_field: str,
+        label_fields: tuple,
+        params: dict | None = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._path = path
+        self._value_field = value_field
+        self._label_fields = label_fields
+        self._params = params or {"page": 1, "page_size": 500, "limit": 500}
+        self.setEditable(False)
+        self.addItem("Memuat...", None)
+        self.setEnabled(False)
+        run_task(
+            api_client.get, on_success=self._on_loaded, on_error=self._on_error,
+            path=self._path, params=self._params,
+        )
+
+    def _on_loaded(self, payload: Any) -> None:
+        try:
+            self.clear()
+            rows = extract_list(payload)
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                val = row.get(self._value_field)
+                parts = [str(row.get(f, "")) for f in self._label_fields if row.get(f) not in (None, "")]
+                text = " - ".join(parts) if parts else str(val)
+                self.addItem(text, val)
+            if self.count() == 0:
+                self.addItem("(tidak ada data)", None)
+            self.setEnabled(True)
+        except RuntimeError:
+            pass
+
+    def _on_error(self, _message: str) -> None:
+        try:
+            self.clear()
+            self.addItem("(gagal memuat data)", None)
+        except RuntimeError:
+            pass
+
+    def selected_id(self) -> str | None:
+        val = self.currentData()
+        return str(val) if val else None
+
+
 class BankReconciliationPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -83,10 +141,13 @@ class ReconciliationTab(QWidget):
         outer = QVBoxLayout(self)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("ID Rekening Bank (UUID):"))
-        self.account_id_edit = QLineEdit()
-        self.account_id_edit.setPlaceholderText("tempel UUID rekening di sini")
-        row.addWidget(self.account_id_edit)
+        row.addWidget(QLabel("Rekening Bank:"))
+        # PENTING (fix): sebelumnya QLineEdit UUID manual - sekarang
+        # dropdown otomatis dari daftar rekening bank yang sudah ada.
+        self.account_combo = LookupCombo(
+            f"{BASE}/bank-accounts", "id", ("account_number", "account_name", "bank_name")
+        )
+        row.addWidget(self.account_combo, stretch=1)
         load_btn = QPushButton("⟳ Muat Riwayat")
         load_btn.clicked.connect(self._load_history)
         row.addWidget(load_btn)
@@ -120,9 +181,9 @@ class ReconciliationTab(QWidget):
         self._records: list[dict[str, Any]] = []
 
     def _load_history(self) -> None:
-        account_id = self.account_id_edit.text().strip()
+        account_id = self.account_combo.selected_id()
         if not account_id:
-            QMessageBox.information(self, "Info", "Masukkan ID rekening bank dulu.")
+            QMessageBox.information(self, "Info", "Pilih rekening bank dulu.")
             return
         self.status_label.setText("Memuat riwayat rekonsiliasi...")
         run_task(api_client.get, on_success=self._on_loaded, on_error=self._on_error,
@@ -148,9 +209,9 @@ class ReconciliationTab(QWidget):
         self.status_label.setText(f"Gagal memuat: {message}")
 
     def _new_reconciliation(self) -> None:
-        account_id = self.account_id_edit.text().strip()
+        account_id = self.account_combo.selected_id()
         if not account_id:
-            QMessageBox.information(self, "Info", "Masukkan ID rekening bank dulu.")
+            QMessageBox.information(self, "Info", "Pilih rekening bank dulu.")
             return
         dlg = ReconciliationFormDialog(account_id, parent=self)
         if dlg.exec():
@@ -191,7 +252,7 @@ class ReconciliationFormDialog(QDialog):
         super().__init__(parent)
         self.bank_account_id = bank_account_id
         self.setWindowTitle("Rekonsiliasi Bank Baru")
-        self.resize(400, 220)
+        self.resize(560, 480)
         outer = QVBoxLayout(self)
         form = QFormLayout()
 
@@ -207,6 +268,34 @@ class ReconciliationFormDialog(QDialog):
         form.addRow("Toleransi Auto-Match", self.threshold_edit)
 
         outer.addLayout(form)
+
+        # ------------------------------------------------------------
+        # PENTING (fix): backend (BankReconciliationCreateSchema) mewajibkan
+        # field `statement_transactions` (daftar mutasi dari rekening koran
+        # untuk dicocokkan dengan pembukuan) - sebelumnya field ini TIDAK
+        # ADA SAMA SEKALI di form ini, jadi setiap submit selalu gagal 422
+        # "statement_transactions: Field required". Tambahkan minimal satu
+        # baris transaksi statement di bawah supaya rekonsiliasi bisa
+        # dibuat. Kalau Anda sudah punya file mutasi bank, pertimbangkan
+        # pakai tab "Import Rekening Koran" saja daripada isi manual di
+        # sini satu-satu.
+        # ------------------------------------------------------------
+        outer.addWidget(QLabel("Transaksi menurut Rekening Koran (wajib minimal 1 baris):"))
+        self.tx_table = QTableWidget(0, 4)
+        self.tx_table.setHorizontalHeaderLabels(["Tanggal", "Jumlah", "Keterangan", "No. Referensi"])
+        self.tx_table.horizontalHeader().setStretchLastSection(True)
+        outer.addWidget(self.tx_table, stretch=1)
+
+        tx_btn_row = QHBoxLayout()
+        add_row_btn = QPushButton("+ Tambah Baris")
+        add_row_btn.clicked.connect(self._add_tx_row)
+        tx_btn_row.addWidget(add_row_btn)
+        remove_row_btn = QPushButton("- Hapus Baris Terpilih")
+        remove_row_btn.clicked.connect(self._remove_tx_row)
+        tx_btn_row.addWidget(remove_row_btn)
+        tx_btn_row.addStretch()
+        outer.addLayout(tx_btn_row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("Simpan")
         buttons.button(QDialogButtonBox.Save).setObjectName("primaryButton")
@@ -214,19 +303,59 @@ class ReconciliationFormDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
+        self._add_tx_row()  # mulai dengan 1 baris kosong biar jelas formatnya
+
+    def _add_tx_row(self) -> None:
+        row = self.tx_table.rowCount()
+        self.tx_table.insertRow(row)
+        date_edit = QDateEdit(QDate.currentDate())
+        date_edit.setCalendarPopup(True)
+        self.tx_table.setCellWidget(row, 0, date_edit)
+        self.tx_table.setItem(row, 1, QTableWidgetItem(""))
+        self.tx_table.setItem(row, 2, QTableWidgetItem(""))
+        self.tx_table.setItem(row, 3, QTableWidgetItem(""))
+
+    def _remove_tx_row(self) -> None:
+        row = self.tx_table.currentRow()
+        if row >= 0:
+            self.tx_table.removeRow(row)
+
     def _on_save(self) -> None:
         try:
             Decimal(self.balance_edit.text().strip())
         except InvalidOperation:
             QMessageBox.warning(self, "Validasi", "Saldo statement harus angka.")
             return
+        if self.tx_table.rowCount() == 0:
+            QMessageBox.warning(self, "Validasi", "Tambahkan minimal 1 baris transaksi statement.")
+            return
+        for row in range(self.tx_table.rowCount()):
+            amount_item = self.tx_table.item(row, 1)
+            try:
+                Decimal((amount_item.text() if amount_item else "").strip())
+            except InvalidOperation:
+                QMessageBox.warning(self, "Validasi", f"Jumlah pada baris {row + 1} harus angka.")
+                return
         self.accept()
 
     def build_payload(self) -> dict[str, Any]:
+        statement_transactions = []
+        for row in range(self.tx_table.rowCount()):
+            date_widget = self.tx_table.cellWidget(row, 0)
+            amount_item = self.tx_table.item(row, 1)
+            desc_item = self.tx_table.item(row, 2)
+            ref_item = self.tx_table.item(row, 3)
+            statement_transactions.append({
+                "date": date_widget.date().toString("yyyy-MM-dd") if date_widget else "",
+                "amount": float(Decimal((amount_item.text() if amount_item else "0").strip() or "0")),
+                "description": (desc_item.text() if desc_item else "").strip(),
+                "reference_number": (ref_item.text() if ref_item else "").strip(),
+            })
         return {
             "bank_account_id": self.bank_account_id,
             "statement_date": self.date_edit.date().toString("yyyy-MM-dd"),
             "statement_balance": float(Decimal(self.balance_edit.text().strip())),
+            "statement_transactions": statement_transactions,
             "auto_match_threshold": float(Decimal(self.threshold_edit.text().strip() or "1")),
         }
 
@@ -242,13 +371,18 @@ class TransferTab(QWidget):
         outer.addWidget(QLabel("Transfer dana antar rekening bank/kas perusahaan."))
 
         form = QFormLayout()
-        self.from_edit = QLineEdit()
-        self.from_edit.setPlaceholderText("UUID rekening asal")
-        form.addRow("Dari Rekening", self.from_edit)
+        # PENTING (fix): sebelumnya field ini QLineEdit UUID manual, tidak
+        # ada cara melihat rekening mana yang valid. Sekarang dropdown
+        # otomatis dari daftar rekening bank.
+        self.from_combo = LookupCombo(
+            f"{BASE}/bank-accounts", "id", ("account_number", "account_name", "bank_name")
+        )
+        form.addRow("Dari Rekening", self.from_combo)
 
-        self.to_edit = QLineEdit()
-        self.to_edit.setPlaceholderText("UUID rekening tujuan")
-        form.addRow("Ke Rekening", self.to_edit)
+        self.to_combo = LookupCombo(
+            f"{BASE}/bank-accounts", "id", ("account_number", "account_name", "bank_name")
+        )
+        form.addRow("Ke Rekening", self.to_combo)
 
         self.date_edit = QDateEdit(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
@@ -277,6 +411,9 @@ class TransferTab(QWidget):
         approve_btn = QPushButton("✔ Approve")
         approve_btn.clicked.connect(self._approve_transfer)
         action_row.addWidget(approve_btn)
+        reject_btn = QPushButton("✘ Tolak")
+        reject_btn.clicked.connect(self._reject_transfer)
+        action_row.addWidget(reject_btn)
         process_btn = QPushButton("⚙ Proses/Eksekusi")
         process_btn.clicked.connect(self._process_transfer)
         action_row.addWidget(process_btn)
@@ -295,12 +432,17 @@ class TransferTab(QWidget):
         except InvalidOperation:
             QMessageBox.warning(self, "Validasi", "Jumlah harus angka > 0.")
             return
-        if not (self.from_edit.text().strip() and self.to_edit.text().strip() and self.desc_edit.text().strip()):
+        from_id = self.from_combo.selected_id()
+        to_id = self.to_combo.selected_id()
+        if not (from_id and to_id and self.desc_edit.text().strip()):
             QMessageBox.warning(self, "Validasi", "Rekening asal, tujuan, dan keterangan wajib diisi.")
             return
+        if from_id == to_id:
+            QMessageBox.warning(self, "Validasi", "Rekening asal dan tujuan tidak boleh sama.")
+            return
         payload = {
-            "from_bank_account_id": self.from_edit.text().strip(),
-            "to_bank_account_id": self.to_edit.text().strip(),
+            "from_bank_account_id": from_id,
+            "to_bank_account_id": to_id,
             "transfer_date": self.date_edit.date().toString("yyyy-MM-dd"),
             "amount": float(amount),
             "description": self.desc_edit.text().strip(),
@@ -309,12 +451,21 @@ class TransferTab(QWidget):
                   path=f"{BASE}/transfers", json_body=payload)
 
     def _approve_transfer(self) -> None:
+        self._respond_transfer(approved=True)
+
+    def _reject_transfer(self) -> None:
+        self._respond_transfer(approved=False)
+
+    def _respond_transfer(self, approved: bool) -> None:
         tid = self.transfer_id_edit.text().strip()
         if not tid:
             QMessageBox.information(self, "Info", "Masukkan ID transfer.")
             return
+        # PENTING (fix): endpoint /transfers/{id}/approve mewajibkan JSON
+        # body {"approved": bool} (BankTransferApproveSchema) - sebelumnya
+        # dikirim tanpa body sama sekali, selalu gagal 422.
         run_task(api_client.post, on_success=self._on_success, on_error=self._on_error,
-                  path=f"{BASE}/transfers/{tid}/approve")
+                  path=f"{BASE}/transfers/{tid}/approve", json_body={"approved": approved})
 
     def _process_transfer(self) -> None:
         tid = self.transfer_id_edit.text().strip()
@@ -422,7 +573,7 @@ class PettyCashFormDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Dana Petty Cash Baru")
-        self.resize(400, 260)
+        self.resize(420, 320)
         outer = QVBoxLayout(self)
         form = QFormLayout()
         self.name_edit = QLineEdit()
@@ -431,11 +582,25 @@ class PettyCashFormDialog(QDialog):
         form.addRow("Mata Uang", self.currency_edit)
         self.amount_edit = QLineEdit()
         form.addRow("Saldo Awal", self.amount_edit)
-        self.custodian_edit = QLineEdit()
-        self.custodian_edit.setPlaceholderText("UUID penanggung jawab (opsional)")
-        form.addRow("Custodian", self.custodian_edit)
+        # PENTING (fix): backend (PettyCashCreateSchema) mewajibkan
+        # custodian_id (UUID karyawan penanggung jawab) - sebelumnya field
+        # ini ditandai "opsional" di form padahal WAJIB di backend, jadi
+        # kalau dikosongkan selalu gagal 422. Sekarang wajib pilih dari
+        # daftar karyawan.
+        self.custodian_combo = LookupCombo(
+            "/employees/employees", "id", ("employee_code", "full_name")
+        )
+        form.addRow("Custodian *", self.custodian_combo)
+        # PENTING (fix): gl_petty_cash_account_id juga wajib di backend,
+        # tapi sebelumnya TIDAK ADA SAMA SEKALI di form ini - salah satu
+        # penyebab 422 "gl_petty_cash_account_id: Field required".
+        self.gl_account_combo = LookupCombo(
+            "/coa/chart-of-accounts/accounts", "id", ("account_code", "account_name"),
+            params={"page_size": 5000, "include_inactive": False},
+        )
+        form.addRow("Akun GL Kas Kecil *", self.gl_account_combo)
         self.threshold_edit = QLineEdit()
-        self.threshold_edit.setPlaceholderText("Batas reimbursement (opsional)")
+        self.threshold_edit.setPlaceholderText("Default: 1.000.000 kalau dikosongkan")
         form.addRow("Threshold Reimburse", self.threshold_edit)
         outer.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -449,9 +614,17 @@ class PettyCashFormDialog(QDialog):
             QMessageBox.warning(self, "Validasi", "Nama dana wajib diisi.")
             return
         try:
-            Decimal(self.amount_edit.text().strip())
+            amount = Decimal(self.amount_edit.text().strip())
+            if amount <= 0:
+                raise InvalidOperation
         except InvalidOperation:
-            QMessageBox.warning(self, "Validasi", "Saldo awal harus angka.")
+            QMessageBox.warning(self, "Validasi", "Saldo awal harus angka > 0.")
+            return
+        if not self.custodian_combo.selected_id():
+            QMessageBox.warning(self, "Validasi", "Custodian wajib dipilih.")
+            return
+        if not self.gl_account_combo.selected_id():
+            QMessageBox.warning(self, "Validasi", "Akun GL Kas Kecil wajib dipilih.")
             return
         self.accept()
 
@@ -460,9 +633,9 @@ class PettyCashFormDialog(QDialog):
             "fund_name": self.name_edit.text().strip(),
             "currency_code": self.currency_edit.text().strip() or "IDR",
             "initial_amount": float(Decimal(self.amount_edit.text().strip())),
+            "custodian_id": self.custodian_combo.selected_id(),
+            "gl_petty_cash_account_id": self.gl_account_combo.selected_id(),
         }
-        if self.custodian_edit.text().strip():
-            payload["custodian_id"] = self.custodian_edit.text().strip()
         if self.threshold_edit.text().strip():
             payload["reimbursement_threshold"] = float(Decimal(self.threshold_edit.text().strip()))
         return payload
@@ -472,7 +645,7 @@ class ReimbursementFormDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Reimbursement Petty Cash")
-        self.resize(380, 220)
+        self.resize(420, 240)
         outer = QVBoxLayout(self)
         form = QFormLayout()
         self.date_edit = QDateEdit(QDate.currentDate())
@@ -480,9 +653,14 @@ class ReimbursementFormDialog(QDialog):
         form.addRow("Tanggal", self.date_edit)
         self.amount_edit = QLineEdit()
         form.addRow("Jumlah", self.amount_edit)
-        self.bank_account_edit = QLineEdit()
-        self.bank_account_edit.setPlaceholderText("UUID rekening sumber dana (opsional)")
-        form.addRow("Rekening Sumber", self.bank_account_edit)
+        # PENTING (fix): backend (PettyCashReimbursementSchema) mewajibkan
+        # bank_account_id - sebelumnya field ini ditandai "opsional" di
+        # form padahal WAJIB (rekening sumber dana pengisian ulang kas
+        # kecil), jadi kalau dikosongkan selalu gagal 422.
+        self.bank_account_combo = LookupCombo(
+            f"{BASE}/bank-accounts", "id", ("account_number", "account_name", "bank_name")
+        )
+        form.addRow("Rekening Sumber *", self.bank_account_combo)
         self.desc_edit = QLineEdit()
         form.addRow("Keterangan", self.desc_edit)
         outer.addLayout(form)
@@ -494,24 +672,27 @@ class ReimbursementFormDialog(QDialog):
 
     def _on_save(self) -> None:
         try:
-            Decimal(self.amount_edit.text().strip())
+            amount = Decimal(self.amount_edit.text().strip())
+            if amount <= 0:
+                raise InvalidOperation
         except InvalidOperation:
-            QMessageBox.warning(self, "Validasi", "Jumlah harus angka.")
+            QMessageBox.warning(self, "Validasi", "Jumlah harus angka > 0.")
             return
         if not self.desc_edit.text().strip():
             QMessageBox.warning(self, "Validasi", "Keterangan wajib diisi.")
             return
+        if not self.bank_account_combo.selected_id():
+            QMessageBox.warning(self, "Validasi", "Rekening sumber wajib dipilih.")
+            return
         self.accept()
 
     def build_payload(self) -> dict[str, Any]:
-        payload = {
+        return {
             "reimbursement_date": self.date_edit.date().toString("yyyy-MM-dd"),
             "amount": float(Decimal(self.amount_edit.text().strip())),
             "description": self.desc_edit.text().strip(),
+            "bank_account_id": self.bank_account_combo.selected_id(),
         }
-        if self.bank_account_edit.text().strip():
-            payload["bank_account_id"] = self.bank_account_edit.text().strip()
-        return payload
 
 
 # ==========================================================================
@@ -536,7 +717,7 @@ class CashBookTab(QWidget):
         outer.addLayout(toolbar)
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Nama", "Mata Uang", "Saldo Awal", "Saldo Minimum"])
+        self.table.setHorizontalHeaderLabels(["Mata Uang", "Saldo Awal", "Saldo Sekarang", "Status"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -556,10 +737,10 @@ class CashBookTab(QWidget):
         self.table.setRowCount(len(records))
         for row, rec in enumerate(records):
             values = [
-                rec.get("name", ""),
                 rec.get("currency_code", "IDR"),
                 format_money(rec.get("opening_balance")),
-                format_money(rec.get("min_balance", 0)),
+                format_money(rec.get("current_balance", rec.get("opening_balance"))),
+                "Ditutup" if rec.get("is_closed") else "Aktif",
             ]
             for col, val in enumerate(values):
                 self.table.setItem(row, col, QTableWidgetItem(val))
@@ -585,11 +766,20 @@ class CashBookFormDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Cash Book Baru")
-        self.resize(380, 260)
+        self.resize(420, 300)
         outer = QVBoxLayout(self)
+        outer.addWidget(QLabel(
+            "Catatan: satu Cash Book mewakili satu mata uang, bukan diberi\n"
+            "nama bebas - backend tidak punya kolom nama/saldo minimum."
+        ))
         form = QFormLayout()
-        self.name_edit = QLineEdit()
-        form.addRow("Nama", self.name_edit)
+        # PENTING (fix): field "Nama" dan "Saldo Minimum" DIHAPUS dari
+        # form ini - backend (CashBookCreateSchema) memang sengaja tidak
+        # punya kolom untuk keduanya sama sekali (lihat catatan di schema
+        # backend), jadi sebelumnya apapun yang diketik user di dua field
+        # itu diam-diam DIBUANG tanpa pemberitahuan apapun (request tetap
+        # sukses 201, tapi data itu hilang) - membingungkan karena
+        # terlihat berhasil padahal sebagian input tidak tersimpan.
         self.currency_edit = QLineEdit("IDR")
         form.addRow("Mata Uang", self.currency_edit)
         self.opening_edit = QLineEdit("0")
@@ -597,9 +787,18 @@ class CashBookFormDialog(QDialog):
         self.date_edit = QDateEdit(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
         form.addRow("Tanggal Saldo Awal", self.date_edit)
-        self.min_balance_edit = QLineEdit()
-        self.min_balance_edit.setPlaceholderText("opsional")
-        form.addRow("Saldo Minimum", self.min_balance_edit)
+        # Field opsional yang MEMANG didukung backend (sebelumnya tidak
+        # ada sama sekali di form ini):
+        self.gl_cash_combo = LookupCombo(
+            "/coa/chart-of-accounts/accounts", "id", ("account_code", "account_name"),
+            params={"page_size": 5000, "include_inactive": False},
+        )
+        form.addRow("Akun GL Kas (opsional)", self.gl_cash_combo)
+        self.gl_bank_combo = LookupCombo(
+            "/coa/chart-of-accounts/accounts", "id", ("account_code", "account_name"),
+            params={"page_size": 5000, "include_inactive": False},
+        )
+        form.addRow("Akun GL Bank (opsional)", self.gl_bank_combo)
         outer.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Save).setText("Simpan")
@@ -608,20 +807,28 @@ class CashBookFormDialog(QDialog):
         outer.addWidget(buttons)
 
     def _on_save(self) -> None:
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validasi", "Nama wajib diisi.")
+        try:
+            Decimal(self.opening_edit.text().strip() or "0")
+        except InvalidOperation:
+            QMessageBox.warning(self, "Validasi", "Saldo awal harus angka.")
+            return
+        if len(self.currency_edit.text().strip()) != 3:
+            QMessageBox.warning(self, "Validasi", "Kode mata uang harus 3 huruf (mis. IDR, USD).")
             return
         self.accept()
 
     def build_payload(self) -> dict[str, Any]:
         payload = {
-            "name": self.name_edit.text().strip(),
-            "currency_code": self.currency_edit.text().strip() or "IDR",
+            "currency_code": self.currency_edit.text().strip().upper() or "IDR",
             "opening_balance": float(Decimal(self.opening_edit.text().strip() or "0")),
             "opening_balance_date": self.date_edit.date().toString("yyyy-MM-dd"),
         }
-        if self.min_balance_edit.text().strip():
-            payload["min_balance"] = float(Decimal(self.min_balance_edit.text().strip()))
+        gl_cash = self.gl_cash_combo.selected_id()
+        if gl_cash:
+            payload["gl_cash_account_id"] = gl_cash
+        gl_bank = self.gl_bank_combo.selected_id()
+        if gl_bank:
+            payload["gl_bank_account_id"] = gl_bank
         return payload
 
 
@@ -648,9 +855,10 @@ class ImportStatementTab(QWidget):
         outer.addLayout(file_row)
 
         form = QFormLayout()
-        self.account_edit = QLineEdit()
-        self.account_edit.setPlaceholderText("UUID rekening bank")
-        form.addRow("Rekening Bank", self.account_edit)
+        self.account_combo = LookupCombo(
+            f"{BASE}/bank-accounts", "id", ("account_number", "account_name", "bank_name")
+        )
+        form.addRow("Rekening Bank", self.account_combo)
         self.date_edit = QDateEdit(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
         form.addRow("Tanggal Statement", self.date_edit)
@@ -682,11 +890,12 @@ class ImportStatementTab(QWidget):
         if not self._file_path:
             QMessageBox.warning(self, "Validasi", "Pilih file dulu.")
             return
-        if not self.account_edit.text().strip():
-            QMessageBox.warning(self, "Validasi", "Rekening bank wajib diisi.")
+        account_id = self.account_combo.selected_id()
+        if not account_id:
+            QMessageBox.warning(self, "Validasi", "Rekening bank wajib dipilih.")
             return
         form_fields = {
-            "bank_account_id": self.account_edit.text().strip(),
+            "bank_account_id": account_id,
             "statement_date": self.date_edit.date().toString("yyyy-MM-dd"),
             "file_format": self.format_combo.currentText(),
         }
